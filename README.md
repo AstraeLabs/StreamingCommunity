@@ -319,6 +319,26 @@ Execute custom scripts before/after downloads. Configure in `config.json`:
         "continue_on_error": true
       }
     ],
+    "post_download": [
+      {
+        "name": "post-download-env",
+        "type": "python",
+        "path": "/app/script.py",
+        "args": [
+          "{download_path}"
+        ],
+        "env": {
+          "MY_FLAG": "1"
+        },
+        "cwd": "~",
+        "os": [
+          "linux"
+        ],
+        "timeout": 60,
+        "enabled": true,
+        "continue_on_error": true
+      }
+    ],
     "post_run": [
       {
         "name": "notify",
@@ -332,6 +352,7 @@ Execute custom scripts before/after downloads. Configure in `config.json`:
 
 #### Hook Configuration Options
 
+- **Stages available**: `pre_run`, `post_download`, `post_run`
 - **`name`**: Descriptive name for the hook
 - **`type`**: Script type - `python`, `bash`, `sh`, `shell`, `bat`, `cmd`
 - **`path`**: Path to script file (alternative to `command`)
@@ -351,7 +372,25 @@ Execute custom scripts before/after downloads. Configure in `config.json`:
 - **Bat/cmd/shell hooks**: Execute via `cmd /c` on Windows
 - **Inline commands**: Use `command` instead of `path` for simple one-liners. Note: `args` are ignored when using `command`; they only apply when using `path`.
 
-Hooks are automatically executed before (`pre_run`) and after (`post_run`) each download. In the GUI, `post_run` fires after every individual download completes; in CLI mode, `post_run` fires at the end of the main execution flow.
+#### Hook Context Placeholders
+
+Hooks can interpolate download context in `path`, `command`, `args`, `env`, and `cwd`.
+
+- **`{download_path}`**: Absolute path of the downloaded file
+- **`{download_dir}`**: Directory containing the downloaded file
+- **`{download_filename}`**: Filename of the downloaded file
+- **`{download_id}`**: Internal download identifier
+- **`{download_title}`**: Download title
+- **`{download_site}`**: Source site name
+- **`{download_media_type}`**: Media type
+- **`{download_status}`**: Final download status
+- **`{download_error}`**: Error message, if present
+- **`{download_success}`**: `1` on success, `0` on failure
+- **`{stage}`**: Current hook stage
+
+The same values are also exposed as environment variables with the `SC_` prefix, such as `SC_DOWNLOAD_PATH`, `SC_DOWNLOAD_FILENAME`, `SC_DOWNLOAD_SUCCESS`, and `SC_HOOK_STAGE`.
+
+Hooks are automatically executed before the main flow (`pre_run`), after each completed download (`post_download`), and at the end of the main execution flow (`post_run`). In the GUI, `post_download` runs for every individual completed item, while `post_run` is triggered once when the overall execution ends.
 
 ---
 
@@ -387,10 +426,20 @@ services:
       - 8.8.8.8
     ports:
       - "8000:8000"
+    #environment:
+      # Replace these example values with your public domain and private LAN IP.
+      #ALLOWED_HOSTS: "streaming.example.local localhost 127.0.0.1 192.168.1.50"
+      #CSRF_TRUSTED_ORIGINS: "https://streaming.example.local"
+      #USE_X_FORWARDED_HOST: "true"
+      #SECURE_PROXY_SSL_HEADER_ENABLED: "true"
+      #CSRF_COOKIE_SECURE: "true"
+      #SESSION_COOKIE_SECURE: "true"
     volumes:
       - ./Video:/app/Video
     restart: unless-stopped
 ```
+
+The `environment` section is intended for deployments behind an HTTPS reverse proxy. Replace the example domain and private IP with your own values.
 
 ---
 
