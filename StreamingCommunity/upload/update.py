@@ -140,34 +140,13 @@ def auto_update():
 
 
 def update():
-    """Check for updates on GitHub and display relevant information."""
-    try:
-        response_releases = fetch_github_releases()
-    except Exception as e:
-        console.print(f"[red]Error accessing GitHub API: {e}")
-        return
-
-    # Calculate total download count from all releases
-    total_download_count = sum(
-        asset['download_count']
-        for release in response_releases
-        for asset in release.get('assets', [])
-    )
-
-    # Get latest version name
-    if response_releases:
-        last_version = response_releases[0].get('name', 'Unknown')
-    else:
-        last_version = 'Unknown'
-
-    # Get the current version (installed version)
+    """Display version information."""
     try:
         current_version = importlib.metadata.version(__title__)
     except importlib.metadata.PackageNotFoundError:
         current_version = source_code_version
 
     console.print(
-        f"\n[red]{__title__} has been downloaded: [yellow]{total_download_count}"
         f"\n[yellow]{get_execution_mode()} [white]- [red]{binary_paths._detect_system()} [white]- [green]Current installed version: [yellow]{current_version} "
         f"\n"
         f"  [cyan]Help the repository grow today by leaving a [yellow]star [cyan]and [yellow]sharing "
@@ -175,10 +154,3 @@ def update():
         f"      [magenta]If you'd like to support development and keep the program updated, consider leaving a "
         f"[yellow]donation[magenta]. Thank you!"
     )
-
-    if str(current_version).lower().replace("v.", "").replace("v", "") != str(last_version).lower().replace("v.", "").replace("v", ""):
-        console.print(f"\n[red]New version available: [yellow]{last_version}")
-        console.print(f"[green]Download it from: [yellow]https://github.com/AstraeLabs/StreamingCommunity/releases/tag/v{last_version}")
-        
-        if get_execution_mode() == "installer":
-            console.print("[cyan]Run with [yellow]-UP [cyan]to auto-update")

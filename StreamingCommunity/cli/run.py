@@ -59,7 +59,7 @@ def initialize():
     try:
         git_update()
     except Exception as e:
-        console.log(f"[red]Error with loading github: {str(e)}")
+        console.log(f"[red]Error loading version info: {str(e)}")
 
 
 def force_exit():
@@ -211,13 +211,10 @@ def main():
         
         # Handle auto-update
         if args.update:
-            console.print("\n[cyan]  AUTO-UPDATE MODE")
-            success = binary_update()
-            
-            if success:
+            if binary_update():
                 console.print("\n[green]Update process initiated successfully!")
             else:
-                console.print("\n[yellow]Update was not performed")
+                console.print("[yellow]Update was not performed")
             return
         
         apply_config_updates(args)
