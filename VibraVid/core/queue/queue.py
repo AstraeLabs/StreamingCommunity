@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Tuple, Any
+from typing import Callable, Dict, List, Any
 
 from VibraVid.utils import config_manager
 from VibraVid.source.utils.tracker import SingletonMeta, download_tracker, context_tracker
@@ -152,7 +152,7 @@ download_manager = DownloadManager()
 # table is visible.  The main thread (where is_parallel_cli=False) is
 # unaffected, so Rich Live rendering keeps working normally.
 # ---------------------------------------------------------------------------
-from rich.console import Console as _RichConsole
+from rich.console import Console as _RichConsole  # noqa: E402
 
 _original_print = _RichConsole.print
 _original_log   = _RichConsole.log
