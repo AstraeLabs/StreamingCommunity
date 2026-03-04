@@ -110,9 +110,7 @@ def parse_ytdlp_json(json_data: Dict[str, Any]) -> List[StreamInfo]:
 
         # bitrate — prefer tbr, fall back to vbr/abr
         tbr = int((fmt.get("tbr") or fmt.get("vbr") or fmt.get("abr") or 0) * 1_000)
-
         lang     = fmt.get("language") or None
-        protocol = fmt.get("protocol", "")
 
         if stream_type == "Video":
             width  = fmt.get("width")  or 0

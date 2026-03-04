@@ -25,6 +25,7 @@ class GetSerieInfo:
         self.series_name = ""
         self.seasons_manager = SeasonManager()
         self.n_seasons = 0
+        self.seasons_list = []
         self._all_episodes = None
         self._get_show_info()
         
@@ -50,31 +51,62 @@ class GetSerieInfo:
                 
             show_name = show_info.get('attributes', {}).get('name', 'Unknown')
             self.series_name = show_name
-            
-            # Find episodes content
+
+            # first try collecting any episodes already included in the response
+            direct_episodes = []
+            for item in data.get('included', []):
+                if item.get('type') == 'video':
+                    attrs = item.get('attributes', {})
+                    if attrs.get('seasonNumber') is not None and attrs.get('episodeNumber') is not None:
+                        relationships = item.get('relationships', {})
+                        edit_id = relationships.get('edit', {}).get('data', {}).get('id') or item.get('id')
+                        direct_episodes.append({
+                            'id': edit_id,
+                            'show': show_name,
+                            'season': attrs.get('seasonNumber'),
+                            'episode': attrs.get('episodeNumber'),
+                            'title': attrs.get('name'),
+                        })
+
+            # start accumulation with direct episodes
+            all_episodes = list(direct_episodes)
+
+            # Find episodes content (used for paginated/filtered collections)
             episodes_aliases = ['show-page-rail-episodes-tabbed-content', 'generic-show-episodes']
             content = next((
                 x for x in data['included'] 
                 if any(alias in x.get('attributes', {}).get('alias', '') for alias in episodes_aliases)
             ), None)
-            
+
+            # fallback: any included object with a seasonNumber filter
             if not content:
-                logging.error(f"No episodes found for show {self.show_id}")
+                for x in data.get('included', []):
+                    attrs = x.get('attributes', {})
+                    comp = attrs.get('component') if isinstance(attrs, dict) else None
+                    if comp and isinstance(comp.get('filters'), list):
+                        if any(f.get('id') == 'seasonNumber' for f in comp.get('filters', [])):
+                            content = x
+                            break
+
+            if not content and not direct_episodes:
+                logging.error(f"No episodes found for show {self.show_id}, falling back to direct scan failed too")
                 return []
-            
-            content_id = content.get('id')
-            show_params = content.get('attributes', {}).get('component', {}).get('mandatoryParams', '')
-            
-            # Find the season filter
-            season_filter = next((f for f in content.get('attributes', {}).get('component', {}).get('filters', []) if f.get('id') == 'seasonNumber'), None)
-            if not season_filter:
-                logging.error(f"Season filter not found for show {self.show_id}")
-                return []
-                
-            season_params = [x.get('parameter') for x in season_filter.get('options', [])]
-            all_episodes = []
-            
-            # Get episodes for each season
+
+            if content:
+                content_id = content.get('id')
+                show_params = content.get('attributes', {}).get('component', {}).get('mandatoryParams', '')
+
+                # Find the season filter
+                season_filter = next((f for f in content.get('attributes', {}).get('component', {}).get('filters', []) if f.get('id') == 'seasonNumber'), None)
+                if not season_filter:
+                    logging.error(f"Season filter not found for show {self.show_id}")
+                    season_params = []
+                else:
+                    season_params = [x.get('parameter') for x in season_filter.get('options', [])]
+            else:
+                season_params = []
+
+            # Get episodes for each season (collection fetch)
             for season_param in season_params:
                 coll_url = f"{self.client.base_url}/cms/collections/{content_id}?{season_param}&{show_params}"
                 coll_params = {
@@ -102,6 +134,12 @@ class GetSerieInfo:
                         }
                         all_episodes.append(episode)
             
+            # deduplicate by episode id (collection fetch may re‑include direct entries)
+            unique = {}
+            for ep in all_episodes:
+                unique[ep['id']] = ep
+            all_episodes = list(unique.values())
+
             all_episodes.sort(key=lambda x: (x['season'], x['episode']))
             return all_episodes
             

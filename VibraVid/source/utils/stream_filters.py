@@ -1,8 +1,7 @@
-# Shared stream filter utilities used by YT_dlp and other download sources
 # 10.01.26
 
 import re
-from typing import Optional, List, Tuple
+from typing import List
 
 
 def audio_matches_filter(language: str, codec: str, filter_str: str) -> bool:
@@ -31,7 +30,7 @@ def audio_matches_filter(language: str, codec: str, filter_str: str) -> bool:
     return lang_ok and codec_ok
 
 
-def pick_best_stream(streams: list, stream_type: str, filter_str: str) -> Optional:
+def pick_best_stream(streams: list, stream_type: str, filter_str: str):
     """
     Select the best matching stream.
     For video: supports res=HEIGHT filter (e.g. res=1080), falls back to highest bitrate.

@@ -281,7 +281,7 @@ class MediaDownloader:
         if s_filter and s_filter.lower() not in ("none", "false", ""):
             langs = _parse_lang_list(s_filter)
             for s in subtitles:
-                if not langs or any(l in (s.language or "").lower() for l in langs):
+                if not langs or any(lang in (s.language or "").lower() for lang in langs):
                     s.selected = True
 
     def start_download(self) -> Dict[str, Any]:
