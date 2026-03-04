@@ -56,5 +56,24 @@
         "pre_run": [],
         "post_run": [],
         "post_download": []
+    },
+    "DRM": {
+        "delay": 5,
+        "create_local_db": false,
+        "external_supa_db": "https://crqczuxpqjmrjvdvqvlx.supabase.co/",
+        "widevine": {
+            "device_type": "ANDROID",
+            "system_id": 22590,
+            "security_level": 3,
+            "host": "https://cdrm-project.com/remotecdm/widevine",
+            "secret": "CDRM",
+            "device_name": "public"
+        },
+        "playready": {
+            "device_name": "public",
+            "security_level": 3000,
+            "host": "https://cdrm-project.com/remotecdm/playready",
+            "secret": "CDRM"
+        }
     }
 }

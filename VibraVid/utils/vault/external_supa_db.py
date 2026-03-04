@@ -16,7 +16,7 @@ console = Console()
 
 class ExternalSupaDBVault:
     def __init__(self):
-        self.base_url = f"{config_manager.remote_cdm.get('external_supa_db', 'url')}/functions/v1"
+        self.base_url = f"{config_manager.config.get('DRM', 'external_supa_db')}/functions/v1"
         self.headers = {
             "Content-Type": "application/json"
         }
@@ -179,5 +179,5 @@ class ExternalSupaDBVault:
 
 
 # Initialize
-is_supa_external_db_valid = not (config_manager.remote_cdm.get('external_supa_db', 'url') is None or config_manager.remote_cdm.get('external_supa_db', 'url') == "")
+is_supa_external_db_valid = not (config_manager.config.get('DRM', 'external_supa_db') is None or config_manager.config.get('DRM', 'external_supa_db') == "")
 obj_externalSupaDbVault = ExternalSupaDBVault() if is_supa_external_db_valid else None

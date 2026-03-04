@@ -20,7 +20,7 @@ from .widevine import get_widevine_keys
 
 # Variable
 console = Console()
-DELAY = config_manager.remote_cdm.get_int('config', 'delay_after_request')
+DELAY = config_manager.config.get_int('DRM', 'delay')
 
 
 class DRMManager:

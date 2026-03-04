@@ -138,6 +138,9 @@ def get_playback_url(CONTENT_ID):
         if 'error' in resp_json and resp_json['error'].get('code') == 'PL402':
             raise RuntimeError("Content available for rental: you must rent it first.")
 
+        if 'error' in resp_json and resp_json['error'].get('code') == 'PL053':
+            raise RuntimeError("Content has no available purchasable rights")
+        
         playback_json = resp_json['response']['mediaSelector']
         return playback_json
     

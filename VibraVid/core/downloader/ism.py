@@ -62,7 +62,7 @@ class ISM_Downloader:
         self.key = key
         self.cookies = cookies or {}
         self.decrypt_preference = decrypt_preference.lower()
-        self.drm_manager = DRMManager(get_wvd_path(), get_prd_path(), config_manager.remote_cdm.get('remote_cdm', 'widevine'), config_manager.remote_cdm.get('remote_cdm', 'playready'))
+        self.drm_manager = DRMManager(get_wvd_path(), get_prd_path(), config_manager.config.get_dict('DRM', 'widevine'), config_manager.config.get_dict('DRM', 'playready'))
         
         # Tracking IDs - check context if not provided
         self.download_id = context_tracker.download_id

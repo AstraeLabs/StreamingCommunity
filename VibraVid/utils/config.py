@@ -19,12 +19,10 @@ CONFIG_FILENAME = 'config.json'
 LOGIN_FILENAME = 'login.json'
 DOMAINS_FILENAME = 'domains.json'
 GITHUB_DOMAINS_PATH = '.github/script/domains.json'
-REMOTE_CDM_PATH = 'remote_cdm.json'
 
 CONFIG_DOWNLOAD_URL = 'https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/config.json'
 CONFIG_LOGIN_DOWNLOAD_URL = 'https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/login.json'
 DOMAINS_DOWNLOAD_URL = 'https://raw.githubusercontent.com/AstraeLabs/Domains/refs/heads/main/domains.json'
-REMOTE_CDM_DOWNLOAD_URL = 'https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/remote_cdm.json'
 
 class ConfigAccessor:
     def __init__(self, config_dict: Dict, cache: Dict, cache_prefix: str, cache_enabled: bool = True):
@@ -188,13 +186,11 @@ class ConfigManager:
         self.login_file_path = os.path.join(self.conf_path, LOGIN_FILENAME)
         self.domains_path = os.path.join(self.conf_path, DOMAINS_FILENAME)
         self.github_domains_path = os.path.join(self.base_path, GITHUB_DOMAINS_PATH)
-        self.remote_cdm_path = os.path.join(self.conf_path, REMOTE_CDM_PATH)
         
         # Initialize data structures
         self._config_data = {}
         self._login_data = {}
         self._domains_data = {}
-        self._remote_cdm_data = {}
         
         # Enhanced caching system
         self.cache: Dict[str, Any] = {}
@@ -204,7 +200,6 @@ class ConfigManager:
         self.config = ConfigAccessor(self._config_data, self.cache, "config", self._cache_enabled)
         self.login = ConfigAccessor(self._login_data, self.cache, "login", self._cache_enabled)
         self.domain = ConfigAccessor(self._domains_data, self.cache, "domain", self._cache_enabled)
-        self.remote_cdm = ConfigAccessor(self._remote_cdm_data, self.cache, "remote_cdm", self._cache_enabled)
         
         # Load the configuration
         self.fetch_domain_online = True
@@ -216,7 +211,6 @@ class ConfigManager:
         self._load_login()
         self._update_settings_from_config()
         self._load_site_data()
-        self._load_remote_cdm()
 
     def _load_config(self) -> None:
         """Load the main configuration file."""
@@ -266,32 +260,6 @@ class ConfigManager:
         except Exception as e:
             console.print(f"[red]Error loading login configuration: {str(e)}")
             self._login_data.clear()
-
-    def _load_remote_cdm(self) -> None:
-        """Load the login configuration file."""
-        if not os.path.exists(self.remote_cdm_path):
-            console.print(f"[yellow]WARNING: Remote cdm file not found: {self.remote_cdm_path}")
-            console.print("[yellow]Downloading from repository...")
-            try:
-                self._download_file(REMOTE_CDM_DOWNLOAD_URL, self.remote_cdm_path, "remote_cdm.json")
-            except Exception as e:
-                console.print(f"[yellow]Could not download remote_cdm.json: {str(e)}")
-                console.print("[yellow]Creating empty remote cdm configuration...")
-                self._remote_cdm_data.clear()
-                return
-        
-        try:
-            with open(self.remote_cdm_path, 'r') as f:
-                self._remote_cdm_data.clear()
-                self._remote_cdm_data.update(json.load(f))
-                
-        except json.JSONDecodeError as e:
-            console.print(f"[red]Error parsing remote cdm JSON: {str(e)}")
-            self._remote_cdm_data.clear()
-
-        except Exception as e:
-            console.print(f"[red]Error loading remote cdm configuration: {str(e)}")
-            self._remote_cdm_data.clear()
     
     def _precache_config_values(self) -> None:
         """Pre-cache commonly used configuration values."""

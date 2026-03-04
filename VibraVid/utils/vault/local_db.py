@@ -21,7 +21,7 @@ from VibraVid.utils import config_manager
 
 # Variable
 console = Console()
-CREATE_DB_ON_STARTUP = config_manager.remote_cdm.get('config', 'create_local_db', default=False)
+CREATE_DB_ON_STARTUP = config_manager.config.get('DRM', 'create_local_db')
 
 
 class LocalDBVault:
