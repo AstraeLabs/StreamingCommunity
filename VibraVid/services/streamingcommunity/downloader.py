@@ -13,7 +13,6 @@ from VibraVid.utils import config_manager, tmdb_client, start_message
 from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_title, map_season_name
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
-from VibraVid.source.utils.tracker import context_tracker
 
 
 # Downloader
@@ -40,8 +39,7 @@ def download_film(select_title: Entries) -> str:
     Downloads a film using the provided Entries information.
     """
     start_message()
-    if context_tracker.should_print:
-        console.print(f"\n[green]Download:[/] [dim]{site_constants.SITE_NAME} → [bold]{select_title.name} \n")
+    console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{select_title.name} \n")
 
     # Prepare TMDB data 
     tmdb_data = None

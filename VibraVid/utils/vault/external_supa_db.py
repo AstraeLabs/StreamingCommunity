@@ -61,10 +61,12 @@ class ExternalSupaDBVault:
         for key_str in keys_list:
             if ':' not in key_str:
                 continue
+
             kid, key = key_str.split(':', 1)
             kid_clean = kid.strip()
             kid_norm = kid_clean.lower().replace('-', '')
             entry: dict = {"kid": kid_clean, "key": key.strip()}
+            
             if kid_to_label:
                 label = kid_to_label.get(kid_norm)
                 if label:
@@ -141,10 +143,10 @@ class ExternalSupaDBVault:
 
         keys = result.get('keys', [])
         if keys:
-            console.print(f"[dim]{drm_type} (KID lookup: {len(keys)} key(s) found)[/dim]")
+            console.print(f"\n[red]{drm_type} [cyan](KID lookup: {len(keys)} key(s) found)")
             for k in keys:
                 kid_val, key_val = k['kid_key'].split(':', 1)
-                console.print(f"    - [dim]{kid_val}[/]:[yellow]{key_val}")
+                console.print(f"    - [red]{kid_val}[white]:[green]{key_val}")
 
         return [k['kid_key'] for k in keys]
 
@@ -153,19 +155,25 @@ class ExternalSupaDBVault:
         return self.get_keys_by_kids(license_url, [kid], drm_type)
 
     ################# UPDATE ##################
-    def update_key_validity(self, kid: str, is_valid: bool, license_url: Optional[str] = None, drm_type: Optional[str] = None) -> bool:
+    def update_key_validity(self, kid: str, is_valid: bool, license_url: Optional[str] = None, drm_type: Optional[str] = None, pssh: Optional[str] = None) -> bool:
         """
         Update validity status of a key.
-        If license_url is provided the update is scoped to that license only, preventing accidental global corruption of keys used by other content.
+        If license_url is provided the update is scoped to that license.
 
         Returns:
             bool: True if updated successfully, False otherwise
         """
         payload: dict = {"kid": kid, "is_valid": is_valid}
+
         if license_url:
             payload["license_url"] = self._clean_license_url(license_url)
+
         if drm_type:
             payload["drm_type"] = drm_type.lower()
+
+        if pssh:
+            payload["pssh"] = pssh
+
         result = self._post("update-key-validity", payload)
         return bool(result and result.get('success', False))
 

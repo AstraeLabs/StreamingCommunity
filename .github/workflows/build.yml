@@ -167,7 +167,7 @@ jobs:
                   --collect-all curl_cffi \
                   --additional-hooks-dir=pyinstaller/hooks \
                   --add-data "VibraVid${{ matrix.separator }}VibraVid" \
-                  --name=${{ matrix.artifact_name }} test_run.py
+                  --name=${{ matrix.artifact_name }} manual.py
 
             - name: Upload executable
               uses: actions/upload-artifact@v4

@@ -11,7 +11,6 @@ from rich.prompt import Prompt
 # Internal utilities
 from VibraVid.services._base.tv_display_manager import manage_selection, validate_selection, display_episodes_list, display_seasons_list
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
-from VibraVid.core.queue.queue import DownloadJob, download_manager
 
 
 # Variable
@@ -50,7 +49,7 @@ def process_season_selection(scrape_serie: Any, seasons_count: int, season_selec
     else:
         index_season_selected = season_selection
         is_manual_input = False
-        console.print(f"\n[#a855f7]Using provided season selection:[/] [yellow]{season_selection}")
+        console.print(f"\n[cyan]Using provided season selection: [yellow]{season_selection}")
     
     # Get available season numbers
     seasons_list = scrape_serie.seasons_manager.seasons
@@ -123,20 +122,14 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
     
     if download_all:
         for i_episode in range(1, episodes_count + 1):
-            ep = episodes[i_episode-1]
-            ep_name = getattr(ep, 'name', None) or (ep.get('name') if isinstance(ep, dict) else f'Episode {i_episode}')
-            job = DownloadJob(
-                id=f"{index_season_selected}_{i_episode}_{id(ep)}",
-                title=f"{ep_name} (S{index_season_selected}E{i_episode})",
-                site='',
-                media_type='tv',
-                func=download_video_callback,
-                args=(ep, index_season_selected, i_episode),
-            )
-            download_manager.enqueue(job)
-            console.print(f"[green]\u2713 Queued:[/] [bold]{ep_name}[/] [dim](S{index_season_selected}E{i_episode})[/dim]")
+            path, stopped = download_video_callback(episodes[i_episode-1], index_season_selected, i_episode)
+            
+            if stopped:
+                if _is_user_stop_requested():
+                    break
+                console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}. Continuing with next episode.")
         
-        console.print(f"\n[#a855f7]Queued all episodes for[/] [yellow]season {index_season_selected}[/]")
+        console.print(f"\n[red]End downloaded [yellow]season: [red]{index_season_selected}.")
     
     else:
         # Display episodes list and manage user selection
@@ -144,7 +137,7 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
             last_command = display_episodes_list(episodes)
         else:
             last_command = episode_selection
-            console.print(f"\n[#a855f7]Using provided episode selection:[/] [yellow]{episode_selection}")
+            console.print(f"\n[cyan]Using provided episode selection: [yellow]{episode_selection}")
         
         # Get available episode numbers
         available_episode_numbers = [
@@ -192,17 +185,11 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
 
             last_command = Prompt.ask("[red]Enter valid episode numbers or indices")
 
-        # Enqueue selected episodes for parallel download
+        # Download selected episodes if not stopped
         for i_episode in list_episode_select:
-            ep = episodes[i_episode-1]
-            ep_name = getattr(ep, 'name', None) or (ep.get('name') if isinstance(ep, dict) else f'Episode {i_episode}')
-            job = DownloadJob(
-                id=f"{index_season_selected}_{i_episode}_{id(ep)}",
-                title=f"{ep_name} (S{index_season_selected}E{i_episode})",
-                site='',
-                media_type='tv',
-                func=download_video_callback,
-                args=(ep, index_season_selected, i_episode),
-            )
-            download_manager.enqueue(job)
-            console.print(f"[green]\u2713 Queued:[/] [bold]{ep_name}[/] [dim](S{index_season_selected}E{i_episode})[/dim]")
+            path, stopped = download_video_callback(episodes[i_episode-1], index_season_selected, i_episode)
+            
+            if stopped:
+                if _is_user_stop_requested():
+                    break
+                console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}. Continuing with next episode.")

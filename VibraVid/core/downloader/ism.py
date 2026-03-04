@@ -207,7 +207,7 @@ class ISM_Downloader:
             download_tracker.update_status(self.download_id, "Downloading ...")
         
         if context_tracker.should_print:
-            console.print("[dim]Starting download ...")
+            console.print("[dim]\nStarting download ...")
         self.media_downloader.set_key(self.decryption_keys)
         status = self.media_downloader.start_download()
         

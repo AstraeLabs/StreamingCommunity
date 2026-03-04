@@ -19,17 +19,16 @@ from VibraVid.utils import config_manager, start_message
 from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
 from VibraVid.upload import git_update, binary_update
 from VibraVid.upload.version import __version__, __title__
-from VibraVid.core.queue.queue import  download_manager
-from VibraVid.core.queue.display import download_display
+
 
 # Config
 console = Console()
 msg = Prompt()
 COLOR_MAP = {
     "anime": "red",
-    "film_serie": "#22c55e", 
-    "serie": "yellow",
-    "film": "#a855f7"
+    "film_serie": "yellow", 
+    "serie": "blue",
+    "film": "green"
 }
 CATEGORY_MAP = {1: "anime", 2: "Film_serie", 3: "serie", 4: "film"}
 CLOSE_CONSOLE = config_manager.config.get_bool('DEFAULT', 'close_console')
@@ -189,10 +188,13 @@ def handle_direct_site_selection(args, input_to_function, module_name_to_functio
 
 def get_user_site_selection(args, choice_labels):
     """Get site selection from user (interactive or category-based)."""
+    legend_text = " | ".join([f"[{color}]{cat.capitalize()}[/{color}]" for cat, color in COLOR_MAP.items()])
+    legend_text += " | [magenta]Global[/magenta]"
+    console.print(f"\n[cyan]Category Legend: {legend_text}")
     
     choice_keys = list(choice_labels.keys()) + ["global"]
-    prompt_message = "[#a855f7]Select site:[/] " + ", ".join([
-         f"[dim]({key})[/dim] [{COLOR_MAP.get(label[1], 'white')}]{label[0]}[/]"  
+    prompt_message = "[cyan]Insert site: " + ", ".join([
+        f"[{COLOR_MAP.get(label[1], 'white')}]({key}) {label[0]}[/{COLOR_MAP.get(label[1], 'white')}]" 
         for key, label in choice_labels.items()
     ]) + ", [magenta](global) Global[/magenta]"
     return msg.ask(prompt_message, choices=choice_keys, default="0", show_choices=False, show_default=False)
@@ -254,49 +256,20 @@ def main():
                 if category in input_to_function:
                     run_function(input_to_function[category], search_terms=args.search, selections=selections)
                 
-                user_response = msg.ask("\n[#a855f7]Add more items to the queue?[/] [dim](y/n)[/]", choices=["y", "n"], default="n")
+                user_response = msg.ask("\n[cyan]Do you want to perform another search? (y/n)", choices=["y", "n"], default="n")
                 if user_response.lower() != 'y':
                     break
-
-            queued = download_manager.get_queue()
-            parallel_enabled = config_manager.config.get_bool("DOWNLOAD", "concurrent_download", default=False)
-
-            if parallel_enabled and len(queued) > 1:
-                console.print(f"\n[#a855f7]Queue:[/] [bold]{len(queued)}[/] items \u2192 [green]multi-thread mode[/] [dim](max {download_manager._max_workers} concurrent)[/dim]")
-                download_manager.start_all()
-                download_display.start()
-            else:
-                console.print(f"\n[#a855f7]Queue:[/] [bold]{len(queued)}[/] item(s) \u2192 [dim]sequential mode[/]")
-                for job in queued:
-                    job.func(*job.args, **job.kwargs)
 
             force_exit()
 
         else:
-            while True:
-                category = get_user_site_selection(args, choice_labels)
+            category = get_user_site_selection(args, choice_labels)
 
-                if category == "global":
-                    call_global_search(args.search)
+            if category == "global":
+                call_global_search(args.search)
 
-                if category in input_to_function:
-                    run_function(input_to_function[category], search_terms=args.search, selections=selections)
-
-                user_response = msg.ask("\n[#a855f7]Add more items to the queue?[/] [dim](y/n)[/]", choices=["y", "n"], default="n")
-                if user_response.lower() != 'y':
-                    break
-
-            queued = download_manager.get_queue()
-            parallel_enabled = config_manager.config.get_bool("DOWNLOAD", "concurrent_download", default=False)
-
-            if parallel_enabled and len(queued) > 1:
-                console.print(f"\n[#a855f7]Queue:[/] [bold]{len(queued)}[/] items → [green]multi-thread mode[/] [dim](max {download_manager._max_workers} concurrent)[/dim]")
-                download_manager.start_all()
-                download_display.start()
-            else:
-                console.print(f"\n[#a855f7]Queue:[/] [bold]{len(queued)}[/] item(s) → [dim]sequential mode[/]")
-                for job in queued:
-                    job.func(*job.args, **job.kwargs)
+            if category in input_to_function:
+                run_function(input_to_function[category], search_terms=args.search, selections=selections)
 
             force_exit()
                 

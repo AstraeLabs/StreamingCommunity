@@ -9,15 +9,14 @@ from rich.prompt import Prompt
 
 
 # Internal utilities
-from VibraVid.services._base import Entries, EntriesManager
 from VibraVid.utils import TVShowManager
-from VibraVid.core.queue.queue import DownloadJob, download_manager
+from VibraVid.services._base import Entries, EntriesManager
 
 
 # Variable
 console = Console()
 msg = Prompt()
-available_colors = ['dim', 'green', 'yellow', 'blue', 'red']
+available_colors = ['red', 'magenta', 'yellow', 'cyan', 'green', 'blue', 'white']
 column_to_hide = ['Slug', 'Sub_ita', 'First_air_date', 'Seasons_count', 'Url', 'Image', 'Path_id', 'Score']
 
 
@@ -40,7 +39,7 @@ def get_select_title(table_show_manager, media_search_manager):
         return None
     
     first_media_item = media_search_manager.media_list[0]
-    column_info = {"Index": {'color': 'dim'}}
+    column_info = {"Index": {'color': available_colors[0]}}
 
     color_index = 1
     for key in first_media_item.__dict__.keys():
@@ -53,9 +52,9 @@ def get_select_title(table_show_manager, media_search_manager):
                 column_info["Type"] = {'color': 'yellow'}
 
             elif key == 'name': 
-                column_info["Name"] = {'color': 'green'}
+                column_info["Name"] = {'color': 'magenta'}
             elif key == 'score': 
-                column_info["Score"] = {'color': 'dim'}
+                column_info["Score"] = {'color': 'cyan'}
                 
         else:
             column_info[key.capitalize()] = {'color': available_colors[color_index % len(available_colors)]}
@@ -116,7 +115,7 @@ def base_process_search_result(select_title: Optional[Entries], download_film_fu
         console.print("[yellow]No title selected or selection cancelled.")
         return False
     
-    # Handle TV series (called directly — needs interactive season/episode selection)
+    # Handle TV series
     if str(select_title.type).lower() in ['tv', 'serie', 'ova', 'ona', 'show']:
         if not download_series_func:
             console.print("[red]Error: download_series_func not provided for TV series")
@@ -141,23 +140,13 @@ def base_process_search_result(select_title: Optional[Entries], download_film_fu
         
         return True
     
-   # Handle films (enqueued for parallel download)
+    # Handle films
     elif str(select_title.type).lower() == 'film' or str(select_title.type).lower() == 'movie':
         if not download_film_func:
             console.print("[red]Error: download_film_func not provided for films")
             return False
             
-        film = DownloadJob(
-            id=str(select_title.id),
-            title=select_title.name,
-            site=getattr(select_title, 'url', ''),
-            media_type='film',
-            func=download_film_func,
-            args=(select_title,),
-        )
-        
-        download_manager.enqueue(film)
-        console.print(f"[green]✓ Added to queue:[/] [bold]{select_title.name}[/] [dim](film)[/dim]")
+        download_film_func(select_title)
         
         # Clear managers if provided
         if table_show_manager:
@@ -203,7 +192,7 @@ def base_search(title_search_func: Callable[[str], int], process_result_func: Ca
     if string_to_search is not None:
         actual_search_query = string_to_search.strip()
     else:
-        actual_search_query = msg.ask(f"\n[#a855f7]Search in[/] [green]{site_name}[/]").strip()
+        actual_search_query = msg.ask(f"\n[purple]Insert a word to search in [green]{site_name}").strip()
 
     # Search on database
     len_database = title_search_func(actual_search_query)
@@ -225,5 +214,5 @@ def base_search(title_search_func: Callable[[str], int], process_result_func: Ca
         result = process_result_func(select_title, selections, scrape_serie)
         return result
     else:
-        console.print(f"\n[red]Nothing found for:[/] [bold]{actual_search_query}[/]")
+        console.print(f"\n[red]Nothing matching was found for[white]: [purple]{actual_search_query}")
         return False

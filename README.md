@@ -16,13 +16,17 @@ _⚡ **Quick Start:** `pip install VibraVid && VibraVid`_
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [DNS Configuration](#dns-configuration)
+- [Login Guide](.github/doc/login.md)
+- [Useful Tools](#useful-tools)
 - [Downloaders](#downloaders)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
 - [Global Search](#global-search)
 - [Advanced Features](#advanced-features)
+- [GUI](GUI/README.md)
 - [Docker](#docker)
-- [TO DO](#todo)
+- [Structure](.github/STRUCTURE.md)
+- [Architecture](.github/ARCHITECTURE.md)
 - [Related Projects](#related-projects)
 
 ---
@@ -70,6 +74,13 @@ Use one of these DNS providers:
 
 - **Cloudflare DNS**: `1.1.1.1` - [Setup guide](https://developers.cloudflare.com/1.1.1.1/setup/)
 - **Quad9 DNS**: `9.9.9.9` - [Setup guide](https://quad9.net/)
+
+---
+
+## Useful Tools
+
+- **🔐 [DRM Vault](https://main.viewdb.pages.dev/)** - Manage and browse your DRM keys and licenses
+- **🌐 [Domains List](https://main.viewdb.pages.dev/domains/) / [GitHub Mirror](https://astraelabs.github.io/Domains/)** - View all supported streaming service domains
 
 ---
 
@@ -170,28 +181,22 @@ OPTIONS: id=REGEX:lang=REGEX:name=REGEX:codecs=REGEX:res=REGEX:frame=REGEX:
 ```
 
 ```json
-"select_video": "for=best"                                // Select best video
 "select_video": "res=3840*:codecs=hvc1:for=best"          // Select 4K HEVC video
 "select_video": "res=1080:for=best"                       // Select 1080p video
-"select_video": "plistDurMin=1h20m30s:for=best"           // Duration > 1h 20m 30s
-"select_video": "role=main:for=best"                      // Main video role
-"select_video": "bwMin=800:bwMax=1000:for=best"           // Bandwidth 800-1000 Kbps
 ```
 
 **- `select_audio`**
 
 ```json
-"select_audio": "for=all"                                 // Select all audio tracks
 "select_audio": "lang=en:for=best"                        // Select best English audio
 "select_audio": "lang='ja|en':for=best2"                  // Best 2 tracks (Japanese or English)
 "select_audio": "lang='ita|Ita':for=all"                  // All Italian audio tracks
-"select_audio": "role=main:for=best"                      // Main audio role
+"select_audio": "false"                                	  // Disable audio download
 ```
 
 **- `select_subtitle`**
 
 ```json
-"select_subtitle": "for=all"                              // Select all subtitles
 "select_subtitle": "name=English:for=all"                 // All subtitles containing "English"
 "select_subtitle": "lang='ita|eng|Ita|Eng':for=all"       // Italian and English subtitles
 "select_subtitle": "lang=en:for=best"                     // Best English subtitle
@@ -267,7 +272,8 @@ OPTIONS: id=REGEX:lang=REGEX:name=REGEX:codecs=REGEX:res=REGEX:frame=REGEX:
 	"DEFAULT": {
 		"close_console": true,
 		"show_message": false,
-		"fetch_domain_online": true
+		"fetch_domain_online": true,
+		"auto_update_check": true
 	}
 }
 ```
@@ -275,6 +281,7 @@ OPTIONS: id=REGEX:lang=REGEX:name=REGEX:codecs=REGEX:res=REGEX:frame=REGEX:
 - **`close_console`**: Automatically close console after download completion (default: `true`)
 - **`show_message`**: Display debug messages (default: `false`)
 - **`fetch_domain_online`**: Automatically fetch latest domains from GitHub (default: `true`)
+- **`auto_update_check`**: Check for new VibraVid updates automatically at startup (default: `true`). If enabled, notifies you when a new version is available.
 
 ---
 
@@ -284,16 +291,16 @@ OPTIONS: id=REGEX:lang=REGEX:name=REGEX:codecs=REGEX:res=REGEX:frame=REGEX:
 
 ```bash
 # Show help and available sites
-python test_run.py -h
+python manual.py -h
 
 # Search and download
-python test_run.py --site streamingcommunity --search "interstellar"
+python manual.py --site streamingcommunity --search "interstellar"
 
 # Auto-download first result
-python test_run.py --site streamingcommunity --search "interstellar" --auto-first
+python manual.py --site streamingcommunity --search "interstellar" --auto-first
 
 # Use site by index
-python test_run.py --site 0 --search "interstellar"
+python manual.py --site 0 --search "interstellar"
 ```
 
 ## Global Search
@@ -302,12 +309,12 @@ Search across multiple streaming sites simultaneously:
 
 ```bash
 # Global search
-python test_run.py --global -s "cars"
+python manual.py --global -s "cars"
 
 # Search by category
-python test_run.py --category 1    # Anime
-python test_run.py --category 2    # Movies & Series
-python test_run.py --category 3    # Series only
+python manual.py --category 1    # Anime
+python manual.py --category 2    # Movies & Series
+python manual.py --category 3    # Series only
 ```
 
 Results display title, media type, and source site in a consolidated table.
@@ -460,47 +467,24 @@ The `environment` section is intended for deployments behind an HTTPS reverse pr
 
 ---
 
-## TODO
-
-- [ ] Improve the GUI; Enhance the graphical user interface and display images for all episodes.
-- [ ] Add images to search results: Show a thumbnail/image for each title in the search results.
-- [ ] Add images for each episode: Display a dedicated image or thumbnail for every episode.
-- [ ] Improve season selection: Populate the season selector using the actual extracted seasons (real data), instead of assuming a range from 1 to N.
-- [ ] Add login for discovery, dmax ...
-- [ ] Use asyncio for manual downloader
-
----
-
 ## Related Projects
 
-- **[MammaMia](https://github.com/UrloMythus/MammaMia)** - Stremio addon for Italian streaming
-- **[Unit3Dup](https://github.com/31December99/Unit3Dup)** - Torrent automation for Unit3D tracker
+- **[MammaMia](https://github.com/UrloMythus/MammaMia)** - Stremio addon for Italian streaming (by UrloMythus)
+- **[Unit3Dup](https://github.com/31December99/Unit3Dup)** - Torrent automation for Unit3D tracker (by 31December99)
+- **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** - Universal downloader for HLS/DASH/ISM (by nilaoda)
+- **[pywidevine](https://github.com/devine-dl/pywidevine)** - Widevine L3 decryption library (by devine-dl)
+- **[pyplayready](https://git.gay/ready-dl/pyplayready)** - PlayReady decryption library (by ready-dl)
 
 ---
 
 ## Disclaimer
 
-> This software is provided strictly for **educational and research purposes only**. The author and contributors:
+> This software is for **educational and research purposes only**. The authors:
+> - **DO NOT** assume responsibility for illegal use
+> - **DO NOT** provide or facilitate DRM circumvention tools, CDMs, or decryption keys
+> - **DO NOT** endorse piracy or copyright infringement
 >
-> - **DO NOT** assume any responsibility for illegal or unauthorized use of this software
-> - **DO NOT** encourage, promote, or support the download of copyrighted content without proper authorization
-> - **DO NOT** provide, include, or facilitate obtaining any DRM circumvention tools, CDM modules, or decryption keys
-> - **DO NOT** endorse piracy or copyright infringement in any form
->
-> ### User Responsibilities
->
-> By using this software, you agree that:
->
-> 1. **You are solely responsible** for ensuring your use complies with all applicable local, national, and international laws and regulations
-> 2. **You must have legal rights** to access and download any content you process with this software
-> 3. **You will not use** this software to circumvent DRM, access unauthorized content, or violate copyright laws
-> 4. **You understand** that downloading copyrighted content without permission is illegal in most jurisdictions
->
-> ### No Warranty
->
-> This software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
->
-> **If you do not agree with these terms, do not use this software.**
+> By using this software, you agree to comply with all laws and have rights to any content you process. No warranty is provided. If you do not agree, do not use this software.
 
 ---
 

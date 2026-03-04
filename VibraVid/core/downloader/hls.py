@@ -113,7 +113,7 @@ class HLS_Downloader:
             download_tracker.update_status(self.download_id, "Downloading ...")
         
         if context_tracker.should_print:
-            console.print("[dim]Starting download ...")
+            console.print("[dim]\nStarting download ...")
         status = self.media_downloader.start_download()
 
         # Check for cancellation

@@ -25,6 +25,7 @@ if get_is_binary_installation():
 else:
     base_path = os.path.dirname(__file__)
 console = Console()
+auto_update_check = config_manager.config.get_bool("DEFAULT", "auto_update_check")
 
 
 def fetch_github_releases():
@@ -60,7 +61,7 @@ def auto_update():
         return False
     
     try:
-        console.print("[#a855f7]Checking for updates...")
+        console.print("[cyan]Checking for updates...")
         releases = fetch_github_releases()
         latest = releases[0]
         latest_version = latest.get('name', '').replace('v', '').replace('.', '')
@@ -88,7 +89,7 @@ def auto_update():
             if pattern in a['name'].lower():
                 asset = a
                 break
-        console.print(f"[#a855f7]Downloading {asset['name']}...")
+        console.print(f"[cyan]Downloading {asset['name']}...")
         
         # Download
         response = httpx.get(asset['browser_download_url'], headers={'user-agent': get_userAgent()}, timeout=300, follow_redirects=True)
@@ -131,7 +132,7 @@ def auto_update():
             os.chmod(script, stat.S_IRWXU)
             os.system(f'nohup "{script}" &')
         
-        console.print("[#a855f7]Restarting...")
+        console.print("[cyan]Restarting...")
         sys.exit(0)
         
     except Exception as e:
@@ -141,24 +142,29 @@ def auto_update():
 
 def update():
     """Check for updates on GitHub and display relevant information."""
-    try:
-        response_releases = fetch_github_releases()
-    except Exception as e:
-        console.print(f"[red]Error accessing GitHub API: {e}")
-        return
+    if auto_update_check:
+        try:
+            response_releases = fetch_github_releases()
+        except Exception as e:
+            console.print(f"[red]Error accessing GitHub API: {e}")
+            return
 
-    # Calculate total download count from all releases
-    total_download_count = sum(
-        asset['download_count']
-        for release in response_releases
-        for asset in release.get('assets', [])
-    )
+        # Calculate total download count from all releases
+        total_download_count = sum(
+            asset['download_count']
+            for release in response_releases
+            for asset in release.get('assets', [])
+        )
 
-    # Get latest version name
-    if response_releases:
-        last_version = response_releases[0].get('name', 'Unknown')
+        # Get latest version name
+        if response_releases:
+            last_version = response_releases[0].get('name', 'Unknown')
+        else:
+            last_version = 'Unknown'
+
     else:
-        last_version = 'Unknown'
+        total_download_count = "-1"
+        last_version = "Unknown"
 
     # Get the current version (installed version)
     try:
@@ -167,18 +173,21 @@ def update():
         current_version = source_code_version
 
     console.print(
-        f"\n[yellow]{__title__}[/] has been downloaded: [yellow]{total_download_count}[/]"
-        f"\n[dim]{get_execution_mode()} - {binary_paths._detect_system()}[/] - [green]v{current_version}[/]"
+        f"\n[red]{__title__} has been downloaded: [yellow]{total_download_count}"
+        f"\n[yellow]{get_execution_mode()} [white]- [red]{binary_paths._detect_system()} [white]- [green]Current installed version: [yellow]{current_version} "
         f"\n"
-        f"  [dim]Help the repository grow today by leaving a [yellow]star[/yellow] and [yellow]sharing[/yellow]"
-        f" it with others online![/dim]\n"
-        f"      [dim]If you'd like to support development and keep the program updated, consider leaving a "
-        f"[yellow]donation[/yellow]. Thank you![/dim]"
+        f"  [cyan]Help the repository grow today by leaving a [yellow]star [cyan]and [yellow]sharing "
+        f"[cyan]it with others online!\n"
+        f"      [magenta]If you'd like to support development and keep the program updated, consider leaving a "
+        f"[yellow]donation[magenta]. Thank you!"
     )
 
     if str(current_version).lower().replace("v.", "").replace("v", "") != str(last_version).lower().replace("v.", "").replace("v", ""):
+        if last_version == "Unknown":
+            return
+
         console.print(f"\n[red]New version available: [yellow]{last_version}")
         console.print(f"[green]Download it from: [yellow]https://github.com/AstraeLabs/VibraVid/releases/tag/v{last_version}")
         
         if get_execution_mode() == "installer":
-            console.print("[#a855f7]Run with [yellow]-UP[/] to auto-update")
+            console.print("[cyan]Run with [yellow]-UP [cyan]to auto-update")

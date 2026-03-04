@@ -2,6 +2,7 @@
 
 import os
 import re
+import base64
 import subprocess
 import shutil
 import logging
@@ -41,16 +42,17 @@ class Decryptor:
         self.is_supa_db_connected = obj_externalSupaDbVault is not None
     
     def detect_encryption(self, file_path):
-        """Detect encryption scheme using mp4dump. Returns 'ctr', 'cbc', or None if not encrypted."""
+        """Detect encryption scheme using mp4dump. Returns tuple: (scheme, kid, pssh)."""
         logger.info(f"Detecting encryption: {os.path.basename(file_path)}")
         kid = None
+        pssh = None
         
         try:
             cmd = [self.mp4dump_path, file_path]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
             if result.returncode != 0:
-                return None, None
+                return None, None, None
             
             output = result.stdout
 
@@ -61,6 +63,18 @@ class Decryptor:
                 kid = re.sub(r'\s+', '', kid_raw).lower()
                 console.print(f"[dim]KID: {kid}")
 
+            # Extract PSSH (in hex format like [AB CD EF ...] or base64)
+            pssh_match = re.search(r'pssh\s*=\s*\[((?:[0-9a-fA-F]{2}\s*)+)\]', output, re.IGNORECASE)
+            if pssh_match:
+                hex_str = pssh_match.group(1)
+                hex_clean = re.sub(r'\s+', '', hex_str)
+                try:
+                    pssh_bytes = bytes.fromhex(hex_clean)
+                    pssh = base64.b64encode(pssh_bytes).decode('utf-8')
+                    console.print(f"[dim]PSSH: {pssh[:50]}...")
+                except Exception:
+                    logger.debug(f"Could not convert PSSH hex to base64: {hex_clean[:100]}")
+
             # 1. Search for scheme_type
             scheme_match = re.search(r'scheme_type\s*=\s*(\w+)', output, re.IGNORECASE)
             if scheme_match:
@@ -68,38 +82,38 @@ class Decryptor:
                 logger.info(f"Found scheme_type: {scheme}")
                 console.print(f"[dim]Scheme: {scheme}")
                 if scheme in ['cenc', 'cens']:
-                    return 'ctr', kid
+                    return 'ctr', kid, pssh
                 elif scheme in ['cbcs', 'cbc1']:
-                    return 'cbc', kid
+                    return 'cbc', kid, pssh
             
             # 2. Search for isProtected=1
             protected_match = re.search(r'default_isProtected\s*=\s*1', output, re.IGNORECASE)
             if protected_match:
                 console.print("[dim]Found isProtected=1 but no scheme_type. Defaulting to CTR mode.")
-                return 'ctr', kid
+                return 'ctr', kid, pssh
             
             # 3. Search for sinf box
             if '[sinf]' in output:
                 console.print("[dim]Found sinf box, indicating encryption. Defaulting to CTR mode.")
-                return 'ctr', kid
+                return 'ctr', kid, pssh
             
             # 4. Search for frma
             frma_match = re.search(r'original_format\s*=\s*(\w+)', output, re.IGNORECASE)
             if frma_match and frma_match.group(1) != output.split()[-1]:
                 console.print("[dim]Found original_format different from file type, indicating encryption. Defaulting to CTR mode.")
-                return 'ctr', kid
+                return 'ctr', kid, pssh
             
             logger.info("No encryption indicators found")
-            return None, None
+            return None, None, None
             
         except Exception as e:
             logger.error(f"Encryption detection failed for {file_path}: {e}")
-            return None, None
+            return None, None, None
         
     def decrypt(self, encrypted_path, keys, output_path, stream_type: str = "video"):
         """Decrypt a file using the preferred method. Returns True on success."""
         try:
-            encryption_scheme, kid = self.detect_encryption(encrypted_path)
+            encryption_scheme, kid, pssh = self.detect_encryption(encrypted_path)
             if encryption_scheme is None:
                 shutil.copy(encrypted_path, output_path)
                 return True
@@ -123,7 +137,7 @@ class Decryptor:
                     # Mark mismatched keys as invalid in Supabase
                     if self.is_supa_db_connected:
                         for key_kid in key_kids:
-                            self._mark_key_invalid(key_kid)
+                            self._mark_key_invalid(key_kid, pssh)
                     
                     console.print("[red]File cannot be decrypted - wrong key for this content")
                     return False
@@ -137,7 +151,7 @@ class Decryptor:
             
             # Mark key as valid if decryption succeeded
             if result and kid and self.is_supa_db_connected:
-                self._mark_key_valid(kid)
+                self._mark_key_valid(kid, pssh)
             
             return result
                 
@@ -145,18 +159,18 @@ class Decryptor:
             console.print(f"[red]Decryption error: {e}.")
             return False
 
-    def _mark_key_invalid(self, kid: str):
-        """Mark a key as invalid for this specific license URL in Supabase Vault."""
+    def _mark_key_invalid(self, kid: str, pssh: str = None):
+        """Mark a key as invalid for this specific license URL (and PSSH if provided) in Supabase Vault."""
         if self.is_supa_db_connected:
-            if obj_externalSupaDbVault.update_key_validity(kid, False, self.license_url, self.drm_type):
+            if obj_externalSupaDbVault.update_key_validity(kid, False, self.license_url, self.drm_type, pssh):
                 console.print(f"[yellow]Marked key {kid} as invalid in Supabase")
             else:
                 logger.debug(f"Could not mark key {kid} as invalid")
 
-    def _mark_key_valid(self, kid: str):
-        """Mark a key as valid for this specific license URL in Supabase Vault after successful decryption."""
+    def _mark_key_valid(self, kid: str, pssh: str = None):
+        """Mark a key as valid for this specific license URL (and PSSH if provided) in Supabase Vault after successful decryption."""
         if self.is_supa_db_connected:
-            if obj_externalSupaDbVault.update_key_validity(kid, True, self.license_url, self.drm_type):
+            if obj_externalSupaDbVault.update_key_validity(kid, True, self.license_url, self.drm_type, pssh):
                 logger.debug(f"Marked key {kid} as valid")
             else:
                 logger.debug(f"Could not mark key {kid} as valid")

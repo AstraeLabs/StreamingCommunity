@@ -2,7 +2,8 @@
     "DEFAULT": {
         "close_console": true,
         "show_message": true,
-        "fetch_domain_online": true
+        "fetch_domain_online": true,
+        "auto_update_check": true
     },
     "OUTPUT": {
         "root_path": "Video",

@@ -31,12 +31,12 @@ class LogParser:
         if 'WARN' in line.upper(): 
             self.warnings.append(line)
             if self.show_warnings and 'Response' in str(line):
-                console.print(f"N_M3U8[yellow] - {line}")
+                console.print(f"\nN_M3U8[yellow] - {line}")
 
         if 'ERROR' in line.upper():
             self.errors.append(line)
             if self.show_errors:
-                console.print(f"N_M3U8[red] - {line}")
+                console.print(f"\nN_M3U8[red] - {line}")
 
         return 'WARN' in line.upper(), 'ERROR' in line.upper()
 

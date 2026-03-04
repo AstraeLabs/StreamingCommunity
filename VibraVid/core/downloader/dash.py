@@ -312,15 +312,18 @@ class DASH_Downloader:
                 audio_downloader.license_url = audio_license_url
                 audio_downloader.drm_type    = self.drm_preference
 
-                # Drop video only; subtitles follow the global select_subtitle filter
+                # Drop video; for extra audios, select best audio regardless of language tag
+                # !!!!!! forse da cambiare in futuro
                 audio_downloader.custom_filters = {
                     "video": "false",
-                    "audio": f"lang='{audio_language}':for=best",
+                    "audio": "for=best",
                     "subtitle": SUBTITLE_FILTER,
                 }
 
                 # --- Parse for extra audios  ---
-                console.print(f"[dim]Parsing DASH for audio {audio_language} ...")
+                if self.download_id:
+                    download_tracker.update_status(self.download_id, f"Parsing audio {audio_language}...")
+                console.print(f"\n[dim]Parsing DASH for audio {audio_language} ...")
                 audio_downloader.parser_stream(show_table=False)
 
                 # Get metadata paths for DRM extraction
@@ -334,9 +337,16 @@ class DASH_Downloader:
                     audio_license_headers=audio_license_headers,
                 )
 
-                if audio_keys:
-                    audio_downloader.set_key(audio_keys)
+                if not audio_keys:
+                    console.print(f"[yellow]Warning: No keys found for audio {audio_language}, skipping...")
+                    continue
 
+                audio_downloader.set_key(audio_keys)
+
+                if self.download_id:
+                    download_tracker.update_status(self.download_id, f"Downloading audio {audio_language}...")
+                
+                console.print(f"\n[dim]Starting download for audio {audio_language}...")
                 audio_status = audio_downloader.start_download()
 
                 if audio_status.get("error"):
@@ -472,7 +482,7 @@ class DASH_Downloader:
             download_tracker.update_status(self.download_id, "Downloading ...")
         
         if context_tracker.should_print:
-            console.print("[dim]Starting download ...")
+            console.print("[dim]\nStarting download ...")
         self.media_downloader.set_key(self.decryption_keys)
         status = self.media_downloader.start_download()
         
@@ -491,6 +501,9 @@ class DASH_Downloader:
 
         # Download extra audio tracks (separate MPDs, one per language)
         if self.mpd_audio_list:
+            if self.download_id:
+                download_tracker.update_status(self.download_id, f"Downloading {len(self.mpd_audio_list)} extra audio track(s)...")
+            
             extra_audios, extra_subtitles = self._download_extra_audios()
             status["external_audios"] = extra_audios
             if extra_subtitles:

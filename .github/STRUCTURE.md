@@ -127,7 +127,7 @@ VibraVid/
 │       └── hooks.py
 ├── setup.py                     # Package installation config
 ├── requirements.txt             # Python dependencies
-├── test_run.py                  # Entry point for manual testing
+├── manual.py                  # Entry point for manual testing
 ├── update.py                    # Update script
 ├── dockerfile                   # Docker configuration
 ├── .github/                     # GitHub workflows & docs
@@ -224,7 +224,7 @@ VibraVid/
 **Testing:**
 
 - `Test/Downloads/*.py`: Example download scenarios
-- `test_run.py`: Entry point for manual runs
+- `manual.py`: Entry point for manual runs
 
 ## Naming Conventions
 

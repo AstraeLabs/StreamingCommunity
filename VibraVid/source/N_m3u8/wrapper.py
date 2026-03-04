@@ -198,17 +198,7 @@ class MediaDownloader:
 
             if show_table:
                 selected_set = {i for i, s in enumerate(self.streams) if getattr(s, 'selected', False)}
-                
-                if context_tracker.should_print:
-                    console.print(build_table(self.streams, selected_set, 0, window_size=len(self.streams), highlight_cursor=False))
-
-                # Update tracker with quality/language info from selected streams
-                if self.download_id:
-                    sel_video = next((s for s in self.streams if s.type == "Video" and s.selected), None)
-                    sel_audio = next((s for s in self.streams if s.type == "Audio" and s.selected), None)
-                    quality = sel_video.resolution if sel_video and sel_video.resolution else ""
-                    language = sel_audio.language if sel_audio and sel_audio.language else ""
-                    download_tracker.update_info(self.download_id, quality=quality, language=language)
+                console.print(build_table(self.streams, selected_set, 0, window_size=len(self.streams), highlight_cursor=False))
             return self.streams
         
         return []
@@ -377,8 +367,7 @@ class MediaDownloader:
                 proc.wait()
 
             else:
-                 # Use NullContext if in GUI mode or parallel CLI to avoid live table conflicts
-                progress_ctx = nullcontext() if (context_tracker.is_gui or context_tracker.is_parallel_cli) else Progress(
+                progress_ctx = nullcontext() if context_tracker.is_gui else Progress(
                     TextColumn("[purple]{task.description}", justify="left"), CustomBarColumn(bar_width=40), ColoredSegmentColumn(),
                     TextColumn("[dim][[/dim]"), CompactTimeColumn(), TextColumn("[dim]<[/dim]"), CompactTimeRemainingColumn(), TextColumn("[dim]][/dim]"),
                     SizeColumn(), TextColumn("[dim]@[/dim]"), TextColumn("[red]{task.fields[speed]}[/red]", justify="right"), 
@@ -447,7 +436,7 @@ class MediaDownloader:
                 continue
                 
             # Check if still encrypted
-            console.print(f"[dim]Checking if [bold]{file_path.name}[/bold] is still encrypted...[/dim]")
+            console.print(f"[cyan]Check file [red]{file_path.name} [cyan]is still encrypted...")
             if decryptor.detect_encryption(str(file_path)):
                 
                 # Decrypt to a temporary file

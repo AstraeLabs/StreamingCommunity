@@ -67,8 +67,8 @@ class TVShowManager:
         table = Table(
             box=box.ROUNDED,
             show_header=True,
-            header_style="#a855f7",
-            border_style="dim",
+            header_style="cyan",
+            border_style="blue",
             padding=(0, 1)
         )
 
@@ -132,16 +132,16 @@ class TVShowManager:
 
             # Handle pagination and user input
             if self.slice_end < total_items:
-                self.console.print("\n[dim]Press Enter for next page, 'q' to quit.[/dim]")
+                self.console.print("\n[green]Press [red]Enter [green]for next page, [red]'q' [green]to quit.")
 
                 if not force_int_input:
-                    prompt_msg = ("\n[#a855f7]Insert media index[/] [dim](e.g., 1)[/dim], [yellow]*[/] [dim]to download all[/dim], [dim](e.g., 1-2)[/dim] [dim]for a range[/dim], or [dim](e.g., 3-*)[/dim] [dim]to download from index to end[/dim]")
+                    prompt_msg = ("\n[cyan]Insert media index [yellow](e.g., 1), [red]* [cyan]to download all media, [yellow](e.g., 1-2) [cyan]for a range of media, or [yellow](e.g., 3-*) [cyan]to download from a specific index to the end")
                     key = Prompt.ask(prompt_msg)
 
                 else:
                     # Include empty string in choices to allow pagination with Enter key
                     choices = [""] + [str(i) for i in range(max_int_input + 1)] + ["q", "quit"]
-                    prompt_msg = "[#a855f7]Insert media index"
+                    prompt_msg = "[cyan]Insert media [red]index"
                     key = Prompt.ask(prompt_msg, choices=choices, show_choices=False)
 
                 last_command = key
@@ -158,15 +158,15 @@ class TVShowManager:
 
             else:
                 # Last page handling
-                self.console.print("\n[dim]You've reached the end. Enter for first page, 'q' to quit.[/dim]")
+                self.console.print("\n[green]You've reached the end. [red]Enter [green]for first page, [red]'q' [green]to quit.")
                 
                 if not force_int_input:
-                    prompt_msg = ("\n[#a855f7]Insert media index[/] [dim](e.g., 1)[/dim], [yellow]*[/] [dim]to download all[/dim], [dim](e.g., 1-2)[/dim] [dim]for a range[/dim], or [dim](e.g., 3-*)[/dim] [dim]to download from index to end[/dim]")
+                    prompt_msg = ("\n[cyan]Insert media index [yellow](e.g., 1), [red]* [cyan]to download all media, [yellow](e.g., 1-2) [cyan]for a range of media, or [yellow](e.g., 3-*) [cyan]to download from a specific index to the end")
                     key = Prompt.ask(prompt_msg)
                 else:
                     # Include empty string in choices to allow pagination with Enter key
                     choices = [""] + [str(i) for i in range(max_int_input + 1)] + ["q", "quit"]
-                    prompt_msg = "[#a855f7]Insert media index"
+                    prompt_msg = "[cyan]Insert media [red]index"
                     key = Prompt.ask(prompt_msg, choices=choices, show_choices=False)
 
                 last_command = key
