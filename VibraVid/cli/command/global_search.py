@@ -3,19 +3,14 @@
 import time
 import logging
 
-
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils.console.message import start_message
 from VibraVid.services._base import load_search_functions
 from VibraVid.utils.console.table import TVShowManager
 
 
-# Variable
 console = Console()
 msg = Prompt()
 

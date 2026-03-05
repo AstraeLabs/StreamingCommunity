@@ -3,15 +3,11 @@
 import os
 import platform
 
-# External library
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 
 
-# Variable
 console = Console()
 CLEAN = config_manager.config.get_bool('DEFAULT', 'show_message')
 SHOW = config_manager.config.get_bool('DEFAULT', 'show_message')

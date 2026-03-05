@@ -1,20 +1,16 @@
 # 29.01.26
 
-# External libraries
 from rich.console import Console
 from pyplayready.cdm import Cdm
 from pyplayready.device import Device
 from pyplayready.remote.remotecdm import RemoteCdm
 from pyplayready.system.pssh import PSSH
 
-
-# Internal utilities
 from VibraVid.setup import get_info_prd
 from VibraVid.utils.http_client import create_client_curl
 from VibraVid.source.utils.object import KeysManager
 
 
-# Variable
 console = Console()
 
 

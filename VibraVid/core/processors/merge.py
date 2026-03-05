@@ -4,26 +4,19 @@ import os
 import subprocess
 from typing import List, Dict, Optional
 
-
-# External library
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.setup import binary_paths, get_ffmpeg_path
 from VibraVid.source.utils.tracker import context_tracker
 
-
-# Logic class
-from .helper.ex_video import detect_ts_timestamp_issues, convert_ts_to_mp4
+from .helper.ex_video import detect_ts_timestamp_issues, convert_ts_to_mp4, resolve_compatible_extension
 from .helper.ex_audio import check_duration_v_a, has_audio
 from .helper.ex_sub import fix_subtitle_extension
 from .capture import capture_ffmpeg_real_time
 from .conversion.ttml_to_srt import convert_ttml_to_srt
 
 
-# Config
 console = Console()
 os_type = binary_paths._detect_system()
 USE_GPU = config_manager.config.get_bool("PROCESS", "use_gpu")
@@ -93,6 +86,27 @@ def detect_gpu_device_type() -> str:
         return 'none'
 
 
+def _apply_compatible_extension(video_path: str, out_path: str) -> str:
+    """
+    Checks codec compatibility between the source video and the desired output path extension.
+
+    Parameters:
+        - video_path (str): Source file used to probe codecs.
+        - out_path (str): Desired output path.
+
+    Returns:
+        str: Output path with a guaranteed compatible extension.
+    """
+    base, ext = os.path.splitext(out_path)
+    desired_ext = ext.lstrip('.')
+    compatible_ext = resolve_compatible_extension(video_path, desired_ext)
+
+    if compatible_ext != desired_ext:
+        out_path = f"{base}.{compatible_ext}"
+
+    return out_path
+
+
 def join_video(video_path: str, out_path: str, log_path: Optional[str] = None):
     """
     Mux video file using FFmpeg.
@@ -100,7 +114,12 @@ def join_video(video_path: str, out_path: str, log_path: Optional[str] = None):
     Parameters:
         - video_path (str): The path to the video file.
         - out_path (str): The path to save the output file.
+        - log_path (str, optional): Path to save the FFmpeg log.
+
+    Returns:
+        tuple: (out_path, result_json)
     """
+    out_path = _apply_compatible_extension(video_path, out_path)
     ffmpeg_cmd = [get_ffmpeg_path()]
 
     # Enabled the use of gpu
@@ -116,7 +135,7 @@ def join_video(video_path: str, out_path: str, log_path: Optional[str] = None):
     # Insert input video path
     ffmpeg_cmd.extend(['-i', video_path])
 
-    # Add encoding parameters (prima dell'output)
+    # Add encoding parameters
     add_encoding_params(ffmpeg_cmd)
 
     # Output file and overwrite
@@ -207,7 +226,7 @@ def join_audios(video_path: str, audio_tracks: List[Dict[str, str]], out_path: s
         ffmpeg_cmd.extend([f'-metadata:s:a:{i}', f'language={lang_code}'])
         ffmpeg_cmd.extend([f'-metadata:s:a:{i}', f'title={audio_track.get("name", "unknown")}'])
 
-    # Add encoding parameters (prima di -shortest e output)
+    # Add encoding parameters
     add_encoding_params(ffmpeg_cmd)
 
     # Use shortest input path if any audio track has significant difference
@@ -273,7 +292,6 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     if output_ext == '.mp4':
         subtitle_codec = 'mov_text'
     elif output_ext == '.mkv':
-        # Now that we convert TTML manually, we don't need to force srt via ffmpeg unless they are still not srt
         subtitle_codec = 'srt'
     else:
         subtitle_codec = 'copy'

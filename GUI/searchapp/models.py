@@ -1,3 +1,5 @@
+# 06.06.25
+
 from django.db import models
 from django.utils import timezone
 

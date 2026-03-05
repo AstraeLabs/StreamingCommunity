@@ -1,15 +1,10 @@
 # 24.01.26
 
-# External libraries
 from rich import box
 from rich.table import Table
 
-
-# Internal utilities
 from VibraVid.utils import internet_manager
 
-
-# Logic
 from ..utils.object import StreamInfo
 from ..utils.trans_codec import get_channel_layout_name
 
@@ -24,7 +19,7 @@ def build_table(streams, selected: set, cursor: int, window_size: int = 12, high
         padding=(0, 1)
     )
 
-    cols = [("#", "cyan"), ("Type", "cyan"), ("Role", "green"), ("Sel", "green"),
+    cols = [("#", "cyan"), ("Type", "cyan"), ("Sel", "green"),
         ("Resolution", "yellow"), ("FrameRate", "yellow"), ("Bitrate", "yellow"), ("Codec", "green"),
         ("Channels", "blue"), 
         ("Language", "blue"), ("Name", "green"), 
@@ -41,7 +36,7 @@ def build_table(streams, selected: set, cursor: int, window_size: int = 12, high
         start = max(0, end - window_size)
 
     if start > 0:
-        table.add_row("...", "", "", "", "", "", "", "", "", "", "", "")
+        table.add_row("...", "", "", "", "", "", "", "", "", "", "")
 
     for visible_idx in range(start, end):
         s: StreamInfo = streams[visible_idx]
@@ -60,7 +55,6 @@ def build_table(streams, selected: set, cursor: int, window_size: int = 12, high
         table.add_row(
             str(idx + 1),
             f"{s.type}",
-            s.role or '',
             "X" if is_selected else "",
             s.resolution if s.type == "Video" else "",
             str(s.frame_rate) if s.frame_rate and s.frame_rate != 0 else "",
@@ -74,5 +68,5 @@ def build_table(streams, selected: set, cursor: int, window_size: int = 12, high
         )
 
     if end < total:
-        table.add_row("...", "", "", "", "", "", "", "", "", "", "", "")
+        table.add_row("...", "", "", "", "", "", "", "", "", "", "")
     return table

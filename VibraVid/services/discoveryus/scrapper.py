@@ -2,13 +2,9 @@
 
 import logging
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client
 from VibraVid.services._base.object import SeasonManager, Episode, Season
 
-
-# Logic
 from .client import get_api
 
 

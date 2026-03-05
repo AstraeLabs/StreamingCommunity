@@ -1,7 +1,7 @@
-# 06-06-25 By @FrancescoGrazioso -> "https://github.com/FrancescoGrazioso"
-
+# 06.06.25
 
 from django import forms
+
 from GUI.searchapp.api import get_available_sites
 
 

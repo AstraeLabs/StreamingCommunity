@@ -4,17 +4,11 @@ import re
 import logging
 from urllib.parse import urlparse, urljoin
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_headers
 
-
-# Logic
 from ..utils.object import Stream, Segment
 
-
-# Variable
 logger = logging.getLogger(__name__)
 TIMEOUT = config_manager.config.get_int('REQUESTS', 'timeout')
 

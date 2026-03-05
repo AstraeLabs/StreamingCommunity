@@ -6,18 +6,12 @@ import shutil
 import logging
 from datetime import datetime
 
-
-# External libraries
 from rich.console import Console
 from rich.table import Table
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_headers
 
-
-# Logic
 from .segmnets import SegmentDownloader
 from ..decrypt.decrypt import Decryptor
 from ..utils.object import Stream
@@ -29,7 +23,6 @@ from ..parser.hls import HLSParser
 from ...utils.trans_codec import get_audio_codec_name, get_video_codec_name, get_codec_type
 
 
-# Variable
 logger = logging.getLogger(__name__)
 console = Console()
 TIMEOUT = config_manager.config.get_int('REQUESTS', 'timeout')

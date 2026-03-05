@@ -2,27 +2,19 @@
 
 import urllib.parse
 
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client_curl, get_userAgent
 from VibraVid.utils import TVShowManager
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
-
-# Logic
 from .downloader import download_film, download_series
 
 
-# Variable
 indice = 1
 _useFor = "Anime"
-
-
 msg = Prompt()
 console = Console()
 entries_manager = EntriesManager()

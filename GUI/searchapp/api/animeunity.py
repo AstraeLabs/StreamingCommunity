@@ -1,15 +1,10 @@
-# 06-06-25 By @FrancescoGrazioso -> "https://github.com/FrancescoGrazioso"
-
+# 06.06.25
 
 import importlib
 from typing import List, Optional
 
-
-# Internal utilities
 from .base import BaseStreamingAPI, Entries, Season, Episode
 
-
-# External utilities
 from VibraVid.utils import config_manager
 from VibraVid.services._base.site_loader import get_folder_name
 from VibraVid.services.animeunity.scrapper import ScrapeSerieAnime

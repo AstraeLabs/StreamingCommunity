@@ -4,16 +4,11 @@ import re
 import logging
 from typing import Dict, List, Optional, Tuple
 
-
-# Internal utilities
 from VibraVid.services._base.object import SeasonManager, Episode, Season
 
-
-# Logic
 from .client import CrunchyrollClient
 
 
-# Constants
 _EP_NUM_RE = re.compile(r"^\d+(\.\d+)?$")
 
 

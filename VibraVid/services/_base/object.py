@@ -4,12 +4,9 @@ import difflib
 from datetime import datetime
 from typing import Any, List, Optional
 
-
-# Internal utilities
 from VibraVid.utils import config_manager, tmdb_client
 
 
-# Variable
 TMDB_KEY = config_manager.login.get('TMDB', 'api_key')
 
 

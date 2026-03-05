@@ -5,10 +5,7 @@ import logging
 
 
 class MediaPlayers:
-    """Helper to create/remove media player ignore files in an output directory.
-
-    Creates `.ignore` and `.plexignore` files when downloads start and removes them when cleanup runs.
-    """
+    """Creates `.ignore` and `.plexignore` files when downloads start and removes them when cleanup runs."""
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
         self.ignore_files = [os.path.join(self.output_dir, ".ignore"), os.path.join(self.output_dir, ".plexignore")]

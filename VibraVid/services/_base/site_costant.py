@@ -3,8 +3,6 @@
 import os
 import inspect
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from .site_loader import folder_name as lazy_loader_folder
 

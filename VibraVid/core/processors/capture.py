@@ -8,17 +8,12 @@ import threading
 import subprocess
 from typing import Optional
 
-
-# External library
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils.os import internet_manager
 from VibraVid.source.utils.tracker import context_tracker, download_tracker
 
 
-# Variable
 console = Console()
 terminate_flag = threading.Event()
 

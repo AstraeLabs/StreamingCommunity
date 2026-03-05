@@ -15,18 +15,16 @@ _⚡ **Quick Start:** `pip install VibraVid && VibraVid`_
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Login](.github/doc/login.md)
 - [DNS Configuration](#dns-configuration)
-- [Login Guide](.github/doc/login.md)
 - [Useful Tools](#useful-tools)
 - [Downloaders](#downloaders)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
 - [Global Search](#global-search)
 - [Advanced Features](#advanced-features)
-- [GUI](GUI/README.md)
 - [Docker](#docker)
-- [Structure](.github/STRUCTURE.md)
-- [Architecture](.github/ARCHITECTURE.md)
+- [GUI](GUI/README.md)
 - [Related Projects](#related-projects)
 
 ---

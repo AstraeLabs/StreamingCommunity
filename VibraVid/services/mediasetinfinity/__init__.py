@@ -2,28 +2,21 @@
 
 from datetime import datetime
 
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import TVShowManager
 from VibraVid.utils.http_client import create_client, check_region_availability
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
-
-# Logic
 from .downloader import download_series, download_film
 from .client import get_client
 
 
-# Variable
 indice = 3
 _useFor = "Film_Serie"
 _region = ["IT"]
-_drm = ["widevine"]
 msg = Prompt()
 console = Console()
 entries_manager = EntriesManager()

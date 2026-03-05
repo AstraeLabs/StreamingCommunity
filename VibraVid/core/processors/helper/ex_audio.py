@@ -4,16 +4,11 @@ import json
 import subprocess
 import logging
 
-
-# External library
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.setup import get_ffprobe_path
 
 
-# Variable
 console = Console()
 
 

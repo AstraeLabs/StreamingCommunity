@@ -4,19 +4,14 @@ import os
 import shutil
 import logging
 
-
-# External library
 from unidecode import unidecode
 from rich.console import Console
 from rich.prompt import Prompt
 from pathvalidate import sanitize_filename, sanitize_filepath
 
-
-# Internal utilities
 from ..setup.binary_paths import binary_paths
 
 
-# Variable
 msg = Prompt()
 console = Console()
 

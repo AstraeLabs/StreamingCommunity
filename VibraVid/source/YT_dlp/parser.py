@@ -3,8 +3,6 @@
 import re
 from typing import List, Dict, Any
 
-
-# Internal utilities
 from ..utils.object import StreamInfo
 from ..utils.trans_codec import get_video_codec_name
 from ..utils.trans_codec import get_audio_codec_name

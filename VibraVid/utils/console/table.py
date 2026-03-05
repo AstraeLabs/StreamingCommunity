@@ -4,17 +4,12 @@ import sys
 import logging
 from typing import Dict, List, Any
 
-
-# External library
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Prompt
 from rich import box
 
-
-# Internal utilities
 from .message import start_message
-
 
 
 class TVShowManager:

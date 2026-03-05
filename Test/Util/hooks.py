@@ -1,4 +1,4 @@
-# Simple manual test for pre/post hooks execution
+# 06.06.25
 
 import json
 import os
@@ -11,7 +11,6 @@ from VibraVid.cli.run import execute_hooks
 
 
 def main():
-    # Prepare temp folder and python script
     with tempfile.TemporaryDirectory() as tmp:
         out_file = os.path.join(tmp, "hook_out.txt")
         script_path = os.path.join(tmp, "hook_script.py")

@@ -3,13 +3,10 @@
 import uuid
 from typing import Dict, Optional
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client_curl
 
 
-# Variable
 _discovery_client = None
 cookie_st = config_manager.login.get("discoveryeu", "st")
 

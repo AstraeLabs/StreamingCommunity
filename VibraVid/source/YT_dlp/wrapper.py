@@ -10,29 +10,21 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from contextlib import nullcontext
 
-
-# External
 from rich.console import Console
 from rich.progress import Progress, TextColumn
 
-
-# Internal
 from VibraVid.utils.config import config_manager
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
 from VibraVid.source.Manual.decrypt.decrypt import Decryptor
 from ..N_m3u8.progress_bar import (CustomBarColumn, CompactTimeColumn, CompactTimeRemainingColumn, SizeColumn)
 
-
-# Logic
 from ..utils.object import StreamInfo, KeysManager
 from .parser import parse_ytdlp_json
 from .pattern import pick_best_video, audio_matches_filter, _parse_lang_list
 from .progress_pattern import YTDLP_PROGRESS_RE, DEST_RE
-
 from .ui import build_table
 
 
-# Variable
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
 YTDLP_BIN = ""
 auto_select_cfg = config_manager.config.get_bool("DOWNLOAD", "auto_select", default=True)
@@ -45,7 +37,6 @@ request_timeout = config_manager.config.get_int("REQUESTS", "timeout")
 use_proxy = config_manager.config.get_bool("REQUESTS", "use_proxy")
 configuration_proxy  = config_manager.config.get_dict("REQUESTS", "proxy", default={})
 concurrent_fragments = config_manager.config.get_int("DOWNLOAD", "threads", default=4)
-
 
 
 def _vtt_to_srt(vtt: str) -> str:

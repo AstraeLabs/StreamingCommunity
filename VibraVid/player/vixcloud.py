@@ -6,17 +6,12 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from typing import Dict, Any
 from types import SimpleNamespace
 
-
-# External libraries
 from bs4 import BeautifulSoup
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client, get_userAgent, create_client_curl
 
 
-# Variable
 console = Console()
 
 

@@ -4,17 +4,12 @@ import os
 import platform
 from typing import Optional
 
-
-# External library
 import httpx
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils.http_client import get_headers
 
 
-# Variable
 console = Console()
 
 

@@ -1,5 +1,4 @@
-# 06-06-25 By @FrancescoGrazioso -> "https://github.com/FrancescoGrazioso"
-
+# 06.06.25
 
 import os
 import sys

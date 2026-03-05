@@ -2,8 +2,6 @@
 
 import json
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client, get_headers
 
 

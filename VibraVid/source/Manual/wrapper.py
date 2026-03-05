@@ -7,31 +7,21 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from xml.etree import ElementTree as ET
 
-
-# External libraries
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import get_headers
 from VibraVid.source.utils.tracker import download_tracker
 from VibraVid.source.utils.media_players import MediaPlayers
 from VibraVid.source.utils.object import StreamInfo, KeysManager
 
-
-# Internal logic
 from .downloader.downloader import Downloader as ManualDownloader
 from .utils.object import Stream, Segment
 from .utils.file_size import format_bitrate
 
 
-# Variable
 logger = logging.getLogger(__name__)
 console = Console()
-
-
-# Config
 auto_select_cfg = config_manager.config.get_bool('DOWNLOAD', 'auto_select', default=True)
 video_filter = config_manager.config.get("DOWNLOAD", "select_video")
 audio_filter = config_manager.config.get("DOWNLOAD", "select_audio")

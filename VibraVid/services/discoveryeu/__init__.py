@@ -1,27 +1,20 @@
 # 22.12.25
 
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import TVShowManager
 from VibraVid.utils.http_client import create_client_curl, check_region_availability
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
-
-# Logic
 from .downloader import download_series
 from .client import get_client
 
 
-# Variables
 indice = 13
 _useFor = "Film_Serie"
 _region = ["IT"]
-_drm = ["widevine", "playready", "fairplay"]
 msg = Prompt()
 console = Console()
 entries_manager = EntriesManager()

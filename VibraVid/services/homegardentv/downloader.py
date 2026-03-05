@@ -2,29 +2,20 @@
 
 import os
 
-
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import config_manager, start_message
 from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_episode_title, map_season_name
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
-
-# Downloader
 from VibraVid.core.downloader import HLS_Downloader
 
-
-# Logic
 from ..realtime.scrapper import GetSerieInfo
 from ..realtime.client import get_bearer_token, get_playback_url
 
 
-# Variable
 msg = Prompt()
 console = Console()
 extension_output = config_manager.config.get("PROCESS", "extension")

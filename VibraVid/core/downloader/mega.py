@@ -5,18 +5,13 @@ import os
 import subprocess
 import shutil
 
-
-# External libraries
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils.os import os_manager
 from VibraVid.setup import get_megatools_path
 from VibraVid.source.utils.tracker import context_tracker
 
 
-# Variable
 console = Console()
 
 

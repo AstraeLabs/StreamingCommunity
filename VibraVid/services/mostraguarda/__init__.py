@@ -2,30 +2,19 @@
 
 from urllib.parse import quote_plus
 
-
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import TVShowManager
 from VibraVid.utils.tmdb_client import tmdb
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
-
-# Logic
 from .downloader import download_film
 
 
-# Variable
 indice = 2
 _useFor = "Film"
-_deprecate = True
-_priority = 2
-_engineDownload = "hls"
-
 msg = Prompt()
 console = Console()
 entries_manager = EntriesManager()
@@ -46,24 +35,28 @@ def title_search(query: str) -> int:
     table_show_manager.clear()
 
     # Search on TMDB
-    movie_id = tmdb.search_movie(quote_plus(query))
+    movies = tmdb.search_movies(quote_plus(query))
 
-    if movie_id is not None:
-        movie_details = tmdb.get_movie_details(tmdb_id=movie_id)
-
-        # Create Entries object
+    for movie in movies:
+        year = None
+        if movie.get('release_date'):
+            try:
+                year = movie['release_date'].split('-')[0]
+            except Ellipsis:
+                year = None
+        
         media_item = Entries(
-            id=movie_id,
-            name=movie_details['title'],
+            id=movie['id'],
+            name=movie['title'],
             slug='',
             path_id=None,
             type='film',
             url='',  # Not needed for download
-            poster=None,
-            imdb_id=movie_details['imdb_id']
+            image=movie.get('poster_path'),
+            imdb_id=movie.get('imdb_id'),
+            year=year
         )
 
-        print("add to manager: ", media_item.__dict__)
         entries_manager.add(media_item)
   
     return len(entries_manager)

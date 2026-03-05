@@ -152,8 +152,6 @@ jobs:
                   --hidden-import=rich._unicode_data \
                   --collect-all rich \
                   --hidden-import=unidecode \
-                  --hidden-import=jsbeautifier \
-                  --collect-all jsbeautifier \
                   --hidden-import=editorconfig \
                   --hidden-import=six \
                   --hidden-import=pathvalidate \

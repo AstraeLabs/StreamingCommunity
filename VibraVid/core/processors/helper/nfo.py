@@ -6,8 +6,6 @@ import logging
 from pathlib import Path
 from math import gcd
 
-
-# Internal utilities
 from VibraVid.setup import get_ffprobe_path
 
 

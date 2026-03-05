@@ -1,6 +1,5 @@
 ﻿# 06.06.25
 
-
 import os
 import time
 import json
@@ -10,8 +9,6 @@ import signal
 import concurrent.futures
 from typing import Any, Dict, List
 
-
-# External utilities
 from django.shortcuts import render, redirect
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -19,22 +16,17 @@ from django.views.decorators.csrf import csrf_exempt
 from django.contrib import messages
 from django.utils import timezone
 
-
-# Internal utilities
 from .forms import SearchForm, DownloadForm
 from .models import WatchlistItem
 from .watchlist_auto import _get_interval_seconds
 from GUI.searchapp.api import get_api
 from GUI.searchapp.api.base import Entries
 
-
-# CLI utilities
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
 from VibraVid.utils.tmdb_client import tmdb_client
 from VibraVid.cli.run import execute_hooks
 
 
-# Global download executor
 download_executor = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="DownloadWorker")
 scheduled_downloads: Dict[str, Dict[str, Any]] = {}
 scheduled_downloads_lock = threading.Lock()

@@ -4,16 +4,11 @@ import os
 import json
 from typing import List, Tuple
 
-
-# External 
 from rich.console import Console
 
-
-# Logic
 from ..utils.object import StreamInfo 
 
 
-# Variable
 console = Console()
 
 

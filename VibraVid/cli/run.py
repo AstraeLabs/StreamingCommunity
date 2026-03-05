@@ -6,13 +6,9 @@ import platform
 import argparse
 from typing import Callable
 
-
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from . import call_global_search
 from VibraVid.services._base import load_search_functions
 from VibraVid.utils import config_manager, start_message
@@ -21,7 +17,6 @@ from VibraVid.upload import git_update, binary_update
 from VibraVid.upload.version import __version__, __title__
 
 
-# Config
 console = Console()
 msg = Prompt()
 COLOR_MAP = {

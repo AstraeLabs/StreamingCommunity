@@ -1,24 +1,17 @@
 # 09.08.25
 from __future__ import annotations
 
-from typing import Dict, Optional, Union
-
-
-# External library
 import httpx
 import ua_generator
 from curl_cffi import requests
+from typing import Dict, Optional, Union
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 
 
-# Variable
 ua =  ua_generator.generate(device='desktop', browser=('chrome', 'edge'))
 CONF_PROXY = config_manager.config.get_dict("REQUESTS", "proxy") or {}
 USE_PROXY = bool(config_manager.config.get_bool("REQUESTS", "use_proxy"))
-
 
 
 def _get_timeout() -> int:

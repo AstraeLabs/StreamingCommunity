@@ -2,31 +2,20 @@
 
 import os
 
-
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import os_manager, config_manager, start_message
 from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import manage_selection, dynamic_format_number
 
-
-# Downloader
 from VibraVid.core.downloader import MP4_Downloader, HLS_Downloader
 
-
-# Player
 from VibraVid.player.vixcloud import VideoSourceAnime
 
-
-# Logic
 from .scrapper import ScrapeSerieAnime
 
 
-# Variable
 console = Console()
 msg = Prompt()
 extension_output = config_manager.config.get("PROCESS", "extension")
@@ -110,7 +99,6 @@ def download_series(select_title: Entries, season_selection: str = None, episode
         last_command = msg.ask("\n[cyan]Insert media [red]index [yellow]or [red]* [cyan]to download all media [yellow]or [red]1-2 [cyan]or [red]3-* [cyan]for a range of media")
     else:
         last_command = episode_selection
-        console.print(f"\n[cyan]Using provided episode selection: [yellow]{episode_selection}")
 
     # Manage user selection
     list_episode_select = manage_selection(last_command, episoded_count)

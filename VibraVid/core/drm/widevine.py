@@ -2,7 +2,6 @@
 
 import base64
 
-# External libraries
 from rich.console import Console
 from pywidevine.cdm import Cdm
 from pywidevine.device import Device
@@ -10,14 +9,11 @@ from pywidevine.device import DeviceTypes
 from pywidevine.remotecdm import RemoteCdm
 from pywidevine.pssh import PSSH
 
-
-# Internal utilities
 from VibraVid.setup import get_info_wvd
 from VibraVid.utils.http_client import create_client_curl
 from VibraVid.source.utils.object import KeysManager
 
 
-# Variable
 console = Console()
 
 

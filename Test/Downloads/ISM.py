@@ -4,17 +4,14 @@
 import os
 import sys
 
-
-# Fix import
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(src_path)
 
 
-from VibraVid.utils import config_manager, start_message
+from VibraVid.utils import config_manager
 from VibraVid.core.downloader import ISM_Downloader
 
 
-start_message()
 conf_extension = config_manager.config.get("PROCESS", "extension")
 ism_url = 'https://test.playready.microsoft.com/media/profficialsite/tearsofsteel_4k.ism.smoothstreaming/manifest'
 ism_headers = {}
@@ -31,5 +28,6 @@ ism_process = ISM_Downloader(
     key=license_key,
     drm_preference="playready"
 )
+
 out_path, need_stop = ism_process.start()
 print(f"Output path: {out_path}, Need stop: {need_stop}")

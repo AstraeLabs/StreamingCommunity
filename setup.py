@@ -4,8 +4,9 @@ import os
 import re
 from setuptools import setup, find_packages
 
-# Variable
+
 base_path = os.path.abspath(os.path.dirname(__file__))
+
 
 def read_readme():
     readme_path = os.path.join(base_path, "README.md")
@@ -13,11 +14,13 @@ def read_readme():
         with open(readme_path, "r", encoding="utf-8") as fh:
             return fh.read()
 
+
 def read_requirements():
     req_path = os.path.join(base_path, "requirements.txt")
     if os.path.exists(req_path):
         with open(req_path, "r", encoding="utf-8-sig") as f:
             return [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
 
 def get_version():
     try:
@@ -31,6 +34,7 @@ def get_version():
             return version_match.group(1)
         raise RuntimeError("Unable to find version string in VibraVid/upload/version.py.")
 
+
 def get_package_data_files(directory):
     """Get all .py files in the specified directory and its subdirectories."""
     paths = []
@@ -43,6 +47,7 @@ def get_package_data_files(directory):
                 else:
                     paths.append(os.path.join(rel_dir, file))
     return paths
+
 
 setup(
     name="VibraVid",

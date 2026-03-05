@@ -2,6 +2,7 @@
 
 
 VIDEO_CODEC_MAP = {
+
     # H.264 / AVC
     'avc1': 'H.264',
     'avc1.42E00A': 'H.264',
@@ -64,6 +65,7 @@ VIDEO_CODEC_MAP = {
 }
 
 AUDIO_CODEC_MAP = {
+    
     # AAC
     'mp4a': 'AAC',
     'mp4a.40.2': 'AAC',

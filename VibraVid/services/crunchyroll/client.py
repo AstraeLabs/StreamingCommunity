@@ -7,13 +7,10 @@ import json
 import base64
 from typing import Tuple, List, Dict, Optional
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client_curl, get_userAgent
 
 
-# Constants
 PUBLIC_TOKEN = "bm9haWhkZXZtXzZpeWcwYThsMHE6"
 BASE_URL = "https://www.crunchyroll.com"
 API_BETA_BASE_URL = "https://beta-api.crunchyroll.com"

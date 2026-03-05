@@ -5,17 +5,12 @@ import time
 import unicodedata
 from difflib import SequenceMatcher
 
-
-# External libraries
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client_curl, get_userAgent
 
 
-# Variable
 console = Console()
 api_key = config_manager.login.get("TMDB", "api_key")
 
@@ -218,6 +213,65 @@ class TMDBClient:
             'title': details.get('title'),
             'imdb_id': details.get('imdb_id')
         }
+
+    def search_movies(self, query: str, language_preference: str = "it"):
+        """
+        Search for movies and return a list of results with details.
+        Only returns movies that have a valid IMDB ID.
+        
+        Parameters:
+            - query (str): The search query
+            - language_preference (str): Language preference (default: "it")
+            
+        Returns:
+            - list: List of dicts containing movie info (id, title, release_date, imdb_id, popularity)
+        """
+        results = self._make_request("search/movie", {"query": query, "language": language_preference}).get("results", [])
+        
+        movies = []
+        for movie in results:
+            details = self._make_request(f"movie/{movie.get('id')}", {"language": language_preference})
+            imdb_id = details.get('imdb_id')
+            
+            # Only include movies with valid IMDB ID
+            if imdb_id:
+                movie_data = {
+                    'id': movie.get('id'),
+                    'title': movie.get('title'),
+                    'release_date': movie.get('release_date'),
+                    'popularity': movie.get('popularity'),
+                    'poster_path': movie.get('poster_path'),
+                    'imdb_id': imdb_id
+                }
+                movies.append(movie_data)
+        
+        return movies
+
+    def search_series(self, query: str, language_preference: str = "it"):
+        """
+        Search for TV series and return a list of results with details.
+        
+        Parameters:
+            - query (str): The search query
+            - language_preference (str): Language preference (default: "it")
+            
+        Returns:
+            - list: List of dicts containing series info (id, name, first_air_date, popularity)
+        """
+        results = self._make_request("search/tv", {"query": query, "language": language_preference}).get("results", [])
+        
+        series = []
+        for show in results:
+            series_data = {
+                'id': show.get('id'),
+                'name': show.get('name'),
+                'first_air_date': show.get('first_air_date'),
+                'popularity': show.get('popularity'),
+                'poster_path': show.get('poster_path')
+            }
+            series.append(series_data)
+        
+        return series
 
 
 tmdb_client = TMDBClient(api_key)

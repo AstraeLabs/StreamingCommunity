@@ -6,14 +6,10 @@ import xml.etree.ElementTree as et
 from typing import Optional, List
 from pathlib import Path
 
-
-# External import 
 from rich.console import Console
 from ttconv.imsc.reader import to_model
 from ttconv.srt.writer import from_model
 
-
-# Variable
 console = Console()
 
 

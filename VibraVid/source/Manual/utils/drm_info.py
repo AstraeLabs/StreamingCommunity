@@ -4,7 +4,6 @@ import base64
 import logging
 
 
-# Variable
 logger = logging.getLogger(__name__)
 
 

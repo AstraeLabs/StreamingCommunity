@@ -3,12 +3,8 @@
 import importlib
 from typing import List, Optional
 
-
-# Internal utilities
 from .base import BaseStreamingAPI, Entries, Season, Episode
 
-
-# External utilities
 from VibraVid.services._base.site_loader import get_folder_name
 from VibraVid.services.crunchyroll.scrapper import GetSerieInfo
 

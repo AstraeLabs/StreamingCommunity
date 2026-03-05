@@ -6,16 +6,11 @@ import glob
 import importlib
 from typing import Dict
 
-
-# External import
 from rich.console import Console
 
-
-# Internal utilites
 from VibraVid.setup import get_is_binary_installation
 
 
-# Variable
 console = Console()
 folder_name = "services"
 

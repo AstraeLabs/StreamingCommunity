@@ -9,17 +9,12 @@ except Exception:
 from typing import List, Dict, Optional
 from urllib.parse import urlparse
 
-
-# External import
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.setup import binary_paths
 from VibraVid.utils import config_manager
 
 
-# Variable
 console = Console()
 CREATE_DB_ON_STARTUP = config_manager.config.get('DRM', 'create_local_db')
 

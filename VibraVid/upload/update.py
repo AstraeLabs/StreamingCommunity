@@ -5,13 +5,9 @@ import sys
 import stat
 import importlib.metadata
 
-
-# External library
 import httpx
 from rich.console import Console
 
-
-# Internal utilities
 from .version import __version__ as source_code_version, __author__, __title__
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import get_userAgent

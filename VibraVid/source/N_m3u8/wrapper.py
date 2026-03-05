@@ -9,13 +9,9 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from contextlib import nullcontext
 
-
-# External
 from rich.console import Console
 from rich.progress import Progress, TextColumn
 
-
-# Internal 
 from VibraVid.utils.config import config_manager
 from VibraVid.utils.os import internet_manager
 from VibraVid.setup import get_ffmpeg_path, get_n_m3u8dl_re_path, get_bento4_decrypt_path, get_shaka_packager_path
@@ -24,8 +20,6 @@ from VibraVid.utils.http_client import create_async_client
 from VibraVid.source.utils.trans_codec import get_subtitle_codec_name
 from VibraVid.source.Manual.decrypt.decrypt import Decryptor
 
-
-# Logic
 from ..utils.object import StreamInfo, KeysManager
 from .pattern import VIDEO_LINE_RE, AUDIO_LINE_RE, SUBTITLE_LINE_RE, SEGMENT_RE, PERCENT_RE, SPEED_RE, SIZE_RE, SUBTITLE_FINAL_SIZE_RE
 from .progress_bar import CustomBarColumn, ColoredSegmentColumn, CompactTimeColumn, CompactTimeRemainingColumn, SizeColumn
@@ -33,7 +27,6 @@ from .parser import parse_meta_json, LogParser
 from .ui import build_table
 
 
-# Variable
 console = Console(force_terminal=True if platform.system().lower() != 'windows' else None)
 auto_select_cfg = config_manager.config.get_bool('DOWNLOAD', 'auto_select', default=True)
 video_filter = config_manager.config.get("DOWNLOAD", "select_video")

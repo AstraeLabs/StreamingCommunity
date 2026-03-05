@@ -2,18 +2,12 @@
 
 import logging
 
-
-# External libraries
 from bs4 import BeautifulSoup
 
-
-# Internal utilities
 from VibraVid.utils.os import os_manager
 from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.services._base.object import Episode
 
-
-# Player
 from .client import get_session_and_csrf
 
 

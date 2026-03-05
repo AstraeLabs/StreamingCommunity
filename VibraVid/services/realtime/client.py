@@ -1,14 +1,10 @@
 # 26.11.25
 
-# External library
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client, get_userAgent, get_headers
 
 
-# Variable
 console = Console()
 
 

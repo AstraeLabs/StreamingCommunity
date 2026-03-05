@@ -3,16 +3,11 @@
 import os
 from typing import Optional
 
-
-# External library
 from rich.console import Console
 
-
-# Internal utilities
 from .binary_paths import binary_paths
 
 
-# Variable
 console = Console()
 
 

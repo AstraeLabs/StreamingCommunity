@@ -3,14 +3,10 @@
 import re
 import logging
 
-
-# External libraries
-import jsbeautifier
 from bs4 import BeautifulSoup
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client_curl, get_headers
+from VibraVid.utils.js_beautifier import extract_setup, unpack
 
 
 class VideoSource:
@@ -80,17 +76,16 @@ class VideoSource:
         
     def get_result_node_js(self, soup):
         """
-        Prepares and runs a Node.js script from the provided BeautifulSoup object to retrieve the video URL.
+        Retrieves the JavaScript code from the provided BeautifulSoup object, unpacks it, and extracts the video source URL.
 
         Parameters:
             - soup (BeautifulSoup): A BeautifulSoup object representing the parsed HTML content.
-
-        Returns:
-            - str: The output from the Node.js script, or None if the script cannot be found or executed.
         """
         for script in soup.find_all("script"):
             if "eval" in str(script):
-                return jsbeautifier.beautify(script.text)
+                js = unpack(script.text)
+                data = extract_setup(js)
+                return data["sources"][0]["file"]
             
         return None
 
@@ -109,14 +104,8 @@ class VideoSource:
 
             # Find master playlist
             data_js = self.get_result_node_js(BeautifulSoup(html_content, "html.parser"))
-
-            if data_js is not None:
-                match = re.search(r'sources:\s*\[\{\s*file:\s*"([^"]+)"', data_js)
-
-                if match:
-                    return match.group(1)
-                else:
-                    logging.error("Failed to find M3U8 URL: No match found")
+            if data_js:
+                return data_js
                     
             else:
 
@@ -144,13 +133,10 @@ class VideoSource:
 
                 # Find master playlist
                 data_js = self.get_result_node_js(supervideo_soup)
-
-                match = re.search(r'sources:\s*\[\{\s*file:\s*"([^"]+)"', data_js)
-
-                if match:
-                    return match.group(1)
+                if data_js:
+                    return data_js
                 else:
-                    logging.error("Failed to find M3U8 URL: No match found")
+                    logging.error("No video source found in JavaScript.")
             
             return None
 

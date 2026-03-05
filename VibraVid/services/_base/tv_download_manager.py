@@ -2,18 +2,13 @@
 
 from typing import Callable, Any, Optional
 
-
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.services._base.tv_display_manager import manage_selection, validate_selection, display_episodes_list, display_seasons_list
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
 
 
-# Variable
 console = Console()
 
 

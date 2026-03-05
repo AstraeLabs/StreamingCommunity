@@ -2,15 +2,12 @@
 
 from typing import List, Optional
 
-
-# External import
 from rich.console import Console
 from urllib.parse import urlparse
 from VibraVid.utils.http_client import create_client
 from VibraVid.utils.config import config_manager
 
 
-# Variable
 console = Console()
 
 

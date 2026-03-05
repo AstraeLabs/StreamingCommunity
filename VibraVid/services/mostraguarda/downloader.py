@@ -3,28 +3,19 @@
 import os
 import logging
 
-
-# External libraries
 from bs4 import BeautifulSoup
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils import config_manager, start_message
 from VibraVid.services._base.tv_display_manager import map_movie_title
 from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.services._base import site_constants, Entries
 
-
-# Downloader
 from VibraVid.core.downloader import HLS_Downloader
 
-
-# Player
 from VibraVid.player.supervideo import VideoSource
 
 
-# Variable
 console = Console()
 extension_output = config_manager.config.get("PROCESS", "extension")
 
@@ -57,7 +48,7 @@ def download_film(select_title: Entries) -> str:
         raise
 
     if "not found" in str(response.text):
-        logging.error(f"Can't find in the server: {select_title.name}.")
+        logging.error(f"Can't find title: {select_title.name}.")
         return None
 
     # Extract supervideo url

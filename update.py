@@ -7,8 +7,6 @@ from io import BytesIO
 from zipfile import ZipFile
 from datetime import datetime
 
-
-# External library
 import httpx
 from rich.console import Console
 from rich.panel import Panel
@@ -18,7 +16,6 @@ from rich.prompt import Prompt
 from VibraVid.upload.version import __author__, __title__
 
 
-# Variable
 max_timeout = 15
 console = Console()
 local_path = os.path.join(".")

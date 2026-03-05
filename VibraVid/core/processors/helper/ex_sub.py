@@ -6,15 +6,10 @@ import shutil
 import platform
 from typing import Optional
 
-
-# External import 
 from rich.console import Console
 
-# Local import
 from .ex_font import FontManager
 
-
-# Variable
 console = Console()
 
 

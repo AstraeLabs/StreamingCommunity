@@ -1,28 +1,19 @@
 # 09.06.24
 
-
-# External library
 from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import TVShowManager
 from VibraVid.utils.http_client import create_client_curl, get_userAgent
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
-
-# Logic
 from .downloader import download_series
 
 
-# Variable
 indice = 4
 _useFor = "Serie"
-
-
 msg = Prompt()
 console = Console()
 entries_manager = EntriesManager()

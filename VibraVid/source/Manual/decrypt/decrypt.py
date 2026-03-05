@@ -7,8 +7,6 @@ import subprocess
 import shutil
 import logging
 
-
-# External import 
 from rich.console import Console
 try:
     from Cryptodome.Cipher import AES
@@ -20,13 +18,10 @@ except Exception:
     except Exception: 
         logging.warning("PyCryptodome not found, HLS segment decryption will not work. Install with 'pip install pycryptodome' for AES-128-CBC support.")
 
-
-# Internal import
 from VibraVid.setup import get_bento4_decrypt_path, get_mp4dump_path, get_shaka_packager_path
 from VibraVid.utils.vault import obj_externalSupaDbVault
 
 
-# Variable
 logger = logging.getLogger(__name__)
 console = Console()
 

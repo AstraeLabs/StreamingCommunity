@@ -4,16 +4,10 @@ import os
 import shutil
 from typing import Optional, Tuple
 
-
-# External library
 from rich.console import Console
 
-
-# Logic
 from .binary_paths import binary_paths
 
-
-# Variable
 console = Console()
 
 

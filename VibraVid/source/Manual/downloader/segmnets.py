@@ -6,26 +6,19 @@ import signal
 import logging
 import threading
 
-
-# External libraries
 from rich.console import Console
 from rich.text import Text
 from rich.progress import Progress, TextColumn, ProgressColumn
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.utils import internet_manager
 from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
 
-
-# Logic
 from ..utils.file_size import format_size
 
 
-# Variable
 logger = logging.getLogger(__name__)
 console = Console()
 failed_segments = set()

@@ -4,34 +4,23 @@ import os
 import re
 from typing import Tuple
 
-
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import config_manager, start_message
 from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_title, map_season_name
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
-
-# Downloader
 from VibraVid.core.downloader import DASH_Downloader, HLS_Downloader
 
-
-# Player
 from VibraVid.player.mediapolisvod import VideoSource
 
-
-# Logic
 from .client import generate_license_url
 from .scrapper import GetSerieInfo
 
 
-# Variable
 console = Console()
 msg = Prompt()
 extension_output = config_manager.config.get("PROCESS", "extension")

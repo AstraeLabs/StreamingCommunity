@@ -1,14 +1,9 @@
 # 21.03.25
 
-
-# External library
 from bs4 import BeautifulSoup
 
-
-# Internal utilities
 from VibraVid.services._base import site_constants
 from VibraVid.utils.http_client import create_client, get_headers
-
 
 
 def get_session_and_csrf() -> dict:

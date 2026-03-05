@@ -4,18 +4,13 @@ import sys
 import logging
 from typing import List
 
-
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.console import TVShowManager
 
 
-# Variable
 msg = Prompt()
 console = Console()
 MOVIE_FORMAT = config_manager.config.get('OUTPUT', 'movie_format')

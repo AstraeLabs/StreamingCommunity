@@ -1,5 +1,4 @@
-# 06-06-25 By @FrancescoGrazioso -> "https://github.com/FrancescoGrazioso"
-
+# 06.06.25
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional

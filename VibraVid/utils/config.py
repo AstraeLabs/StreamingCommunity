@@ -8,12 +8,10 @@ import logging
 from typing import Any, List, Dict
 
 
-# External library
 import httpx
 from rich.console import Console
 
 
-# Variable
 console = Console()
 CONFIG_FILENAME = 'config.json'
 LOGIN_FILENAME = 'login.json'
@@ -23,6 +21,7 @@ GITHUB_DOMAINS_PATH = '.github/script/domains.json'
 CONFIG_DOWNLOAD_URL = 'https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/config.json'
 CONFIG_LOGIN_DOWNLOAD_URL = 'https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/login.json'
 DOMAINS_DOWNLOAD_URL = 'https://raw.githubusercontent.com/AstraeLabs/Domains/refs/heads/main/domains.json'
+
 
 class ConfigAccessor:
     def __init__(self, config_dict: Dict, cache: Dict, cache_prefix: str, cache_enabled: bool = True):

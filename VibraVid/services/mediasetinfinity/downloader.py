@@ -5,31 +5,21 @@ import urllib.parse
 from urllib.parse import urlparse, urlunparse
 from typing import Tuple
 
-
-# External library
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import os_manager, config_manager, start_message
 from VibraVid.utils.http_client import create_client
 from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_title, map_season_name
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
-
-# Downloader
 from VibraVid.core.downloader import DASH_Downloader
 
-
-# Logic
 from .scrapper import GetSerieInfo
 from .client import get_playback_url, get_tracking_info, generate_license_url
 
 
-
-# Variable
 console = Console()
 msg = Prompt()
 extension_output = config_manager.config.get("PROCESS", "extension")

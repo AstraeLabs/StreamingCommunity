@@ -2,24 +2,17 @@
 
 import os
 
-
-# External library
 from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import config_manager, start_message
 from VibraVid.utils.http_client import create_client_curl, get_headers
 from VibraVid.services._base import site_constants, Entries
 
-
-# Downloader
 from VibraVid.core.downloader import MEGA_Downloader
 
 
-# Variable
 console = Console()
 msg = Prompt()
 extension_output = config_manager.config.get("PROCESS", "extension")

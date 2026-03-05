@@ -3,13 +3,10 @@
 import uuid
 from typing import Tuple, Optional
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_userAgent, get_headers
 
 
-# Variable
 tubi_email = config_manager.login.get('tubi', 'email')
 tubi_password = config_manager.login.get('tubi', 'password')
 

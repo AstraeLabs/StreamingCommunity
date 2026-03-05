@@ -1,7 +1,7 @@
-# 06-06-25 By @FrancescoGrazioso -> "https://github.com/FrancescoGrazioso"
-
+# 06.06.25
 
 from django.urls import path
+
 from . import views
 
 urlpatterns = [

@@ -3,22 +3,16 @@
 import time
 from urllib.parse import urlparse
 
-# External libraries
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils import config_manager
 from VibraVid.utils.vault import obj_localDbValut, obj_externalSupaDbVault
 from VibraVid.source.utils.object import KeysManager
 
-
-# Logic
 from .playready import get_playready_keys
 from .widevine import get_widevine_keys
 
 
-# Variable
 console = Console()
 DELAY = config_manager.config.get_int('DRM', 'delay')
 

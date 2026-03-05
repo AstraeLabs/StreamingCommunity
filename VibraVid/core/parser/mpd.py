@@ -5,18 +5,13 @@ import xml.etree.ElementTree as ET
 from typing import Optional, List, Dict, Tuple
 from uuid import UUID
 
-
-# External libraries
 from rich.console import Console
 from pywidevine.pssh import PSSH
 from pyplayready.system.pssh import PSSH as PR_PSSH
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client_curl, get_userAgent
 
 
-# Variable
 console = Console()
 
 

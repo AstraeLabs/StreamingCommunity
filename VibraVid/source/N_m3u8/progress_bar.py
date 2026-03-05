@@ -1,12 +1,8 @@
 # 04.01.25
 
-
-# Extermal import
 from rich.progress import ProgressColumn
 from rich.text import Text
 
-
-# Internal 
 from VibraVid.utils import internet_manager
 
 

@@ -3,19 +3,13 @@
 import uuid
 from urllib.parse import urlencode
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 
 
-# Constants
 BOOT_URL = "https://boot.pluto.tv/v4/start"
 STITCHER_HLS = "https://cfd-v4-service-channel-stitcher-use1-1.prd.pluto.tv"
 APP_NAME = "web"
 APP_VERSION = "9.4.0-9ca51ca10c3047fbafa7297708f146243146d125"
-
-
-# Global API instance
 _pluto_api = None
 
 

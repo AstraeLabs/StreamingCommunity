@@ -2,18 +2,13 @@
 
 from typing import Callable, Optional, Dict, Any
 
-
-# External imports
 from rich.console import Console
 from rich.prompt import Prompt
 
-
-# Internal utilities
 from VibraVid.utils import TVShowManager
 from VibraVid.services._base import Entries, EntriesManager
 
 
-# Variable
 console = Console()
 msg = Prompt()
 available_colors = ['red', 'magenta', 'yellow', 'cyan', 'green', 'blue', 'white']

@@ -5,12 +5,8 @@ import shutil
 import logging
 from typing import Dict
 
-
-# External libraries
 from rich.console import Console
 
-
-# Internal utilities
 from VibraVid.utils import config_manager, os_manager, internet_manager
 from VibraVid.utils.http_client import get_headers
 from VibraVid.setup import get_wvd_path, get_prd_path
@@ -20,17 +16,12 @@ from VibraVid.source.utils.tracker import download_tracker, context_tracker
 from VibraVid.source.utils.media_players import MediaPlayers
 from VibraVid.cli.run import execute_hooks
 
-
-# DRM Utilities
 from ..drm import DRMManager
 from ..parser import ISMParser
 
-
-# Downloader
 from VibraVid.source.N_m3u8 import MediaDownloader
 
 
-# Config
 console = Console()
 CLEANUP_TMP = config_manager.config.get_bool('DOWNLOAD', 'cleanup_tmp_folder')
 EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
@@ -265,7 +256,14 @@ class ISM_Downloader:
         return (status.get('video') is None and status.get('audios') == [] and status.get('subtitles') == [] and status.get('external_subtitles') == [])
     
     def _move_to_final_location(self, final_file):
-        """Move file to final output path."""
+        """Move file to final output path, updating self.output_path if the extension changed."""
+        # If the merge produced a different extension (e.g. .mp4 instead of .mkv), update self.output_path to match before renaming.
+        final_ext = os.path.splitext(final_file)[1].lower()
+        desired_ext = os.path.splitext(self.output_path)[1].lower()
+        if final_ext != desired_ext:
+            base = os.path.splitext(self.output_path)[0]
+            self.output_path = base + final_ext
+
         if os.path.abspath(final_file) != os.path.abspath(self.output_path):
             try:
                 if os.path.exists(self.output_path):

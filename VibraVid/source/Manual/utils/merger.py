@@ -3,12 +3,8 @@
 import os
 import logging
 
-
-# External libraries
 from rich.console import Console
 
-
-# Variable
 logger = logging.getLogger(__name__)
 console = Console()
 

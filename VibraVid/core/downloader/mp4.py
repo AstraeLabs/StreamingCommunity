@@ -7,14 +7,10 @@ import logging
 from functools import partial
 import threading
 
-
-# External libraries
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.progress import Progress, TextColumn
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.utils import config_manager, os_manager, internet_manager
 from VibraVid.cli.run import execute_hooks
@@ -23,7 +19,6 @@ from VibraVid.core.processors.helper.nfo import create_nfo
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
 
 
-# Config
 msg = Prompt()
 console = Console()
 REQUEST_VERIFY = config_manager.config.get_bool('REQUESTS', 'verify')

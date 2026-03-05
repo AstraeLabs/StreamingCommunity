@@ -4,7 +4,6 @@ rich
 ttconv
 unidecode
 curl_cffi
-jsbeautifier
 pathvalidate
 ua-generator
 pywidevine

@@ -3,16 +3,11 @@
 import uuid
 import random
 
-
-# External library
 from ua_generator import generate
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client_curl
 
 
-# Variable
 _discovery_api = None
 
 

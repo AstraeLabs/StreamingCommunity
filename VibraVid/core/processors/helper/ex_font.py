@@ -5,12 +5,9 @@ import platform
 import subprocess
 from typing import List
 
-
-# External import
 from rich.console import Console
 
 
-# Variable
 console = Console()
 
 

@@ -1,7 +1,5 @@
 # 19.05.25
 
-
-# Internal utilities
 from .drm_info import DRMInfo
 
 

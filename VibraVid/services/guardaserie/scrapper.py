@@ -3,12 +3,8 @@
 import logging
 from typing import List
 
-
-# External libraries
 from bs4 import BeautifulSoup
 
-
-# Internal utilities
 from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.services._base.object import SeasonManager, Season, Episode, Entries
 
