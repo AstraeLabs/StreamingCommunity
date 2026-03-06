@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, start_message
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import map_episode_title, map_season_name, dynamic_format_number
+from VibraVid.services._base.tv_display_manager import map_episode_title, map_season_name, dynamic_format_number, map_series_name
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
 from VibraVid.core.downloader import HLS_Downloader
@@ -28,11 +28,12 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     """
     start_message()
     index_season_selected_formatted = dynamic_format_number(str(index_season_selected))
+    series_folder_name = map_series_name(scrape_serie.tv_name, getattr(scrape_serie, 'year', None))
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{scrape_serie.tv_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected_formatted}E{index_episode_selected}) \n")
 
     # Define filename and path for the downloaded video
     episode_name = f"{map_episode_title(scrape_serie.tv_name, index_season_selected_formatted, index_episode_selected, obj_episode.name)}.{extension_output}"
-    episode_path = os.path.join(site_constants.SERIES_FOLDER, scrape_serie.tv_name, map_season_name(index_season_selected))
+    episode_path = os.path.join(site_constants.SERIES_FOLDER, series_folder_name, map_season_name(index_season_selected))
 
     # Get the master playlist
     video_source = VideoSource(obj_episode.url)
