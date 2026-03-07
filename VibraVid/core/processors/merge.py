@@ -12,10 +12,8 @@ from VibraVid.source.utils.tracker import context_tracker
 
 from .helper.ex_video import detect_ts_timestamp_issues, convert_ts_to_mp4, resolve_compatible_extension
 from .helper.ex_audio import check_duration_v_a, has_audio
-from .helper.ex_sub import fix_subtitle_extension
+from .helper.ex_sub import convert_subtitle
 from .capture import capture_ffmpeg_real_time
-from .conversion.ttml_to_srt import convert_ttml_to_srt
-
 
 console = Console()
 os_type = binary_paths._detect_system()
@@ -23,6 +21,7 @@ USE_GPU = config_manager.config.get_bool("PROCESS", "use_gpu")
 PARAM_VIDEO = config_manager.config.get_list("PROCESS", "param_video")
 PARAM_AUDIO = config_manager.config.get_list("PROCESS", "param_audio")
 PARAM_FINAL = config_manager.config.get_list("PROCESS", "param_final")
+FORCE_SUBTITLE = config_manager.config.get("PROCESS", "force_subtitle")
 SUBTITLE_DISPOSITION = config_manager.config.get_bool("PROCESS", "subtitle_disposition")
 SUBTITLE_DISPOSITION_LANGUAGE = config_manager.config.get_list("PROCESS", "subtitle_disposition_language")
 AUDIO_ORDER = config_manager.config.get_list("PROCESS", "audio_order")
@@ -271,24 +270,20 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
             return len(SUBTITLE_ORDER)
         subtitles_list = sorted(subtitles_list, key=get_order_index)
 
-    # First, detect and fix subtitle extensions
+    # First, detect and fix subtitle extensions/formats
     for subtitle in subtitles_list:
         original_path = subtitle['path']
-        corrected_path = fix_subtitle_extension(original_path)
-        
-        # TTML to SRT conversion if needed
-        if corrected_path.lower().endswith(('.ttml', '.xml')) or 'ttml' in corrected_path.lower():
-            srt_path = os.path.splitext(corrected_path)[0] + '.srt'
-            if convert_ttml_to_srt(corrected_path, srt_path):
-                console.print(f"[yellow]    - [green]Converted TTML to SRT: [red]{os.path.basename(srt_path)}")
-                corrected_path = srt_path
-        
+        corrected_path = convert_subtitle(original_path, FORCE_SUBTITLE)
+        if not corrected_path:
+            corrected_path = original_path
+            
         subtitle['path'] = corrected_path
     
-    ffmpeg_cmd = [get_ffmpeg_path(), "-i", video_path]
+    ffmpeg_cmd = [get_ffmpeg_path()]
     output_ext = os.path.splitext(out_path)[1].lower()
     
-    # Determine subtitle codec based on output format
+    # Determine default subtitle codec based on output format
+    # This acts as a fallback or baseline
     if output_ext == '.mp4':
         subtitle_codec = 'mov_text'
     elif output_ext == '.mkv':
@@ -296,7 +291,8 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     else:
         subtitle_codec = 'copy'
     
-    # Add subtitle input files first
+    # Add input files
+    ffmpeg_cmd += ["-i", video_path]
     for subtitle in subtitles_list:
         ffmpeg_cmd += ["-i", subtitle['path']]
     
@@ -307,10 +303,29 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     
     # Add subtitle maps and metadata
     for idx, subtitle in enumerate(subtitles_list):
+        sub_path = subtitle['path']
         lang_display = subtitle.get('lang', subtitle.get('language', 'unknown'))
-        console.print(f"[yellow]    - [cyan]Subtitle lang [red]{lang_display}, [cyan]Path: [red]{subtitle.get('path', 'unknown')}")
+        console.print(f"[yellow]    - [cyan]Subtitle lang [red]{lang_display}, [cyan]Path: [red]{sub_path}")
         ffmpeg_cmd += ["-map", f"{idx + 1}:s"]
-        ffmpeg_cmd += ["-metadata:s:s:{}".format(idx), "title={}".format(lang_display)]
+        
+        # Determine best codec mapping for this specific subtitle into this container
+        sub_ext = os.path.splitext(sub_path)[1].lower().lstrip('.')
+        
+        if output_ext == '.mp4':
+            ffmpeg_cmd += [f"-c:s:{idx}", "mov_text"]
+
+        elif output_ext == '.mkv':
+            if sub_ext in ['srt', 'vtt']:
+                ffmpeg_cmd += [f"-c:s:{idx}", "srt"]
+            elif sub_ext in ['ass', 'ssa']:
+                ffmpeg_cmd += [f"-c:s:{idx}", "ass"]
+            else:
+                ffmpeg_cmd += [f"-c:s:{idx}", "copy"]
+        else:
+            ffmpeg_cmd += [f"-c:s:{idx}", "copy"]
+
+        ffmpeg_cmd += [f"-metadata:s:s:{idx}", f"title={lang_display}"]
+        ffmpeg_cmd += [f"-metadata:s:s:{idx}", f"language={lang_display.split('-')[0].strip()}"]
     
     # For subtitles, we always use copy for video/audio
     ffmpeg_cmd.extend(['-c:v', 'copy', '-c:a', 'copy', '-c:s', subtitle_codec])

@@ -236,6 +236,11 @@ OPTIONS: id=REGEX:lang=REGEX:name=REGEX:codecs=REGEX:res=REGEX:frame=REGEX:
 - **`subtitle_disposition`**: Automatically set default subtitle track (default: `true`)
 - **`subtitle_disposition_language`**: Languages to mark as default/forced
     - Example: `["forced-ita", "ita-forced"]` for Italian forced subtitles
+- **`force_subtitle`**: How subtitles are handled before remuxing
+    - `"auto"` (default): subtitles are renamed/converted according to their detected format; VTT files are also sanitized (unmatched `<` replaced) to avoid data loss when muxed as SRT.
+    - `"copy"`: do not convert or rename, just mux the original file as-is (useful if you want to preserve VTT output). This also skips the VTT sanitization step, so any problematic `<` characters remain untouched.
+    - `"srt"`, `"vtt"`, `"ass"`: force-convert all subtitle tracks to the specified format using ffmpeg, applying sanitization for `vtt` as needed.
+    - See `VibraVid/core/processors/helper/ex_sub.py` for conversion logic.
 - **`extension`**: Output file format (`"mkv"` or `"mp4"`)
 
 ### Request Settings

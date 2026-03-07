@@ -40,6 +40,7 @@
         "subtitle_disposition_language": ["forced-ita","ita-forced"],
         "merge_audio": true,
         "merge_subtitle": true,
+        "force_subtitle": "auto",
         "extension": "mkv"
     },
     "REQUESTS": {
