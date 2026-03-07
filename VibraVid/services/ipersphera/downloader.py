@@ -9,6 +9,7 @@ from rich.prompt import Prompt
 from VibraVid.utils import config_manager, start_message
 from VibraVid.utils.http_client import create_client_curl, get_headers
 from VibraVid.services._base import site_constants, Entries
+from VibraVid.services._base.tv_display_manager import map_series_name
 
 from VibraVid.core.downloader import MEGA_Downloader
 
@@ -58,7 +59,8 @@ def download_film(select_title: Entries) -> str:
     if select_title.type == "film":
         title_path = os.path.join(site_constants.MOVIE_FOLDER, str(select_title.name).replace(extension_output, ""))
     else:
-        title_path = os.path.join(site_constants.SERIES_FOLDER, str(select_title.name).replace(extension_output, ""))
+        series_folder_name = map_series_name(select_title.name, select_title.year)
+        title_path = os.path.join(site_constants.SERIES_FOLDER, series_folder_name)
 
     # Download from MEGA
     mega = MEGA_Downloader(

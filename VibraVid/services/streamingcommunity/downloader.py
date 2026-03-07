@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, tmdb_client, start_message
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_title, map_season_name
+from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_title, map_season_name, map_series_name
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
 from VibraVid.core.downloader import HLS_Downloader
@@ -69,11 +69,12 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     """
     start_message()
     series_display = getattr(scrape_serie, 'series_display_name', None) or scrape_serie.series_name
+    series_folder_name = map_series_name(series_display, getattr(scrape_serie, 'year', None))
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{series_display} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
 
     # Define filename and path for the downloaded video
     episode_name = f"{map_episode_title(series_display, index_season_selected, index_episode_selected, obj_episode.name)}.{extension_output}"
-    episode_path = os.path.join(site_constants.SERIES_FOLDER, series_display, map_season_name(index_season_selected))
+    episode_path = os.path.join(site_constants.SERIES_FOLDER, series_folder_name, map_season_name(index_season_selected))
 
     if use_other_api:
         series_slug = scrape_serie.series_name.lower().replace(' ', '-').replace("'", '')

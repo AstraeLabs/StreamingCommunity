@@ -7,7 +7,7 @@ from typing import List
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import config_manager, os_manager
+from VibraVid.utils import config_manager, os_manager, tmdb_client
 from VibraVid.utils.console import TVShowManager
 
 
@@ -16,6 +16,8 @@ console = Console()
 MOVIE_FORMAT = config_manager.config.get('OUTPUT', 'movie_format')
 EPISODE_FORMAT = config_manager.config.get('OUTPUT', 'episode_format')
 SEASON_FORMAT = config_manager.config.get('OUTPUT', 'season_format')
+SERIES_FORMAT = config_manager.config.get('OUTPUT', 'series_format')
+SEASON_PADDING = config_manager.config.get('OUTPUT', 'season_padding')
 
 
 def dynamic_format_number(number_str: str) -> str:
@@ -135,6 +137,37 @@ def map_movie_title(title_name: str, title_year: str = None) -> str:
     return map_movie_temp
 
 
+def map_series_name(series_name: str, series_year: str = None) -> str:
+    """
+    Maps the series name to a specific format using the series_format config.
+
+    Parameters:
+        series_name (str): The name of the series.
+        series_year (str): The release year of the series (optional).
+
+    Returns:
+        str: The formatted series name for folder naming.
+    """
+    map_series_temp = SERIES_FORMAT
+
+    if series_name is not None:
+        map_series_temp = map_series_temp.replace("%(series_name)", os_manager.get_sanitize_file(series_name))
+        map_series_temp = map_series_temp.replace("%(series_slug)", tmdb_client._slugify(series_name))
+
+    if series_year is not None:
+        y = str(series_year).split('-')[0].strip()
+        if y.isdigit() and len(y) == 4:
+            map_series_temp = map_series_temp.replace("%(series_year)", y)
+        else:
+            map_series_temp = map_series_temp.replace("(%(series_year))", "").strip()
+            map_series_temp = map_series_temp.replace("%(series_year)", "").strip()
+    else:
+        map_series_temp = map_series_temp.replace("(%(series_year))", "").strip()
+        map_series_temp = map_series_temp.replace("%(series_year)", "").strip()
+
+    return map_series_temp
+
+
 def map_episode_title(tv_name: str, number_season: int, episode_number: int, episode_name: str) -> str:
     """
     Maps the episode title to a specific format.
@@ -169,6 +202,22 @@ def map_episode_title(tv_name: str, number_season: int, episode_number: int, epi
     return map_episode_temp
 
 
+def format_season_number(season_number: int) -> str:
+    """
+    Formats the season number based on the season_padding config.
+    
+    Parameters:
+        season_number (int): The season number.
+    
+    Returns:
+        str: The formatted season number.
+    """
+    if SEASON_PADDING:
+        return str(season_number).zfill(2)
+    else:
+        return str(season_number)
+
+
 def map_season_name(season_number: int) -> str:
     """
     Maps the season number to a specific format for folder naming.
@@ -182,9 +231,9 @@ def map_season_name(season_number: int) -> str:
     map_season_temp = SEASON_FORMAT
     
     if season_number is not None:
-        map_season_temp = map_season_temp.replace("%(season)", dynamic_format_number(str(season_number)))
+        map_season_temp = map_season_temp.replace("%(season)", format_season_number(season_number))
     else:
-        map_season_temp = map_season_temp.replace("%(season)", dynamic_format_number(str(0)))
+        map_season_temp = map_season_temp.replace("%(season)", format_season_number(0))
 
     return map_season_temp
 
