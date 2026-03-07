@@ -110,9 +110,7 @@ Key configuration parameters in `config.json`:
 		"serie_folder_name": "Serie",
 		"anime_folder_name": "Anime",
 		"movie_format": "%(title_name) (%(title_year))",
-		"episode_format": "%(series_name)/S%(season)/%(episode_name) S%(season)E%(episode)",
-		"season_padding": true,
-		"episode_padding": true
+		"episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
 	}
 }
 ```
@@ -138,46 +136,49 @@ Key configuration parameters in `config.json`:
 
 The `episode_format` controls how the complete series directory structure and filenames are organized. The format includes folder paths and filename in one string.
 
-**Default format:** `"%(series_name)/S%(season)/%(episode_name) S%(season)E%(episode)"`
+**Default format:** `"%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"`
 
 Results in:
 ```
-%(series_name)/     → Series folder (Breaking Bad)
-S%(season)/         → Season folder (S01, S02, ...)
-%(episode_name)...  → Filename (Pilot S01E01.mkv)
+%(series_name)/      → Series folder  (Breaking Bad)
+S%(season:02d)/      → Season folder  (S01, S02, ...)
+%(episode_name)...   → Filename       (Pilot S01E05.mkv)
 ```
 
 **Format variables:**
 - `%(series_name)`: Series name (sanitized)
 - `%(series_name_slug)`: Series name as slug (e.g., "breaking-bad")
 - `%(series_year)`: Series release year (optional, removed if not available)
-- `%(season)`: Season number (with padding: S01, S02, or S1, S2 based on `season_padding`)
-- `%(episode)`: Episode number (with padding: 01, 02, or 1, 2 based on `episode_padding`)
+- `%(season:FORMAT)`: Season number — padding controlled inline (see table below)
+- `%(episode:FORMAT)`: Episode number — padding controlled inline (see table below)
 - `%(episode_name)`: Episode title (sanitized)
 - `%(episode_name_slug)`: Episode title as slug (e.g., "the-iron-throne")
+
+**Inline Padding Syntax:**
+
+| Token | Result (n=1) | Description |
+|---|---|---|
+| `%(season:02d)` | `01` | Zero-pad to 2 digits |
+| `%(season:03d)` | `001` | Zero-pad to 3 digits |
+| `%(season:d)` | `1` | No padding |
 
 **Custom Format Examples:**
 
 ```json
-"episode_format": "%(series_name)/Season %(season)/E%(episode) - %(episode_name)"
-// Results: Breaking Bad/Season 01/E01 - Pilot.mkv
+"episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
+// Results: Breaking Bad/S01/Pilot S01E05.mkv
 
-"episode_format": "%(series_name) (%(series_year))/%(episode_name) [S%(season)E%(episode)]"
-// Results: Breaking Bad (2008)/Pilot [S01E01].mkv
+"episode_format": "%(series_name)/Season %(season:d)/E%(episode:d) - %(episode_name)"
+// Results: Breaking Bad/Season 1/E5 - Pilot.mkv
+
+"episode_format": "%(series_name) (%(series_year))/%(episode_name) [S%(season:02d)E%(episode:02d)]"
+// Results: Breaking Bad (2008)/Pilot [S01E05].mkv
 
 "episode_format": "Shows/%(series_name)/%(series_year)/%(episode_name)"
 // Results: Shows/Breaking Bad/2008/Pilot.mkv
 ```
 
 ---
-
-**`season_padding`**: Enable zero-padding for season numbers (default: `true`)
-- `true`: `S01`, `S02`, `S10` (always 2 digits)
-- `false`: `S1`, `S2`, `S10` (no padding)
-
-**`episode_padding`**: Enable zero-padding for episode numbers (default: `true`)
-- `true`: `01`, `02`, `10` (always 2 digits minimum)
-- `false`: `1`, `2`, `10` (no padding)
 
 **Note:** The legacy `add_siteName` option has been removed. Use `%{site_name}` placeholder in folder names instead:
 ```json
@@ -193,7 +194,6 @@ S%(season)/         → Season folder (S01, S02, ...)
 		"thread_count": 12,
 		"retry_count": 40,
 		"concurrent_download": true,
-		"max_concurrent_jobs": 3,
 		"max_speed": "30MB",
 		"select_video": "res=.*1080.*:for=best",
 		"select_audio": "lang='ita|Ita':for=all",
@@ -210,7 +210,6 @@ S%(season)/         → Season folder (S01, S02, ...)
 - **`thread_count`**: Number of parallel download threads (default: `12`)
 - **`retry_count`**: Maximum retry attempts for failed segments (default: `40`)
 - **`concurrent_download`**: Enable parallel download queue for films and series episodes (default: `true`). When `true`, downloads are queued and processed by a thread pool with a live Download Monitor table. When `false`, downloads run sequentially. When only one item is in the queue, it will download immediately regardless of this setting.
-- **`max_concurrent_jobs`**: Maximum number of downloads running simultaneously in the queue (default: `3`). **Note: Adding more threads may cause performance issues and slower download speeds.**
 - **`max_speed`**: Speed limit per stream (e.g., `"30MB"`, `"10MB"`)
 - **`cleanup_tmp_folder`**: Remove temporary files after download (default: `true`)
 

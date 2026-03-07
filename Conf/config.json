@@ -11,9 +11,7 @@
         "serie_folder_name": "Serie",
         "anime_folder_name": "Anime",
         "movie_format": "%(title_name) (%(title_year))",
-        "episode_format": "%(series_name)/S%(season)/%(episode_name) S%(season)E%(episode)",
-        "season_padding": true,
-        "episode_padding": true
+        "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
     },
     "DOWNLOAD": {
         "auto_select": true,
@@ -21,7 +19,6 @@
         "thread_count": 8,
         "retry_count": 25,
         "concurrent_download": true,
-        "max_concurrent_jobs": 4,
         "max_speed": "",
         "select_video": "best",
         "select_audio": "lang='ita|Ita|it':for=best",
@@ -40,6 +37,7 @@
         "subtitle_disposition_language": ["forced-ita","ita-forced"],
         "merge_audio": true,
         "merge_subtitle": true,
+        "force_subtitle": "auto",
         "extension": "mkv"
     },
     "REQUESTS": {

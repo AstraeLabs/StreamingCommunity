@@ -11,58 +11,66 @@ from VibraVid.utils import config_manager, os_manager, tmdb_client
 from VibraVid.utils.console import TVShowManager
 
 
+import re as _re
+
 msg = Prompt()
 console = Console()
 MOVIE_FORMAT = config_manager.config.get('OUTPUT', 'movie_format')
 EPISODE_FORMAT = config_manager.config.get('OUTPUT', 'episode_format')
-SEASON_PADDING = config_manager.config.get('OUTPUT', 'season_padding')
-EPISODE_PADDING = config_manager.config.get('OUTPUT', 'episode_padding')
 
 
-def dynamic_format_number(number_str: str) -> str:
+def _apply_format_token(token: str, value: int) -> str:
     """
-    Formats an episode number string, intelligently handling both integer and decimal episode numbers.
-    Respects the episode_padding config setting.
-    
-    Parameters:
-        - number_str (str): The episode number as a string, which may contain integers or decimals.
-    
-    Returns:
-        - str: The formatted episode number string, with appropriate handling based on the input type.
-    """
-    try:
-        # Keep decimal numbers as-is
-        if '.' in number_str:
-            return number_str
-        
-        n = int(number_str)
+    Applies an inline format specifier to a numeric value.
 
-        if EPISODE_PADDING:
-            # With padding: 01, 02, ..., 10, 11, ..., 99, 100
-            return str(n).zfill(2)
-        else:
-            # Without padding: 1, 2, ..., 10, 11, ..., 99, 100
-            return str(n)
-    
-    except Exception as e:
-        logging.warning(f"Could not format episode number '{number_str}': {str(e)}. Using original format.")
-        return number_str
-
-
-def format_season_number(season_number: int) -> str:
-    """
-    Formats the season number based on the season_padding config.
+    Supported specifiers:
+        - '02d'  -> zero-padded to 2 digits  (e.g. 01, 10, 100)
+        - '03d'  -> zero-padded to 3 digits  (e.g. 001, 010, 100)
+        - 'd'    -> no padding               (e.g. 1, 10, 100)
 
     Parameters:
-        season_number (int): The season number.
+        token (str): The format specifier extracted from the template.
+        value (int): The numeric value to format.
 
     Returns:
-        str: The formatted season number.
+        str: The formatted number string.
     """
-    if SEASON_PADDING:
-        return str(season_number).zfill(2)
-    else:
-        return str(season_number)
+    if token == 'd':
+        return str(value)
+    if token.endswith('d') and token[:-1].isdigit():
+        return str(value).zfill(int(token[:-1]))
+    return str(value).zfill(2)
+
+
+def _replace_format_key(fmt_string: str, key: str, value) -> str:
+    """
+    Replaces all occurrences of %(key:FORMAT) in a format string.
+
+    Supported syntax:
+        %(season:02d)   -> zero-padded to 2 digits
+        %(season:03d)   -> zero-padded to 3 digits
+        %(season:d)     -> no padding
+        %(episode:02d)  -> zero-padded to 2 digits
+        %(episode:d)    -> no padding
+
+    Parameters:
+        fmt_string (str): The format string to process.
+        key (str): The token key to replace (e.g. 'season', 'episode').
+        value: The numeric value to substitute.
+
+    Returns:
+        str: The format string with all occurrences of the key replaced.
+    """
+    def replacer(match):
+        token = match.group(1)
+        try:
+            n = int(str(value))
+            return _apply_format_token(token, n)
+        except (ValueError, TypeError):
+            return str(value)
+
+    pattern = _re.compile(r'%\(' + _re.escape(key) + r':([^)]+)\)')
+    return pattern.sub(replacer, fmt_string)
 
 
 def manage_selection(cmd_insert: str, max_count: int) -> List[int]:
@@ -189,27 +197,20 @@ def map_episode_title(tv_name: str, number_season: int, episode_number: int, epi
     Returns:
         str: The mapped episode filename (without extension and path).
     """
-    # Extract just the episode filename part from EPISODE_FORMAT
-    # EPISODE_FORMAT now includes full path like "%(series_name)/S%(season)/%(episode_name) S%(season)E%(episode)"
-    # We extract only the filename part (after the last /)
+    # Extract only the filename part (after the last /)
     episode_format_parts = EPISODE_FORMAT.split('/')
     filename_format = episode_format_parts[-1] if episode_format_parts else EPISODE_FORMAT
-    
+
     map_episode_temp = filename_format
-    
+
     if tv_name is not None:
         map_episode_temp = map_episode_temp.replace("%(tv_name)", os_manager.get_sanitize_file(tv_name))
 
-    if number_season is not None:
-        season_formatted = format_season_number(number_season)
-        map_episode_temp = map_episode_temp.replace("%(season)", season_formatted)
-    else:
-        map_episode_temp = map_episode_temp.replace("%(season)", format_season_number(0))
+    season_val = number_season if number_season is not None else 0
+    map_episode_temp = _replace_format_key(map_episode_temp, 'season', season_val)
 
-    if episode_number is not None:
-        map_episode_temp = map_episode_temp.replace("%(episode)", dynamic_format_number(str(episode_number)))
-    else:
-        map_episode_temp = map_episode_temp.replace("%(episode)", dynamic_format_number(str(0)))
+    episode_val = episode_number if episode_number is not None else 0
+    map_episode_temp = _replace_format_key(map_episode_temp, 'episode', episode_val)
 
     if episode_name is not None:
         map_episode_temp = map_episode_temp.replace("%(episode_name)", os_manager.get_sanitize_file(episode_name))
@@ -221,29 +222,27 @@ def map_episode_title(tv_name: str, number_season: int, episode_number: int, epi
 def map_season_name(season_number: int) -> str:
     """
     Maps the season number to a specific format for folder naming.
+    Reads the season segment directly from EPISODE_FORMAT.
 
     Parameters:
         season_number (int): The season number.
 
     Returns:
-        str: The formatted season folder name (e.g., "S01" or "S1").
+        str: The formatted season folder name (e.g., "S01", "S1", "S001").
     """
+    # Find the path segment containing %(season:...) to use as folder name template
     episode_parts = EPISODE_FORMAT.split('/')
-    
-    season_format = "S%(season)"
+    season_segment = None
     for part in episode_parts:
-        if "S%(season)" in part or "s%(season)" in part:
-            season_format = "S%(season)"
+        if _re.search(r'[Ss]%\(season:', part):
+            season_segment = part
             break
-    
-    map_season_temp = season_format
-    
-    if season_number is not None:
-        map_season_temp = map_season_temp.replace("%(season)", format_season_number(season_number))
-    else:
-        map_season_temp = map_season_temp.replace("%(season)", format_season_number(0))
 
-    return map_season_temp
+    if season_segment is None:
+        season_segment = "S%(season:02d)"
+
+    val = season_number if season_number is not None else 0
+    return _replace_format_key(season_segment, 'season', val)
 
 
 def map_episode_path(series_name: str, series_year: str = None, season_number: int = None, episode_number: int = None, episode_name: str = None) -> tuple:
@@ -261,14 +260,13 @@ def map_episode_path(series_name: str, series_year: str = None, season_number: i
         tuple: (path_components, filename) where path_components is a list for path assembly
                and filename is the final episode filename.
     """
-    # EPISODE_FORMAT now looks like: "%(series_name)/S%(season)/%(episode_name) S%(season)E%(episode)"
     map_episode_temp = EPISODE_FORMAT
-    
+
     # Replace series_name and its variant
     if series_name is not None:
         map_episode_temp = map_episode_temp.replace("%(series_name)", os_manager.get_sanitize_file(series_name))
         map_episode_temp = map_episode_temp.replace("%(series_name_slug)", tmdb_client._slugify(series_name))
-    
+
     # Replace series_year if present
     if series_year is not None:
         y = str(series_year).split('-')[0].strip()
@@ -280,20 +278,14 @@ def map_episode_path(series_name: str, series_year: str = None, season_number: i
     else:
         map_episode_temp = map_episode_temp.replace("(%(series_year))", "").strip()
         map_episode_temp = map_episode_temp.replace("%(series_year)", "").strip()
-    
-    # Replace season number
-    if season_number is not None:
-        season_formatted = format_season_number(season_number)
-        map_episode_temp = map_episode_temp.replace("%(season)", season_formatted)
-    else:
-        map_episode_temp = map_episode_temp.replace("%(season)", format_season_number(0))
-    
-    # Replace episode number
-    if episode_number is not None:
-        map_episode_temp = map_episode_temp.replace("%(episode)", dynamic_format_number(str(episode_number)))
-    else:
-        map_episode_temp = map_episode_temp.replace("%(episode)", dynamic_format_number(str(0)))
-    
+
+    # Replace season and episode numbers (honours inline format spec e.g. :02d, :d, :03d)
+    season_val = season_number if season_number is not None else 0
+    map_episode_temp = _replace_format_key(map_episode_temp, 'season', season_val)
+
+    episode_val = episode_number if episode_number is not None else 0
+    map_episode_temp = _replace_format_key(map_episode_temp, 'episode', episode_val)
+
     # Replace episode_name and its variant
     if episode_name is not None:
         map_episode_temp = map_episode_temp.replace("%(episode_name)", os_manager.get_sanitize_file(episode_name))
