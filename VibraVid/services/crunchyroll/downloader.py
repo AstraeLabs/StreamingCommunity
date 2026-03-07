@@ -162,11 +162,13 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     Downloads a specific episode from the specified season.
     """
     start_message()
-    client = scrape_serie.client    series_folder_name = map_series_name(scrape_serie.series_name, getattr(scrape_serie, 'year', None))    console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
+    client = scrape_serie.client
+    series_folder_name = map_series_name(scrape_serie.series_name, getattr(scrape_serie, 'year', None))
+    console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
 
     # Define filename and path
     title_name = f"{map_episode_title(scrape_serie.series_name, index_season_selected, index_episode_selected, obj_episode.name)}.{extension_output}"
-    title_path = os_manager.get_sanitize_path(os.path.join(site_constants.SERIES_FOLDER, scrape_serie.series_name, map_season_name(index_season_selected)))
+    title_path = os_manager.get_sanitize_path(os.path.join(site_constants.SERIES_FOLDER, series_folder_name, map_season_name(index_season_selected)))
 
     # Get media ID and main_guid
     url_id = obj_episode.url.split('/')[-1]

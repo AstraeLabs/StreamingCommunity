@@ -15,14 +15,14 @@ msg = Prompt()
 console = Console()
 MOVIE_FORMAT = config_manager.config.get('OUTPUT', 'movie_format')
 EPISODE_FORMAT = config_manager.config.get('OUTPUT', 'episode_format')
-SEASON_FORMAT = config_manager.config.get('OUTPUT', 'season_format')
-SERIES_FORMAT = config_manager.config.get('OUTPUT', 'series_format')
 SEASON_PADDING = config_manager.config.get('OUTPUT', 'season_padding')
+EPISODE_PADDING = config_manager.config.get('OUTPUT', 'episode_padding')
 
 
 def dynamic_format_number(number_str: str) -> str:
     """
     Formats an episode number string, intelligently handling both integer and decimal episode numbers.
+    Respects the episode_padding config setting.
     
     Parameters:
         - number_str (str): The episode number as a string, which may contain integers or decimals.
@@ -31,21 +31,38 @@ def dynamic_format_number(number_str: str) -> str:
         - str: The formatted episode number string, with appropriate handling based on the input type.
     """
     try:
+        # Keep decimal numbers as-is
         if '.' in number_str:
             return number_str
         
         n = int(number_str)
 
-        if n < 10:
-            width = len(str(n)) + 1
+        if EPISODE_PADDING:
+            # With padding: 01, 02, ..., 10, 11, ..., 99, 100
+            return str(n).zfill(2)
         else:
-            width = len(str(n))
-
-        return str(n).zfill(width)
+            # Without padding: 1, 2, ..., 10, 11, ..., 99, 100
+            return str(n)
     
     except Exception as e:
         logging.warning(f"Could not format episode number '{number_str}': {str(e)}. Using original format.")
         return number_str
+
+
+def format_season_number(season_number: int) -> str:
+    """
+    Formats the season number based on the season_padding config.
+
+    Parameters:
+        season_number (int): The season number.
+
+    Returns:
+        str: The formatted season number.
+    """
+    if SEASON_PADDING:
+        return str(season_number).zfill(2)
+    else:
+        return str(season_number)
 
 
 def manage_selection(cmd_insert: str, max_count: int) -> List[int]:
@@ -121,7 +138,10 @@ def map_movie_title(title_name: str, title_year: str = None) -> str:
     map_movie_temp = MOVIE_FORMAT
 
     if title_name is not None:
+
+        # Support both %(title_name) and %(title_name_slug)
         map_movie_temp = map_movie_temp.replace("%(title_name)", os_manager.get_sanitize_file(title_name))
+        map_movie_temp = map_movie_temp.replace("%(title_name_slug)", tmdb_client._slugify(title_name))
 
     if title_year is not None:
         y = str(title_year).split('-')[0].strip()
@@ -139,7 +159,7 @@ def map_movie_title(title_name: str, title_year: str = None) -> str:
 
 def map_series_name(series_name: str, series_year: str = None) -> str:
     """
-    Maps the series name to a specific format using the series_format config.
+    Returns the sanitized series name for folder naming.
 
     Parameters:
         series_name (str): The name of the series.
@@ -148,29 +168,17 @@ def map_series_name(series_name: str, series_year: str = None) -> str:
     Returns:
         str: The formatted series name for folder naming.
     """
-    map_series_temp = SERIES_FORMAT
+    result = series_name
 
     if series_name is not None:
-        map_series_temp = map_series_temp.replace("%(series_name)", os_manager.get_sanitize_file(series_name))
-        map_series_temp = map_series_temp.replace("%(series_slug)", tmdb_client._slugify(series_name))
+        result = os_manager.get_sanitize_file(series_name)
 
-    if series_year is not None:
-        y = str(series_year).split('-')[0].strip()
-        if y.isdigit() and len(y) == 4:
-            map_series_temp = map_series_temp.replace("%(series_year)", y)
-        else:
-            map_series_temp = map_series_temp.replace("(%(series_year))", "").strip()
-            map_series_temp = map_series_temp.replace("%(series_year)", "").strip()
-    else:
-        map_series_temp = map_series_temp.replace("(%(series_year))", "").strip()
-        map_series_temp = map_series_temp.replace("%(series_year)", "").strip()
-
-    return map_series_temp
+    return result
 
 
 def map_episode_title(tv_name: str, number_season: int, episode_number: int, episode_name: str) -> str:
     """
-    Maps the episode title to a specific format.
+    Maps the episode title to a specific filename format.
 
     Parameters:
         tv_name (str): The name of the TV show.
@@ -179,17 +187,24 @@ def map_episode_title(tv_name: str, number_season: int, episode_number: int, epi
         episode_name (str): The original name of the episode.
 
     Returns:
-        str: The mapped episode title.
+        str: The mapped episode filename (without extension and path).
     """
-    map_episode_temp = EPISODE_FORMAT
+    # Extract just the episode filename part from EPISODE_FORMAT
+    # EPISODE_FORMAT now includes full path like "%(series_name)/S%(season)/%(episode_name) S%(season)E%(episode)"
+    # We extract only the filename part (after the last /)
+    episode_format_parts = EPISODE_FORMAT.split('/')
+    filename_format = episode_format_parts[-1] if episode_format_parts else EPISODE_FORMAT
+    
+    map_episode_temp = filename_format
     
     if tv_name is not None:
         map_episode_temp = map_episode_temp.replace("%(tv_name)", os_manager.get_sanitize_file(tv_name))
 
     if number_season is not None:
-        map_episode_temp = map_episode_temp.replace("%(season)", str(number_season))
+        season_formatted = format_season_number(number_season)
+        map_episode_temp = map_episode_temp.replace("%(season)", season_formatted)
     else:
-        map_episode_temp = map_episode_temp.replace("%(season)", dynamic_format_number(str(0)))
+        map_episode_temp = map_episode_temp.replace("%(season)", format_season_number(0))
 
     if episode_number is not None:
         map_episode_temp = map_episode_temp.replace("%(episode)", dynamic_format_number(str(episode_number)))
@@ -198,24 +213,9 @@ def map_episode_title(tv_name: str, number_season: int, episode_number: int, epi
 
     if episode_name is not None:
         map_episode_temp = map_episode_temp.replace("%(episode_name)", os_manager.get_sanitize_file(episode_name))
+        map_episode_temp = map_episode_temp.replace("%(episode_name_slug)", tmdb_client._slugify(episode_name))
 
     return map_episode_temp
-
-
-def format_season_number(season_number: int) -> str:
-    """
-    Formats the season number based on the season_padding config.
-    
-    Parameters:
-        season_number (int): The season number.
-    
-    Returns:
-        str: The formatted season number.
-    """
-    if SEASON_PADDING:
-        return str(season_number).zfill(2)
-    else:
-        return str(season_number)
 
 
 def map_season_name(season_number: int) -> str:
@@ -226,9 +226,17 @@ def map_season_name(season_number: int) -> str:
         season_number (int): The season number.
 
     Returns:
-        str: The formatted season name for folder naming.
+        str: The formatted season folder name (e.g., "S01" or "S1").
     """
-    map_season_temp = SEASON_FORMAT
+    episode_parts = EPISODE_FORMAT.split('/')
+    
+    season_format = "S%(season)"
+    for part in episode_parts:
+        if "S%(season)" in part or "s%(season)" in part:
+            season_format = "S%(season)"
+            break
+    
+    map_season_temp = season_format
     
     if season_number is not None:
         map_season_temp = map_season_temp.replace("%(season)", format_season_number(season_number))
@@ -236,6 +244,67 @@ def map_season_name(season_number: int) -> str:
         map_season_temp = map_season_temp.replace("%(season)", format_season_number(0))
 
     return map_season_temp
+
+
+def map_episode_path(series_name: str, series_year: str = None, season_number: int = None, episode_number: int = None, episode_name: str = None) -> tuple:
+    """
+    Maps the complete episode path and filename using the consolidated episode_format config.
+
+    Parameters:
+        series_name (str): The name of the series.
+        series_year (str): The release year of the series (optional).
+        season_number (int): The season number.
+        episode_number (int): The episode number.
+        episode_name (str): The name of the episode.
+
+    Returns:
+        tuple: (path_components, filename) where path_components is a list for path assembly
+               and filename is the final episode filename.
+    """
+    # EPISODE_FORMAT now looks like: "%(series_name)/S%(season)/%(episode_name) S%(season)E%(episode)"
+    map_episode_temp = EPISODE_FORMAT
+    
+    # Replace series_name and its variant
+    if series_name is not None:
+        map_episode_temp = map_episode_temp.replace("%(series_name)", os_manager.get_sanitize_file(series_name))
+        map_episode_temp = map_episode_temp.replace("%(series_name_slug)", tmdb_client._slugify(series_name))
+    
+    # Replace series_year if present
+    if series_year is not None:
+        y = str(series_year).split('-')[0].strip()
+        if y.isdigit() and len(y) == 4:
+            map_episode_temp = map_episode_temp.replace("%(series_year)", y)
+        else:
+            map_episode_temp = map_episode_temp.replace("(%(series_year))", "").strip()
+            map_episode_temp = map_episode_temp.replace("%(series_year)", "").strip()
+    else:
+        map_episode_temp = map_episode_temp.replace("(%(series_year))", "").strip()
+        map_episode_temp = map_episode_temp.replace("%(series_year)", "").strip()
+    
+    # Replace season number
+    if season_number is not None:
+        season_formatted = format_season_number(season_number)
+        map_episode_temp = map_episode_temp.replace("%(season)", season_formatted)
+    else:
+        map_episode_temp = map_episode_temp.replace("%(season)", format_season_number(0))
+    
+    # Replace episode number
+    if episode_number is not None:
+        map_episode_temp = map_episode_temp.replace("%(episode)", dynamic_format_number(str(episode_number)))
+    else:
+        map_episode_temp = map_episode_temp.replace("%(episode)", dynamic_format_number(str(0)))
+    
+    # Replace episode_name and its variant
+    if episode_name is not None:
+        map_episode_temp = map_episode_temp.replace("%(episode_name)", os_manager.get_sanitize_file(episode_name))
+        map_episode_temp = map_episode_temp.replace("%(episode_name_slug)", tmdb_client._slugify(episode_name))
+    
+    # Split into path components and filename
+    parts = map_episode_temp.split('/')
+    filename = parts[-1] if parts else map_episode_temp
+    path_components = parts[:-1] if len(parts) > 1 else []
+    
+    return (path_components, filename)
 
 
 def validate_selection(list_season_select: List[int], available_seasons: List[int]) -> List[int]:

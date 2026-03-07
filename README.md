@@ -109,9 +109,10 @@ Key configuration parameters in `config.json`:
 		"movie_folder_name": "Movie",
 		"serie_folder_name": "Serie",
 		"anime_folder_name": "Anime",
-		"episode_format": "%(episode_name) S%(season)E%(episode)",
-		"season_format": "S%(season)",
-		"add_siteName": false
+		"movie_format": "%(title_name) (%(title_year))",
+		"episode_format": "%(series_name)/S%(season)/%(episode_name) S%(season)E%(episode)",
+		"season_padding": true,
+		"episode_padding": true
 	}
 }
 ```
@@ -121,21 +122,68 @@ Key configuration parameters in `config.json`:
     - Linux/MacOS: `Desktop/MyLibrary/Folder`
 
 - **`movie_folder_name`**: Subfolder name for movies (default: `"Movie"`)
+    - Supports `%{site_name}` placeholder: `"Movie/%{site_name}"` → `"Movie/Crunchyroll"`
+    - Example with year: `"Movie (%{site_name})"`
+
 - **`serie_folder_name`**: Subfolder name for TV series (default: `"Serie"`)
+    - Supports `%{site_name}` placeholder: `"Serie/%{site_name}"` → `"Serie/Crunchyroll"`
+    - Example with year: `"Series by %{site_name}"`
+
 - **`anime_folder_name`**: Subfolder name for anime (default: `"Anime"`)
+    - Supports `%{site_name}` placeholder: `"Anime/%{site_name}"` → `"Anime/Crunchyroll"`
 
-- **`episode_format`**: Episode filename template
-    - `%(tv_name)`: TV Show name
-    - `%(season)`: Season number (zero-padded)
-    - `%(episode)`: Episode number (zero-padded)
-    - `%(episode_name)`: Episode title
-    - Example: `"%(episode_name) S%(season)E%(episode)"` → `"Pilot S01E01"`
+---
 
-- **`season_format`**: Season folder name template (default: `"S%(season)"`)
-    - `%(season)`: Season number (zero-padded)
-    - Example: `"S%(season)"` → `"S01"` or `"Stagione %(season)"` → `"Stagione 1"`
+#### Episode Format Configuration
 
-- **`add_siteName`**: Append site name to root path (default: `false`)
+The `episode_format` controls how the complete series directory structure and filenames are organized. The format includes folder paths and filename in one string.
+
+**Default format:** `"%(series_name)/S%(season)/%(episode_name) S%(season)E%(episode)"`
+
+Results in:
+```
+%(series_name)/     → Series folder (Breaking Bad)
+S%(season)/         → Season folder (S01, S02, ...)
+%(episode_name)...  → Filename (Pilot S01E01.mkv)
+```
+
+**Format variables:**
+- `%(series_name)`: Series name (sanitized)
+- `%(series_name_slug)`: Series name as slug (e.g., "breaking-bad")
+- `%(series_year)`: Series release year (optional, removed if not available)
+- `%(season)`: Season number (with padding: S01, S02, or S1, S2 based on `season_padding`)
+- `%(episode)`: Episode number (with padding: 01, 02, or 1, 2 based on `episode_padding`)
+- `%(episode_name)`: Episode title (sanitized)
+- `%(episode_name_slug)`: Episode title as slug (e.g., "the-iron-throne")
+
+**Custom Format Examples:**
+
+```json
+"episode_format": "%(series_name)/Season %(season)/E%(episode) - %(episode_name)"
+// Results: Breaking Bad/Season 01/E01 - Pilot.mkv
+
+"episode_format": "%(series_name) (%(series_year))/%(episode_name) [S%(season)E%(episode)]"
+// Results: Breaking Bad (2008)/Pilot [S01E01].mkv
+
+"episode_format": "Shows/%(series_name)/%(series_year)/%(episode_name)"
+// Results: Shows/Breaking Bad/2008/Pilot.mkv
+```
+
+---
+
+**`season_padding`**: Enable zero-padding for season numbers (default: `true`)
+- `true`: `S01`, `S02`, `S10` (always 2 digits)
+- `false`: `S1`, `S2`, `S10` (no padding)
+
+**`episode_padding`**: Enable zero-padding for episode numbers (default: `true`)
+- `true`: `01`, `02`, `10` (always 2 digits minimum)
+- `false`: `1`, `2`, `10` (no padding)
+
+**Note:** The legacy `add_siteName` option has been removed. Use `%{site_name}` placeholder in folder names instead:
+```json
+"movie_folder_name": "Movie/%{site_name}",
+"serie_folder_name": "Serie/%{site_name}"
+```
 
 ### Download Settings
 
