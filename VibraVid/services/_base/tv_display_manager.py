@@ -205,6 +205,8 @@ def map_episode_title(tv_name: str, number_season: int, episode_number: int, epi
 
     if tv_name is not None:
         map_episode_temp = map_episode_temp.replace("%(tv_name)", os_manager.get_sanitize_file(tv_name))
+        map_episode_temp = map_episode_temp.replace("%(series_name)", os_manager.get_sanitize_file(tv_name))
+        map_episode_temp = map_episode_temp.replace("%(series_name_slug)", tmdb_client._slugify(tv_name))
 
     season_val = number_season if number_season is not None else 0
     map_episode_temp = _replace_format_key(map_episode_temp, 'season', season_val)
