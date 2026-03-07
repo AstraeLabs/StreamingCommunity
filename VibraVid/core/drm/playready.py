@@ -100,7 +100,7 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
             try:
                 challenge = cdm.get_license_challenge(session_id, pssh_obj.wrm_headers[0])
             except Exception as e:
-                console.print(f"[red]Error creating license challenge: {e}")
+                console.print(f"[red]Error creating license challenge for pssh {pssh[:30]}...: {e}")
                 continue
             
             # Prepare headers
@@ -116,18 +116,18 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
             try:
                 response = create_client_curl(headers=req_headers).post(license_url, data=challenge)
             except Exception as e:
-                console.print(f"[red]License request error: {e}")
+                console.print(f"[red]License request error for pssh {pssh[:30]}...: {e}")
                 continue
 
             if response.status_code != 200:
-                console.print(f"[red]License error: {response.status_code}\nResponse: {response.text[:200]}\nUrl: {license_url}\nHeaders: {req_headers}")
+                console.print(f"[red]License error for pssh {pssh[:30]}...: {response.status_code}\nResponse: {response.text[:200]}\nUrl: {license_url}\nHeaders: {req_headers}")
                 continue
 
             # Parse license
             try:
                 cdm.parse_license(session_id, response.text)
             except Exception as e:
-                console.print(f"[red]Error parsing license: {e}")
+                console.print(f"[red]Error parsing license for pssh {pssh[:30]}...: {e}")
                 continue
 
             # Extract CONTENT keys
