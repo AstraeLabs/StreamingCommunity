@@ -1,7 +1,5 @@
 # 21.03.25
 
-import logging
-
 from bs4 import BeautifulSoup
 
 from VibraVid.utils.os import os_manager

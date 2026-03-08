@@ -2,6 +2,7 @@
 
 import sys
 import logging
+import re as _re
 from typing import List
 
 from rich.console import Console
@@ -10,8 +11,6 @@ from rich.prompt import Prompt
 from VibraVid.utils import config_manager, os_manager, tmdb_client
 from VibraVid.utils.console import TVShowManager
 
-
-import re as _re
 
 msg = Prompt()
 console = Console()
@@ -350,13 +349,22 @@ def display_seasons_list(seasons_manager) -> str:
     # Set up table for displaying seasons
     table_show_manager = TVShowManager()
 
-    # Check if 'type' and 'id' attributes exist in the first season
+    # Check if 'type', 'id' or 'extra' attributes exist in seasons
     try:
-        has_type = hasattr(seasons_manager.seasons[0], 'type') and (seasons_manager.seasons[0].type) is not None and str(seasons_manager.seasons[0].type) != ''
-        has_id = hasattr(seasons_manager.seasons[0], 'id') and (seasons_manager.seasons[0].id) is not None and str(seasons_manager.seasons[0].id) != ''
+        first = seasons_manager.seasons[0]
+        has_type = hasattr(first, 'type') and (first.type) is not None and str(first.type) != ''
+        has_id = hasattr(first, 'id') and (first.id) is not None and str(first.id) != ''
     except IndexError:
         has_type = False
         has_id = False
+
+    # Determine if any season has a non-empty extra field
+    has_extra = False
+    for s in seasons_manager.seasons:
+        extra = getattr(s, 'extra', None)
+        if extra is not None and str(extra).strip() != '':
+            has_extra = True
+            break
 
     # Add columns to the table
     column_info = {
@@ -369,6 +377,9 @@ def display_seasons_list(seasons_manager) -> str:
     
     if has_id:
         column_info["ID"] = {'color': 'cyan'}
+    
+    if has_extra:
+        column_info["Extra"] = {'color': 'green'}
 
     table_show_manager.add_column(column_info)
 
@@ -380,7 +391,7 @@ def display_seasons_list(seasons_manager) -> str:
             'Name': season_name
         }
 
-        # Add 'Type' and 'ID' if they exist
+        # Add 'Type', 'ID' and 'Extra' if they exist
         if has_type:
             season_type = season.type if hasattr(season, 'type') else 'N/A'
             season_info['Type'] = season_type
@@ -388,6 +399,10 @@ def display_seasons_list(seasons_manager) -> str:
         if has_id:
             season_id = season.id if hasattr(season, 'id') else 'N/A'
             season_info['ID'] = season_id
+        
+        if has_extra:
+            season_extra = getattr(season, 'extra', '')
+            season_info['Extra'] = season_extra
 
         table_show_manager.add_tv_show(season_info)
 
@@ -411,7 +426,7 @@ def display_episodes_list(episodes_manager) -> str:
     # Set up table for displaying episodes
     table_show_manager = TVShowManager()
 
-    # Check if any episode has non-empty fields
+    # Check if any episode has non-empty category/duration fields
     has_category = False
     has_duration = False
     
@@ -444,7 +459,6 @@ def display_episodes_list(episodes_manager) -> str:
         name = media.get('name') if isinstance(media, dict) else getattr(media, 'name', None)
         duration = media.get('duration') if isinstance(media, dict) else getattr(media, 'duration', None)
         category = media.get('category') if isinstance(media, dict) else getattr(media, 'category', None)
-
         episode_info = {
             'Index': str(i + 1),
             'Name': name,

@@ -1,6 +1,7 @@
 # 07.03.26
 
 import os
+import re
 from typing import Tuple
 
 from rich.console import Console
@@ -11,7 +12,7 @@ from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_episode_path, map_movie_title
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
-from .scrapper import GetSerieInfo
+from .scrapper import GetSerieInfo, GetFilmInfo
 
 
 msg = Prompt()
@@ -19,20 +20,38 @@ console = Console()
 extension_output = config_manager.config.get("PROCESS", "extension")
 
 
+def fix_manifest(manifest_url: str) -> str:
+    """Clean manifest URL."""
+    if not manifest_url:
+        return manifest_url
+
+    parts = manifest_url.split("?", 1)
+    base = parts[0]
+    query = parts[1] if len(parts) == 2 else ""
+
+    base = re.sub(r'(/dm/)3\$[^/]+/', r'\1', base)
+    return base + ("?" + query if query else "")
+
 
 def download_film(select_title: Entries) -> None:
     """
-    Download a single film.
-    Not yet implemented (MPD/stream URL extraction pending).
-
-    Args:
-        select_film: Film metadata from search results.
+    Downloads a film using the provided Entries information.
     """
     start_message()
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{select_title.name}\n")
 
-    # Define the filename and path for the downloaded film
-    title_name = f"{map_movie_title(select_title.name, select_title.year)}.{extension_output}"
+    film = None
+    try:
+        film = GetFilmInfo(select_title.url)
+        film.collect_info()
+
+        if film.quality:
+            console.print(f"[cyan]Quality: [red]{film.quality}")
+    except Exception as e:
+        console.print(f"[red]Could not fetch film details: {e}")
+
+    year = film.year if film else select_title.year
+    title_name = f"{map_movie_title(select_title.name, year)}.{extension_output}"
     title_path = os.path.join(site_constants.MOVIE_FOLDER, title_name.replace(f".{extension_output}", ""))
 
     console.print(f"[yellow]TODO: download not implemented for {site_constants.SITE_NAME}, path: {title_path}")
@@ -41,39 +60,28 @@ def download_film(select_title: Entries) -> None:
 
 def download_episode(obj_episode, index_season_selected: int, index_episode_selected: int, scrape_serie: GetSerieInfo) -> Tuple[str, bool]:
     """
-    Prepare episode output path.
-    Download not yet implemented (MPD/stream URL extraction pending).
-
-    Args:
-        obj_episode:            Episode object.
-        index_season_selected:  Season number (used for naming).
-        index_episode_selected: Episode number (used for naming).
-        scrape_serie:           Active GetSerieInfo instance.
-
-    Returns:
-        Tuple[str, bool]: (output_path, stopped).
+    Downloads a specific episode from the specified season.
     """
     start_message()
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected})\n")
-    print(obj_episode.url)
 
-    # Generate output path
     path_components, filename = map_episode_path(scrape_serie.series_name, getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
     episode_path = os.path.join(site_constants.SERIES_FOLDER, *path_components)
-    episode_full_path = os.path.join(episode_path, f"{filename}.{extension_output}")
+    full_path = os.path.join(episode_path, f"{filename}.{extension_output}")
 
-    console.print(f"[yellow]TODO: download not implemented for {site_constants.SITE_NAME}, path: {episode_full_path}")
-    return (episode_full_path, True)
+    console.print(f"[yellow]TODO: download not implemented for {site_constants.SITE_NAME}")
+    return (full_path, True)
+
 
 def download_series(select_season: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie: GetSerieInfo = None) -> None:
     """
-    Handle series navigation and episode selection.
+    Handle downloading a complete series.
 
-    Args:
-        select_season:      Series metadata from search results.
-        season_selection:   Pre-defined season selection; bypasses prompt.
-        episode_selection:  Pre-defined episode selection; bypasses prompt.
-        scrape_serie:       Existing GetSerieInfo instance to reuse.
+    Parameters:
+        - select_season (Entries): Series metadata from search
+        - season_selection (str, optional): Pre-defined season selection that bypasses manual input
+        - episode_selection (str, optional): Pre-defined episode selection that bypasses manual input
+        - scrape_serie (Any, optional): Pre-existing scraper instance to avoid recreation
     """
     start_message()
     if scrape_serie is None:

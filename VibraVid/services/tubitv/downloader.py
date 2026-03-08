@@ -9,7 +9,7 @@ from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, start_message
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_title, map_season_name, map_series_name, map_episode_path
+from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
 from VibraVid.core.downloader import HLS_Downloader

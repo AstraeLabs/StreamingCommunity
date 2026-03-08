@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 
 from VibraVid.utils import os_manager, config_manager, start_message
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import manage_selection, dynamic_format_number
+from VibraVid.services._base.tv_display_manager import manage_selection, map_episode_path, map_movie_title
 
 from VibraVid.core.downloader import MP4_Downloader, HLS_Downloader
 
@@ -33,7 +33,7 @@ def download_film(select_title: Entries):
     # Set up video source (only configure scrape_serie now)
     scrape_serie.setup(None, select_title.id, select_title.slug)
     scrape_serie.is_series = False
-    obj_episode = scrape_serie.selectEpisode(1, 0)
+    obj_episode = scrape_serie.get_info_episode(0)
     download_episode(obj_episode, 0, scrape_serie, video_source)
 
 
@@ -47,13 +47,16 @@ def download_episode(obj_episode, index_select, scrape_serie, video_source):
     # Collect mp4 url
     video_source.get_embed(obj_episode.id, not DOWNOAD_HLS)
 
-    # Create output path
-    mp4_name = f"{scrape_serie.series_name}_EP_{dynamic_format_number(str(obj_episode.number))}"
-
     if scrape_serie.is_series:
-        mp4_path = os_manager.get_sanitize_path(os.path.join(site_constants.ANIME_FOLDER, scrape_serie.series_name))
+        episode_number = int(float(obj_episode.number)) if isinstance(obj_episode.number, (int, float, str)) else 1
+        episode_name = f"Episode {obj_episode.number}"
+        path_components, filename = map_episode_path(series_name=scrape_serie.series_name, series_year=None, season_number=1, episode_number=episode_number, episode_name=episode_name)
+        
+        mp4_path = os_manager.get_sanitize_path(os.path.join(site_constants.ANIME_FOLDER, *path_components))
+        mp4_name = filename
     else:
         mp4_path = os_manager.get_sanitize_path(os.path.join(site_constants.MOVIE_FOLDER, scrape_serie.series_name))
+        mp4_name = map_movie_title(scrape_serie.series_name, None)
 
     # Create output folder
     os_manager.create_path(mp4_path)
@@ -105,7 +108,7 @@ def download_series(select_title: Entries, season_selection: str = None, episode
 
     # Download selected episodes
     if len(list_episode_select) == 1 and last_command != "*":
-        obj_episode = scrape_serie.selectEpisode(1, list_episode_select[0]-1)
+        obj_episode = scrape_serie.get_info_episode(list_episode_select[0]-1)
         path, _ = download_episode(obj_episode, list_episode_select[0]-1, scrape_serie, video_source)
         return path
 
@@ -115,5 +118,5 @@ def download_series(select_title: Entries, season_selection: str = None, episode
         for i_episode in list_episode_select:
             if kill_handler:
                 break
-            obj_episode = scrape_serie.selectEpisode(1, i_episode-1)
+            obj_episode = scrape_serie.get_info_episode(i_episode-1)
             _, kill_handler = download_episode(obj_episode, i_episode-1, scrape_serie, video_source)

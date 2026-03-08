@@ -1,18 +1,20 @@
 # 07.03.26
 
 import re
-import urllib.parse
+import json
 
+from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import TVShowManager
 from VibraVid.utils.http_client import check_region_availability
+from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
 from .downloader import download_film, download_series
-from .client import BASE_URL, get_json
+from .client import BASE_URL
 
 
 indice = 18
@@ -26,7 +28,7 @@ table_show_manager = TVShowManager()
 
 def title_search(query: str) -> int:
     """
-    Search for titles on Prime Video.
+    Search for titles on Prime Video using the HTML search page.
 
     Args:
         query (str): The search query.
@@ -40,40 +42,63 @@ def title_search(query: str) -> int:
     if not check_region_availability(_region, site_constants.SITE_NAME):
         return 0
 
-    query_params = urllib.parse.urlencode({"jic": "8|EgRzdm9k", "phrase": query, "type": "CONTENT_CARDS"})
-    search_url = f"{BASE_URL}/api/searchSuggestions?{query_params}"
-    console.print(f"[cyan]Search url: [yellow]{search_url}")
-
-    extra_headers = {
-        "accept": "*/*",
-        "x-requested-with": "XMLHttpRequest",
-        "x-amzn-client-ttl-seconds": "15",
-        "referer": f"{BASE_URL}/",
-    }
+    search_url = f"{BASE_URL}/search/ref=atv_nb_sug"
+    params = {"ie": "UTF8", "phrase": query}
+    console.print(f"[cyan]Search url: [yellow]{search_url}?phrase={query}")
 
     try:
-        data = get_json(search_url, extra_headers).get("contentCards", [])
+        response = create_client(headers={'user-agent': get_userAgent(), "viewport-width": "1143"}).get(search_url, params=params, timeout=20)
+        response.raise_for_status()
     except Exception as e:
-        console.print(f"[red]Site: {site_constants.SITE_NAME}, request search error: {e}")
+        console.print(f"[red]Site: {site_constants.SITE_NAME}, request error: {e}")
         return 0
 
-    for card in data:
+    # Extract the props JSON embedded in a <script> tag
+    soup = BeautifulSoup(response.text, "html.parser")
+    data = None
+    for script in soup.find_all("script"):
+        if script.string and '{"props":{"body":[{"args"' in script.string:
+            try:
+                data = json.loads(script.string)
+                break
+            except json.JSONDecodeError:
+                continue
+
+    if not data:
+        console.print(f"[red]Site: {site_constants.SITE_NAME}, could not parse search JSON.")
+        return 0
+
+    # Navigate to the entities list
+    try:
+        containers = data["props"]["body"][0]["props"]["search"]["containers"]
+        entities   = []
+        for container in containers:
+            entities.extend(container.get("entities", []))
+    except (KeyError, IndexError, TypeError) as e:
+        console.print(f"[red]Site: {site_constants.SITE_NAME}, unexpected JSON structure: {e}")
+        return 0
+
+    for card in entities:
         try:
-            href = card.get("href", "")
-            m = re.search(r'/detail/([^/]+)/', href)
+            href = card.get("link", {}).get("url", "")
+            m    = re.search(r'/detail/([^/]+)/', href)
             if not m:
                 continue
 
             compact_id = m.group(1)
             entity_type = card.get("entityType", "")
             media_type = "tv" if entity_type == "TV Show" else "film"
+            cues = card.get("entitlementCues", {})
+            avail_msg = (cues.get("glanceMessage", {}).get("message") or cues.get("focusMessage",  {}).get("message") or "")
 
             entries_manager.add(Entries(
-                name=card.get("text", ""),
-                type=media_type,
-                year=str(card.get("releaseYear", "")),
-                url=f"{BASE_URL}/detail/{compact_id}/",
-                slug=compact_id,
+                name = card.get("title", card.get("displayTitle", "")),
+                type = media_type,
+                year = str(card.get("releaseYear", "")),
+                url = f"{BASE_URL}/detail/{compact_id}/",
+                slug = compact_id,
+                episode = avail_msg,
+                image = card.get("images", {}).get("cover", {}).get("url", "")
             ))
 
         except Exception as e:
