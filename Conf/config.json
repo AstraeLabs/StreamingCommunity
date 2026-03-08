@@ -37,7 +37,7 @@
         "audio_order": [],
         "subtitle_order": [],
         "subtitle_disposition": false,
-        "subtitle_disposition_language": ["forced-ita","ita-forced"],
+        "subtitle_disposition_language": ["ita_forced"],
         "merge_audio": true,
         "merge_subtitle": true,
         "force_subtitle": "auto",

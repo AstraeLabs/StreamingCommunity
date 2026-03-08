@@ -337,24 +337,33 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     # Set disposition ONLY if SUBTITLE_DISPOSITION is enabled
     if SUBTITLE_DISPOSITION and len(subtitles_list) > 0:
         disposition_idx = None
+        forced_flag = False
         
         # Find subtitle matching the configured language
         for idx, subtitle in enumerate(subtitles_list):
             subtitle_lang = subtitle.get('language', '').lower()
+            subtitle_title = subtitle.get('title', '').lower()
             for lang in SUBTITLE_DISPOSITION_LANGUAGE:
                 config_lang = lang.lower().strip()
                 
                 if subtitle_lang == config_lang or subtitle_lang.startswith(config_lang):
                     console.print(f"[yellow]    Setting disposition for subtitle: [red]{subtitle.get('language')}")
                     disposition_idx = idx
+                    if 'forced' in subtitle_lang or 'forced' in subtitle_title:
+                        forced_flag = True
+                        console.print(f"[yellow]    Subtitle is forced: [red]{subtitle.get('language')}")
+                        
                     break
                     
             if disposition_idx is not None:
                 break
             
-        # If matching subtitle found, set it as default
+        # If matching subtitle found, set disposition flags
         if disposition_idx is not None:
-            ffmpeg_cmd.extend([f'-disposition:s:{disposition_idx}', 'default'])
+            flags = 'default'
+            if forced_flag:
+                flags += '+forced'
+            ffmpeg_cmd.extend([f'-disposition:s:{disposition_idx}', flags])
     
     # Overwrite
     ffmpeg_cmd += [out_path, "-y"]
