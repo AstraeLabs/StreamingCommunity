@@ -54,7 +54,7 @@ def download_film(select_title: Entries) -> Tuple[str, bool]:
 
     # Get master playlist URL
     try:
-        master_playlist, license_url = get_playback_url(content_id, bearer_token)
+        master_playlist, license_url, custom_headers = get_playback_url(content_id, bearer_token)
     except Exception as e:
         console.print(f"[red]Error getting playback URL: {e}")
         return None, True
@@ -67,7 +67,8 @@ def download_film(select_title: Entries) -> Tuple[str, bool]:
     return HLS_Downloader(
         m3u8_url=master_playlist,
         output_path=os.path.join(title_path, title_name),
-        license_url=license_url
+        license_url=license_url,
+        headers=custom_headers
     ).start()
 
 
@@ -84,7 +85,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
 
     # Get master playlist URL
     try:
-        master_playlist, license_url = get_playback_url(obj_episode.id, bearer_token)
+        master_playlist, license_url, custom_headers = get_playback_url(obj_episode.id, bearer_token)
     except Exception as e:
         console.print(f"[red]Error getting playback URL: {e}")
         return None, True
@@ -92,8 +93,9 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     # Download the episode
     return HLS_Downloader(
         m3u8_url=master_playlist,
+        license_url=license_url,
         output_path=os.path.join(episode_path, episode_name),
-        license_url=license_url
+        headers=custom_headers
     ).start()
 
 

@@ -397,10 +397,8 @@ class MediaDownloader:
 
         # Check for key retrieval errors (Succedde spesso quando parsa m3u8 che hanno bisogna di licenza, ma non ho ancora trovato un caso per implementare license per quel cazzo di m3u8 quindi amen va su failed).
         if any("Failed to get KEY" in error for error in log_parser.errors):
-            self.status = {"error": "key_error", "message": "Failed to retrieve decryption key"}
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="Failed to get decryption key")
-            return self.status
 
         self.status = self._get_download_status(subtitle_sizes, external_subs)
 

@@ -116,11 +116,11 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
             try:
                 response = create_client_curl(headers=req_headers).post(license_url, data=challenge)
             except Exception as e:
-                console.print(f"[red]License request error: {e}")
+                console.print(f"[red]License request error for PSSH {pssh[:30]}...: {e}")
                 continue
 
             if response.status_code != 200:
-                console.print(f"[red]License error: {response.status_code}\nResponse: {response.content.decode('latin-1')[:200]}\nUrl: {license_url}\nHeaders: {req_headers}")
+                console.print(f"[red]License error for PSSH {pssh[:30]}...: {response.status_code}\nResponse: {response.content.decode('latin-1')[:200]}\nUrl: {license_url}\nHeaders: {req_headers}")
                 continue
 
             # Parse license response
@@ -133,21 +133,21 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
                     if 'license' in data:
                         license_bytes = base64.b64decode(data['license'])
                     else:
-                        console.print("[red]'license' field not found in JSON response.")
+                        console.print(f"[red]'license' field not found in JSON response for PSSH {pssh[:30]}...]")
                         continue
                 except Exception as e:
-                    console.print(f"[red]Error parsing JSON license response: {e}")
+                    console.print(f"[red]Error parsing JSON license response for PSSH {pssh[:30]}...: {e}")
                     pass    # SKIP JSON parsing error and try raw content
             
             if not license_bytes:
-                console.print("[red]License data is empty.")
+                console.print(f"[red]License data is empty for PSSH {pssh[:30]}...]")
                 continue
 
             # Parse license
             try:
                 cdm.parse_license(session_id, license_bytes)
             except Exception as e:
-                console.print(f"[red]Error parsing license: {e}")
+                console.print(f"[red]Error parsing license for PSSH {pssh[:30]}...: {e}")
                 continue
 
             # Extract CONTENT keys
@@ -164,7 +164,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
                         extracted_kids.add(kid)
 
             except Exception as e:
-                console.print(f"[red]Error extracting keys: {e}")
+                console.print(f"[red]Error extracting keys for PSSH {pssh[:30]}...: {e}")
                 continue
 
         if all_content_keys:
