@@ -17,7 +17,7 @@ from .downloader import download_film, download_series
 from .client import BASE_URL
 
 
-indice = 18
+indice = 15
 _useFor = "Film_Serie"
 _region = ["IT"]
 msg = Prompt()
@@ -68,7 +68,6 @@ def title_search(query: str) -> int:
         console.print(f"[red]Site: {site_constants.SITE_NAME}, could not parse search JSON.")
         return 0
 
-    # Navigate to the entities list
     try:
         containers = data["props"]["body"][0]["props"]["search"]["containers"]
         entities   = []
@@ -106,8 +105,8 @@ def title_search(query: str) -> int:
 
     return len(entries_manager)
 
-
 def process_search_result(select_title, selections=None, scrape_serie=None):
+    """Wrapper for the generalized process_search_result function."""
     return base_process_search_result(
         select_title=select_title,
         download_film_func=download_film,
@@ -120,6 +119,7 @@ def process_search_result(select_title, selections=None, scrape_serie=None):
 
 
 def search(string_to_search: str = None, get_onlyDatabase: bool = False, direct_item: dict = None, selections: dict = None, scrape_serie=None):
+    """Wrapper for the generalized search function."""
     return base_search(
         title_search_func=title_search,
         process_result_func=process_search_result,

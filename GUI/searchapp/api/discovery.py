@@ -6,13 +6,13 @@ from typing import List, Optional
 from .base import BaseStreamingAPI, Entries, Season, Episode
 
 from VibraVid.services._base.site_loader import get_folder_name
-from VibraVid.services.discoveryeu.scrapper import GetSerieInfo
+from VibraVid.services.discovery.scrapper import GetSerieInfo
 
 
-class DiscoveryEUAPI(BaseStreamingAPI):
+class Discovery(BaseStreamingAPI):
     def __init__(self):
         super().__init__()
-        self.site_name = "discoveryeu"
+        self.site_name = "discovery"
         self._load_config()
         self._search_fn = None
     

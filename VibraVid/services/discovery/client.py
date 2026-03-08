@@ -8,7 +8,7 @@ from VibraVid.utils.http_client import create_client_curl
 
 
 _discovery_client = None
-cookie_st = config_manager.login.get("discoveryeu", "st")
+cookie_st = config_manager.login.get("discovery", "st")
 
 
 class DiscoveryPlus:

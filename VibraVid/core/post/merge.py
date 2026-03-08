@@ -10,9 +10,9 @@ from VibraVid.utils import config_manager
 from VibraVid.setup import binary_paths, get_ffmpeg_path
 from VibraVid.source.utils.tracker import context_tracker
 
-from .helper.ex_video import detect_ts_timestamp_issues, convert_ts_to_mp4, resolve_compatible_extension
-from .helper.ex_audio import check_duration_v_a, has_audio
-from .helper.ex_sub import convert_subtitle
+from .helper.video import detect_ts_timestamp_issues, convert_ts_to_mp4, resolve_compatible_extension
+from .helper.audio import check_duration_v_a, has_audio
+from .helper.sub import convert_subtitle
 from .capture import capture_ffmpeg_real_time
 
 console = Console()

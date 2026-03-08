@@ -12,7 +12,7 @@ from .downloader import download_series
 from .client import get_client
 
 
-indice = 13
+indice = 11
 _useFor = "Film_Serie"
 _region = ["IT"]
 msg = Prompt()
@@ -127,12 +127,8 @@ def title_search(query: str) -> int:
     
     return len(entries_manager)
 
-
-# WRAPPING FUNCTIONS
 def process_search_result(select_title, selections=None, scrape_serie=None):
-    """
-    Wrapper for the generalized process_search_result function.
-    """
+    """Wrapper for the generalized process_search_result function."""
     return base_process_search_result(
         select_title=select_title,
         download_film_func=None,
@@ -144,9 +140,7 @@ def process_search_result(select_title, selections=None, scrape_serie=None):
     )
 
 def search(string_to_search: str = None, get_onlyDatabase: bool = False, direct_item: dict = None, selections: dict = None, scrape_serie=None):
-    """
-    Wrapper for the generalized search function.
-    """
+    """Wrapper for the generalized search function."""
     return base_search(
         title_search_func=title_search,
         process_result_func=process_search_result,

@@ -60,15 +60,11 @@ def download_series(select_season: Entries, season_selection: str = None, episod
         scrape_serie.getNumberSeason()
     seasons_count = len(scrape_serie.seasons_manager)
 
-    # Create callback function for downloading episodes
     def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
         """Callback to handle episode downloads for a specific season"""
-        
-        # Create callback for downloading individual videos
         def download_video_callback(obj_episode, season_idx, episode_idx):
             return download_episode(obj_episode, season_idx, episode_idx, scrape_serie)
         
-        # Use the process_episode_download function
         process_episode_download(
             index_season_selected=season_number,
             scrape_serie=scrape_serie,
@@ -77,7 +73,6 @@ def download_series(select_season: Entries, season_selection: str = None, episod
             episode_selection=episode_selection
         )
 
-    # Use the process_season_selection function
     process_season_selection(
         scrape_serie=scrape_serie,
         seasons_count=seasons_count,

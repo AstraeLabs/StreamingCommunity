@@ -11,8 +11,8 @@ from rich.console import Console
 from VibraVid.utils import config_manager, os_manager, internet_manager
 from VibraVid.utils.http_client import get_headers
 from VibraVid.setup import get_wvd_path, get_prd_path
-from VibraVid.core.processors import join_video, join_audios, join_subtitles
-from VibraVid.core.processors.helper.nfo import create_nfo
+from VibraVid.core.post import join_video, join_audios, join_subtitles
+from VibraVid.core.post.helper.nfo import create_nfo
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
 from VibraVid.source.utils.media_players import MediaPlayers
 from VibraVid.cli.run import execute_hooks

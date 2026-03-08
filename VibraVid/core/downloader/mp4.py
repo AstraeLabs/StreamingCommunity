@@ -15,7 +15,7 @@ from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.utils import config_manager, os_manager, internet_manager
 from VibraVid.cli.run import execute_hooks
 from VibraVid.source.N_m3u8 import CustomBarColumn
-from VibraVid.core.processors.helper.nfo import create_nfo
+from VibraVid.core.post.helper.nfo import create_nfo
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
 
 

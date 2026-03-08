@@ -19,7 +19,7 @@ from ttconv.srt.config import SRTWriterConfiguration
 from ttconv.vtt.config import VTTWriterConfiguration
 
 from VibraVid.setup import get_ffprobe_path, get_ffmpeg_path
-from .ex_font import FontManager
+from .font import FontManager
 
 # suppress ttconv logging (Merging ISD paragraphs/regions)
 logging.getLogger("ttconv").setLevel(logging.WARNING)

@@ -11,8 +11,8 @@ from rich.console import Console
 from VibraVid.utils import config_manager, os_manager, internet_manager
 from VibraVid.utils.http_client import get_headers
 from VibraVid.setup import get_wvd_path, get_prd_path
-from VibraVid.core.processors import join_video, join_audios, join_subtitles
-from VibraVid.core.processors.helper.nfo import create_nfo
+from VibraVid.core.post import join_video, join_audios, join_subtitles
+from VibraVid.core.post.helper.nfo import create_nfo
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
 from VibraVid.source.utils.media_players import MediaPlayers
 from VibraVid.cli.run import execute_hooks
@@ -32,7 +32,7 @@ MERGE_AUDIO = config_manager.config.get_bool('PROCESS', 'merge_audio', default=T
 
 
 class HLS_Downloader:
-    def __init__(self, m3u8_url: str, license_url: str, output_path: Optional[str] = None, headers: Optional[Dict[str, str]] = None, license_headers: Optional[Dict[str, str]] = None, drm_preference: str = 'widevine', decrypt_preference: str = "shaka", key: str = None, cookies: Optional[Dict[str, str]] = None):
+    def __init__(self, m3u8_url: str, license_url: str = None, output_path: Optional[str] = None, headers: Optional[Dict[str, str]] = None, license_headers: Optional[Dict[str, str]] = None, drm_preference: str = 'widevine', decrypt_preference: str = "shaka", key: str = None, cookies: Optional[Dict[str, str]] = None):
         """
         Args:
             m3u8_url: Source M3U8 playlist URL
