@@ -186,14 +186,3 @@ class GetSerieInfo:
             self.collect_info_season(season_number)
             
         return season.episodes.episodes
-        
-    def selectEpisode(self, season_number: int, episode_index: int) -> Episode:
-        """
-        Get information for a specific episode in a specific season.
-        """
-        episodes = self.getEpisodeSeasons(season_number)
-        if not episodes or episode_index < 0 or episode_index >= len(episodes):
-            logging.error(f"Episode index {episode_index} is out of range for season {season_number}")
-            return None
-            
-        return episodes[episode_index]

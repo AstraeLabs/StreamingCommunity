@@ -256,32 +256,3 @@ class GetSerieInfo:
             self._fetch_episodes_for_season(season_number)
         
         return season.episodes.episodes
-
-    def selectEpisode(self, season_number: int, episode_index: int) -> Episode:
-        """Get specific episode with audio information."""
-        episodes = self.getEpisodeSeasons(season_number)
-        if not episodes or episode_index < 0 or episode_index >= len(episodes):
-            return None
-            
-        episode: Episode = episodes[episode_index]
-        episode_id = episode.url.split("/")[-1] if episode.url else None
-        
-        if not episode_id:
-            return episode
-        
-        # Update URL to preferred language if available
-        audio_locales, urls_by_locale, main_guid = self._get_episode_audio_locales(episode_id)
-        
-        # Store main_guid for complete subtitles access
-        if main_guid:
-            episode.main_guid = main_guid                                       # [CRUNCHYROLL] Primary ID for full subtitle tracks
-            episode.main_url = f"{self.client.web_base_url}/watch/{main_guid}"  # [CRUNCHYROLL] Full URL for fallback
-        
-        # Continue with normal audio preference logic
-        if urls_by_locale:
-            preferred_lang = self.params.get("preferred_audio_language", "it-IT")
-            new_url = urls_by_locale.get(preferred_lang) or urls_by_locale.get("en-US") or list(urls_by_locale.values())[0]
-            if new_url:
-                episode.url = new_url
-        
-        return episode
