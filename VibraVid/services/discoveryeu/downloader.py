@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 
 from VibraVid.utils import os_manager, config_manager, start_message
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import map_episode_title, map_season_name
+from VibraVid.services._base.tv_display_manager import map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
 from VibraVid.core.downloader import DASH_Downloader
@@ -30,8 +30,9 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
     
     # Define output path
-    episode_name = f"{map_episode_title(scrape_serie.series_name, index_season_selected, index_episode_selected, obj_episode.name)}.{extension_output}"
-    episode_path = os_manager.get_sanitize_path(os.path.join(site_constants.SERIES_FOLDER, scrape_serie.series_name, map_season_name(index_season_selected)))
+    path_components, filename = map_episode_path(scrape_serie.series_name, getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
+    episode_path = os_manager.get_sanitize_path(os.path.join(site_constants.SERIES_FOLDER, *path_components))
+    episode_name = f"{filename}.{extension_output}"
     
     # Get playback information using the new client
     playback_info = client.get_playback_info(obj_episode.id)
