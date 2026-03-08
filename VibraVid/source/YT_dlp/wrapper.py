@@ -604,7 +604,37 @@ class MediaDownloader:
                     "path": str(f), "language": lang, "name": lang, "size": f.stat().st_size,
                 })
 
+        # Post-process subtitles to handle duplicates (CC vs full)
+        status["subtitles"] = self._deduplicate_subtitles(status["subtitles"])
+
         return status
+
+    def _deduplicate_subtitles(self, subtitles_list):
+        """Rename subtitles with _forced, _caption suffixes based on type"""
+        if not subtitles_list:
+            return subtitles_list
+        
+        result = []
+        for sub in subtitles_list:
+
+            # Check if metadata/name indicates type
+            is_forced = 'forced' in sub['name'].lower() or 'forced' in sub['language'].lower()
+            is_captions = '[CC]' in sub['name'] or '[cc]' in sub['name'] or '_captions' in sub['name'].lower()
+            
+            # Extract base language
+            lang = sub['language'].lower().split(' - ')[0].strip()
+            lang = lang.replace('forced-', '').replace('-forced', '').strip()
+            
+            if is_forced:
+                sub['language'] = f"{lang}_forced"
+                sub['name'] = f"{lang}_forced"
+            elif is_captions:
+                sub['language'] = f"{lang}_caption"
+                sub['name'] = f"{lang}_caption"
+            
+            result.append(sub)
+        
+        return result
 
     def _lang_from_stem(self, stem: str) -> str:
         """Extract language/track tag inserted after the base filename."""

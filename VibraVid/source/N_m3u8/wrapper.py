@@ -564,6 +564,7 @@ class MediaDownloader:
         def norm_lang(lang):
             return set(lang.lower().replace('-', '.').split('.'))
         seen_langs = {}
+        seen_normal_langs = {}  # Track only normal (non-forced/non-caption) subtitles
 
         # Scan files
         for f in sorted(list(self.output_dir.iterdir())):
@@ -593,16 +594,41 @@ class MediaDownloader:
                     s_lang_tokens = norm_lang(sub['lang'])
                     overlap = f_lang_tokens & s_lang_tokens
                     diff = abs(sub['size'] - f_size)
+
                     if (not f_lang_tokens or not s_lang_tokens or overlap) or not downloaded_subs:
                         if diff < min_diff and diff <= 2048:
                             min_diff, best_sub = diff, sub
                 
-                # Determine display name
+                # Determine display name based on type (forced/CC/normal)
                 if best_sub:
                     lang, name = best_sub['lang'], best_sub['name']
                     best_sub['used'] = True
-                    final_name = f"{lang} - {name}" if seen_langs.get(lang) and name and name != lang else lang
-                    seen_langs[lang] = seen_langs.get(lang, 0) + 1
+
+                    # Check metadata for forced/CC indicators
+                    is_forced = 'forced' in name.lower() or 'forced' in lang.lower()
+                    is_captions = '[CC]' in name or '[cc]' in name or '_captions' in name.lower()
+                    
+                    # Extract base language (remove forced- prefix if present)
+                    base_lang = lang.replace('forced-', '').replace('-forced', '').strip() if is_forced else lang
+                    
+                    # Build final name with appropriate suffix
+                    if is_forced:
+                        final_name = f"{base_lang}_forced"
+                    elif is_captions:
+                        final_name = f"{base_lang}_caption"
+                    else:
+                        # For normal subtitles, add name suffix only if we've seen OTHER normal subtitles with same language
+                        if seen_normal_langs.get(base_lang):
+                            final_name = f"{base_lang} - {name}" if name and name != base_lang else base_lang
+                        else:
+                            final_name = base_lang
+                        
+                        # Track this normal subtitle
+                        seen_normal_langs[base_lang] = seen_normal_langs.get(base_lang, 0) + 1
+                    
+                    # Always track in seen_langs for reference
+                    seen_langs[base_lang] = seen_langs.get(base_lang, 0) + 1
+
                 else:
                     final_name = ext_lang
 

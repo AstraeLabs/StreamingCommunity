@@ -299,10 +299,12 @@ class Downloader:
     def _apply_selections(self):
         """Apply selection filters to streams"""
         video_filter = config_manager.config.get('DOWNLOAD', 'select_video')
-        StreamSelector.select_video(self.streams, video_filter)
+        if video_filter != "false":
+            StreamSelector.select_video(self.streams, video_filter)
         
         audio_filter = config_manager.config.get('DOWNLOAD', 'select_audio')
-        StreamSelector.select_audio(self.streams, audio_filter)
+        if audio_filter != "false":
+            StreamSelector.select_audio(self.streams, audio_filter)
         
         subtitle_filter = config_manager.config.get('DOWNLOAD', 'select_subtitle')
         if subtitle_filter != "false":
