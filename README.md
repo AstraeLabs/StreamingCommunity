@@ -90,7 +90,6 @@ Use one of these DNS providers:
 | **MP4**  | Direct MP4 download         | [View example](./Test/Downloads/MP4.py)  |
 | **DASH** | MPEG-DASH with DRM bypass\* | [View example](./Test/Downloads/DASH.py) |
 | **ISM**  | ISM Smooth Streaming        | [View example](./Test/Downloads/ISM.py)  |
-| **MEGA** | MEGA.nz downloads           | [View example](./Test/Downloads/MEGA.py) |
 
 **\*DASH with DRM bypass:** Requires a valid L3 CDM (Content Decryption Module). This project does not provide or facilitate obtaining CDMs. Users must ensure compliance with applicable laws.
 

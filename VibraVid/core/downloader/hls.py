@@ -32,23 +32,26 @@ MERGE_AUDIO = config_manager.config.get_bool('PROCESS', 'merge_audio', default=T
 
 
 class HLS_Downloader:
-    def __init__(self, m3u8_url: str, license_url: str = None, output_path: Optional[str] = None, headers: Optional[Dict[str, str]] = None, license_headers: Optional[Dict[str, str]] = None, drm_preference: str = 'widevine', decrypt_preference: str = "shaka", key: str = None, cookies: Optional[Dict[str, str]] = None):
+    def __init__(self, m3u8_url: str, headers: Optional[Dict[str, str]] = None, license_url: str = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: str = None, output_path: Optional[str] = None, drm_preference: str = 'widevine', 
+            decrypt_preference: str = "shaka", key: str = None, cookies: Optional[Dict[str, str]] = None):
         """
         Args:
             m3u8_url: Source M3U8 playlist URL
-            license_url: License URL for DRM content
-            output_path: Full path including filename and extension (e.g., /path/to/video.mp4)
             headers: Headers for M3U8 requests
+            license_url: License URL for DRM content
             license_headers: Headers for license requests (optional, uses headers if not provided)
+            license_certificate: License certificate for DRM content
+            output_path: Full path including filename and extension (e.g., /path/to/video.mp4)
             drm_preference: Preferred DRM system ('widevine', 'playready', 'auto')
-            decrypt_preference: Decryption tool preference ('bento4', 'shaka')
-            key: Optional manual decryption key
-            cookies: Optional cookies for requests
+            decrypt_preference: Preferred decryption method ('bento4', 'shaka')
+            cookies: Cookies to use for requests
+            key: Optional decryption key (hex string) for manual decryption if license fetch is not possible
         """
         self.m3u8_url = str(m3u8_url).strip()
-        self.license_url = str(license_url).strip() if license_url else None
         self.headers = headers or get_headers()
+        self.license_url = str(license_url).strip() if license_url else None
         self.license_headers = license_headers or self.headers
+        self.license_certificate = license_certificate
         self.drm_preference = drm_preference.lower()
         self.decrypt_preference = decrypt_preference.lower()
         self.key = key
@@ -202,7 +205,7 @@ class HLS_Downloader:
                 
                 # Fetch decryption keys using DRM Manager
                 if selected_drm == 'widevine':
-                    keys = drm_manager.get_wv_keys(pssh_dicts, self.license_url, self.license_headers, self.key)
+                    keys = drm_manager.get_wv_keys(pssh_dicts, self.license_url, self.license_certificate, self.license_headers, self.key)
                 elif selected_drm == 'playready':
                     keys = drm_manager.get_pr_keys(pssh_dicts, self.license_url, self.license_headers, self.key)
                 else:

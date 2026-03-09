@@ -13,8 +13,7 @@ tubi_email = config_manager.login.get('tubi', 'email')
 tubi_password = config_manager.login.get('tubi', 'password')
 
 _cached_token = None
-CACHE_DIR = os.path.join(os.getcwd(), ".cache", "tubitv")
-CACHE_FILE = os.path.join(CACHE_DIR, "session.json")
+CACHE_FILE = os.path.join(os.getcwd(), ".cache", "tubi_token.json")
 
 
 def generate_device_id():
@@ -68,7 +67,9 @@ def get_bearer_token():
     
     # Save to disk cache
     try:
-        os_manager.create_path(CACHE_DIR)
+        cache_dir = os.path.dirname(CACHE_FILE)
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir, exist_ok=True)
         with open(CACHE_FILE, 'w') as f:
             json.dump(login_data, f)
     except Exception:

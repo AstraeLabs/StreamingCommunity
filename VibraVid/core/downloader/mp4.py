@@ -57,9 +57,16 @@ def signal_handler(signum, frame, interrupt_handler, original_handler):
 
 def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = None, show_final_info: bool = True, download_id: str = None, site_name: str = None):
     """
-    Downloads an MP4 video with enhanced interrupt handling.
-    - Single Ctrl+C: Completes download gracefully
-    - Triple Ctrl+C: Saves partial download and exits
+    Downloads an MP4 video
+
+    Parameters:
+        - url: The URL of the video to download
+        - path: The local file path to save the video to
+        - referer: Optional referer header to include in the request
+        - headers_: Optional additional headers to include in the request
+        - show_final_info: Whether to display final file info after download
+        - download_id: Optional ID for tracking the download in the GUI
+        - site_name: Optional site name for tracking purposes in the GUI
     """
     url = str(url).strip()
     path = os_manager.get_sanitize_path(path)

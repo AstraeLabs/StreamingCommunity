@@ -37,7 +37,7 @@
 - Purpose: Orchestrates media capture, decryption, and post-processing
 - Location: `VibraVid/core/`
 - Contains four subsystems:
-    - **Downloader**: `core/downloader/` - Format-specific downloaders (HLS, MP4, DASH, MEGA)
+    - **Downloader**: `core/downloader/` - Format-specific downloaders (HLS, MP4, DASH)
     - **DRM**: `core/drm/` - Content decryption (Widevine, PlayReady)
     - **Parser**: `core/parser/` - MPD manifest parsing for DASH streams
     - **Processors**: `core/processors/` - Post-processing (merge, capture, convert)
@@ -90,7 +90,7 @@
     - `DownloadManager` runs up to `max_concurrent_jobs` workers (default 4) via `ThreadPoolExecutor`
     - `DownloadDisplay` shows a live Rich table with queued, running, completed, and failed jobs
 3. Service downloader extracts stream metadata (URL, headers, manifest)
-4. Stream type detection (HLS, DASH, MP4, MEGA):
+4. Stream type detection (HLS, DASH, MP4):
     - HLS: M3U8 URL → `HLS_Downloader`
     - DASH: MPD URL → `DASH_Downloader` + `DRMManager`
     - MP4: Direct URL → `MP4_Downloader`

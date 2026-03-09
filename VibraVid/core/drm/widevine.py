@@ -17,7 +17,7 @@ from VibraVid.source.utils.object import KeysManager
 console = Console()
 
 
-def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str = None, cdm_remote_api: list[str] = None, headers: dict = None, key: str = None):
+def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str = None, cdm_remote_api: list[str] = None, headers: dict = None, key: str = None, license_certificate: str = None):
     """
     Extract Widevine CONTENT keys (KID/KEY) from a license.
 
@@ -28,6 +28,7 @@ def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: 
         - cdm_remote_api (list[str]): Remote CDM API config. Optional if using local device.
         - headers (dict): Optional HTTP headers for the license request (from fetch).
         - key (str): Optional raw license data to bypass HTTP request.
+        - license_certificate (str): Optional base64-encoded SignedMessage for CDM Privacy Mode. If None or empty, set_service_certificate is not called.
 
     Returns:
         list: List of strings "KID:KEY" (only CONTENT keys) or None if error.
@@ -44,10 +45,10 @@ def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: 
         console.print("[red]Error: Must provide either cdm_device_path or cdm_remote_api.")
         return None
     
-    return _get_widevine_keys(pssh_list, license_url, cdm_device_path, cdm_remote_api, headers)
+    return _get_widevine_keys(pssh_list, license_url, cdm_device_path, cdm_remote_api, headers, license_certificate)
 
 
-def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str, cdm_remote_api: list[str], headers: dict = None):
+def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str, cdm_remote_api: list[str], headers: dict = None, license_certificate: str = None):
     """Extract Widevine keys using local or remote CDM device."""
     device = None
     cdm = None
@@ -86,6 +87,15 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
 
     # Open CDM session
     session_id = cdm.open()
+
+    if license_certificate:
+        try:
+            cert = license_certificate.strip().replace('\n', '').replace(' ', '')
+            cdm.set_service_certificate(session_id, cert)
+            console.print("[dim]Service certificate set (Privacy Mode enabled).")
+        except Exception as e:
+            console.print(f"[yellow]Warning: Failed to set service certificate: {e}")
+
     all_content_keys = []
     extracted_kids = set()
     

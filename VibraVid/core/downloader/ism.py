@@ -33,20 +33,26 @@ MERGE_AUDIO = config_manager.config.get_bool('PROCESS', 'merge_audio', default=T
 
 
 class ISM_Downloader:
-    def __init__(self, license_url: str, license_headers: Dict[str, str] = None, ism_url: str = None, ism_headers: Dict[str, str] = None, ism_sub_list: list = None, output_path: str = None, drm_preference: str = 'playready', decrypt_preference: str = "bento4", key: str = None, cookies: Dict[str, str] = None):
+    def __init__(self, ism_url: str = None, ism_headers: Dict[str, str] = None, license_url: str = None, license_headers: Dict[str, str] = None, ism_sub_list: list = None, output_path: str = None, drm_preference: str = 'playready', 
+            decrypt_preference: str = "bento4", key: str = None, cookies: Dict[str, str] = None):
         """
         Initialize ISM Downloader.
         
         Parameters:
-            license_url: URL to obtain DRM license
             ism_url: URL of the ISM manifest
+            ism_headers: Headers to use when fetching the ISM manifest
+            license_url: URL to obtain DRM license
+            license_headers: Headers for license request
             ism_sub_list: List of subtitle dicts (unused with MediaDownloader)
             output_path: Full path including filename and extension (e.g., /path/to/video.mp4)
-            drm_preference: Preferred DRM system ('playready', 'auto')
+            drm_preference: Preferred DRM system ('playready', 'widevine')
+            decrypt_preference: Preferred decryption method ('bento4', 'shaka')
+            cookies: Cookies to use for requests
+            key: Optional decryption key (hex string) for manual decryption if license fetch is not possible
         """
         self.ism_url = str(ism_url).strip() if ism_url else None
-        self.license_url = str(license_url).strip() if license_url else None
         self.ism_headers = ism_headers or get_headers()
+        self.license_url = str(license_url).strip() if license_url else None
         self.license_headers = license_headers
         self.ism_sub_list = ism_sub_list or []
         self.drm_preference = drm_preference.lower()

@@ -1,6 +1,9 @@
 # 09.08.25
 from __future__ import annotations
 
+import os
+import json
+
 import httpx
 import ua_generator
 from curl_cffi import requests
@@ -149,22 +152,63 @@ def get_headers() -> dict:
     return ua.headers.get()
 
 
+def get_local_ip():
+    """Get the local IP address of the machine without making external requests."""
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        # doesn't even have to be reachable
+        s.connect(('8.8.8.8', 1))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    
+    except Exception:
+        try:
+            import socket
+            return socket.gethostbyname(socket.gethostname())
+        except Exception:
+            return '127.0.0.1'
+
+
 def get_my_location():
+    cache_dir = os.path.join(os.getcwd(), ".cache")
+    cache_file = os.path.join(cache_dir, "ip.json")
+    local_ip = get_local_ip()
+    
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                cached_data = json.load(f)
+                if cached_data.get('local_ip') == local_ip:
+                    return cached_data
+        except Exception:
+            pass
+
     try:
         url = 'http://ip-api.com/json/?fields=status,country,countryCode,city,query'
         response = create_client(headers=get_headers()).get(url, timeout=4)
         data = response.json()
         
         if data.get('status') == 'success':
-            return {
-                'country': data['country'],
-                'country_code': data['countryCode'],
-                'city': data['city'],
-                'ip': data['query']
-            }
-        return {'status': 'fail', 'country_code': 'XX'}
+            location = {'country': data['country'], 'country_code': data['countryCode'], 'city': data['city'], 'ip': data['query'], 'local_ip': local_ip}
+
+            # Save to cache
+            try:
+                if not os.path.exists(cache_dir):
+                    os.makedirs(cache_dir, exist_ok=True)
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(location, f, indent=4)
+            except Exception:
+                pass
+            return location
+        
+        # Fallback to local IP if API fails
+        return {'status': 'fail', 'country_code': 'XX', 'ip': local_ip, 'local_ip': local_ip}
+    
     except Exception as e:
-        return {'status': 'fail', 'country_code': 'XX', 'error': str(e)}
+        return {'status': 'fail', 'country_code': 'XX', 'ip': local_ip, 'local_ip': local_ip, 'error': str(e)}
 
 
 def check_region_availability(allowed_regions: list, site_name: str) -> bool:

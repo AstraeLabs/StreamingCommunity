@@ -13,9 +13,9 @@ from VibraVid.core.downloader import ISM_Downloader
 
 
 conf_extension = config_manager.config.get("PROCESS", "extension")
-ism_url = 'https://test.playready.microsoft.com/media/profficialsite/tearsofsteel_4k.ism.smoothstreaming/manifest'
+ism_url = ''
 ism_headers = {}
-license_url = 'http://test.playready.microsoft.com/service/rightsmanager.asmx?cfg=(persist:false,sl:150)'
+license_url = ''
 license_headers = {}
 license_key = None
 

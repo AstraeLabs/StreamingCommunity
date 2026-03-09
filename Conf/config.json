@@ -31,8 +31,6 @@
         "param_video": ["-c:v","libx265","-crf","28","-preset","medium"],
         "param_audio": ["-c:a","libopus","-b:a","128k"],
         "param_final": ["-c","copy"],
-        "audio_order": [],
-        "subtitle_order": [],
         "subtitle_disposition": false,
         "subtitle_disposition_language": ["ita_forced"],
         "merge_audio": true,
@@ -56,7 +54,7 @@
         "post_download": []
     },
     "DRM": {
-        "delay": 5,
+        "delay": 2,
         "create_local_db": false,
         "external_supa_db": "https://crqczuxpqjmrjvdvqvlx.supabase.co/",
         "widevine": {

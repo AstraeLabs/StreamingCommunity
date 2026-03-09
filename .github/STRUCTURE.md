@@ -19,7 +19,6 @@ VibraVid/
 │   │   │   ├── dash.py          # MPEG-DASH with DRM
 │   │   │   ├── ism.py           # ISM Smooth Streaming
 │   │   │   ├── mp4.py           # Direct MP4 download
-│   │   │   └── mega.py          # MEGA.nz downloads
 │   │   ├── drm/                 # Digital Rights Management
 │   │   │   ├── __init__.py
 │   │   │   ├── manager.py       # DRM orchestrator
@@ -121,7 +120,6 @@ VibraVid/
 │   │   ├── MP4.py
 │   │   ├── DASH.py
 │   │   ├── ISM.py
-│   │   └── MEGA.py
 │   └── Util/
 │       └── hooks.py
 ├── setup.py                     # Package installation config
@@ -149,7 +147,7 @@ VibraVid/
 **core/downloader/**
 
 - Purpose: Format-specific download implementations
-- Contains: HLS, DASH, ISM, MP4, MEGA downloaders
+- Contains: HLS, DASH, ISM, MP4 downloaders
 - Key files: `hls.py`, `dash.py` implement download logic
 
 **core/drm/**

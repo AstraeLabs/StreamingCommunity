@@ -44,7 +44,7 @@ class DRMManager:
         """Look up keys from a DB object for the given KIDs in a SINGLE request."""
         return list(db_obj.get_keys_by_kids(None, kids, drm_type) or [])
 
-    def get_wv_keys(self, pssh_list: list[dict], license_url: str, headers: dict = None, key: str = None):
+    def get_wv_keys(self, pssh_list: list[dict], license_url: str, license_certificate: str = None,headers: dict = None, key: str = None):
         """
         Get Widevine keys with step: 
             1) Database lookup by license URL and KIDs
@@ -106,7 +106,7 @@ class DRMManager:
         try:
             console.print(f"\n[dim]Waiting {DELAY} seconds after CDM request ...")
             time.sleep(DELAY)
-            keys = get_widevine_keys(pssh_list, license_url, self.widevine_device_path, self.widevine_remote_cdm_api, headers, key)
+            keys = get_widevine_keys(pssh_list, license_url, self.widevine_device_path, self.widevine_remote_cdm_api, headers, key, license_certificate)
                 
             if keys:
                 keys_list = keys.get_keys_list()

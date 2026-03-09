@@ -342,6 +342,9 @@ class MPDParser:
                     continue
                 seen.add(key)
                 
+                if prot == 'No':
+                    continue
+
                 if "text (" not in label:  # Don't print text tracks to avoid clutter (they usually don't have DRM)
                     console.print(f"    [red]- {label}[white], [cyan]Kid: [yellow]{kid}, [cyan]Protection: [yellow]{prot}")
     

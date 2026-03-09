@@ -76,7 +76,7 @@ class BinaryPaths:
         Get the full path to a binary from the repository.
         
         Args:
-            tool: Tool name (ffmpeg, bento4, megatools)
+            tool: Tool name (ffmpeg, bento4)
             binary_name: Binary name (ffmpeg.exe, mp4decrypt, etc.)
         
         Returns:
@@ -95,7 +95,7 @@ class BinaryPaths:
         Download a specific binary from GitHub repository directly to binary directory.
         
         Args:
-            tool: Tool name (ffmpeg, bento4, megatools)
+            tool: Tool name (ffmpeg, bento4)
             binary_name: Binary name to download
         
         Returns:

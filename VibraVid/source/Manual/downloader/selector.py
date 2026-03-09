@@ -23,6 +23,38 @@ class StreamSelector:
         return parts
     
     @staticmethod
+    def extract_order_from_filter(filter_string: str) -> list[str]:
+        """
+        Extract language/stream order from a filter string.
+        
+        Handles formats like:
+        - "lang='ita|eng':for=best" → ['ita', 'eng']
+        - "lang='en':for=best" → ['en']
+        - "false" → []
+        - "lang=it|en:for=all" (unquoted) → ['it', 'en']
+        - "id='1|2|3':for=all" → ['1', '2', '3']
+        
+        Args:
+            filter_string (str): Filter string to parse
+        
+        Returns:
+            list[str]: Ordered list of stream identifiers (language codes, IDs, names, etc.)
+        """
+        if not filter_string or filter_string.lower() == 'false':
+            return []
+        
+        parsed = StreamSelector.parse_filter(filter_string)
+        
+        # Check for ordering keys in priority: lang, id, name, codecs
+        for order_key in ['lang', 'id', 'name', 'codecs']:
+            if order_key in parsed:
+                order_value = parsed[order_key]
+                order_list = [v.strip() for v in order_value.split('|') if v.strip()]
+                return order_list
+        
+        return []
+    
+    @staticmethod
     def select_video(streams, filter_str):
         """Select video streams based on filter"""
         video_streams = [s for s in streams if s.type == 'video']

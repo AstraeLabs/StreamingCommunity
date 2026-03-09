@@ -9,6 +9,7 @@ from rich.console import Console
 from VibraVid.utils import config_manager
 from VibraVid.setup import binary_paths, get_ffmpeg_path
 from VibraVid.source.utils.tracker import context_tracker
+from VibraVid.source.Manual.downloader.selector import StreamSelector
 
 from .helper.video import detect_ts_timestamp_issues, convert_ts_to_mp4, resolve_compatible_extension
 from .helper.audio import check_duration_v_a, has_audio
@@ -24,8 +25,6 @@ PARAM_FINAL = config_manager.config.get_list("PROCESS", "param_final")
 FORCE_SUBTITLE = config_manager.config.get("PROCESS", "force_subtitle")
 SUBTITLE_DISPOSITION = config_manager.config.get_bool("PROCESS", "subtitle_disposition")
 SUBTITLE_DISPOSITION_LANGUAGE = config_manager.config.get_list("PROCESS", "subtitle_disposition_language")
-AUDIO_ORDER = config_manager.config.get_list("PROCESS", "audio_order")
-SUBTITLE_ORDER = config_manager.config.get_list("PROCESS", "subtitle_order")
 
 
 def add_encoding_params(ffmpeg_cmd: List[str]):
@@ -158,15 +157,20 @@ def join_audios(video_path: str, audio_tracks: List[Dict[str, str]], out_path: s
             Each dictionary should contain the 'path' and 'name' keys.
         - out_path (str): The path to save the output file.
         - limit_duration_diff (float): Maximum duration difference in seconds.
+        - log_path (str, optional): Path to save FFmpeg log.
     """
-    if AUDIO_ORDER:
-        def get_order_index(track):
-            track_name = track.get('name', '').lower()
-            for i, order_val in enumerate(AUDIO_ORDER):
-                if order_val.lower() in track_name:
-                    return i
-            return len(AUDIO_ORDER)
-        audio_tracks = sorted(audio_tracks, key=get_order_index)
+    audio_filter = config_manager.config.get('DOWNLOAD', 'select_audio')
+    if audio_filter:
+        audio_order = StreamSelector.extract_order_from_filter(audio_filter)
+        if audio_order:
+            def get_order_index(track):
+                track_name = track.get('name', '').lower()
+                for i, order_val in enumerate(audio_order):
+                    if order_val.lower() in track_name:
+                        return i
+                    
+                return len(audio_order)
+            audio_tracks = sorted(audio_tracks, key=get_order_index)
 
     use_shortest = False
     
@@ -260,15 +264,20 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
         - subtitles_list (list[dict[str, str]]): A list of dictionaries containing information about subtitles.
             Each dictionary should contain the 'path' key with the path to the subtitle file and the 'name' key with the name of the subtitle.
         - out_path (str): The path to save the output file.
+        - log_path (str, optional): Path to save FFmpeg log.
     """
-    if SUBTITLE_ORDER:
-        def get_order_index(track):
-            track_name = (track.get('name', '') or track.get('language', '') or track.get('lang', '') or '').lower()
-            for i, order_val in enumerate(SUBTITLE_ORDER):
-                if order_val.lower() in track_name:
-                    return i
-            return len(SUBTITLE_ORDER)
-        subtitles_list = sorted(subtitles_list, key=get_order_index)
+    subtitle_filter = config_manager.config.get('DOWNLOAD', 'select_subtitle')
+    if subtitle_filter:
+        subtitle_order = StreamSelector.extract_order_from_filter(subtitle_filter)
+        if subtitle_order:
+            def get_order_index(track):
+                track_name = (track.get('name', '') or track.get('language', '') or track.get('lang', '') or '').lower()
+                for i, order_val in enumerate(subtitle_order):
+                    if order_val.lower() in track_name:
+                        return i
+                    
+                return len(subtitle_order)
+            subtitles_list = sorted(subtitles_list, key=get_order_index)
 
     # First, detect and fix subtitle extensions/formats
     for subtitle in subtitles_list:
