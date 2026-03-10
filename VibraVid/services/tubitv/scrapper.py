@@ -7,6 +7,9 @@ from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.services._base.object import SeasonManager, Episode, Season
 
 
+logger = logging.getLogger(__name__)
+
+
 def extract_content_id(url: str) -> str:
     """Extract content ID from Tubi TV URL"""
     # URL format: https://tubitv.com/series/{content_id}/{slug}
@@ -52,7 +55,7 @@ class GetSerieInfo:
             episodes_by_season = json_data.get('episodes_by_season', {})
             
             if not episodes_by_season:
-                logging.warning("No seasons found in response")
+                logger.warning("No seasons found in response")
                 return
             
             # Store episodes by season
@@ -68,7 +71,7 @@ class GetSerieInfo:
                 ))
 
         except Exception as e:
-            logging.error(f"Error collecting series info: {e}")
+            logger.error(f"Error collecting series info: {e}")
             raise
 
     def collect_info_season(self, number_season: int) -> None:
@@ -81,7 +84,7 @@ class GetSerieInfo:
         try:
             season = self.seasons_manager.get_season_by_number(number_season)
             if not season:
-                logging.error(f"Season {number_season} not found")
+                logger.error(f"Season {number_season} not found")
                 return
 
             params = {
@@ -105,7 +108,7 @@ class GetSerieInfo:
                     episodes.append(episode)
             
             if not episodes:
-                logging.warning(f"No episodes found for season {number_season}")
+                logger.warning(f"No episodes found for season {number_season}")
                 return
             
             # Sort episodes by episode number
@@ -137,7 +140,7 @@ class GetSerieInfo:
                 ))
 
         except Exception as e:
-            logging.error(f"Error collecting episodes for season {number_season}: {e}")
+            logger.error(f"Error collecting episodes for season {number_season}: {e}")
             raise
 
     

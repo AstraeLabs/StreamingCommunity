@@ -1,7 +1,6 @@
 # 16.04.24
 
 import re
-import os
 import time
 import logging
 import threading
@@ -15,6 +14,7 @@ from VibraVid.source.utils.tracker import context_tracker, download_tracker
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 terminate_flag = threading.Event()
 
 
@@ -46,35 +46,25 @@ def capture_output(process: subprocess.Popen, description: str, progress_data: P
     """
     if terminate_flag is None:
         terminate_flag = threading.Event()
-    log_file = None
-    if log_path:
-        try:
-            os.makedirs(os.path.dirname(log_path), exist_ok=True)
-            log_file = open(log_path, 'w', encoding='utf-8')
-        except Exception as e:
-            logging.error(f"Error opening log file {log_path}: {e}")
     
     try:
         max_length = 0
         start_time = time.time()
 
-        with log_file or open(os.devnull, 'w') as log_f:
-            for line in iter(process.stdout.readline, ''):          
-                try:
-                    line = line.strip()
+        for line in iter(process.stdout.readline, ''):          
+            try:
+                line = line.strip()
+                logger.info(f"[ffmpeg] {line}")
 
-                    if not line:
-                        continue
+                if not line:
+                    continue
 
-                    # Write to log file
-                    log_f.write(line + '\n')
-                    log_f.flush()
+                # Check if termination is requested
+                if terminate_flag.is_set():
+                    logger.info("FFmpeg process cancelled")
+                    break
 
-                    # Check if termination is requested
-                    if terminate_flag.is_set():
-                        break
-
-                    if "size=" in line:
+                if "size=" in line:
                         try:
                             elapsed_time = time.time() - start_time
                             data = parse_output_line(line)
@@ -125,8 +115,8 @@ def capture_output(process: subprocess.Popen, description: str, progress_data: P
                         except Exception as e:
                             logging.error(f"Error parsing output line: {line} - {e}")
 
-                except Exception as e:
-                    logging.error(f"Error processing line from subprocess: {e}")
+            except Exception as e:
+                logging.error(f"Error processing line from subprocess: {e}")
 
     except Exception as e:
         logging.error(f"Error in capture_output: {e}")

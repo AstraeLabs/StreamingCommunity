@@ -4,6 +4,9 @@ import os
 import logging
 
 
+logger = logging.getLogger(__name__)
+
+
 class MediaPlayers:
     """Creates `.ignore` and `.plexignore` files when downloads start and removes them when cleanup runs."""
     def __init__(self, output_dir: str):
@@ -14,14 +17,14 @@ class MediaPlayers:
         try:
             os.makedirs(self.output_dir, exist_ok=True)
         except Exception:
-            logging.debug(f"Could not ensure output dir exists: {self.output_dir}")
+            logger.info(f"Could not ensure output dir exists: {self.output_dir}")
 
         for f in self.ignore_files:
             try:
                 with open(f, "w", encoding="utf-8") as fh:
                     fh.write("")
             except Exception as e:
-                logging.warning(f"Failed to create ignore file {f}: {e}")
+                logger.warning(f"Failed to create ignore file {f}: {e}")
 
     def remove(self) -> None:
         for f in self.ignore_files:
@@ -29,4 +32,4 @@ class MediaPlayers:
                 if os.path.exists(f):
                     os.remove(f)
             except Exception as e:
-                logging.warning(f"Failed to remove ignore file {f}: {e}")
+                logger.warning(f"Failed to remove ignore file {f}: {e}")

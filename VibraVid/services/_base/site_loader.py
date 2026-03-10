@@ -3,6 +3,7 @@
 import os
 import sys
 import glob
+import logging
 import importlib
 from typing import Dict
 
@@ -12,6 +13,7 @@ from VibraVid.setup import get_is_binary_installation
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 folder_name = "services"
 
 
@@ -105,7 +107,7 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
         module_name = os.path.basename(os.path.dirname(init_file))
         
         try:
-            # Read only the __init__.py file to extract metadata (no import)
+            logging.info(f"Loading metadata for module: {module_name}")
             with open(init_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 
@@ -144,9 +146,12 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
             continue
 
         init_file = os.path.join(base_path, module_name, '__init__.py')
+        logger.info(f"Updating indice for module {module_name}: {old_indice} -> {new_indice}")
+
         try:
             with open(init_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
+
             with open(init_file, 'w', encoding='utf-8') as f:
                 for line in lines:
                     if line.strip().startswith('indice =') or line.strip().startswith('indice='):

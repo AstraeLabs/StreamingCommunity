@@ -1,6 +1,7 @@
 # 13.02.26
 
 import xml.etree.ElementTree as ET
+import logging
 from typing import Optional, List, Dict
 
 from rich.console import Console
@@ -11,6 +12,7 @@ from VibraVid.utils.http_client import create_client_curl, get_userAgent
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class DRMSystem:
@@ -140,7 +142,7 @@ class ISMParser:
                             PR_PSSH(pssh_data)
                             drm_data.setdefault(DRMSystem.PLAYREADY, []).append(pssh_data)
                         except Exception as e:
-                            console.print(f"[yellow]Warning: PSSH validation failed but adding anyway: {str(e)[:100]}[/yellow]")
+                            logger.warning(f"PSSH validation failed but adding anyway: {str(e)[:100]}")
                             drm_data.setdefault(DRMSystem.PLAYREADY, []).append(pssh_data)
                 
                 # Widevine UUID
@@ -152,11 +154,11 @@ class ISMParser:
                             # Validate with pywidevine
                             WV_PSSH(pssh_data)
                             drm_data.setdefault(DRMSystem.WIDEVINE, []).append(pssh_data)
-                            console.print(f"[green][OK] Found Widevine protection ({len(pssh_data)} bytes PSSH)[/green]")
+                            logger.info(f"Found Widevine protection ({len(pssh_data)} bytes PSSH)")
                             
                         except Exception as e:
                             # Still add it even if validation fails
-                            console.print(f"[yellow]Warning: PSSH validation failed but adding anyway: {str(e)[:100]}[/yellow]")
+                            logger.warning(f"PSSH validation failed but adding anyway: {str(e)[:100]}")
                             drm_data.setdefault(DRMSystem.WIDEVINE, []).append(pssh_data)
         
         return drm_data

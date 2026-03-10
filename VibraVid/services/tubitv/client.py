@@ -5,7 +5,7 @@ import json
 import uuid
 from typing import Tuple, Optional
 
-from VibraVid.utils import config_manager, os_manager
+from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_userAgent, get_headers
 
 

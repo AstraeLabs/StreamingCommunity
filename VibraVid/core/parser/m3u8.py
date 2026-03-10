@@ -3,6 +3,7 @@
 import re
 import base64
 import binascii
+import logging
 from typing import Dict, List
 
 from pywidevine.pssh import PSSH
@@ -13,6 +14,7 @@ from VibraVid.utils.http_client import create_client_curl, get_userAgent
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class M3U8Parser:
@@ -44,7 +46,7 @@ class M3U8Parser:
             self.content = r.text
             return True
         except Exception as e:
-            console.print(f"[red]Error fetching M3U8: {e}")
+            logger.error(f"Error fetching M3U8: {e}")
             return False
     
     def set_content(self, content: str) -> None:
@@ -95,7 +97,7 @@ class M3U8Parser:
 
                 except Exception:
                     if is_wv:
-                        console.print("[green]M3U8Parser: Tag indicates Widevine, adding data")
+                        logger.info("M3U8Parser: Tag indicates Widevine, adding data")
                         if b64_data_clean not in seen_pssh:
                             wv_pssh.append({"pssh": b64_data_clean, "type": "Widevine"})
                             seen_pssh.add(b64_data_clean)
@@ -104,7 +106,7 @@ class M3U8Parser:
                 # Check if it's a PlayReady PSSH
                 try:
                     PR_PSSH(decoded_data)
-                    console.print("[green]M3U8Parser: Detected PlayReady PSSH")
+                    logger.info("M3U8Parser: Detected PlayReady PSSH")
                     if b64_data_clean not in seen_pssh:
                         pr_pssh.append({"pssh": b64_data_clean, "type": "PlayReady"})
                         seen_pssh.add(b64_data_clean)
@@ -112,16 +114,16 @@ class M3U8Parser:
 
                 except Exception:
                     if is_pr:
-                        console.print("[green]M3U8Parser: Tag indicates PlayReady, adding data")
+                        logger.info("M3U8Parser: Tag indicates PlayReady, adding data")
                         if b64_data_clean not in seen_pssh:
                             pr_pssh.append({"pssh": b64_data_clean, "type": "PlayReady"})
                             seen_pssh.add(b64_data_clean)
                         continue
                 
-                console.print("[yellow]M3U8Parser: Data decoded but not recognized as WV or PR PSSH")
+                logger.warning("M3U8Parser: Data decoded but not recognized as WV or PR PSSH")
 
             except Exception as e:
-                console.print(f"[red]M3U8Parser: Error decoding b64 data: {e}")
+                logger.error(f"M3U8Parser: Error decoding b64 data: {e}")
 
         return {
             "widevine": wv_pssh,

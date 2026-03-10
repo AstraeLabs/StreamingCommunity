@@ -9,6 +9,9 @@ from math import gcd
 from VibraVid.setup import get_ffprobe_path
 
 
+logger = logging.getLogger(__name__)
+
+
 class NFOGenerator:
     def __init__(self, file_path: str):
         self.file_path = Path(file_path)
@@ -34,7 +37,7 @@ class NFOGenerator:
             self.streams = self.data.get("streams", [])
             return True
         except Exception as e:
-            logging.error(f"FFprobe error: {e}")
+            logger.error(f"FFprobe error: {e}")
             return False
     
     @staticmethod
@@ -416,7 +419,7 @@ class NFOGenerator:
     def generate(self):
         """Generate the complete NFO file."""
         if not self.file_path.exists():
-            logging.error(f"File not found: {self.file_path}")
+            logger.error(f"File not found: {self.file_path}")
             return False
         
         if not self._run_ffprobe():
@@ -446,11 +449,11 @@ class NFOGenerator:
             # Write to file
             nfo_path = self.file_path.with_suffix(".nfo")
             nfo_path.write_text("\n".join(all_lines), encoding="utf-8")
-            logging.info(f"NFO created: {nfo_path}")
+            logger.info(f"NFO created: {nfo_path}")
             return True
             
         except Exception as e:
-            logging.error(f"Error generating NFO: {e}")
+            logger.error(f"Error generating NFO: {e}")
             return False
 
 def create_nfo(file_path: str) -> bool:

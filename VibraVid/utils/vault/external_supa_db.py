@@ -1,5 +1,6 @@
 # 29.01.26
 
+import logging
 from typing import List, Optional
 
 from rich.console import Console
@@ -9,6 +10,7 @@ from VibraVid.utils.config import config_manager
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class ExternalSupaDBVault:
@@ -33,6 +35,7 @@ class ExternalSupaDBVault:
             return response.json()
         except Exception as e:
             console.print(f"[red]Supabase request error ({endpoint}): {e}")
+            logger.error(f"Supabase request error ({endpoint}): {e}")
             return None
 
     ################# SET ##################
@@ -50,6 +53,7 @@ class ExternalSupaDBVault:
         Returns:
             int: Number of keys successfully added
         """
+        logger.info(f"Adding {len(keys_list)} keys to vault for DRM type '{drm_type}' and license URL '{license_url}'")
         if not keys_list:
             return 0
 
@@ -82,6 +86,8 @@ class ExternalSupaDBVault:
         }
 
         result = self._post("save-keys", payload)
+        logger.info(f"Vault response for saving keys: {result}")
+
         if result is None:
             return 0
 
@@ -104,7 +110,11 @@ class ExternalSupaDBVault:
         }
 
         console.print(f"[dim]Supabase get_keys_by_pssh: pssh={pssh[:20]}…")
+        logger.info(f"Supabase get_keys_by_pssh: license_url={base_license_url}, drm_type={drm_type}, pssh={pssh[:20]}…")
+
         result = self._post("get-keys", payload)
+        logger.info(f"Vault response for get_keys_by_pssh: {result}")
+
         if result is None:
             return []
 
@@ -135,6 +145,8 @@ class ExternalSupaDBVault:
             payload["license_url"] = base_license_url
         
         result = self._post("get-keys", payload)
+        logger.info(f"Vault response for get_keys_by_kids: {result}")
+
         if result is None:
             return []
 
@@ -172,6 +184,7 @@ class ExternalSupaDBVault:
             payload["pssh"] = pssh
 
         result = self._post("update-key-validity", payload)
+        logger.info(f"Vault response for update_key_validity: {result}")
         return bool(result and result.get('success', False))
 
 

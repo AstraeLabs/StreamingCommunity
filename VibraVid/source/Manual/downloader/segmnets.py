@@ -19,8 +19,8 @@ from VibraVid.source.utils.tracker import download_tracker, context_tracker
 from ..utils.file_size import format_size
 
 
-logger = logging.getLogger(__name__)
 console = Console()
+logger = logging.getLogger(__name__)
 failed_segments = set()
 failed_segments_lock = threading.Lock()
 shutdown_flag = threading.Event()
@@ -138,8 +138,7 @@ class SegmentDownloader:
                     segment.size = len(content)
                     segment.content = content
                     segment.downloaded = True
-                    
-                    logger.debug(f"Downloaded segment {segment.number} ({format_size(segment.size)})")
+                    logger.info(f"Downloaded segment {segment.number} ({format_size(segment.size)})")
                     return True
                     
             except Exception as e:

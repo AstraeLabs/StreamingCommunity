@@ -8,6 +8,9 @@ from VibraVid.services._base.object import SeasonManager, Episode, Season
 from .client import get_client
 
 
+logger = logging.getLogger(__name__)
+
+
 class GetSerieInfo:
     def __init__(self, show_id: str):
         """
@@ -42,7 +45,7 @@ class GetSerieInfo:
             # Find show info
             show_info = next((x for x in data['included'] if x.get('attributes', {}).get('alternateId', '') == self.show_id), None)
             if not show_info:
-                logging.error(f"Show info not found for: {self.show_id}")
+                logger.error(f"Show info not found for: {self.show_id}")
                 return []
                 
             show_name = show_info.get('attributes', {}).get('name', 'Unknown')
@@ -85,7 +88,7 @@ class GetSerieInfo:
                             break
 
             if not content and not direct_episodes:
-                logging.error(f"No episodes found for show {self.show_id}, falling back to direct scan failed too")
+                logger.error(f"No episodes found for show {self.show_id}, falling back to direct scan failed too")
                 return []
 
             if content:
@@ -95,7 +98,7 @@ class GetSerieInfo:
                 # Find the season filter
                 season_filter = next((f for f in content.get('attributes', {}).get('component', {}).get('filters', []) if f.get('id') == 'seasonNumber'), None)
                 if not season_filter:
-                    logging.error(f"Season filter not found for show {self.show_id}")
+                    logger.error(f"Season filter not found for show {self.show_id}")
                     season_params = []
                 else:
                     season_params = [x.get('parameter') for x in season_filter.get('options', [])]
@@ -140,7 +143,7 @@ class GetSerieInfo:
             return all_episodes
             
         except Exception as e:
-            logging.error(f"Error in _fetch_all_episodes: {e}")
+            logger.error(f"Error in _fetch_all_episodes: {e}")
             return []
 
     def _get_show_info(self):
@@ -160,7 +163,7 @@ class GetSerieInfo:
             return True
 
         except Exception as e:
-            logging.error(f"Failed to get show info: {e}")
+            logger.error(f"Failed to get show info: {e}")
             return False
     
     def _get_season_episodes(self, season_number: int):
@@ -194,11 +197,11 @@ class GetSerieInfo:
             
             # Sort by episode number
             season_episodes.sort(key=lambda x: x['episode_number'])
-            logging.info(f"Using cached n_episodes: {len(season_episodes)} for season: {season_number}")
+            logger.info(f"Using cached n_episodes: {len(season_episodes)} for season: {season_number}")
             return season_episodes
         
         except Exception as e:
-            logging.error(f"Failed to get episodes for season {season_number}: {e}")
+            logger.error(f"Failed to get episodes for season {season_number}: {e}")
             return []
     
     def collect_season(self):
@@ -226,7 +229,7 @@ class GetSerieInfo:
                             ))
                             
         except Exception as e:
-            logging.error(f"Error in collect_season: {e}")
+            logger.error(f"Error in collect_season: {e}")
 
     
     # ------------- FOR GUI -------------

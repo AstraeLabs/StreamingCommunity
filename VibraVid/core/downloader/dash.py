@@ -24,6 +24,7 @@ from VibraVid.source.N_m3u8 import MediaDownloader
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 CLEANUP_TMP = config_manager.config.get_bool('DOWNLOAD', 'cleanup_tmp_folder')
 EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 SKIP_DOWNLOAD = config_manager.config.get_bool('DOWNLOAD', 'skip_download')
@@ -459,7 +460,7 @@ class DASH_Downloader:
         
         # Fetch DRM info
         if not self._setup_drm_info(*selected_info):
-            logging.error("Failed to fetch DRM info")
+            logger.error("Failed to fetch DRM info")
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="DRM parsing failed")
             return None, True
@@ -467,7 +468,7 @@ class DASH_Downloader:
         # Fetch decryption keys if DRM protected
         if self.drm_info and self.drm_info['available_drm_types']:
             if not self._fetch_decryption_keys():
-                logging.error(f"Failed to fetch decryption keys: {self.error}")
+                logger.error(f"Failed to fetch decryption keys: {self.error}")
                 if self.download_id:
                     download_tracker.complete_download(self.download_id, success=False, error=self.error)
                 return None, True
@@ -493,7 +494,7 @@ class DASH_Downloader:
 
         # Check if any media was downloaded
         if self._no_media_downloaded(status):
-            logging.error("No media downloaded")
+            logger.error("No media downloaded")
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="No media downloaded")
             return None, True
@@ -522,7 +523,7 @@ class DASH_Downloader:
                 download_tracker.complete_download(self.download_id, success=False, error="cancelled")
                 return None, True
                 
-            logging.error("Merge operation failed")
+            logger.error("Merge operation failed")
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="Merge failed")
             return None, True

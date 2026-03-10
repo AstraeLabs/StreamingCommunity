@@ -10,6 +10,7 @@ from VibraVid.setup import get_ffprobe_path
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 def has_audio(file_path: str) -> bool:
@@ -20,7 +21,7 @@ def has_audio(file_path: str) -> bool:
             stdout, stderr = proc.communicate()
 
             if proc.returncode != 0:
-                logging.error(f"Error has_audio: {stderr}")
+                logger.error(f"Error has_audio: {stderr}")
                 return False
 
             probe_result = json.loads(stdout)
@@ -31,7 +32,7 @@ def has_audio(file_path: str) -> bool:
             return False
         
     except Exception as e:
-        logging.error(f"Exception in has_audio: {e}")
+        logger.error(f"Exception in has_audio: {e}")
         return False
 
 
@@ -42,7 +43,7 @@ def get_video_duration(file_path: str, file_type: str = "file") -> float:
         stdout, stderr = proc.communicate()
 
         if proc.returncode != 0:
-            logging.error(f"Error get_video_duration: {stderr}")
+            logger.error(f"Error get_video_duration: {stderr}")
             return None
 
         # Parse JSON output
@@ -52,6 +53,7 @@ def get_video_duration(file_path: str, file_type: str = "file") -> float:
         try:
             return float(probe_result['format']['duration'])
         except Exception:
+            logger.error(f"Error extracting duration from ffprobe output: {probe_result}")
             return 1
 
 

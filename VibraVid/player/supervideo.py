@@ -9,6 +9,9 @@ from VibraVid.utils.http_client import create_client_curl, get_headers
 from VibraVid.utils.js_beautifier import extract_setup, unpack
 
 
+logger = logging.getLogger(__name__)
+
+
 class VideoSource:
     def __init__(self, url: str) -> None:
         """
@@ -33,13 +36,13 @@ class VideoSource:
         try:
             response = create_client_curl(headers=self.headers).get(url)
             if response.status_code >= 400:
-                logging.error(f"Request failed with status code: {response.status_code}, to url: {url}")
+                logger.error(f"Request failed with status code: {response.status_code}, to url: {url}")
                 return None
             
             return response.text
         
         except Exception as e:
-            logging.error(f"Request failed: {e}")
+            logger.error(f"Request failed: {e}")
             return None
  
     def get_iframe(self, soup):
@@ -99,7 +102,7 @@ class VideoSource:
         try:
             html_content = self.make_request(self.url)
             if not html_content:
-                logging.error("Failed to fetch HTML content.")
+                logger.error("Failed to fetch HTML content.")
                 return None
 
             # Find master playlist
@@ -111,24 +114,24 @@ class VideoSource:
 
                 iframe_src = self.get_iframe(BeautifulSoup(html_content, "html.parser"))
                 if not iframe_src:
-                    logging.error("No iframe found.")
+                    logger.error("No iframe found.")
                     return None
 
                 down_page_soup = self.find_content(iframe_src)
                 if not down_page_soup:
-                    logging.error("Failed to fetch down page content.")
+                    logger.error("Failed to fetch down page content.")
                     return None
 
                 pattern = r'data-link="(//supervideo[^"]+)"'
                 match = re.search(pattern, str(down_page_soup))
                 if not match:
-                    logging.error("No player available for download.")
+                    logger.error("No player available for download.")
                     return None
 
                 supervideo_url = "https:" + match.group(1)
                 supervideo_soup = self.find_content(supervideo_url)
                 if not supervideo_soup:
-                    logging.error("Failed to fetch supervideo content.")
+                    logger.error("Failed to fetch supervideo content.")
                     return None
 
                 # Find master playlist
@@ -136,10 +139,10 @@ class VideoSource:
                 if data_js:
                     return data_js
                 else:
-                    logging.error("No video source found in JavaScript.")
+                    logger.error("No video source found in JavaScript.")
             
             return None
 
         except Exception as e:
-            logging.error(f"An error occurred: {e}")
+            logger.error(f"An error occurred: {e}")
             return None

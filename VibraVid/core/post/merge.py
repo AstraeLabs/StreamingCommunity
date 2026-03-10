@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import logging
 from typing import List, Dict, Optional
 
 from rich.console import Console
@@ -16,7 +17,9 @@ from .helper.audio import check_duration_v_a, has_audio
 from .helper.sub import convert_subtitle
 from .capture import capture_ffmpeg_real_time
 
+
 console = Console()
+logger = logging.getLogger(__name__)
 os_type = binary_paths._detect_system()
 USE_GPU = config_manager.config.get_bool("PROCESS", "use_gpu")
 PARAM_VIDEO = config_manager.config.get_list("PROCESS", "param_video")
@@ -138,8 +141,7 @@ def join_video(video_path: str, out_path: str, log_path: Optional[str] = None):
 
     # Output file and overwrite
     ffmpeg_cmd.extend([out_path, '-y'])
-
-    # Run join
+    logger.info(f"Running Join Video command: {' '.join(ffmpeg_cmd)}")
     result_json = capture_ffmpeg_real_time(ffmpeg_cmd, "[yellow]FFMPEG [cyan]Join video", log_path)
     if context_tracker.should_print:
         print()
@@ -238,8 +240,7 @@ def join_audios(video_path: str, audio_tracks: List[Dict[str, str]], out_path: s
 
     # Output file and overwrite
     ffmpeg_cmd.extend([out_path, '-y'])
-
-    # Run join
+    logger.info(f"Running Join Audio command: {' '.join(ffmpeg_cmd)}")
     result_json = capture_ffmpeg_real_time(ffmpeg_cmd, "[yellow]FFMPEG [cyan]Join audio", log_path)
     if context_tracker.should_print:
         print()
@@ -376,8 +377,7 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     
     # Overwrite
     ffmpeg_cmd += [out_path, "-y"]
-    
-    # Run join
+    logger.info(f"Running Join Subtitle command: {' '.join(ffmpeg_cmd)}")
     result_json = capture_ffmpeg_real_time(ffmpeg_cmd, "[yellow]FFMPEG [cyan]Join subtitle", log_path)
     if context_tracker.should_print:
         print()

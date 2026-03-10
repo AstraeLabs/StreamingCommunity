@@ -1,10 +1,14 @@
 # 11.02.25
 
 import os
+import logging
 import inspect
 
 from VibraVid.utils import config_manager
 from .site_loader import folder_name as lazy_loader_folder
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_site_name_from_stack():
@@ -13,6 +17,7 @@ def get_site_name_from_stack():
         
         if f"{lazy_loader_folder}{os.sep}" in file_path:
             parts = file_path.split(f"{lazy_loader_folder}{os.sep}")
+            logger.info(f"Inspecting stack frame: {file_path}, parts: {parts}")
             
             if len(parts) > 1:
                 site_name = parts[1].split(os.sep)[0]

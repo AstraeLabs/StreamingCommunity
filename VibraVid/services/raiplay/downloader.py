@@ -2,6 +2,7 @@
 
 import os
 import re
+import logging
 from typing import Tuple
 
 from rich.console import Console
@@ -23,6 +24,7 @@ from .scrapper import GetSerieInfo
 
 console = Console()
 msg = Prompt()
+logger = logging.getLogger(__name__)
 extension_output = config_manager.config.get("PROCESS", "extension")
 
 
@@ -65,16 +67,15 @@ def download_film(select_title: Entries) -> Tuple[str, bool]:
     if ".mpd" not in master_playlist:
         return HLS_Downloader(
             m3u8_url=fix_manifest_url(master_playlist),
+            license_url=generate_license_url(select_title.mpd_id),
             output_path=os.path.join(title_path, title_name)
         ).start()
 
     # MPD
     else:
-        license_url = generate_license_url(select_title.mpd_id)
-
         return DASH_Downloader(
             mpd_url=master_playlist,
-            license_url=license_url,
+            license_url=generate_license_url(select_title.mpd_id),
             output_path=os.path.join(title_path, title_name),
         ).start()
     
@@ -95,7 +96,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     master_playlist = VideoSource.extract_m3u8_url(obj_episode.url)
 
     if not master_playlist:
-        console.print(f"[red]Error: Could not extract streaming URL for {obj_episode.name}")
+        logger.error(f"Error: Could not extract streaming URL for {obj_episode.name}")
         return False
 
     # HLS

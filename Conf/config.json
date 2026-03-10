@@ -56,7 +56,7 @@
     "DRM": {
         "delay": 2,
         "create_local_db": false,
-        "external_supa_db": "https://crqczuxpqjmrjvdvqvlx.supabase.co/",
+        "external_supa_db": "https://crqczuxpqjmrjvdvqvlx.supabase.co",
         "widevine": {
             "device_type": "ANDROID",
             "system_id": 22590,

@@ -26,6 +26,7 @@ from .ui import build_table
 
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
+
 YTDLP_BIN = ""
 auto_select_cfg = config_manager.config.get_bool("DOWNLOAD", "auto_select", default=True)
 video_filter = config_manager.config.get("DOWNLOAD", "select_video")

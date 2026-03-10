@@ -14,6 +14,7 @@ from ..setup.binary_paths import binary_paths
 
 msg = Prompt()
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class OsManager:
@@ -131,7 +132,7 @@ class OsManager:
             return True
 
         except Exception as e:
-            logging.error(f"Path creation error: {e}")
+            logger.error(f"Path creation error: {e}")
             return False
 
     def remove_folder(self, folder_path: str) -> bool:
@@ -149,7 +150,7 @@ class OsManager:
             return True
 
         except OSError as e:
-            logging.error(f"Folder removal error: {e}")
+            logger.error(f"Folder removal error: {e}")
             return False
 
 

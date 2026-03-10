@@ -1,7 +1,6 @@
 # 19.06.24
 
 import sys
-import logging
 import re as _re
 from typing import List
 
@@ -326,9 +325,6 @@ def validate_selection(list_season_select: List[int], available_seasons: List[in
             return valid_seasons
         
         except ValueError:
-            logging.error("Error: Please enter valid integers separated by commas.")
-
-            # Prompt the user for valid input again
             input_seasons = input(f"Enter valid season numbers ({', '.join(map(str, available_seasons))}): ")
             list_season_select = list(map(int, input_seasons.split(',')))
 

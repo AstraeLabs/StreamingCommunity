@@ -1,5 +1,6 @@
 # 01.10.25 
 
+import logging
 from typing import Callable, Optional, Dict, Any
 
 from rich.console import Console
@@ -11,6 +12,7 @@ from VibraVid.services._base import Entries, EntriesManager
 
 console = Console()
 msg = Prompt()
+logger = logging.getLogger(__name__)
 available_colors = ['red', 'magenta', 'yellow', 'cyan', 'green', 'blue', 'white']
 column_to_hide = ['Slug', 'Sub_ita', 'First_air_date', 'Seasons_count', 'Url', 'Image', 'Path_id', 'Score']
 
@@ -31,6 +33,7 @@ def get_select_title(table_show_manager, media_search_manager):
 
     if not media_search_manager.media_list:
         console.print("\n[red]No media items available.")
+        logger.info("No media items available for selection.")
         return None
     
     first_media_item = media_search_manager.media_list[0]
@@ -82,10 +85,11 @@ def get_select_title(table_show_manager, media_search_manager):
                 return media_search_manager.get(selected_index)
             else:
                 console.print("\n[red]Invalid or out-of-range index. Please try again.")
-                
+                logger.info("Invalid or out-of-range index selected.")
+
         except ValueError:
             console.print("\n[red]Non-numeric input received. Please try again.")
-    
+            logger.info("Non-numeric input received.")
 
 def base_process_search_result(select_title: Optional[Entries], download_film_func: Optional[Callable[[Entries], Any]] = None, download_series_func: Optional[Callable[[Entries, Optional[str], Optional[str], Optional[Any]], Any]] = None,
     media_search_manager: Optional[EntriesManager] = None, table_show_manager: Optional[TVShowManager] = None, selections: Optional[Dict[str, str]] = None, scrape_serie: Optional[Any] = None
@@ -108,6 +112,7 @@ def base_process_search_result(select_title: Optional[Entries], download_film_fu
     """
     if not select_title:
         console.print("[yellow]No title selected or selection cancelled.")
+        logger.info("No title selected or selection cancelled.")
         return False
     
     # Handle TV series
@@ -151,6 +156,7 @@ def base_process_search_result(select_title: Optional[Entries], download_film_fu
     
     else:
         console.print(f"[red]Unknown media type: {select_title.type}")
+        logger.error(f"Unknown media type: {select_title.type}")
         return False
 
 
@@ -178,6 +184,7 @@ def base_search(title_search_func: Callable[[str], int], process_result_func: Ca
     """
     # Handle direct item processing
     if direct_item:
+        logger.info("Processing direct item without search.")
         select_title = Entries(**direct_item)
         result = process_result_func(select_title, selections, scrape_serie)
         return result
@@ -185,18 +192,22 @@ def base_search(title_search_func: Callable[[str], int], process_result_func: Ca
     # Get the user input for the search term
     actual_search_query = None
     if string_to_search is not None:
+        logger.info(f"Using provided search string: {string_to_search}")
         actual_search_query = string_to_search.strip()
     else:
+        logger.info("Prompting user for search input.")
         actual_search_query = msg.ask(f"\n[purple]Insert a word to search in [green]{site_name}").strip()
 
     # Search on database
-    len_database = title_search_func(actual_search_query)
+    len_database = title_search_func(str(actual_search_query).strip())
     
     # Sort results by fuzzy score
+    logger.info(f"Sorting {len_database} results by fuzzy score for query: '{actual_search_query}'")
     media_search_manager.sort_by_fuzzy_score(actual_search_query)
     
     # Handle empty input
     if not actual_search_query:
+        logger.error("Empty search query provided.")
         return False
     
     # If only the database is needed, return the manager

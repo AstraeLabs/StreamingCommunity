@@ -20,8 +20,8 @@ from .utils.object import Stream, Segment
 from .utils.file_size import format_bitrate
 
 
-logger = logging.getLogger(__name__)
 console = Console()
+logger = logging.getLogger(__name__)
 auto_select_cfg = config_manager.config.get_bool('DOWNLOAD', 'auto_select', default=True)
 video_filter = config_manager.config.get("DOWNLOAD", "select_video")
 audio_filter = config_manager.config.get("DOWNLOAD", "select_audio")
@@ -246,14 +246,14 @@ class MediaDownloader:
             return status
         
         # Process results
-        logger.debug(f"Processing {len(results)} downloaded results")
+        logger.info(f"Processing {len(results)} downloaded results")
         for file_path, stream in results:
             if not os.path.exists(file_path):
                 logger.warning(f"Downloaded file not found: {file_path}")
                 continue
             
             file_size = os.path.getsize(file_path)
-            logger.debug(f"Processing {stream.type}: {file_path} ({file_size} bytes)")
+            logger.info(f"Processing {stream.type}: {file_path} ({file_size} bytes)")
             
             if stream.type == 'video':
                 status['video'] = {'path': file_path, 'size': file_size}

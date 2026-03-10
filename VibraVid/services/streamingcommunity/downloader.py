@@ -49,7 +49,7 @@ def download_film(select_title: Entries) -> str:
     master_playlist = video_source.get_playlist()
 
     if master_playlist is None:
-        console.print(f"[red]Site: {site_constants.SITE_NAME}, error: No master playlist found")
+        console.print("[red]Error: No master playlist found")
         return None
 
     # Define the filename and path for the downloaded film

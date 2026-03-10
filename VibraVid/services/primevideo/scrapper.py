@@ -220,7 +220,9 @@ class GetSerieInfo:
         except Exception as e:
             print(f"[primevideo] Error collecting episodes for season {number_season}: {e}")
             raise
+    
 
+    # ------------- FOR GUI -------------
     def getNumberSeason(self) -> int:
         if not self.seasons_manager.seasons:
             self.collect_info_title()

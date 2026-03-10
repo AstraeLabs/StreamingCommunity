@@ -22,8 +22,8 @@ from VibraVid.setup import get_bento4_decrypt_path, get_mp4dump_path, get_shaka_
 from VibraVid.utils.vault import obj_externalSupaDbVault
 
 
-logger = logging.getLogger(__name__)
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class Decryptor:
@@ -56,7 +56,7 @@ class Decryptor:
             if kid_match:
                 kid_raw = kid_match.group(1)
                 kid = re.sub(r'\s+', '', kid_raw).lower()
-                console.print(f"[dim]KID: {kid}")
+                logger.info(f"Found KID: {kid}")
 
             # Extract PSSH (in hex format like [AB CD EF ...] or base64)
             pssh_match = re.search(r'pssh\s*=\s*\[((?:[0-9a-fA-F]{2}\s*)+)\]', output, re.IGNORECASE)
@@ -68,14 +68,13 @@ class Decryptor:
                     pssh = base64.b64encode(pssh_bytes).decode('utf-8')
                     console.print(f"[dim]PSSH: {pssh[:50]}...")
                 except Exception:
-                    logger.debug(f"Could not convert PSSH hex to base64: {hex_clean[:100]}")
+                    logger.error(f"Could not convert PSSH hex to base64: {hex_clean[:100]}")
 
             # 1. Search for scheme_type
             scheme_match = re.search(r'scheme_type\s*=\s*(\w+)', output, re.IGNORECASE)
             if scheme_match:
                 scheme = scheme_match.group(1).lower()
                 logger.info(f"Found scheme_type: {scheme}")
-                console.print(f"[dim]Scheme: {scheme}")
                 if scheme in ['cenc', 'cens']:
                     return 'ctr', kid, pssh
                 elif scheme in ['cbcs', 'cbc1']:
@@ -108,8 +107,10 @@ class Decryptor:
     def decrypt(self, encrypted_path, keys, output_path, stream_type: str = "video"):
         """Decrypt a file using the preferred method. Returns True on success."""
         try:
+            logger.info(f"Decrypting file: {os.path.basename(encrypted_path)} as {stream_type}")
             encryption_scheme, kid, pssh = self.detect_encryption(encrypted_path)
             if encryption_scheme is None:
+                logger.info(f"File {os.path.basename(encrypted_path)} is not encrypted, copying to destination.")
                 shutil.copy(encrypted_path, output_path)
                 return True
             
@@ -127,7 +128,9 @@ class Decryptor:
                         key_kids.append(single_key.lower())
                 
                 if key_kids and kid.lower() not in key_kids:
-                    console.print(f"[red]Error: Detected KID ({kid}) does not match any provided key KIDs ({key_kids})")
+                    error_msg = f"Detected KID ({kid}) does not match any provided key KIDs ({key_kids})"
+                    logger.error(error_msg)
+                    console.print(f"[red]Error: {error_msg}")
                     
                     # Mark mismatched keys as invalid in Supabase
                     if self.is_supa_db_connected:
@@ -137,7 +140,8 @@ class Decryptor:
                     console.print("[red]File cannot be decrypted - wrong key for this content")
                     return False
             
-            console.print(f"[dim]Decrypting ({encryption_scheme.upper()}) with {self.preference}...")
+            logger.info(f"Decrypting {os.path.basename(encrypted_path)} ({encryption_scheme.upper()}) using {self.preference}...")
+            console.print(f"[dim]Decrypting [cyan]{os.path.basename(encrypted_path)}[/cyan] ({encryption_scheme.upper()}) with {self.preference}...")
 
             if self.preference == "shaka" and self.shaka_packager_path:
                 result = self._decrypt_shaka(encrypted_path, keys, output_path, stream_type)
@@ -145,12 +149,17 @@ class Decryptor:
                 result = self._decrypt_bento4(encrypted_path, keys, output_path)
             
             # Mark key as valid if decryption succeeded
-            if result and kid and self.is_supa_db_connected:
-                self._mark_key_valid(kid, pssh)
+            if result:
+                logger.info(f"Decryption successful: {os.path.basename(output_path)}")
+                if kid and self.is_supa_db_connected:
+                    self._mark_key_valid(kid, pssh)
+            else:
+                logger.error(f"Decryption failed for {os.path.basename(encrypted_path)}")
             
             return result
                 
         except Exception as e:
+            logger.error(f"Decryption error: {e}")
             console.print(f"[red]Decryption error: {e}.")
             return False
 
@@ -159,16 +168,12 @@ class Decryptor:
         if self.is_supa_db_connected:
             if obj_externalSupaDbVault.update_key_validity(kid, False, self.license_url, self.drm_type, pssh):
                 console.print(f"[yellow]Marked key {kid} as invalid in Supabase")
-            else:
-                logger.debug(f"Could not mark key {kid} as invalid")
 
     def _mark_key_valid(self, kid: str, pssh: str = None):
         """Mark a key as valid for this specific license URL (and PSSH if provided) in Supabase Vault after successful decryption."""
         if self.is_supa_db_connected:
             if obj_externalSupaDbVault.update_key_validity(kid, True, self.license_url, self.drm_type, pssh):
-                logger.debug(f"Marked key {kid} as valid")
-            else:
-                logger.debug(f"Could not mark key {kid} as valid")
+                logger.info(f"Marked key {kid} as valid")
 
     def _decrypt_bento4(self, encrypted_path, keys, output_path):
         """Decrypt a file using Bento4. Returns True on success."""
@@ -214,7 +219,7 @@ class Decryptor:
             return True
         else:
             if "stream=" in stream_spec:
-                logger.debug("Shaka decryption failed with stream type, retrying without it...")
+                logger.error("Shaka decryption failed with stream type, retrying without it...")
                 cmd_retry = [self.shaka_packager_path, f"input='{encrypted_path}',output='{output_path}'", "--enable_fixed_key_decryption"]
                 if keys_arg: 
                     cmd_retry.extend(["--keys", ",".join(keys_arg)])

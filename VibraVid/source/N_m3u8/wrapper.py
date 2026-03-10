@@ -4,9 +4,9 @@ import re
 import asyncio
 import platform
 import subprocess
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from datetime import datetime
 from contextlib import nullcontext
 
 from rich.console import Console
@@ -14,7 +14,7 @@ from rich.progress import Progress, TextColumn
 
 from VibraVid.utils.config import config_manager
 from VibraVid.utils.os import internet_manager
-from VibraVid.setup import get_ffmpeg_path, get_n_m3u8dl_re_path, get_bento4_decrypt_path, get_shaka_packager_path
+from VibraVid.setup import get_ffmpeg_path, get_n_m3u8dl_re_path
 from VibraVid.source.utils.tracker import download_tracker, context_tracker
 from VibraVid.utils.http_client import create_async_client
 from VibraVid.source.utils.trans_codec import get_subtitle_codec_name
@@ -28,6 +28,7 @@ from .ui import build_table
 
 
 console = Console(force_terminal=True if platform.system().lower() != 'windows' else None)
+logger = logging.getLogger(__name__)
 auto_select_cfg = config_manager.config.get_bool('DOWNLOAD', 'auto_select', default=True)
 video_filter = config_manager.config.get("DOWNLOAD", "select_video")
 audio_filter = config_manager.config.get("DOWNLOAD", "select_audio")
@@ -96,13 +97,6 @@ class MediaDownloader:
         if auto_select_cfg:
             cmd.extend(["--force-ansi-console", "--no-ansi-color"])
         return cmd
-    
-    def determine_decryption_tool(self) -> str:
-        """Determine decryption tool based on preference and availability"""
-        if self.decrypt_preference == "bento4":
-            return get_bento4_decrypt_path()
-        if self.decrypt_preference == "shaka":
-            return get_shaka_packager_path()
 
     def _match_external_subtitle_lang(self, ext_lang: str) -> bool:
         """Check if external subtitle language matches filter"""
@@ -145,17 +139,17 @@ class MediaDownloader:
         cmd.append(self.url)
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors='replace', bufsize=1, universal_newlines=True)
         
-        # Save parsing log
-        log_path = self.output_dir / f"{self.filename}_parsing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        with open(log_path, 'w', encoding='utf-8', errors='replace') as log_file:
-            log_file.write(f"Command: {' '.join(cmd)}\n{'='*80}\n\n")
-            log_parser = LogParser()
-            for line in proc.stdout:
-                if line := line.rstrip():
-                    log_parser.parse_line(line)
-                    log_file.write(line + "\n")
-                    log_file.flush()
-            proc.wait()
+        log_parser = LogParser()
+        logger.info(f"Parsing stream with command: {' '.join(cmd)}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors='replace', bufsize=1, universal_newlines=True)
+        
+        for line in proc.stdout:
+            logger.info(f"[n3u8dl-re-parsing] {line.strip()}")
+            if line := line.rstrip():
+                if "ERROR" in line or "WARN" in line:
+                    logger.warning(f"[n3u8dl-re-parser] {line}")
+                log_parser.parse_line(line)
+        proc.wait()
         
         analysis_dir = analysis_path / "temp_analysis"
         self.meta_json_path = analysis_dir / "meta.json"
@@ -280,7 +274,6 @@ class MediaDownloader:
             "--save-dir", str(self.output_dir), 
             "--tmp-dir", str(self.output_dir),
             "--ffmpeg-binary-path", get_ffmpeg_path(), 
-            "--decryption-binary-path", self.determine_decryption_tool(),
             "--write-meta-json", "false", 
             "--binary-merge",
             "--del-after-done",
@@ -330,10 +323,6 @@ class MediaDownloader:
             cmd.extend(["--download-retry-count", str(retry_count)])
         if max_speed and str(max_speed).lower() != "false":
             cmd.extend(["--max-speed", max_speed])
-        if self.key:
-            keys_list = self.key.get_keys_list() if isinstance(self.key, KeysManager) else ([self.key] if isinstance(self.key, str) else self.key)
-            for single_key in keys_list:
-                cmd.extend(["--key", single_key])
         
         cmd.append(self.url)
         
@@ -346,50 +335,49 @@ class MediaDownloader:
             loop.close()
         
         log_parser = LogParser(show_warnings=False)
-        log_path = self.output_dir / f"{self.filename}_download_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         subtitle_sizes = {}
         
-        with open(log_path, 'w', encoding='utf-8', errors='replace') as log_file:
-            log_file.write(f"Command: {' '.join(cmd)}\n{'='*80}\n\n")
+        # In interactive mode (auto_select=false), don't use progress bar - just run n3u8dl directly
+        if not auto_select_cfg:
+            logger.info(f"Running n3u8dl-re: {' '.join(cmd)}")
+            proc = subprocess.Popen(cmd)
+            if self.download_id:
+                download_tracker.register_process(self.download_id, proc)
+            proc.wait()
+
+        else:
+            progress_ctx = nullcontext() if context_tracker.is_gui else Progress(
+                TextColumn("[purple]{task.description}", justify="left"), CustomBarColumn(bar_width=40), ColoredSegmentColumn(),
+                TextColumn("[dim][[/dim]"), CompactTimeColumn(), TextColumn("[dim]<[/dim]"), CompactTimeRemainingColumn(), TextColumn("[dim]][/dim]"),
+                SizeColumn(), TextColumn("[dim]@[/dim]"), TextColumn("[red]{task.fields[speed]}[/red]", justify="right"), 
+                console=console,
+                refresh_per_second=10.0
+            )
             
-            # In interactive mode (auto_select=false), don't use progress bar - just run n3u8dl directly
-            if not auto_select_cfg:
-                proc = subprocess.Popen(cmd)
+            with progress_ctx as progress:
+                tasks = {}
+                logger.info(f"Starting n3u8dl-re download: {' '.join(cmd)}")
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors='replace', bufsize=1, universal_newlines=True)
+                
+                # Register process for potential termination
                 if self.download_id:
                     download_tracker.register_process(self.download_id, proc)
-                proc.wait()
 
-            else:
-                progress_ctx = nullcontext() if context_tracker.is_gui else Progress(
-                    TextColumn("[purple]{task.description}", justify="left"), CustomBarColumn(bar_width=40), ColoredSegmentColumn(),
-                    TextColumn("[dim][[/dim]"), CompactTimeColumn(), TextColumn("[dim]<[/dim]"), CompactTimeRemainingColumn(), TextColumn("[dim]][/dim]"),
-                    SizeColumn(), TextColumn("[dim]@[/dim]"), TextColumn("[red]{task.fields[speed]}[/red]", justify="right"), 
-                    console=console,
-                    refresh_per_second=10.0
-                )
-                
-                with progress_ctx as progress:
-                    tasks = {}
-                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors='replace', bufsize=1, universal_newlines=True)
-                    
-                    # Register process for potential termination
-                    if self.download_id:
-                        download_tracker.register_process(self.download_id, proc)
-
-                    with proc:
-                        for line in proc.stdout:
-                            if self.download_id and download_tracker.is_stopped(self.download_id):
-                                proc.terminate()
-                                break
-                            
-                            log_file.write(line)
-                            log_parser.parse_line(line)
-                            self._parse_progress_line(line, progress, tasks, subtitle_sizes)
+                with proc:
+                    for line in proc.stdout:
+                        logger.info(f"[n3u8dl-re-download] {line.strip()}")
+                        if self.download_id and download_tracker.is_stopped(self.download_id):
+                            logger.info("Download cancelled by user")
+                            proc.terminate()
+                            break
                         
-                        # Ensure all tasks are complete
-                        if progress:
-                            for task_id in tasks.values():
-                                progress.update(task_id, completed=100)
+                        log_parser.parse_line(line)
+                        self._parse_progress_line(line, progress, tasks, subtitle_sizes)
+                    
+                    # Ensure all tasks are complete
+                    if progress:
+                        for task_id in tasks.values():
+                            progress.update(task_id, completed=100)
         
         # Check if we were cancelled
         if self.download_id and download_tracker.is_stopped(self.download_id):
@@ -403,13 +391,15 @@ class MediaDownloader:
         self.status = self._get_download_status(subtitle_sizes, external_subs)
 
         if self.key:
-            # IL 99% delle volte n3u8dl riesce a fare tutto ma in quel 1% sti cazzi meglio fare double check anche se si perde tempo.
             self._manual_decrypt_check(self.status)
 
         return self.status
 
     def _manual_decrypt_check(self, status: Dict[str, Any]):
         """Check and manually decrypt files if they are still encrypted after download"""
+        if self.download_id:
+            download_tracker.update_status(self.download_id, "Decrypting...")
+            
         decryptor = Decryptor(preference=self.decrypt_preference, license_url=getattr(self, 'license_url', None), drm_type=getattr(self, 'drm_type', None))
         
         # Prepare targets with their respective stream types
@@ -426,12 +416,9 @@ class MediaDownloader:
             if not file_path.exists():
                 continue
                 
-            # Check if still encrypted
-            console.print(f"[cyan]Check file [red]{file_path.name} [cyan]is still encrypted...")
             if decryptor.detect_encryption(str(file_path)):
-                
-                # Decrypt to a temporary file
                 temp_output = file_path.with_suffix(file_path.suffix + ".decrypted")
+                logger.info(f"File {file_path} appears to be encrypted. Attempting manual decryption using {self.decrypt_preference} method.")
                 
                 if decryptor.decrypt(str(file_path), keys, str(temp_output), stream_type=stream_type):
                     try:
@@ -442,13 +429,14 @@ class MediaDownloader:
                         # Update status with new size
                         target['size'] = file_path.stat().st_size
                     except Exception as e:
-                        console.print(f"[red]Failed to replace encrypted file: {e}[/red]")
+                        console.print(f"[red]Failed to replace encrypted file: {e}.")
+                        logger.error(f"Failed to replace encrypted file: {e}")
+
                         if temp_output.exists():
                             temp_output.unlink()
                 else:
                     if temp_output.exists():
                         temp_output.unlink()
-                    console.print(f"[red]Manual decryption failed for: {file_path.name}[/red]")
 
     def _update_task(self, progress, tasks: dict, key: str, label: str, line: str):
         """Generic task update helper"""

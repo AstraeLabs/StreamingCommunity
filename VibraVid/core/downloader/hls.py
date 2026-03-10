@@ -23,6 +23,7 @@ from VibraVid.core.drm.manager import DRMManager
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 CLEANUP_TMP = config_manager.config.get_bool('DOWNLOAD', 'cleanup_tmp_folder')
 EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 SKIP_DOWNLOAD = config_manager.config.get_bool('DOWNLOAD', 'skip_download')
@@ -247,7 +248,7 @@ class HLS_Downloader:
 
         # Check if any media was downloaded
         if self._no_media_downloaded(status):
-            logging.error("No media downloaded")
+            logger.error("No media downloaded")
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="No media downloaded")
             return None, True
@@ -262,7 +263,7 @@ class HLS_Downloader:
                 download_tracker.complete_download(self.download_id, success=False, error="cancelled")
                 return None, True
                 
-            logging.error("Merge operation failed")
+            logger.error("Merge operation failed")
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="Merge failed")
             return None, True

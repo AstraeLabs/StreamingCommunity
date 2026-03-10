@@ -1,6 +1,9 @@
 # 16.03.25
 
+import base64
+import json
 import re
+import time
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -15,38 +18,67 @@ console = Console()
 class_mediaset_api = None
 
 
+def _decode_jwt_payload(token: str) -> dict:
+    """Decode a JWT payload without signature verification."""
+    try:
+        part = token.split(".")[1]
+        part += "=" * (4 - len(part) % 4)
+        return json.loads(base64.urlsafe_b64decode(part))
+    except (IndexError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _is_token_valid(token: str) -> bool:
+    """Check if a JWT token is still valid (with 5-minute buffer)."""
+    payload = _decode_jwt_payload(token)
+    exp = payload.get("exp", 0)
+    return exp > time.time() + 300
+
+
 class MediasetAPI:
     def __init__(self):
         self.client_id = str(uuid.uuid4())
         self.headers = get_headers()
         self.app_name = self.get_app_name()
-        
+
         # Check for token in login config
         self.beToken = None
+        self.account_id = None
         self.is_anonymous = True
         login_token = config_manager.login.get("mediasetinfinity", "beToken")
 
         if login_token is not None and login_token != "":
-            self.beToken = login_token
-            self.is_anonymous = False
+            if _is_token_valid(login_token):
+                self.beToken = login_token
+                self.account_id = _decode_jwt_payload(login_token).get("oid")
+                self.is_anonymous = False
+                console.print("[green]Authenticated with login beToken (sub)")
+            else:
+                console.print("[yellow]Login beToken expired, falling back to anonymous token...")
+                self.beToken = self.generate_betoken()
+                self.account_id = _decode_jwt_payload(self.beToken).get("oid")
         else:
             self.beToken = self.generate_betoken()
+            self.account_id = _decode_jwt_payload(self.beToken).get("oid")
 
         self.sha256Hash = self.getHash2c()
-        
+
     def get_app_name(self):
         html = self.fetch_html()
         soup = BeautifulSoup(html, "html.parser")
         meta_tag = soup.find('meta', attrs={'name': 'app-name'})
-        
+
         if meta_tag:
             return meta_tag.get('content')
-        
+
     def getHash256(self):
         return self.sha256Hash
-    
+
     def getBearerToken(self):
         return self.beToken
+
+    def getAccountId(self):
+        return self.account_id
 
     def generate_betoken(self):
         json_data = {
@@ -91,30 +123,21 @@ class MediasetAPI:
 
 
 def get_client():
-    """
-    Gets the BEARER_TOKEN for authentication.
-    Anche i manifestanti per strada dio bellissimo.
-    """
+    """Gets or creates the MediasetAPI singleton."""
     global class_mediaset_api
     if class_mediaset_api is None:
         class_mediaset_api = MediasetAPI()
+    elif not _is_token_valid(class_mediaset_api.getBearerToken()):
+        console.print("[yellow]beToken expired, re-authenticating...")
+        class_mediaset_api = MediasetAPI()
     return class_mediaset_api
-       
+
 
 def get_playback_url(CONTENT_ID):
-    """
-    Gets the playback URL for the specified content.
-
-    Args:
-        BEARER_TOKEN (str): The authentication token.
-        CONTENT_ID (str): The content identifier.
-
-    Returns:
-        dict: The playback JSON object.
-    """
+    """Gets the playback URL for the specified content."""
     headers = get_headers()
     headers['authorization'] = f'Bearer {class_mediaset_api.getBearerToken()}'
-    
+
     json_data = {
         'contentId': CONTENT_ID,
         'streamType': 'VOD'
@@ -128,19 +151,20 @@ def get_playback_url(CONTENT_ID):
         # Check for PL022 error (Infinity+ rights)
         if 'error' in resp_json and resp_json['error'].get('code') == 'PL022':
             raise RuntimeError("Infinity+ required for this content.")
-        
+
         # Check for PL402 error (TVOD not purchased)
         if 'error' in resp_json and resp_json['error'].get('code') == 'PL402':
             raise RuntimeError("Content available for rental: you must rent it first.")
 
         if 'error' in resp_json and resp_json['error'].get('code') == 'PL053':
             raise RuntimeError("Content has no available purchasable rights")
-        
+
         playback_json = resp_json['response']['mediaSelector']
         return playback_json
-    
+
     except Exception as e:
         raise RuntimeError(f"Failed to get playback URL error: {e}")
+
 
 def parse_smil_for_media_info(smil_xml):
     """
@@ -154,13 +178,13 @@ def parse_smil_for_media_info(smil_xml):
             'videos': [{'url': str, 'quality': str, 'clipBegin': str, 'clipEnd': str, 'tracking_data': dict}, ...],
             'subtitles': [{'url': str, 'lang': str, 'type': str}, ...]
         }
-    """   
+    """
     root = ET.fromstring(smil_xml)
     ns = {'smil': root.tag.split('}')[0].strip('{')}
-    
+
     videos = []
     subtitles_raw = []
-    
+
     # Process all <par> elements
     for par in root.findall('.//smil:par', ns):
 
@@ -169,7 +193,7 @@ def parse_smil_for_media_info(smil_xml):
         if ref_elem is not None:
             url = ref_elem.attrib.get('src')
             title = ref_elem.attrib.get('title', '')
-            
+
             # Parse tracking data inline
             tracking_data = {}
             for param in ref_elem.findall('.//smil:param', ns):
@@ -177,7 +201,7 @@ def parse_smil_for_media_info(smil_xml):
                     tracking_value = param.attrib.get('value', '')
                     tracking_data = dict(item.split('=', 1) for item in tracking_value.split('|') if '=' in item)
                     break
-            
+
             if url and url.endswith('.mpd'):
                 video_info = {
                     'url': url,
@@ -185,19 +209,21 @@ def parse_smil_for_media_info(smil_xml):
                     'tracking_data': tracking_data
                 }
                 videos.append(video_info)
-    
+
         # Extract subtitle information from <textstream>
         for textstream in par.findall('.//smil:textstream', ns):
             sub_url = textstream.attrib.get('src')
             lang = textstream.attrib.get('lang', 'unknown')
             sub_type = textstream.attrib.get('type', 'unknown')
-            
+
             # Map MIME type to format
             if sub_type == 'text/vtt':
                 sub_format = 'vtt'
             elif sub_type == 'text/srt':
                 sub_format = 'srt'
-            
+            else:
+                sub_format = 'vtt'
+
             if sub_url:
                 subtitle_info = {
                     'url': sub_url,
@@ -205,7 +231,7 @@ def parse_smil_for_media_info(smil_xml):
                     'format': sub_format
                 }
                 subtitles_raw.append(subtitle_info)
-    
+
     # Filter subtitles: prefer VTT, fallback to SRT
     subtitles_by_lang = {}
     for sub in subtitles_raw:
@@ -213,48 +239,46 @@ def parse_smil_for_media_info(smil_xml):
         if lang not in subtitles_by_lang:
             subtitles_by_lang[lang] = []
         subtitles_by_lang[lang].append(sub)
-    
+
     subtitles = []
     for lang, subs in subtitles_by_lang.items():
         vtt_subs = [s for s in subs if s['format'] == 'vtt']
         if vtt_subs:
             subtitles.append(vtt_subs[0])  # Take first VTT
-            
         else:
             srt_subs = [s for s in subs if s['format'] == 'srt']
             if srt_subs:
                 subtitles.append(srt_subs[0])  # Take first SRT
-    
+
     return {
         'videos': videos,
         'subtitles': subtitles
     }
 
+
 def get_tracking_info(PLAYBACK_JSON):
-    """
-    Retrieves media information including videos and subtitles from the playback JSON.
+    """Retrieves media information including videos and subtitles from the playback JSON."""
+    if class_mediaset_api.is_anonymous:
+        qualities = ("HR", "SD", "SS")
+    else:
+        qualities = ("HD", "HR", "SD", "SS")
 
-    Args:
-        PLAYBACK_JSON (dict): The playback JSON object.
+    parts = []
+    for q in qualities:
+        parts.append(f"{q},browser,widevine,geoIT|geoNo")
+        parts.append(f"{q},browser,geoIT|geoNo")
+    asset_types = ":".join(parts)
 
-    Returns:
-        dict or None: {'videos': [...], 'subtitles': [...]}, or None if request fails.
-    """
     params = {
         "format": "SMIL",
         "auth": class_mediaset_api.getBearerToken(),
         "formats": "MPEG-DASH",
-        "assetTypes": None,
+        "assetTypes": asset_types,
         "balance": "true",
         "auto": "true",
         "tracking": "true",
         "delivery": "Streaming"
     }
-
-    if class_mediaset_api.is_anonymous:
-        params['assetTypes'] = "HR,browser,widevine,geoIT|geoNo:HR,browser,geoIT|geoNo:SD,browser,widevine,geoIT|geoNo:SD,browser,geoIT|geoNo:SS,browser,widevine,geoIT|geoNo:SS,browser,geoIT|geoNo"
-    else:
-        params['assetTypes'] = "4K,browser,widevine,geoEU|geoNoLim:4K,browser,geoEU|geoNoLim:HD,browser,widevine,geoEU|geoNoLim:HD,browser,geoEU|geoNoLim:HD,widevine,geoEU|geoNoLim:HD,geoEU|geoNoLim:HR,browser,widevine,geoEU|geoNoLim:HR,browser,geoEU|geoNoLim:SD,browser,widevine,geoEU|geoNoLim:SD,browser,geoEU|geoNoLim:SS,browser,widevine,geoEU|geoNoLim:SS,browser,geoEU|geoNoLim"
 
     if 'publicUrl' in PLAYBACK_JSON:
         params['publicUrl'] = PLAYBACK_JSON['publicUrl']
@@ -265,27 +289,23 @@ def get_tracking_info(PLAYBACK_JSON):
 
         results = parse_smil_for_media_info(response.text)
         return results
-    
+
     except Exception as e:
         print(f"Error fetching tracking info: {e}")
         return None
 
 
 def generate_license_url(tracking_info):
-    """
-    Generates the URL to obtain the Widevine license.
+    """Generates the URL to obtain the Widevine license."""
+    account_id = class_mediaset_api.getAccountId()
+    if not account_id:
+        account_id = tracking_info['tracking_data'].get('aid', '')
 
-    Args:
-        tracking_info (dict): The tracking info dictionary.
-
-    Returns:
-        str: The full license URL.
-    """
     params = {
         'releasePid': tracking_info['tracking_data'].get('pid'),
-        'account': f"http://access.auth.theplatform.com/data/Account/{tracking_info['tracking_data'].get('aid')}",
+        'account': f"http://access.auth.theplatform.com/data/Account/{account_id}",
         'schema': '1.0',
         'token': class_mediaset_api.getBearerToken(),
     }
-    
+
     return 'https://widevine.entitlement.theplatform.eu/wv/web/ModularDrm/getRawWidevineLicense', params

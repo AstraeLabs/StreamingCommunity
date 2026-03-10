@@ -2,6 +2,7 @@
 
 import re
 import time
+import logging
 import unicodedata
 from difflib import SequenceMatcher
 
@@ -12,6 +13,7 @@ from VibraVid.utils.http_client import create_client_curl, get_userAgent
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 api_key = config_manager.login.get("TMDB", "api_key")
 
 
@@ -31,7 +33,7 @@ class TMDBClient:
             params = {}
 
         if self.api_key is None or self.api_key == "":
-            console.log("[red]TMDB API key is not set. Please provide a valid API key in the configuration.")
+            logger.error("TMDB API key is not set. Please provide a valid API key.")
             return {}
 
         params['api_key'] = self.api_key
@@ -65,6 +67,7 @@ class TMDBClient:
         text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
         text = re.sub(r'[^\w\s-]', '', text).strip().lower()
         text = re.sub(r'[-\s]+', '-', text)
+        logger.info(f"Slugified '{text}'")
         return text
 
     def _slugs_match(self, slug1: str, slug2: str, threshold: float = 0.85) -> bool:
@@ -85,7 +88,8 @@ class TMDBClient:
 
         if media_type == "movie":
             movie_results = self._make_request("search/movie", {"query": slug.replace('-', ' '), "language": language_preference}).get("results", [])
-            
+            logger.info(f"Found {len(movie_results)} movie results for slug '{slug}' and year '{year}'")
+
             # 1 result
             if len(movie_results) == 1:
                 return {'type': "movie", 'id': movie_results[0]['id']}
@@ -108,7 +112,8 @@ class TMDBClient:
         
         elif media_type == "tv":
             tv_results = self._make_request("search/tv", {"query": slug.replace('-', ' '), "language": language_preference}).get("results", [])
-            
+            logger.info(f"Found {len(tv_results)} TV results for slug '{slug}' and year '{year}'")
+
             # 1 result
             if len(tv_results) == 1:
                 return {'type': "tv", 'id': tv_results[0]['id']}
@@ -139,7 +144,8 @@ class TMDBClient:
         """
         if media_type == "movie":
             results = self._make_request("search/movie", {"query": slug.replace('-', ' '), "language": language_preference}).get("results", [])
-            
+            logger.info(f"Found {len(results)} movie results for slug '{slug}'")
+
             # 1 result
             if len(results) == 1:
                 return int(results[0]['release_date'][:4])
@@ -160,7 +166,8 @@ class TMDBClient:
                     
         elif media_type == "tv":
             results = self._make_request("search/tv", {"query": slug.replace('-', ' '), "language": language_preference}).get("results", [])
-            
+            logger.info(f"Found {len(results)} TV results for slug '{slug}'")
+
             # 1 result
             if len(results) == 1:
                 return int(results[0]['first_air_date'][:4])
@@ -186,13 +193,17 @@ class TMDBClient:
         Get the backdrop URL for a movie or TV show.
         """
         try:
-            print(f"[TMDB] Getting backdrop for {media_type} with TMDB ID {tmdb_id}")
+            logger.info(f"Getting backdrop for {media_type} with TMDB ID {tmdb_id}")
             details = self._make_request(f"{media_type}/{tmdb_id}", {"language": "it"})
             backdrop_path = details.get('backdrop_path')
+
             if backdrop_path:
                 return f"https://image.tmdb.org/t/p/{size}{backdrop_path}"
+            
         except Exception as e:
             console.log(f"[red]Error getting backdrop for {media_type} {tmdb_id}: {e}[/red]")
+            logger.error(f"Error getting backdrop for {media_type} {tmdb_id}: {e}")
+
         return None
 
     def search_movie(self, query: str):
@@ -200,6 +211,8 @@ class TMDBClient:
         Search for a movie and return the TMDB ID of the first result.
         """
         results = self._make_request("search/movie", {"query": query, "language": "it"}).get("results", [])
+        logger.info(f"Found {len(results)} movie results for query '{query}'")
+
         if results:
             return results[0]['id']
         return None
@@ -209,6 +222,8 @@ class TMDBClient:
         Get movie details including title and IMDB ID.
         """
         details = self._make_request(f"movie/{tmdb_id}", {"language": "it"})
+        logger.info(f"Got details for movie ID {tmdb_id}: {details.get('title')} (IMDB ID: {details.get('imdb_id')})")
+
         return {
             'title': details.get('title'),
             'imdb_id': details.get('imdb_id')
@@ -227,6 +242,7 @@ class TMDBClient:
             - list: List of dicts containing movie info (id, title, release_date, imdb_id, popularity)
         """
         results = self._make_request("search/movie", {"query": query, "language": language_preference}).get("results", [])
+        logger.info(f"Found {len(results)} movie results for query '{query}' and language '{language_preference}'")
         
         movies = []
         for movie in results:
@@ -259,6 +275,7 @@ class TMDBClient:
             - list: List of dicts containing series info (id, name, first_air_date, popularity)
         """
         results = self._make_request("search/tv", {"query": query, "language": language_preference}).get("results", [])
+        logger.info(f"Found {len(results)} TV results for query '{query}' and language '{language_preference}'")
         
         series = []
         for show in results:

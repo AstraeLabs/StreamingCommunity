@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 
 import httpx
 import ua_generator
@@ -12,6 +13,7 @@ from typing import Dict, Optional, Union
 from VibraVid.utils import config_manager
 
 
+logger = logging.getLogger(__name__)
 ua =  ua_generator.generate(device='desktop', browser=('chrome', 'edge'))
 CONF_PROXY = config_manager.config.get_dict("REQUESTS", "proxy") or {}
 USE_PROXY = bool(config_manager.config.get_bool("REQUESTS", "use_proxy"))
@@ -219,9 +221,9 @@ def check_region_availability(allowed_regions: list, site_name: str) -> bool:
             
         current_country = location.get('country_code')
         if current_country and current_country not in allowed_regions:
-            print(f"Site: {site_name}, unavailable outside {', '.join(allowed_regions)}.")
+            logger.error(f"Site: {site_name}, unavailable outside {', '.join(allowed_regions)}.")
             return False    
-    except Exception:
-        pass
+    except Exception as e:
+        logger.info(f"Region check failed: {e}")
         
     return True

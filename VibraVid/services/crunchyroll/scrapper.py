@@ -9,6 +9,7 @@ from VibraVid.services._base.object import SeasonManager, Episode, Season
 from .client import CrunchyrollClient
 
 
+logger = logging.getLogger(__name__)
 _EP_NUM_RE = re.compile(r"^\d+(\.\d+)?$")
 
 
@@ -96,12 +97,12 @@ class GetSerieInfo:
                 if series_data:
                     self.series_name = series_data[0].get("title")
         except Exception as e:
-            logging.debug(f"Failed to fetch series title: {e}")
+            logger.error(f"Failed to fetch series title: {e}")
 
         response = _fetch_api_seasons(self.series_id, self.client, self.params)
         
         if response.status_code != 200:
-            logging.error(f"Failed to fetch seasons: {response.status_code}")
+            logger.error(f"Failed to fetch seasons: {response.status_code}")
             return
         
         data = response.json()

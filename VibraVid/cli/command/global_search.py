@@ -13,6 +13,7 @@ from VibraVid.utils.console.table import TVShowManager
 
 console = Console()
 msg = Prompt()
+logger = logging.getLogger(__name__)
 
 
 def global_search(search_terms: str = None, selected_sites: list = None):
@@ -254,7 +255,7 @@ def process_selected_item(selected_item, search_functions):
 
         except Exception as e:
             console.print(f"[red]Error processing download: {str(e)}")
-            logging.exception("Download processing error")
+            logger.error("Download processing error")
             
     else:
         console.print("[red]Error: Item ID not found. Available fields:")

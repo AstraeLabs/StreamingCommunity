@@ -21,6 +21,7 @@ from VibraVid.source.utils.tracker import download_tracker, context_tracker
 
 msg = Prompt()
 console = Console()
+logger = logging.getLogger(__name__)
 REQUEST_VERIFY = config_manager.config.get_bool('REQUESTS', 'verify')
 CREATE_NFO_FILES = config_manager.config.get_bool('PROCESS', 'generate_nfo', default=False)
 SKIP_DOWNLOAD = config_manager.config.get_bool('DOWNLOAD', 'skip_download')
@@ -85,7 +86,7 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
         return path, False
 
     if not (url.lower().startswith('http://') or url.lower().startswith('https://')):
-        logging.error(f"Invalid URL: {url}")
+        logger.error(f"Invalid URL: {url}")
         console.print(f"[red]Invalid URL: {url}")
         return None, False
 
@@ -137,7 +138,7 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
 
         # If HEAD indicates HTML/JSON, attempt a GET without Range/If-Range as fallback
         if 'text/html' in content_type or 'application/json' in content_type:
-            console.print('[yellow]HEAD indicates non-video; retrying GET without Range/If-Range...')
+            logger.warning("HEAD indicates non-video; retrying GET without Range/If-Range...")
 
             try:
                 resp_check = client.get(url, headers=headers)
@@ -151,12 +152,11 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
                     preview_text = '<could not read body>'
                     return None, False
                 
-                console.print("\n[red]--- body preview ---")
-                console.print(preview_text)
+                logger.info(f"Body preview: {preview_text}")
                 return None, False
 
             except Exception as e:
-                console.print(f"[red]Fallback GET failed: {e}")
+                logger.error(f"Fallback GET failed: {e}")
                 return None, False
 
         # Open the streaming response using the effective headers
@@ -171,7 +171,7 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
                 total = None
 
             if total is None:
-                console.print("[yellow]No Content-Length received; streaming until peer closes connection.")
+                logger.warning("No Content-Length received; streaming until peer closes connection.")
  
             start_time = time.time()
             downloaded = 0

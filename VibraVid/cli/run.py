@@ -11,7 +11,7 @@ from rich.prompt import Prompt
 
 from . import call_global_search
 from VibraVid.services._base import load_search_functions
-from VibraVid.utils import config_manager, start_message
+from VibraVid.utils import config_manager, start_message, setup_logger
 from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
 from VibraVid.upload import git_update, binary_update
 from VibraVid.upload.version import __version__, __title__
@@ -39,6 +39,7 @@ def run_function(func: Callable[..., None], search_terms: str = None, selections
 
 def initialize():
     """Initialize the application with system checks and setup."""
+    setup_logger()
     start_message(False)
 
     # Windows 7 terminal size fix

@@ -23,6 +23,7 @@ from VibraVid.source.N_m3u8 import MediaDownloader
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 CLEANUP_TMP = config_manager.config.get_bool('DOWNLOAD', 'cleanup_tmp_folder')
 EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 SKIP_DOWNLOAD = config_manager.config.get_bool('DOWNLOAD', 'skip_download')
@@ -98,14 +99,14 @@ class ISM_Downloader:
             return True
         
         except Exception as e:
-            console.print(f"[yellow]Warning parsing ISM: {e}")
+            logger.warning(f"Warning parsing ISM: {e}")
             return False
     
     def _fetch_decryption_keys(self):
         """Fetch decryption keys based on DRM type."""
         if len(self.drm_info.get('available_drm_types', [])) > 0 and (self.license_url is None or self.license_url == "") or len(self.drm_info.get('available_drm_types', [])) > 0 and (self.key is None or self.key == ""):
             if (len(self.drm_info.get('available_drm_types', [])) > 0 and (not self.license_url or self.license_url == "") and (not self.key or self.key == "")):
-                console.print("[yellow]DRM detected but missing both license_url and key. Cannot proceed.")
+                logger.warning("DRM detected but missing both license_url and key. Cannot proceed.")
                 self.error = "Missing license_url and key for DRM-protected content"
                 return False
             
@@ -114,7 +115,7 @@ class ISM_Downloader:
             if drm_type == 'playready':
                 keys = self.drm_manager.get_pr_keys(self.drm_info.get('playready_pssh', []), self.license_url, self.license_headers, self.key)
             else:
-                console.print(f"[red]Unsupported DRM type: {drm_type}")
+                logger.error(f"Unsupported DRM type: {drm_type}")
                 self.error = f"Unsupported DRM type: {drm_type}"
                 return False
         
@@ -127,14 +128,14 @@ class ISM_Downloader:
                 return False
             
         except Exception as e:
-            console.print(f"[red]Error fetching keys: {e}")
+            logger.error(f"Error fetching keys: {e}")
             self.error = f"Key fetch error: {e}"
             return False
     
     def start(self):
         """Main execution flow for downloading ISM content."""
         if self.file_already_exists:
-            console.print("[yellow]File already exists.")
+            logger.warning("File already exists.")
             return self.output_path, False
         
         # Create output directory
@@ -164,14 +165,14 @@ class ISM_Downloader:
         self.media_downloader.drm_type = self.drm_preference
         
         if self.ism_sub_list and SUBTITLE_FILTER != "false":
-            console.print(f"[dim]Adding {len(self.ism_sub_list)} external subtitle(s) to the downloader.")
+            logger.info(f"Adding {len(self.ism_sub_list)} external subtitle(s) to the downloader.")
             self.media_downloader.external_subtitles = self.ism_sub_list
         
         if self.download_id:
             download_tracker.update_status(self.download_id, "Parsing ISM ...")
         
         # Parse streams using N_m3u8dl (creates meta.json and raw.ism)
-        console.print("[dim]Parsing ISM ...")
+        logger.info("Parsing ISM ...")
         self.media_downloader.parser_stream()
         
         # Get metadata paths
@@ -182,7 +183,7 @@ class ISM_Downloader:
         
         # Parse ISM and setup DRM info
         if not self._setup_drm_info():
-            logging.error("Failed to parse ISM")
+            logger.error("Failed to parse ISM")
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="ISM parsing failed")
             return None, True
@@ -190,13 +191,13 @@ class ISM_Downloader:
         # Fetch decryption keys if DRM protected
         if self.drm_info and self.drm_info['available_drm_types']:
             if not self._fetch_decryption_keys():
-                logging.error(f"Failed to fetch decryption keys: {self.error}")
+                logger.error(f"Failed to fetch decryption keys: {self.error}")
                 if self.download_id:
                     download_tracker.complete_download(self.download_id, success=False, error=self.error)
                 return None, True
             
         if SKIP_DOWNLOAD:
-            console.print("[yellow]Skipping download as per configuration.")
+            logger.warning("Skipping download as per configuration.")
             return self.output_path, False
         
         # Set keys and start download
@@ -204,7 +205,7 @@ class ISM_Downloader:
             download_tracker.update_status(self.download_id, "Downloading ...")
         
         if context_tracker.should_print:
-            console.print("[dim]\nStarting download ...")
+            logger.info("Starting download ...")
         self.media_downloader.set_key(self.decryption_keys)
         status = self.media_downloader.start_download()
         
@@ -216,7 +217,7 @@ class ISM_Downloader:
 
         # Check if any media was downloaded
         if self._no_media_downloaded(status):
-            logging.error("No media downloaded")
+            logger.error("No media downloaded")
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="No media downloaded")
             return None, True
@@ -231,7 +232,7 @@ class ISM_Downloader:
                 download_tracker.complete_download(self.download_id, success=False, error="cancelled")
                 return None, True
                 
-            logging.error("Merge operation failed")
+            logger.error("Merge operation failed")
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="Merge failed")
             return None, True
