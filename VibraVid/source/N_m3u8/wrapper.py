@@ -365,7 +365,9 @@ class MediaDownloader:
 
                 with proc:
                     for line in proc.stdout:
-                        logger.info(f"[n3u8dl-re-download] {line.strip()}")
+                        if " : " in str(line): # Only log lines that contain ":" to avoid cluttering logs with irrelevant info (like progress bar updates)
+                            logger.info(f"[n3u8dl-re-download] {line.strip()}")
+
                         if self.download_id and download_tracker.is_stopped(self.download_id):
                             logger.info("Download cancelled by user")
                             proc.terminate()

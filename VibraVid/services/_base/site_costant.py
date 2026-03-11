@@ -14,11 +14,8 @@ logger = logging.getLogger(__name__)
 def get_site_name_from_stack():
     for frame_info in inspect.stack():
         file_path = frame_info.filename
-        
         if f"{lazy_loader_folder}{os.sep}" in file_path:
             parts = file_path.split(f"{lazy_loader_folder}{os.sep}")
-            logger.info(f"Inspecting stack frame: {file_path}, parts: {parts}")
-            
             if len(parts) > 1:
                 site_name = parts[1].split(os.sep)[0]
                 if site_name not in ('_base', 'site_loader', '__pycache__'):

@@ -2,16 +2,15 @@
 
 import os
 import re
-import platform
 import json
+import logging
+import platform
 import subprocess
 import xml.etree.ElementTree as et
 from typing import Optional, List
 from pathlib import Path
 
 from rich.console import Console
-import logging
-
 import ttconv.imsc.reader as imsc_reader
 import ttconv.srt.writer as srt_writer
 import ttconv.vtt.writer as vtt_writer
@@ -24,7 +23,9 @@ from .font import FontManager
 # suppress ttconv logging (Merging ISD paragraphs/regions)
 logging.getLogger("ttconv").setLevel(logging.WARNING)
 
+
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 def extract_font_name_from_style(style_line: str) -> Optional[str]:
@@ -141,6 +142,12 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
 
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(output_content)
+
+        # Sanitize based on format
+        if target_format == 'srt':
+            sanitize_srt_file(output_path)
+        elif target_format == 'vtt':
+            sanitize_vtt_file(output_path)
 
         console.print(f"[yellow]    - [green]Converted TTML to {target_format.upper()}: [red]{os.path.basename(output_path)}")
         return True
@@ -276,6 +283,36 @@ def detect_subtitle_format(subtitle_path: str) -> Optional[str]:
     return None
 
 
+def _clean_srt_tag(m: re.Match) -> str:
+    """Return the tag unchanged if it is an allowed bare SRT tag, else remove it."""
+    logger.info(f"Processing SRT tag: {m.group(0)}")
+    tag = m.group(2).lower()
+    attrs = (m.group(3) or '').strip()
+    if tag in {'i', 'b', 'u', 's'} and not attrs:
+        return m.group(0)
+    return ''
+
+
+def sanitize_srt_file(subtitle_path: str) -> str:
+    """Sanitize SRT subtitle files by removing invalid HTML tags. SRT only allows <i>, <b>, <u>, <s> without attributes."""
+    try:
+        with open(subtitle_path, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+        
+        logger.info(f"Sanitizing SRT: {os.path.basename(subtitle_path)}")
+        sanitized_content = re.compile(r'<(/?)([a-zA-Z][a-zA-Z0-9]*)(\s[^>]*)?>').sub(_clean_srt_tag, content)
+        
+        if sanitized_content != content:
+            with open(subtitle_path, 'w', encoding='utf-8') as f:
+                f.write(sanitized_content)
+            logger.info(f"SRT sanitized: {os.path.basename(subtitle_path)}")
+        
+        return subtitle_path
+    except Exception as e:
+        logger.warning(f"Could not sanitize SRT file {os.path.basename(subtitle_path)}: {str(e)}")
+        return subtitle_path
+
+
 def sanitize_vtt_file(subtitle_path: str) -> str:
     """Sanitize VTT subtitle files by replacing unmatched '<' symbols with '-'."""
     try:
@@ -283,16 +320,17 @@ def sanitize_vtt_file(subtitle_path: str) -> str:
             content = f.read()
         
         # Replace unmatched '<' symbols (not followed by closing '>') with '- '
+        logger.debug(f"Sanitizing VTT: {os.path.basename(subtitle_path)}")
         sanitized_content = re.sub(r'<(?![^>]*>)', '- ', content)
         
         if sanitized_content != content:
             with open(subtitle_path, 'w', encoding='utf-8') as f:
                 f.write(sanitized_content)
-            console.print("[dim cyan]    - Sanitized VTT")
+            logger.debug(f"VTT sanitized: {os.path.basename(subtitle_path)}")
         
         return subtitle_path
     except Exception as e:
-        console.print(f"[yellow]    Warning: Could not sanitize VTT file: {str(e)}")
+        logger.warning(f"Could not sanitize VTT file {os.path.basename(subtitle_path)}: {str(e)}")
         return subtitle_path
 
 
@@ -386,14 +424,7 @@ def convert_subtitle(subtitle_path: str, target_format: str) -> Optional[str]:
         return None
 
     try:
-        cmd = [
-            get_ffmpeg_path(),
-            "-v", "error",
-            "-i", subtitle_path,
-            output_path,
-            "-y"
-        ]
-        
+        cmd = [get_ffmpeg_path(), "-v", "error", "-i", subtitle_path, output_path, "-y"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             console.print(f"[yellow]    Converted subtitle to [cyan]{target_format}: [green]{os.path.basename(output_path)}")
@@ -401,6 +432,7 @@ def convert_subtitle(subtitle_path: str, target_format: str) -> Optional[str]:
         else:
             console.print(f"[red]    Failed to convert subtitle to {target_format}: {result.stderr}")
             return None
+        
     except Exception as e:
         console.print(f"[red]    Error converting subtitle: {str(e)}")
         return None

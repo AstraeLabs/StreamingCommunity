@@ -102,12 +102,11 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
     else:
         base_path = os.path.dirname(os.path.dirname(__file__))
     
+    logger.info(f"Loading site modules from: {base_path}")
     modules_metadata = []
     for init_file in glob.glob(os.path.join(base_path, '*', '__init__.py')):
         module_name = os.path.basename(os.path.dirname(init_file))
-        
         try:
-            logging.info(f"Loading metadata for module: {module_name}")
             with open(init_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 

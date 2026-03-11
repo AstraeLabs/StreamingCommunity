@@ -1,6 +1,7 @@
 # 29.01.26
 
 import time
+import logging
 from urllib.parse import urlparse
 
 from rich.console import Console
@@ -14,6 +15,7 @@ from .widevine import get_widevine_keys
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 DELAY = config_manager.config.get_int('DRM', 'delay')
 
 
@@ -81,10 +83,12 @@ class DRMManager:
         
         # Step 1: Check databases — scoped by URL, global fallback for missing KIDs
         if (self.is_local_db_connected or self.is_supa_db_connected) and base_license_url and all_kids:
+            logger.info(f"Looking up {len(all_kids)} Widevine KID(s) in database")
             found_keys = []
 
             # 1.1 Local DB
             if self.is_local_db_connected:
+                logger.info("Querying local database for Widevine keys")
                 found_keys.extend(self._lookup_keys(obj_localDbValut, base_license_url, all_kids, 'widevine'))
 
             # 1.2 Supabase DB — look up only KIDs still missing after local DB
@@ -92,6 +96,7 @@ class DRMManager:
                 found_kids_local = {k.split(':')[0].strip().lower() for k in found_keys}
                 kids_for_supa = [kid for kid in all_kids if kid not in found_kids_local]
                 if kids_for_supa:
+                    logger.info(f"Querying Supabase database for {len(kids_for_supa)} Widevine KID(s)")
                     found_keys.extend(self._lookup_keys(obj_externalSupaDbVault, base_license_url, kids_for_supa, 'widevine'))
 
             if found_keys:
@@ -100,15 +105,18 @@ class DRMManager:
                 found_unique_kids = {k.split(':')[0].replace('-', '').strip().lower() for k in unique_keys}
 
                 if needed_unique_kids.issubset(found_unique_kids):
+                    logger.info(f"Widevine keys found in database: {len(unique_keys)} key(s)")
                     return KeysManager(unique_keys)
 
         # Step 2: Try CDM extraction
         try:
+            logger.info(f"Starting Widevine CDM extraction (delay: {DELAY}s)")
             console.print(f"\n[dim]Waiting {DELAY} seconds after CDM request ...")
             time.sleep(DELAY)
             keys = get_widevine_keys(pssh_list, license_url, self.widevine_device_path, self.widevine_remote_cdm_api, headers, key, license_certificate)
                 
             if keys:
+                logger.info(f"Widevine CDM extraction successful: {len(keys.get_keys_list())} key(s)")
                 keys_list = keys.get_keys_list()
                 pssh_val = next((item.get('pssh') for item in pssh_list if item.get('pssh')), None)
 
@@ -120,20 +128,25 @@ class DRMManager:
                 } or None
 
                 if self.is_local_db_connected and base_license_url and pssh_val:
+                    logger.info(f"Storing {len(keys_list)} Widevine key(s) to local database")
                     console.print(f"Storing {len(keys)} key(s) to local database...")
                     obj_localDbValut.set_keys(keys_list, 'widevine', base_license_url, pssh_val)
 
                 if self.is_supa_db_connected and base_license_url and pssh_val:
+                    logger.info(f"Storing {len(keys_list)} Widevine key(s) to Supabase database")
                     obj_externalSupaDbVault.set_keys(keys_list, 'widevine', base_license_url, pssh_val, kid_to_label)
 
                 return keys
             
             else:
+                logger.error("Widevine CDM extraction returned no keys")
                 console.print("[yellow]CDM extraction returned no keys")
         
         except Exception as e:
+            logger.error(f"Widevine CDM error: {e}")
             console.print(f"[red]CDM error: {e}")
 
+        logger.error("All Widevine extraction methods failed")
         console.print("\n[red]All extraction methods failed for Widevine")
         return None
     
@@ -172,10 +185,12 @@ class DRMManager:
         
         # Step 1: Check databases — scoped by URL, global fallback for missing KIDs
         if (self.is_local_db_connected or self.is_supa_db_connected) and base_license_url and all_kids:
+            logger.info(f"Looking up {len(all_kids)} PlayReady KID(s) in database")
             found_keys = []
 
             # 1.1 Local DB
             if self.is_local_db_connected:
+                logger.info("Querying local database for PlayReady keys")
                 found_keys.extend(self._lookup_keys(obj_localDbValut, base_license_url, all_kids, 'playready'))
 
             # 1.2 Supabase DB — look up only KIDs still missing after local DB
@@ -183,6 +198,7 @@ class DRMManager:
                 found_kids_local = {k.split(':')[0].strip().lower() for k in found_keys}
                 kids_for_supa = [kid for kid in all_kids if kid not in found_kids_local]
                 if kids_for_supa:
+                    logger.info(f"Querying Supabase database for {len(kids_for_supa)} PlayReady KID(s)")
                     found_keys.extend(self._lookup_keys(obj_externalSupaDbVault, base_license_url, kids_for_supa, 'playready'))
 
             if found_keys:
@@ -191,15 +207,18 @@ class DRMManager:
                 found_unique_kids = {k.split(':')[0].replace('-', '').strip().lower() for k in unique_keys}
 
                 if needed_unique_kids.issubset(found_unique_kids):
+                    logger.info(f"PlayReady keys found in database: {len(unique_keys)} key(s)")
                     return KeysManager(unique_keys)
 
         # Step 2: Try CDM extraction
         try:
+            logger.info(f"Starting PlayReady CDM extraction (delay: {DELAY}s)")
             console.print(f"\n[dim]Waiting {DELAY} seconds after CDM request ...")
             time.sleep(DELAY)
             keys = get_playready_keys(pssh_list, license_url, self.playready_device_path, self.playready_remote_cdm_api, headers, key)
             
             if keys:
+                logger.info(f"PlayReady CDM extraction successful: {len(keys.get_keys_list())} key(s)")
                 keys_list = keys.get_keys_list()
                 pssh_val = next((item.get('pssh') for item in pssh_list if item.get('pssh')), None)
 
@@ -211,18 +230,23 @@ class DRMManager:
                 } or None
 
                 if self.is_local_db_connected and base_license_url and pssh_val:
+                    logger.info(f"Storing {len(keys_list)} PlayReady key(s) to local database")
                     console.print(f"Storing {len(keys)} key(s) to local database...")
                     obj_localDbValut.set_keys(keys_list, 'playready', base_license_url, pssh_val)
 
                 if self.is_supa_db_connected and base_license_url and pssh_val:
+                    logger.info(f"Storing {len(keys_list)} PlayReady key(s) to Supabase database")
                     obj_externalSupaDbVault.set_keys(keys_list, 'playready', base_license_url, pssh_val, kid_to_label)
 
                 return keys
             else:
+                logger.error("PlayReady CDM extraction returned no keys")
                 console.print("[yellow]CDM extraction returned no keys")
         
         except Exception as e:
+            logger.error(f"PlayReady CDM error: {e}")
             console.print(f"[red]CDM error: {e}")
         
+        logger.error("All PlayReady extraction methods failed")
         console.print("\n[red]All extraction methods failed for PlayReady")
         return None

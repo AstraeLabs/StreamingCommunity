@@ -45,7 +45,6 @@ class ConfigAccessor:
         Returns:
             Any: The key value converted to the specified data type, or default if not found
         """
-        logger.info(f"Accessing config: section='{section}', key='{key}', expected_type={data_type.__name__}, default='{default}'")
         cache_key = f"{self._cache_prefix}.{section}.{key}"
         
         # Check if the value is in the cache

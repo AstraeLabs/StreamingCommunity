@@ -215,6 +215,7 @@ def get_my_location():
 
 def check_region_availability(allowed_regions: list, site_name: str) -> bool:
     try:
+        logger.info(f"Checking region availability for {site_name}...")
         location = get_my_location()
         if location.get('status') == 'fail' or 'error' in location:
             return True
@@ -222,8 +223,9 @@ def check_region_availability(allowed_regions: list, site_name: str) -> bool:
         current_country = location.get('country_code')
         if current_country and current_country not in allowed_regions:
             logger.error(f"Site: {site_name}, unavailable outside {', '.join(allowed_regions)}.")
-            return False    
+            return False
+        
     except Exception as e:
-        logger.info(f"Region check failed: {e}")
+        logger.error(f"Region check failed: {e}")
         
     return True

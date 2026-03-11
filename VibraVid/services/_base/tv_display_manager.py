@@ -1,6 +1,7 @@
 # 19.06.24
 
 import sys
+import logging
 import re as _re
 from typing import List
 
@@ -13,6 +14,7 @@ from VibraVid.utils.console import TVShowManager
 
 msg = Prompt()
 console = Console()
+logger = logging.getLogger(__name__)
 MOVIE_FORMAT = config_manager.config.get('OUTPUT', 'movie_format')
 EPISODE_FORMAT = config_manager.config.get('OUTPUT', 'episode_format')
 
@@ -142,6 +144,7 @@ def map_movie_title(title_name: str, title_year: str = None) -> str:
         str: The formatted movie filename (without extension).
     """
     map_movie_temp = MOVIE_FORMAT
+    logger.info(f"Mapping movie title with name: {title_name} and year: {title_year}")
 
     if title_name is not None:
 
@@ -174,6 +177,7 @@ def map_series_name(series_name: str, series_year: str = None) -> str:
     Returns:
         str: The formatted series name for folder naming.
     """
+    logger.info(f"Mapping series name with name: {series_name} and year: {series_year}")
     result = series_name
 
     if series_name is not None:
@@ -195,6 +199,8 @@ def map_episode_title(tv_name: str, number_season: int, episode_number: int, epi
     Returns:
         str: The mapped episode filename (without extension and path).
     """
+    logger.info(f"Mapping episode title with name: {episode_name}, season: {number_season}, episode: {episode_number}")
+
     # Extract only the filename part (after the last /)
     episode_format_parts = EPISODE_FORMAT.split('/')
     filename_format = episode_format_parts[-1] if episode_format_parts else EPISODE_FORMAT
@@ -230,6 +236,8 @@ def map_season_name(season_number: int) -> str:
     Returns:
         str: The formatted season folder name (e.g., "S01", "S1", "S001").
     """
+    logger.info(f"Mapping season name with season number: {season_number}")
+
     # Find the path segment containing %(season:...) to use as folder name template
     episode_parts = EPISODE_FORMAT.split('/')
     season_segment = None
@@ -260,6 +268,7 @@ def map_episode_path(series_name: str, series_year: str = None, season_number: i
         tuple: (path_components, filename) where path_components is a list for path assembly
                and filename is the final episode filename.
     """
+    logger.info(f"Mapping episode path with series name: {series_name}, series year: {series_year}, season number: {season_number}, episode number: {episode_number}, episode name: {episode_name}")
     map_episode_temp = EPISODE_FORMAT
 
     # Replace series_name and its variant

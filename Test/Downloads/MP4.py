@@ -12,7 +12,7 @@ from VibraVid.core.downloader import MP4_Downloader
 
 
 path, kill_handler = MP4_Downloader(
-    url="https://148-251-75-109.top/Getintopc.com/IDA_Pro_2020.mp4",
+    url="",
     path=r".\Video\Prova.mp4"
 )
 
