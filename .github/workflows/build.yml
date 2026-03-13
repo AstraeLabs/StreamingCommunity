@@ -12,14 +12,35 @@ on:
                     - "true"
                     - "false"
     push:
-        tags:
-            - "v*.*"
         branches:
             - main
+            - dev
 
 jobs:
-    publish:
-        if: startsWith(github.ref_name, 'v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_pypi == 'true')
+    prepare:
+        runs-on: ubuntu-latest
+        outputs:
+            tag_name: ${{ steps.info.outputs.tag_name }}
+            is_release: ${{ steps.info.outputs.is_release }}
+        steps:
+            - name: Check commit message for version
+              id: info
+              run: |
+                  MSG="${{ github.event.head_commit.message }}"
+                  VER=$(echo "$MSG" | grep -oE 'v[0-9]+\.[0-9]+([.][0-9]+)?' | head -1 || true)
+                  if [ -n "$VER" ]; then
+                      echo "tag_name=$VER" >> $GITHUB_OUTPUT
+                      echo "is_release=true" >> $GITHUB_OUTPUT
+                      echo "Version found: $VER"
+                  else
+                      echo "tag_name=beta" >> $GITHUB_OUTPUT
+                      echo "is_release=false" >> $GITHUB_OUTPUT
+                      echo "No version found. Building beta."
+                  fi
+
+    publish-pypi:
+        needs: prepare
+        if: needs.prepare.outputs.is_release == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_pypi == 'true')
         runs-on: ubuntu-latest
 
         steps:
@@ -27,10 +48,6 @@ jobs:
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
-
-            - name: Get the latest tag
-              id: get_latest_tag
-              run: echo "latest_tag=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
 
             - name: Set up Python
               uses: actions/setup-python@v4
@@ -51,9 +68,9 @@ jobs:
                   TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
               run: twine upload dist/*
 
-    build:
-        if: startsWith(github.ref_name, 'v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_pypi == 'false')
-
+    build-binaries:
+        needs: prepare
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_pypi == 'false')
         strategy:
             matrix:
                 include:
@@ -62,49 +79,41 @@ jobs:
                       artifact_name: VibraVid_win_2025_x64
                       executable: VibraVid_win_2025_x64.exe
                       separator: ";"
-
                     - os: windows-2022
                       arch: x64
                       artifact_name: VibraVid_win_2022_x64
                       executable: VibraVid_win_2022_x64.exe
                       separator: ";"
-
                     - os: macos-26
                       arch: arm64
                       artifact_name: VibraVid_mac_26_arm64
                       executable: VibraVid_mac_26_arm64
                       separator: ":"
-
                     - os: macos-15
                       arch: x64
                       artifact_name: VibraVid_mac_15_x64
                       executable: VibraVid_mac_15_x64
                       separator: ":"
-
                     - os: macos-15
                       arch: arm64
                       artifact_name: VibraVid_mac_15_arm64
                       executable: VibraVid_mac_15_arm64
                       separator: ":"
-
                     - os: macos-14
                       arch: x64
                       artifact_name: VibraVid_mac_14_x64
                       executable: VibraVid_mac_14_x64
                       separator: ":"
-
                     - os: macos-14
                       arch: arm64
                       artifact_name: VibraVid_mac_14_arm64
                       executable: VibraVid_mac_14_arm64
                       separator: ":"
-
                     - os: ubuntu-24.04
                       arch: x64
                       artifact_name: VibraVid_linux_24_04_x64
                       executable: VibraVid_linux_24_04_x64
                       separator: ":"
-
                     - os: ubuntu-22.04
                       arch: x64
                       artifact_name: VibraVid_linux_22_04_x64
@@ -121,13 +130,6 @@ jobs:
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
-
-            - name: Get the latest tag
-              id: get_latest_tag
-              shell: pwsh
-              run: |
-                  $latestTag = git describe --tags --abbrev=0
-                  echo "latest_tag=$latestTag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
             - name: Set up Python
               uses: actions/setup-python@v4
@@ -167,17 +169,34 @@ jobs:
                   --add-data "VibraVid${{ matrix.separator }}VibraVid" \
                   --name=${{ matrix.artifact_name }} manual.py
 
-            - name: Upload executable
+            - name: Upload executable to Artifacts
               uses: actions/upload-artifact@v4
               with:
                   name: ${{ matrix.artifact_name }}
                   path: dist/${{ matrix.executable }}
 
-            - name: Create or update release
-              if: startsWith(github.ref, 'refs/tags/')
-              uses: softprops/action-gh-release@v1
+    publish-github-release:
+        needs: [prepare, build-binaries]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+            - name: Download all executables
+              uses: actions/download-artifact@v4
               with:
-                  tag_name: ${{ github.ref_name }}
-                  files: dist/${{ matrix.executable }}
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  path: dist-artifacts
+                  merge-multiple: true
+
+            - name: Create or Update Release
+              uses: ncipollo/release-action@v1
+              with:
+                  tag: ${{ needs.prepare.outputs.tag_name }}
+                  commit: ${{ github.sha }}
+                  name: ${{ needs.prepare.outputs.is_release == 'true' && format('Release {0}', needs.prepare.outputs.tag_name) || 'Beta Build' }}
+                  prerelease: ${{ needs.prepare.outputs.is_release == 'false' }}
+                  allowUpdates: true
+                  replacesArtifacts: true
+                  artifacts: "dist-artifacts/*"
+                  token: ${{ secrets.GITHUB_TOKEN }}
