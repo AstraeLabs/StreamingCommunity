@@ -152,9 +152,9 @@ def update():
             for asset in release.get('assets', [])
         )
 
-        # Get latest version name
+        # Get latest version tag
         if response_releases:
-            last_version = response_releases[0].get('name', 'Unknown')
+            last_version = response_releases[0].get('tag_name', 'Unknown')
         else:
             last_version = 'Unknown'
 
@@ -183,7 +183,10 @@ def update():
             return
 
         console.print(f"\n[red]New version available: [yellow]{last_version}")
-        console.print(f"[green]Download it from: [yellow]https://github.com/AstraeLabs/VibraVid/releases/tag/v{last_version}")
+        
+        # Ensure tag formatting for url in case it lacks a leading 'v'
+        tag_url = last_version if last_version.startswith("v") else f"v{last_version}"
+        console.print(f"[green]Download it from: [yellow]https://github.com/AstraeLabs/VibraVid/releases/tag/{tag_url}")
         
         if get_execution_mode() == "installer":
             console.print("[cyan]Run with [yellow]-UP [cyan]to auto-update")

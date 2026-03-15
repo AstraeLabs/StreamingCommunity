@@ -25,10 +25,12 @@ jobs:
         steps:
             - name: Check commit message for version
               id: info
+              env:
+                  COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
               run: |
-                  MSG="${{ github.event.head_commit.message }}"
-                  VER=$(echo "$MSG" | grep -oE 'v[0-9]+\.[0-9]+([.][0-9]+)?' | head -1 || true)
-                  if [ -n "$VER" ]; then
+                  RAW_VER=$(echo "$COMMIT_MESSAGE" | grep -iEo '(v|version\s*)[0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+                  if [ -n "$RAW_VER" ]; then
+                      VER="v$RAW_VER"
                       echo "tag_name=$VER" >> $GITHUB_OUTPUT
                       echo "is_release=true" >> $GITHUB_OUTPUT
                       echo "Version found: $VER"
@@ -66,7 +68,7 @@ jobs:
               env:
                   TWINE_USERNAME: __token__
                   TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-              run: twine upload dist/*
+              run: twine upload --skip-existing dist/*
 
     build-binaries:
         needs: prepare
