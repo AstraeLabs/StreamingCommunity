@@ -422,8 +422,9 @@ class MediaDownloader:
           { video, audios, subtitles, external_subtitles, external_audios }
 
         Subtitle naming logic (3-pass):
-          Pass 1 — detect forced/CC from filename tag + match n3u8dl progress metadata
+          Pass 1 — detect forced from filename tag + match n3u8dl progress metadata
           Pass 2 — size-based CC disambiguation within same-language groups
+                   (largest = CC, others = normal — override qualsiasi tag precedente)
           Pass 3 — assign final names, handle duplicates
         """
         status: Dict[str, Any] = {
@@ -449,7 +450,7 @@ class MediaDownloader:
             is_cc = bool(
                 re.search(r"(?:^|[-_.])(?:cc|sdh|captions?)(?:$|[-_.])", raw_lang, re.IGNORECASE)
             )
-            base_lang = re.sub(r"(?:^|[-_.])(?:forced|cc|sdh|captions?)(?:$|[-_.])", "", raw_lang, flags=re.IGNORECASE,).strip("-_.")
+            base_lang = re.sub(r"(?:^|[-_.])(?:forced|cc|sdh|captions?)(?:$|[-_.])", "", raw_lang, flags=re.IGNORECASE).strip("-_.")
 
             downloaded_subs.append(
                 {
@@ -502,12 +503,11 @@ class MediaDownloader:
             tag_base = re.sub(r"(?:^|[-_.])(?:forced|cc|sdh|captions?)(?:$|[-_.])", "", raw_tag, flags=re.IGNORECASE).strip("-_.")
             tag_base = tag_base or raw_tag
 
-            # N-m3u8DL-RE CC convention: "lang.lang" (e.g. "fre.fre")
-            if not tag_cc and not tag_forced and "." in tag_base:
+            # N-m3u8DL-RE CC convention: "lang.lang" (e.g. "ita.ita")
+            if not tag_forced and "." in tag_base:
                 _parts = tag_base.split(".")
                 if len(_parts) == 2 and _parts[0].lower() == _parts[1].lower():
                     tag_base = _parts[0]
-                    tag_cc = True
 
             best_meta = None
             min_diff = float("inf")
@@ -515,22 +515,19 @@ class MediaDownloader:
             for meta in downloaded_subs:
                 if meta["used"]:
                     continue
-
                 m_tokens = _norm_tokens(meta["base_lang"])
                 overlap = f_tokens & m_tokens
                 diff = abs(meta["size"] - f_size)
-                if ((not f_tokens or not m_tokens or overlap) and diff < min_diff and diff <= 2048):
+                if (not f_tokens or not m_tokens or overlap) and diff < min_diff and diff <= 2048:
                     min_diff = diff
                     best_meta = meta
 
             if best_meta:
                 best_meta["used"] = True
                 is_forced = tag_forced or best_meta["is_forced"]
-                is_cc = tag_cc or best_meta["is_cc"]
                 base_lang = tag_base or best_meta["base_lang"]
             else:
                 is_forced = tag_forced
-                is_cc = tag_cc
                 base_lang = tag_base
 
             sub_candidates.append(
@@ -538,9 +535,9 @@ class MediaDownloader:
                     "path": str(f),
                     "size": f_size,
                     "base_lang": base_lang,
+                    "ext": ext,
                     "is_forced": is_forced,
-                    "is_cc": is_cc,
-                    "tag_explicit": tag_forced or tag_cc,
+                    "is_cc": False,
                 }
             )
 
@@ -550,16 +547,13 @@ class MediaDownloader:
         _lang_groups: dict = defaultdict(list)
         for cand in sub_candidates:
             if not cand["is_forced"]:
-                _lang_groups[cand["base_lang"]].append(cand)
+                _lang_groups[(cand["base_lang"], cand["ext"])].append(cand)
 
-        for base_lang, group in _lang_groups.items():
-            untagged = [c for c in group if not c["is_cc"] and not c["tag_explicit"]]
-            if len(group) >= 2 and untagged:
+        for (base_lang, ext), group in _lang_groups.items():
+            if len(group) >= 2:
                 sorted_group = sorted(group, key=lambda c: c["size"], reverse=True)
                 for i, cand in enumerate(sorted_group):
-                    if cand["tag_explicit"]:
-                        continue
-                    cand["is_cc"] = i == 0
+                    cand["is_cc"] = (i == 0)
 
         # ── Pass 3: assign final names ────────────────────────────────────────
         seen_normal: Dict[str, int] = {}
@@ -584,7 +578,7 @@ class MediaDownloader:
             )
 
         return status
-
+    
     def get_status(self) -> Dict:
         return self.status or self._build_status({}, [], [])
 

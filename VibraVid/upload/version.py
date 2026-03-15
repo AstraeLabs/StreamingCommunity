@@ -1,5 +1,5 @@
 __title__ = 'VibraVid'
-__version__ = '1.0.8'
+__version__ = '1.1.0'
 __author__ = 'AstraeLabs'
 __description__ = 'A command-line program to download film'
 __copyright__ = 'Copyright 2026'
