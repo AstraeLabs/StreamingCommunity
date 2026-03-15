@@ -20,9 +20,9 @@
         "retry_count": 25,
         "concurrent_download": true,
         "max_speed": "",
-        "select_video": "best",
-        "select_audio": "lang='ita|Ita|it':for=best",
-        "select_subtitle": "lang='ita|eng|Ita|Eng|it|en':for=all",
+        "select_video": "1920",
+        "select_audio": "ita|Ita|it",
+        "select_subtitle": "ita|eng|Ita|Eng|it|en",
         "cleanup_tmp_folder": true
     },
     "PROCESS": {
@@ -56,7 +56,16 @@
     "DRM": {
         "delay": 2,
         "create_local_db": false,
-        "external_supa_db": "https://crqczuxpqjmrjvdvqvlx.supabase.co",
+        "vault": {
+            "supa": {
+                "url": "https://crqczuxpqjmrjvdvqvlx.supabase.co",
+                "token": ""
+            },
+            "lab_v2": {
+                "url": "",
+                "token": ""
+            }
+        },
         "widevine": {
             "device_type": "ANDROID",
             "system_id": 22590,

@@ -10,7 +10,7 @@ from typing import Optional
 from rich.console import Console
 
 from VibraVid.utils.os import internet_manager
-from VibraVid.source.utils.tracker import context_tracker, download_tracker
+from VibraVid.source.style.tracker import  context_tracker, download_tracker
 
 
 console = Console()

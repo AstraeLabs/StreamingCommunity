@@ -22,7 +22,7 @@ from .watchlist_auto import _get_interval_seconds
 from GUI.searchapp.api import get_api
 from GUI.searchapp.api.base import Entries
 
-from VibraVid.source.utils.tracker import download_tracker, context_tracker
+from VibraVid.source.style.tracker import  download_tracker, context_tracker
 from VibraVid.utils.tmdb_client import tmdb_client
 from VibraVid.cli.run import execute_hooks
 

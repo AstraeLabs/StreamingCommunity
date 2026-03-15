@@ -14,9 +14,9 @@ from rich.progress import Progress, TextColumn
 from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.utils import config_manager, os_manager, internet_manager
 from VibraVid.cli.run import execute_hooks
-from VibraVid.source.N_m3u8 import CustomBarColumn
+from VibraVid.source.style.progress_bar import CustomBarColumn
 from VibraVid.core.post.helper.nfo import create_nfo
-from VibraVid.source.utils.tracker import download_tracker, context_tracker
+from VibraVid.source.style.tracker import  download_tracker, context_tracker
 
 
 msg = Prompt()
@@ -302,7 +302,6 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
     if os.path.exists(path):
         if show_final_info:
             file_size = internet_manager.format_file_size(os.path.getsize(path))
-            console.print("\n[green]Output:")
             console.print(f"  [cyan]Path: [red]{os.path.abspath(path)}")
             console.print(f"  [cyan]Size: [red]{file_size}")
 

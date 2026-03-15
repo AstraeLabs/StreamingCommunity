@@ -9,8 +9,7 @@ from rich.console import Console
 
 from VibraVid.utils import config_manager
 from VibraVid.setup import binary_paths, get_ffmpeg_path
-from VibraVid.source.utils.tracker import context_tracker
-from VibraVid.source.Manual.downloader.selector import StreamSelector
+from VibraVid.source.style.tracker import  context_tracker
 
 from .helper.video import detect_ts_timestamp_issues, convert_ts_to_mp4, resolve_compatible_extension
 from .helper.audio import check_duration_v_a, has_audio
@@ -161,19 +160,6 @@ def join_audios(video_path: str, audio_tracks: List[Dict[str, str]], out_path: s
         - limit_duration_diff (float): Maximum duration difference in seconds.
         - log_path (str, optional): Path to save FFmpeg log.
     """
-    audio_filter = config_manager.config.get('DOWNLOAD', 'select_audio')
-    if audio_filter:
-        audio_order = StreamSelector.extract_order_from_filter(audio_filter)
-        if audio_order:
-            def get_order_index(track):
-                track_name = track.get('name', '').lower()
-                for i, order_val in enumerate(audio_order):
-                    if order_val.lower() in track_name:
-                        return i
-                    
-                return len(audio_order)
-            audio_tracks = sorted(audio_tracks, key=get_order_index)
-
     use_shortest = False
     
     # Check and convert audio tracks if TS with issues
@@ -267,20 +253,6 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
         - out_path (str): The path to save the output file.
         - log_path (str, optional): Path to save FFmpeg log.
     """
-    subtitle_filter = config_manager.config.get('DOWNLOAD', 'select_subtitle')
-    if subtitle_filter:
-        subtitle_order = StreamSelector.extract_order_from_filter(subtitle_filter)
-        if subtitle_order:
-            def get_order_index(track):
-                track_name = (track.get('name', '') or track.get('language', '') or track.get('lang', '') or '').lower()
-                for i, order_val in enumerate(subtitle_order):
-                    if order_val.lower() in track_name:
-                        return i
-                    
-                return len(subtitle_order)
-            subtitles_list = sorted(subtitles_list, key=get_order_index)
-
-    # First, detect and fix subtitle extensions/formats
     for subtitle in subtitles_list:
         original_path = subtitle['path']
         corrected_path = convert_subtitle(original_path, FORCE_SUBTITLE)

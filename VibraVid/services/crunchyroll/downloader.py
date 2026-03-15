@@ -12,7 +12,7 @@ from VibraVid.utils import config_manager, os_manager, start_message
 from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
-from VibraVid.source.utils.trans_language import resolve_locale
+from VibraVid.source.utils.language import resolve_locale
 
 from VibraVid.core.downloader import DASH_Downloader
 
@@ -63,11 +63,13 @@ def parse_select_audio_filter(select_audio: str) -> list:
 
     lang_match = re.search(r"lang=['\"]([^'\"]+)['\"]", select_audio)
 
-    if not lang_match:
-        return []
-
-    # Split per | e risolvi ogni codice
-    raw_codes = [c.strip() for c in lang_match.group(1).split('|') if c.strip()]
+    if lang_match:
+        raw_codes = [c.strip() for c in lang_match.group(1).split('|') if c.strip()]
+    else:
+        if "=" not in select_audio:
+            raw_codes = [c.strip() for c in select_audio.split('|') if c.strip()]
+        else:
+            return []
 
     locales = []
     seen = set()

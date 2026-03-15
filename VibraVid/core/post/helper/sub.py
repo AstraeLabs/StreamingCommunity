@@ -285,7 +285,6 @@ def detect_subtitle_format(subtitle_path: str) -> Optional[str]:
 
 def _clean_srt_tag(m: re.Match) -> str:
     """Return the tag unchanged if it is an allowed bare SRT tag, else remove it."""
-    logger.info(f"Processing SRT tag: {m.group(0)}")
     tag = m.group(2).lower()
     attrs = (m.group(3) or '').strip()
     if tag in {'i', 'b', 'u', 's'} and not attrs:

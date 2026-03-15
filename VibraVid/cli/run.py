@@ -90,9 +90,9 @@ def setup_argument_parser(search_functions):
     parser.add_argument('--season', type=str, default=None, help='Season selection (for series, e.g., "1" or "1-3" or "*")')
     parser.add_argument('--episode', type=str, default=None, help='Episode selection (for series, e.g., "1" or "1-5" or "*")')
 
-    parser.add_argument('-sv', '--s_video', type=str, help='Select video tracks. Example:  1. select best video (best) 2. Select 4K+HEVC video (res="3840*":codecs=hvc1:for=best)')
-    parser.add_argument('-sa', '--s_audio', type=str, help='Select audio tracks. Example:  1. Select all (all) 2. Select best eng audio (lang=en:for=best) 3. Select best 2, and language is ja or en (lang="ja|en":for=best2)')
-    parser.add_argument('-ss', '--s_subtitle', type=str, help='Select subtitle tracks. Example:  1. Select all subs (all) 2. Select all subs containing "English" (name="English":for=all)')
+    parser.add_argument('-sv', '--video', type=str, help='Select video tracks.')
+    parser.add_argument('-sa', '--audio', type=str, help='Select audio tracks.')
+    parser.add_argument('-ss', '--subtitle', type=str, help='Select subtitle tracks.')
     parser.add_argument('--auto-select', dest='auto_select', type=str, choices=['true','false'], help='Auto-select streams based on config filters (overrides config). false=interactive selection')
 
     parser.add_argument('--use_proxy', action='store_true', help='Enable proxy for requests')
@@ -149,9 +149,9 @@ def apply_config_updates(args):
     """Apply command line arguments to configuration."""
     config_updates = {}
     arg_mappings = {
-        's_video': 'DOWNLOAD.select_video',
-        's_audio': 'DOWNLOAD.select_audio',
-        's_subtitle': 'DOWNLOAD.select_subtitle',
+        'sv': 'DOWNLOAD.select_video',
+        'sa': 'DOWNLOAD.select_audio',
+        'ss': 'DOWNLOAD.select_subtitle',
         'auto_select': 'DOWNLOAD.auto_select',
         'use_proxy': 'REQUESTS.use_proxy',
         'extension': 'PROCESS.extension',

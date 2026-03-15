@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 from VibraVid.utils import config_manager
-from VibraVid.source.utils.tracker import download_tracker
+from VibraVid.source.style.tracker import download_tracker
 from VibraVid.cli.run import execute_hooks
 
 

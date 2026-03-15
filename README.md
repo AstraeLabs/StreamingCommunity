@@ -212,41 +212,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 - **`max_speed`**: Speed limit per stream (e.g., `"30MB"`, `"10MB"`)
 - **`cleanup_tmp_folder`**: Remove temporary files after download (default: `true`)
 
-#### Stream Selection
-
-**- `select_video`**
-
-```
-OPTIONS: id=REGEX:lang=REGEX:name=REGEX:codecs=REGEX:res=REGEX:frame=REGEX:
-         segsMin=number:segsMax=number:ch=REGEX:range=REGEX:url=REGEX:
-         plistDurMin=hms:plistDurMax=hms:bwMin=int:bwMax=int:role=string:for=FOR
-
-    for=FOR: Selection type - best (default), best[number], worst[number], all
-```
-
-```json
-"select_video": "res=3840*:codecs=hvc1:for=best"          // Select 4K HEVC video
-"select_video": "res=1080:for=best"                       // Select 1080p video
-```
-
-**- `select_audio`**
-
-```json
-"select_audio": "lang=en:for=best"                        // Select best English audio
-"select_audio": "lang='ja|en':for=best2"                  // Best 2 tracks (Japanese or English)
-"select_audio": "lang='ita|Ita':for=all"                  // All Italian audio tracks
-"select_audio": "false"                                	  // Disable audio download
-```
-
-**- `select_subtitle`**
-
-```json
-"select_subtitle": "name=English:for=all"                 // All subtitles containing "English"
-"select_subtitle": "lang='ita|eng|Ita|Eng':for=all"       // Italian and English subtitles
-"select_subtitle": "lang=en:for=best"                     // Best English subtitle
-"select_subtitle": "false"                                // Disable subtitle download
-```
-
 ### Processing Settings
 
 ```json

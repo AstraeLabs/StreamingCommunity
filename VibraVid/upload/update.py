@@ -179,7 +179,7 @@ def update():
     )
 
     if str(current_version).lower().replace("v.", "").replace("v", "") != str(last_version).lower().replace("v.", "").replace("v", ""):
-        if last_version == "Unknown":
+        if last_version == "Unknown" or last_version == "Beta Build":
             return
 
         console.print(f"\n[red]New version available: [yellow]{last_version}")

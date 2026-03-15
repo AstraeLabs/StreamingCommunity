@@ -11,20 +11,21 @@ from VibraVid.utils.config import config_manager
 
 console = Console()
 logger = logging.getLogger(__name__)
+db_config = config_manager.config.get_dict("DRM", "vault")
+VAULT_URL = db_config.get("supa").get("url", "")
+TOKEN = db_config.get("supa").get("token", "")
 
 
 class ExternalSupaDBVault:
     def __init__(self):
-        self.base_url = f"{config_manager.config.get('DRM', 'external_supa_db')}/functions/v1"
-        self.headers = {
-            "Content-Type": "application/json"
-        }
+        self.base_url = f"{VAULT_URL}/functions/v1"
+        self.headers = {"Content-Type": "application/json"}
 
     def _clean_license_url(self, license_url: str) -> str:
         """Extract base URL from license URL (remove query parameters and fragments)"""
         parsed = urlparse(license_url)
         base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        return base_url.rstrip('/')
+        return base_url.rstrip("/")
 
     def _post(self, endpoint: str, payload: dict) -> Optional[dict]:
         """Internal helper: POST to an endpoint, return parsed JSON or None on error."""
@@ -38,7 +39,7 @@ class ExternalSupaDBVault:
             logger.error(f"Supabase request error ({endpoint}): {e}")
             return None
 
-    ################# SET ##################
+    # --------- SET
     def set_keys(self, keys_list: List[str], drm_type: str, license_url: str, pssh: str, kid_to_label: Optional[dict] = None) -> int:
         """
         Add multiple keys to the vault in a single bulk request.
@@ -53,26 +54,28 @@ class ExternalSupaDBVault:
         Returns:
             int: Number of keys successfully added
         """
-        logger.info(f"Adding {len(keys_list)} keys to vault for DRM type '{drm_type}' and license URL '{license_url}'")
+        logger.info(
+            f"Adding {len(keys_list)} keys to vault for DRM type '{drm_type}' and license URL '{license_url}'"
+        )
         if not keys_list:
             return 0
 
         base_license_url = self._clean_license_url(license_url)
         keys_payload = []
         for key_str in keys_list:
-            if ':' not in key_str:
+            if ":" not in key_str:
                 continue
 
-            kid, key = key_str.split(':', 1)
+            kid, key = key_str.split(":", 1)
             kid_clean = kid.strip()
-            kid_norm = kid_clean.lower().replace('-', '')
+            kid_norm = kid_clean.lower().replace("-", "")
             entry: dict = {"kid": kid_clean, "key": key.strip()}
-            
+
             if kid_to_label:
                 label = kid_to_label.get(kid_norm)
                 if label:
                     entry["label"] = label
-                    
+
             keys_payload.append(entry)
 
         if not keys_payload:
@@ -91,10 +94,10 @@ class ExternalSupaDBVault:
         if result is None:
             return 0
 
-        added = result.get('added', 0)
+        added = result.get("added", 0)
         return added
 
-    ################# GET ##################
+    # --------- GET
     def get_keys_by_pssh(self, license_url: str, pssh: str, drm_type: str) -> List[str]:
         """
         Retrieve all keys for a given license URL and PSSH (single request).
@@ -109,8 +112,9 @@ class ExternalSupaDBVault:
             "drm_type": drm_type,
         }
 
-        console.print(f"[dim]Supabase get_keys_by_pssh: pssh={pssh[:20]}…")
-        logger.info(f"Supabase get_keys_by_pssh: license_url={base_license_url}, drm_type={drm_type}, pssh={pssh[:20]}…")
+        logger.info(
+            f"Supabase get_keys_by_pssh: license_url={base_license_url}, drm_type={drm_type}, pssh={pssh[:20]}…"
+        )
 
         result = self._post("get-keys", payload)
         logger.info(f"Vault response for get_keys_by_pssh: {result}")
@@ -118,13 +122,19 @@ class ExternalSupaDBVault:
         if result is None:
             return []
 
-        keys = result.get('keys', [])
+        keys = result.get("keys", [])
         if keys:
+            pssh_display = f"{pssh[:30]}..." if len(pssh) > 30 else pssh
+            console.print(
+                f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])"
+            )
             for k in keys:
-                kid_val, key_val = k['kid_key'].split(':', 1)
-                console.print(f"    - [dim]{kid_val}[/]:[yellow]{key_val}")
+                kid_val, key_val = k["kid_key"].split(":", 1)
+                console.print(
+                    f"    - [red]{kid_val}[white]:[green]{key_val} [cyan]| [#a855f7]supa"
+                )
 
-        return [k['kid_key'] for k in keys]
+        return [k["kid_key"] for k in keys]
 
     def get_keys_by_kids(self, license_url: Optional[str], kids: List[str], drm_type: str) -> List[str]:
         """
@@ -137,33 +147,38 @@ class ExternalSupaDBVault:
         if not kids:
             return []
 
-        normalized_kids = [k.replace('-', '').strip().lower() for k in kids]
+        normalized_kids = [k.replace("-", "").strip().lower() for k in kids]
         base_license_url = self._clean_license_url(license_url) if license_url else None
 
         payload: dict = {"drm_type": drm_type, "kids": normalized_kids}
         if base_license_url:
             payload["license_url"] = base_license_url
-        
+
         result = self._post("get-keys", payload)
         logger.info(f"Vault response for get_keys_by_kids: {result}")
 
         if result is None:
             return []
 
-        keys = result.get('keys', [])
+        keys = result.get("keys", [])
         if keys:
-            console.print(f"\n[red]{drm_type} [cyan](KID lookup: {len(keys)} key(s) found)")
+            pssh_display = f"{normalized_kids[0][:30]}..." if normalized_kids else "..."
+            console.print(
+                f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])"
+            )
             for k in keys:
-                kid_val, key_val = k['kid_key'].split(':', 1)
-                console.print(f"    - [red]{kid_val}[white]:[green]{key_val}")
+                kid_val, key_val = k["kid_key"].split(":", 1)
+                console.print(
+                    f"    - [red]{kid_val}[white]:[green]{key_val} [cyan]| [#a855f7]supa"
+                )
 
-        return [k['kid_key'] for k in keys]
+        return [k["kid_key"] for k in keys]
 
     def get_keys_by_kid(self, license_url: Optional[str], kid: str, drm_type: str) -> List[str]:
         """Convenience wrapper for a single KID lookup."""
         return self.get_keys_by_kids(license_url, [kid], drm_type)
 
-    ################# UPDATE ##################
+    # --------- UPDATE
     def update_key_validity(self, kid: str, is_valid: bool, license_url: Optional[str] = None, drm_type: Optional[str] = None, pssh: Optional[str] = None) -> bool:
         """
         Update validity status of a key.
@@ -185,9 +200,9 @@ class ExternalSupaDBVault:
 
         result = self._post("update-key-validity", payload)
         logger.info(f"Vault response for update_key_validity: {result}")
-        return bool(result and result.get('success', False))
+        return bool(result and result.get("success", False))
 
 
 # Initialize
-is_supa_external_db_valid = not (config_manager.config.get('DRM', 'external_supa_db') is None or config_manager.config.get('DRM', 'external_supa_db') == "")
+is_supa_external_db_valid = not (VAULT_URL == "")
 obj_externalSupaDbVault = ExternalSupaDBVault() if is_supa_external_db_valid else None
