@@ -17,6 +17,7 @@ from VibraVid.player.supervideo import VideoSource
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 extension_output = config_manager.config.get("PROCESS", "extension")
 
 
@@ -35,7 +36,7 @@ def download_film(select_title: Entries) -> str:
 
     imdb_id = select_title.imdb_id
     if not imdb_id:
-        logging.error(f"No IMDB ID found for {select_title.name}")
+        logger.error(f"No IMDB ID found for {select_title.name}")
         return None
 
     try:
@@ -44,18 +45,18 @@ def download_film(select_title: Entries) -> str:
         response.raise_for_status()
 
     except Exception as e:
-        logging.error(f"Not found in the server. Title: {select_title.name}, error: {e}")
+        logger.error(f"Not found in the server. Title: {select_title.name}, error: {e}")
         raise
 
     if "not found" in str(response.text):
-        logging.error(f"Can't find title: {select_title.name}.")
+        logger.error(f"Can't find title: {select_title.name}.")
         return None
 
     # Extract supervideo url
     soup = BeautifulSoup(response.text, "html.parser")
     player_links = soup.find("ul", class_="_player-mirrors").find_all("li")
     if not player_links:
-        logging.error(f"No player links found for {select_title.name}")
+        logger.error(f"No player links found for {select_title.name}")
         return None
     
     supervideo_url = None
@@ -66,7 +67,7 @@ def download_film(select_title: Entries) -> str:
             break
     
     if not supervideo_url:
-        logging.error(f"No supervideo link found for {select_title.name}")
+        logger.error(f"No supervideo link found for {select_title.name}")
         return None
 
     # Set domain and media ID for the video source

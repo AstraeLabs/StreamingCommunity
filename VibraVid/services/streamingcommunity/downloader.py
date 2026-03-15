@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, tmdb_client, start_message
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_title, map_season_name
+from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
 from VibraVid.core.downloader import HLS_Downloader
@@ -49,7 +49,7 @@ def download_film(select_title: Entries) -> str:
     master_playlist = video_source.get_playlist()
 
     if master_playlist is None:
-        console.print(f"[red]Site: {site_constants.SITE_NAME}, error: No master playlist found")
+        console.print("[red]Error: No master playlist found")
         return None
 
     # Define the filename and path for the downloaded film
@@ -72,8 +72,9 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{series_display} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
 
     # Define filename and path for the downloaded video
-    episode_name = f"{map_episode_title(series_display, index_season_selected, index_episode_selected, obj_episode.name)}.{extension_output}"
-    episode_path = os.path.join(site_constants.SERIES_FOLDER, series_display, map_season_name(index_season_selected))
+    path_components, filename = map_episode_path(series_display, getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
+    episode_path = os.path.join(site_constants.SERIES_FOLDER, *path_components)
+    episode_name = f"{filename}.{extension_output}"
 
     if use_other_api:
         series_slug = scrape_serie.series_name.lower().replace(' ', '-').replace("'", '')
@@ -122,15 +123,11 @@ def download_series(select_season: Entries, season_selection: str = None, episod
         scrape_serie.series_display_name = select_season.name
     seasons_count = len(scrape_serie.seasons_manager)
 
-    # Create callback function for downloading episodes
     def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
         """Callback to handle episode downloads for a specific season"""
-        
-        # Create callback for downloading individual videos
         def download_video_callback(obj_episode, season_idx, episode_idx):
             return download_episode(obj_episode, season_idx, episode_idx, scrape_serie, video_source)
         
-        # Use the process_episode_download function
         process_episode_download(
             index_season_selected=season_number,
             scrape_serie=scrape_serie,
@@ -139,7 +136,6 @@ def download_series(select_season: Entries, season_selection: str = None, episod
             episode_selection=episode_selection
         )
 
-    # Use the process_season_selection function
     process_season_selection(
         scrape_serie=scrape_serie,
         seasons_count=seasons_count,

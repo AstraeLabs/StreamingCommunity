@@ -2,6 +2,7 @@
 
 import os
 import re
+import logging
 from typing import Tuple
 
 from rich.console import Console
@@ -10,7 +11,7 @@ from rich.prompt import Prompt
 from VibraVid.utils import config_manager, start_message
 from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_title, map_season_name
+from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
 from VibraVid.core.downloader import DASH_Downloader, HLS_Downloader
@@ -23,6 +24,7 @@ from .scrapper import GetSerieInfo
 
 console = Console()
 msg = Prompt()
+logger = logging.getLogger(__name__)
 extension_output = config_manager.config.get("PROCESS", "extension")
 
 
@@ -65,16 +67,15 @@ def download_film(select_title: Entries) -> Tuple[str, bool]:
     if ".mpd" not in master_playlist:
         return HLS_Downloader(
             m3u8_url=fix_manifest_url(master_playlist),
+            license_url=generate_license_url(select_title.mpd_id),
             output_path=os.path.join(title_path, title_name)
         ).start()
 
     # MPD
     else:
-        license_url = generate_license_url(select_title.mpd_id)
-
         return DASH_Downloader(
             mpd_url=master_playlist,
-            license_url=license_url,
+            license_url=generate_license_url(select_title.mpd_id),
             output_path=os.path.join(title_path, title_name),
         ).start()
     
@@ -87,14 +88,15 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
 
     # Define filename and path
-    episode_name = f"{map_episode_title(scrape_serie.series_name, index_season_selected, index_episode_selected, obj_episode.name)}.{extension_output}"
-    episode_path = os.path.join(site_constants.SERIES_FOLDER, scrape_serie.series_name, map_season_name(index_season_selected))
+    path_components, filename = map_episode_path(scrape_serie.series_name, getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
+    episode_path = os.path.join(site_constants.SERIES_FOLDER, *path_components)
+    episode_name = f"{filename}.{extension_output}"
 
     # Get streaming URL
     master_playlist = VideoSource.extract_m3u8_url(obj_episode.url)
 
     if not master_playlist:
-        console.print(f"[red]Error: Could not extract streaming URL for {obj_episode.name}")
+        logger.error(f"Error: Could not extract streaming URL for {obj_episode.name}")
         return False
 
     # HLS
@@ -135,15 +137,11 @@ def download_series(select_season: Entries, season_selection: str = None, episod
         scrape_serie.collect_info_title()
     seasons_count = len(scrape_serie.seasons_manager)
 
-    # Create callback function for downloading episodes
     def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
         """Callback to handle episode downloads for a specific season"""
-        
-        # Create callback for downloading individual videos
         def download_video_callback(obj_episode, season_idx, episode_idx):
             return download_episode(obj_episode, season_idx, episode_idx, scrape_serie)
         
-        # Use the process_episode_download function
         process_episode_download(
             index_season_selected=season_number,
             scrape_serie=scrape_serie,
@@ -152,7 +150,6 @@ def download_series(select_season: Entries, season_selection: str = None, episod
             episode_selection=episode_selection
         )
 
-    # Use the process_season_selection function
     process_season_selection(
         scrape_serie=scrape_serie,
         seasons_count=seasons_count,

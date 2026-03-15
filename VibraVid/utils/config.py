@@ -13,6 +13,8 @@ from rich.console import Console
 
 
 console = Console()
+logger = logging.getLogger(__name__)
+
 CONFIG_FILENAME = 'config.json'
 LOGIN_FILENAME = 'login.json'
 DOMAINS_FILENAME = 'domains.json'
@@ -52,12 +54,16 @@ class ConfigAccessor:
         # Check if the section and key exist
         if section not in self._config_dict:
             if default is not None:
+                logger.info(f"Section '{section}' not found in {self._cache_prefix} configuration, returning default.")
                 return default
+            
             raise ValueError(f"Section '{section}' not found in {self._cache_prefix} configuration")
         
         if key not in self._config_dict[section]:
             if default is not None:
+                logger.info(f"Key '{key}' not found in section '{section}' of {self._cache_prefix} configuration, returning default.")
                 return default
+            
             raise ValueError(f"Key '{key}' not found in section '{section}' of {self._cache_prefix} configuration")
         
         # Get and convert the value
@@ -142,6 +148,7 @@ class ConfigAccessor:
             key (str): Key to set
             value (Any): Value to associate with the key
         """
+        logger.info(f"Setting config: section='{section}', key='{key}', value='{value}'")
         try:
             if section not in self._config_dict:
                 self._config_dict[section] = {}
@@ -158,6 +165,7 @@ class ConfigAccessor:
 
 
 def save_config_compact(data, f):
+    logger.info("Saving configuration with compact formatting")
     json_str = json.dumps(data, indent=4)
     json_str = re.sub(r'\[\s*\n\s*((?:"[^"]*"|\d+|true|false|null)(?:\s*,\s*(?:"[^"]*"|\d+|true|false|null))*\s*)\n\s*\]', lambda m: '[' + m.group(1).replace('\n', '').replace(' ', '') + ']', json_str, flags=re.MULTILINE | re.DOTALL)
     f.write(json_str)
@@ -174,6 +182,7 @@ class ConfigManager:
             
         # Initialize conf directory path
         self.conf_path = os.path.join(self.base_path, 'Conf')
+        logger.info(f"ConfigManager initialized with base path: {self.base_path} and conf path: {self.conf_path}")
         
         # Create conf directory if it doesn't exist
         if not os.path.exists(self.conf_path):
@@ -185,6 +194,10 @@ class ConfigManager:
         self.login_file_path = os.path.join(self.conf_path, LOGIN_FILENAME)
         self.domains_path = os.path.join(self.conf_path, DOMAINS_FILENAME)
         self.github_domains_path = os.path.join(self.base_path, GITHUB_DOMAINS_PATH)
+        logger.info(f"Config file path: {self.config_file_path}")
+        logger.info(f"Login file path: {self.login_file_path}")
+        logger.info(f"Domains file path: {self.domains_path}")
+        logger.info(f"GitHub domains file path: {self.github_domains_path}")
         
         # Initialize data structures
         self._config_data = {}
@@ -199,6 +212,7 @@ class ConfigManager:
         self.config = ConfigAccessor(self._config_data, self.cache, "config", self._cache_enabled)
         self.login = ConfigAccessor(self._login_data, self.cache, "login", self._cache_enabled)
         self.domain = ConfigAccessor(self._domains_data, self.cache, "domain", self._cache_enabled)
+        logger.info("Config accessors initialized with caching enabled")
         
         # Load the configuration
         self.fetch_domain_online = True
@@ -213,9 +227,12 @@ class ConfigManager:
 
     def _load_config(self) -> None:
         """Load the main configuration file."""
+        logger.info(f"Loading configuration from: {self.config_file_path}")
+
         if not os.path.exists(self.config_file_path):
             console.print(f"[red]WARNING: Configuration file not found: {self.config_file_path}")
             console.print("[yellow]Downloading from repository...")
+            logger.info("Configuration file not found, attempting to download from repository")
             self._download_file(CONFIG_DOWNLOAD_URL, self.config_file_path, "config.json")
         
         try:
@@ -239,6 +256,8 @@ class ConfigManager:
         if not os.path.exists(self.login_file_path):
             console.print(f"[yellow]WARNING: Login file not found: {self.login_file_path}")
             console.print("[yellow]Downloading from repository...")
+            logger.info("Login file not found, attempting to download from repository")
+
             try:
                 self._download_file(CONFIG_LOGIN_DOWNLOAD_URL, self.login_file_path, "login.json")
             except Exception as e:
@@ -290,12 +309,13 @@ class ConfigManager:
                     cached_count += 1
                     
             except Exception as e:
-                logging.warning(f"Failed to precache {section}.{key}: {e}")
+                logger.warning(f"Failed to precache {section}.{key}: {e}")
     
     def _handle_config_error(self) -> None:
         """Handle configuration errors by downloading the reference version."""
         console.print("[yellow]Attempting to retrieve reference configuration...")
         self._download_file(CONFIG_DOWNLOAD_URL, self.config_file_path, "config.json")
+        logger.info("Reference configuration downloaded successfully, attempting to load again")
         
         # Reload the configuration
         try:
@@ -315,9 +335,8 @@ class ConfigManager:
     
     def _update_settings_from_config(self) -> None:
         """Update internal settings from loaded configurations."""
+        logger.info("Updating internal settings from configuration")
         default_section = self._config_data.get('DEFAULT', {})
-        
-        # Get fetch_domain_online setting (True by default)
         self.fetch_domain_online = default_section.get('fetch_domain_online', True)
     
     def _download_file(self, url: str, file_path: str, file_name: str) -> None:
@@ -348,10 +367,9 @@ class ConfigManager:
 
     def _load_site_data_online(self) -> None:
         """Load site data from GitHub and update local domains.json file."""
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
         try:
+            logger.info(f"Fetching site data from GitHub: {DOMAINS_DOWNLOAD_URL}")
             response = httpx.get(DOMAINS_DOWNLOAD_URL, timeout=8.0, headers=headers)
 
             if response.status_code == 200:
@@ -375,6 +393,7 @@ class ConfigManager:
     
     def _save_domains_to_appropriate_location(self) -> None:
         """Save domains to the conf directory."""
+        logger.info("Saving domains to local file after successful GitHub fetch")
         try:
             with open(self.domains_path, 'w', encoding='utf-8') as f:
                 json.dump(self._domains_data, f, indent=4, ensure_ascii=False)
@@ -393,6 +412,8 @@ class ConfigManager:
                 
             elif os.path.exists(self.github_domains_path):
                 console.print(f"[dim]Fallback domain path: {self.github_domains_path}[/dim]")
+                logger.info(f"Loading domains from GitHub structure: {self.github_domains_path}")
+
                 with open(self.github_domains_path, 'r', encoding='utf-8') as f:
                     self._domains_data.clear()
                     self._domains_data.update(json.load(f))
@@ -412,6 +433,8 @@ class ConfigManager:
         """Handle site data fallback in case of error."""
         if os.path.exists(self.domains_path):
             console.print("[yellow]Attempting fallback to conf domains.json file...")
+            logger.info(f"Attempting fallback to local domains file: {self.domains_path}")
+
             try:
                 with open(self.domains_path, 'r', encoding='utf-8') as f:
                     self._domains_data.clear()
@@ -437,6 +460,7 @@ class ConfigManager:
     
     def save_config(self) -> None:
         """Save the main configuration to file."""
+        logger.info("Saving main configuration to file")
         try:
             with open(self.config_file_path, 'w') as f:
                 save_config_compact(self._config_data, f)
@@ -445,6 +469,7 @@ class ConfigManager:
     
     def save_login(self) -> None:
         """Save the login configuration to file."""
+        logger.info("Saving login configuration to file")
         try:
             with open(self.login_file_path, 'w') as f:
                 json.dump(self._login_data, f, indent=4)
@@ -453,6 +478,7 @@ class ConfigManager:
     
     def save_domains(self) -> None:
         """Save the domains configuration to file."""
+        logger.info("Saving domains configuration to file")
         try:
             target_path = self.domains_path
             

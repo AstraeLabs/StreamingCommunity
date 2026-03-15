@@ -13,6 +13,7 @@ from VibraVid.utils import config_manager, os_manager
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 _HOOK_CONTEXT_LOCK = threading.Lock()
 _LAST_HOOK_CONTEXT: Dict[str, Dict[str, Any]] = {}
 
@@ -234,19 +235,19 @@ def execute_hooks(stage: str, context: Optional[Dict[str, Any]] = None) -> None:
             if stdout:
                 console.print(f"[cyan][hook:{name} stdout]\n{stdout}")
             if stderr:
-                logging.warning(f"Hook '{name}' stderr: {stderr}")
+                logger.warning(f"Hook '{name}' stderr: {stderr}")
                 console.print(f"[yellow][hook:{name} stderr]\n{stderr}")
 
             if result.returncode != 0:
                 message = f"Hook '{name}' exited with code {result.returncode}"
                 if continue_on_error:
-                    logging.error(message + " (continuing)")
+                    logger.error(message + " (continuing)")
                     continue
                 raise SystemExit(result.returncode)
 
         except Exception as exc:
             message = f"Hook '{name}' failed: {str(exc)}"
             if continue_on_error:
-                logging.error(message + " (continuing)")
+                logger.error(message + " (continuing)")
                 continue
             raise

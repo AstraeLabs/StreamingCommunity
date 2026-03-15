@@ -7,6 +7,9 @@ from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.services._base.object import SeasonManager, Episode, Season
 
 
+logger = logging.getLogger(__name__)
+
+
 class GetSerieInfo:
     def __init__(self, path_id: str):
         """Initialize the GetSerieInfo class."""
@@ -28,7 +31,7 @@ class GetSerieInfo:
             
             # If 404, content is not yet available
             if response.status_code == 404:
-                logging.error(f"Content not yet available: {program_url}")
+                logger.error(f"Content not yet available: {program_url}")
                 return
                 
             response.raise_for_status()
@@ -84,7 +87,7 @@ class GetSerieInfo:
                 )
 
         except Exception as e:
-            logging.error(f"Unexpected error collecting series info: {e}")
+            logger.error(f"Unexpected error collecting series info: {e}")
 
     def _add_season(self, season_set: dict, block_id: str, block_name: str):
         """Add a season combining set name and block name."""
@@ -158,7 +161,7 @@ class GetSerieInfo:
                 ))
 
         except Exception as e:
-            logging.error(f"Error collecting episodes for season {number_season}: {e}")
+            logger.error(f"Error collecting episodes for season {number_season}: {e}")
             raise
 
 
@@ -179,21 +182,10 @@ class GetSerieInfo:
         season = self.seasons_manager.get_season_by_number(season_number)
 
         if not season:
-            logging.error(f"Season {season_number} not found")
+            logger.error(f"Season {season_number} not found")
             return []
             
         if not season.episodes.episodes:
             self.collect_info_season(season_number)
             
         return season.episodes.episodes
-        
-    def selectEpisode(self, season_number: int, episode_index: int) -> Episode:
-        """
-        Get information for a specific episode in a specific season.
-        """
-        episodes = self.getEpisodeSeasons(season_number)
-        if not episodes or episode_index < 0 or episode_index >= len(episodes):
-            logging.error(f"Episode index {episode_index} is out of range for season {season_number}")
-            return None
-            
-        return episodes[episode_index]

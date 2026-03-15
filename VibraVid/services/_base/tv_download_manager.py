@@ -1,15 +1,17 @@
 # 19.06.24
 
+import logging
 from typing import Callable, Any, Optional
 
 from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.services._base.tv_display_manager import manage_selection, validate_selection, display_episodes_list, display_seasons_list
-from VibraVid.source.utils.tracker import download_tracker, context_tracker
+from VibraVid.source.style.tracker import download_tracker, context_tracker
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 def _is_user_stop_requested() -> bool:
@@ -33,6 +35,7 @@ def process_season_selection(scrape_serie: Any, seasons_count: int, season_selec
         - episode_selection (str, optional): Pre-defined episode selection
         - download_episode_callback (Callable): Function to call for downloading episodes
     """
+    logger.info(f"Processing season selection with seasons_count={seasons_count}, season_selection={season_selection}, episode_selection={episode_selection}")
     if seasons_count == 0:
         console.print("[red]No seasons found for this series")
         return
@@ -107,6 +110,8 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
         - download_all (bool): Whether to download all episodes
         - episode_selection (str, optional): Pre-defined episode selection
     """
+    logger.info(f"Processing episode download for season {index_season_selected} with download_all={download_all} and episode_selection={episode_selection}")
+    
     # Get episodes for the selected season
     episodes = scrape_serie.getEpisodeSeasons(index_season_selected)
     episodes_count = len(episodes)
@@ -122,7 +127,7 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
             if stopped:
                 if _is_user_stop_requested():
                     break
-                console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}. Continuing with next episode.")
+                console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}.")
         
         console.print(f"\n[red]End downloaded [yellow]season: [red]{index_season_selected}.")
     
@@ -187,4 +192,4 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
             if stopped:
                 if _is_user_stop_requested():
                     break
-                console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}. Continuing with next episode.")
+                console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}.")

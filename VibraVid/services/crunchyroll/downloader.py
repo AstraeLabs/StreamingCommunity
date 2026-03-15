@@ -10,9 +10,9 @@ from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, os_manager, start_message
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_title, map_season_name
+from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
-from VibraVid.source.utils.trans_language import resolve_locale
+from VibraVid.source.utils.language import resolve_locale
 
 from VibraVid.core.downloader import DASH_Downloader
 
@@ -63,11 +63,13 @@ def parse_select_audio_filter(select_audio: str) -> list:
 
     lang_match = re.search(r"lang=['\"]([^'\"]+)['\"]", select_audio)
 
-    if not lang_match:
-        return []
-
-    # Split per | e risolvi ogni codice
-    raw_codes = [c.strip() for c in lang_match.group(1).split('|') if c.strip()]
+    if lang_match:
+        raw_codes = [c.strip() for c in lang_match.group(1).split('|') if c.strip()]
+    else:
+        if "=" not in select_audio:
+            raw_codes = [c.strip() for c in select_audio.split('|') if c.strip()]
+        else:
+            return []
 
     locales = []
     seen = set()
@@ -166,8 +168,9 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
 
     # Define filename and path
-    title_name = f"{map_episode_title(scrape_serie.series_name, index_season_selected, index_episode_selected, obj_episode.name)}.{extension_output}"
-    title_path = os_manager.get_sanitize_path(os.path.join(site_constants.SERIES_FOLDER, scrape_serie.series_name, map_season_name(index_season_selected)))
+    path_components, filename = map_episode_path(scrape_serie.series_name, getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
+    title_path = os_manager.get_sanitize_path(os.path.join(site_constants.SERIES_FOLDER, *path_components))
+    title_name = f"{filename}.{extension_output}"
 
     # Get media ID and main_guid
     url_id = obj_episode.url.split('/')[-1]
@@ -245,15 +248,11 @@ def download_series(select_season: Entries, season_selection: str = None, episod
         scrape_serie.getNumberSeason()
     seasons_count = len(scrape_serie.seasons_manager)
 
-    # Create callback function for downloading episodes
     def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
         """Callback to handle episode downloads for a specific season"""
-        
-        # Create callback for downloading individual videos
         def download_video_callback(obj_episode, season_idx, episode_idx):
             return download_episode(obj_episode, season_idx, episode_idx, scrape_serie)
         
-        # Use the process_episode_download function
         process_episode_download(
             index_season_selected=season_number,
             scrape_serie=scrape_serie,
@@ -262,7 +261,6 @@ def download_series(select_season: Entries, season_selection: str = None, episod
             episode_selection=episode_selection
         )
 
-    # Use the process_season_selection function
     process_season_selection(
         scrape_serie=scrape_serie,
         seasons_count=seasons_count,

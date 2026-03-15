@@ -11,9 +11,7 @@
         "serie_folder_name": "Serie",
         "anime_folder_name": "Anime",
         "movie_format": "%(title_name) (%(title_year))",
-        "episode_format": "%(episode_name) S%(season)E%(episode)",
-        "season_format": "S%(season)",
-        "add_siteName": false
+        "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
     },
     "DOWNLOAD": {
         "auto_select": true,
@@ -21,11 +19,10 @@
         "thread_count": 8,
         "retry_count": 25,
         "concurrent_download": true,
-        "max_concurrent_jobs": 4,
         "max_speed": "",
-        "select_video": "best",
-        "select_audio": "lang='ita|Ita|it':for=best",
-        "select_subtitle": "lang='ita|eng|Ita|Eng|it|en':for=all",
+        "select_video": "1920",
+        "select_audio": "ita|Ita|it",
+        "select_subtitle": "ita|eng|Ita|Eng|it|en",
         "cleanup_tmp_folder": true
     },
     "PROCESS": {
@@ -34,12 +31,11 @@
         "param_video": ["-c:v","libx265","-crf","28","-preset","medium"],
         "param_audio": ["-c:a","libopus","-b:a","128k"],
         "param_final": ["-c","copy"],
-        "audio_order": [],
-        "subtitle_order": [],
         "subtitle_disposition": false,
-        "subtitle_disposition_language": ["forced-ita","ita-forced"],
+        "subtitle_disposition_language": ["ita_forced"],
         "merge_audio": true,
         "merge_subtitle": true,
+        "force_subtitle": "auto",
         "extension": "mkv"
     },
     "REQUESTS": {
@@ -58,9 +54,18 @@
         "post_download": []
     },
     "DRM": {
-        "delay": 5,
+        "delay": 2,
         "create_local_db": false,
-        "external_supa_db": "https://crqczuxpqjmrjvdvqvlx.supabase.co/",
+        "vault": {
+            "supa": {
+                "url": "https://crqczuxpqjmrjvdvqvlx.supabase.co",
+                "token": ""
+            },
+            "lab_v2": {
+                "url": "",
+                "token": ""
+            }
+        },
         "widevine": {
             "device_type": "ANDROID",
             "system_id": 22590,

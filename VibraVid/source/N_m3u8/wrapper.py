@@ -1,48 +1,60 @@
 # 04.01.25
 
-import re
+from __future__ import annotations
+
 import asyncio
+import logging
 import platform
+import re
 import subprocess
-from pathlib import Path
-from typing import Optional, List, Dict, Any
-from datetime import datetime
 from contextlib import nullcontext
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.progress import Progress, TextColumn
 
-from VibraVid.utils.config import config_manager
-from VibraVid.utils.os import internet_manager
-from VibraVid.setup import get_ffmpeg_path, get_n_m3u8dl_re_path, get_bento4_decrypt_path, get_shaka_packager_path
-from VibraVid.source.utils.tracker import download_tracker, context_tracker
+from VibraVid.setup import get_ffmpeg_path, get_n_m3u8dl_re_path
+from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_async_client
-from VibraVid.source.utils.trans_codec import get_subtitle_codec_name
-from VibraVid.source.Manual.decrypt.decrypt import Decryptor
+from VibraVid.source.style.tracker import download_tracker, context_tracker
+from VibraVid.source.utils.selector import StreamSelector
+from VibraVid.source.style.ui import build_table
+from VibraVid.source.style.progress_bar import CustomBarColumn, ColoredSegmentColumn, CompactTimeColumn, CompactTimeRemainingColumn, SizeColumn
 
-from ..utils.object import StreamInfo, KeysManager
-from .pattern import VIDEO_LINE_RE, AUDIO_LINE_RE, SUBTITLE_LINE_RE, SEGMENT_RE, PERCENT_RE, SPEED_RE, SIZE_RE, SUBTITLE_FINAL_SIZE_RE
-from .progress_bar import CustomBarColumn, ColoredSegmentColumn, CompactTimeColumn, CompactTimeRemainingColumn, SizeColumn
-from .parser import parse_meta_json, LogParser
-from .ui import build_table
+from VibraVid.core.manifest.m3u8 import HLSParser
+from VibraVid.core.manifest.mpd import DashParser
+from VibraVid.core.manifest.stream import Stream
+
+from .pattern import (PERCENT_RE, SPEED_RE, SIZE_RE, SEGMENT_RE, SUBTITLE_FINAL_SIZE_RE)
 
 
-console = Console(force_terminal=True if platform.system().lower() != 'windows' else None)
-auto_select_cfg = config_manager.config.get_bool('DOWNLOAD', 'auto_select', default=True)
-video_filter = config_manager.config.get("DOWNLOAD", "select_video")
-audio_filter = config_manager.config.get("DOWNLOAD", "select_audio")
-subtitle_filter = config_manager.config.get("DOWNLOAD", "select_subtitle")
-max_speed = config_manager.config.get("DOWNLOAD", "max_speed")
-concurrent_download = config_manager.config.get_int("DOWNLOAD", "concurrent_download")
-retry_count = config_manager.config.get_int("DOWNLOAD", "retry_count")
-request_timeout = config_manager.config.get_int("REQUESTS", "timeout")
-thread_count = config_manager.config.get_int("DOWNLOAD", "thread_count")
-use_proxy = config_manager.config.get_bool("REQUESTS", "use_proxy")
-configuration_proxy = config_manager.config.get_dict("REQUESTS", "proxy", default={})
+console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
+logger = logging.getLogger("Source")
+_c = config_manager.config
+CONCURRENT_DOWNLOAD = _c.get_bool("DOWNLOAD", "concurrent_download")
+THREAD_COUNT = _c.get_int("DOWNLOAD", "thread_count")
+RETRY_COUNT = _c.get_int("DOWNLOAD", "retry_count")
+REQUEST_TIMEOUT = _c.get_int("REQUESTS", "timeout")
+MAX_SPEED = _c.get("DOWNLOAD", "max_speed")
+USE_PROXY = _c.get_bool("REQUESTS", "use_proxy")
+PROXY_CFG = _c.get_dict("REQUESTS", "proxy")
+_SUBFIN_RE = SUBTITLE_FINAL_SIZE_RE
 
 
 class MediaDownloader:
-    def __init__(self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[str] = None, cookies: Optional[Dict] = None, decrypt_preference: str = "shaka", download_id: str = None, site_name: str = None):
+    """
+    Thin wrapper around N-m3u8DL-RE (n3u8dl).
+
+    Responsibilities
+    ----------------
+    * Fetch and parse the manifest (HLS or DASH) via the core parsers.
+    * Apply StreamSelector → mark ``stream.selected`` → build n3u8dl args.
+    * Run n3u8dl subprocess with a live Rich progress bar.
+    * Post-process the output directory → build a ``status`` dict.
+    * Optionally decrypt with Bento4 / Shaka Packager.
+    """
+    def __init__(self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None, decrypt_preference: str = "shaka", download_id: Optional[str] = None, site_name: Optional[str] = None,):
         self.url = url
         self.output_dir = Path(output_dir)
         self.filename = filename
@@ -52,566 +64,610 @@ class MediaDownloader:
         self.decrypt_preference = decrypt_preference.strip().lower()
         self.download_id = download_id
         self.site_name = site_name
-        self.streams = []
-        self.external_subtitles = []
-        self.force_best_video = False
-        self.meta_json_path, self.meta_selected_path, self.raw_m3u8, self.raw_mpd, self.raw_ism = None, None, None, None, None 
-        self.status = None
-        self.manifest_type = "Unknown"
+
+        # Populated after parse_stream
+        self.streams: List[Stream] = []
+        self.manifest_type: str = "Unknown"
+        self.raw_m3u8: Optional[Path] = None
+        self.raw_mpd: Optional[Path] = None
+        self.status: Optional[dict] = None
+
+        # n3u8dl selection args (set by _apply_selection)
+        self._sv: str = "best"
+        self._sa: str = "best"
+        self._ss: str = "all"
+
+        # External tracks injected before parse_stream
+        self.external_subtitles: list = []
+        self.external_audios: list = []
+
+        # Per-call filter overrides (override config.json)
+        self.custom_filters: Optional[Dict[str, str]] = None
+
+        # Passthrough fields for DASH decryptor
+        self.license_url: Optional[str] = None
+        self.drm_type: Optional[str] = None
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.output_dir_type = "Movie" if config_manager.config.get("OUTPUT", "movie_folder_name") in str(self.output_dir) else "TV" if config_manager.config.get("OUTPUT", "serie_folder_name") in str(self.output_dir) else "Anime" if config_manager.config.get("OUTPUT", "anime_folder_name") in str(self.output_dir) else "other"
+        self._tmp_dir = self.output_dir / f"{self.filename}_tmp"
+        self._tmp_dir.mkdir(exist_ok=True)
 
-        # Track in GUI if ID is provided
         if self.download_id:
-            download_tracker.start_download(self.download_id, self.filename, self.site_name or "Unknown", self.output_dir_type)
+            _output_type = (
+                "Movie"
+                if _c.get("OUTPUT", "movie_folder_name") in str(self.output_dir)
+                else "TV"
+                if _c.get("OUTPUT", "serie_folder_name") in str(self.output_dir)
+                else "Anime"
+                if _c.get("OUTPUT", "anime_folder_name") in str(self.output_dir)
+                else "other"
+            )
+            download_tracker.start_download(self.download_id, self.filename, self.site_name or "Unknown", _output_type)
 
-    def _normalize_filter(self, filter_value: str) -> str:
-        """Normalize filter ensuring values are quoted if they contain special characters"""
-        if not filter_value:
-            return filter_value
-        
-        parts, normalized_parts, special_chars = filter_value.split(':'), [], '|=.*+?[]{}()^$'
-        for part in parts:
-            if '=' in part:
-                key, val = part.split('=', 1)
-                val = val.strip("'\"")
-                normalized_parts.append(f'{key}="{val}"' if any(c in val for c in special_chars) else f'{key}={val}')
-            else:
-                normalized_parts.append(part)
-        
-        return ':'.join(normalized_parts)
+    def set_key(self, key: Any) -> None:
+        """Accept str, list[str], or KeysManager."""
+        from VibraVid.source.utils.object import KeysManager
 
-    def _get_common_args(self) -> List[str]:
-        """Get common command line arguments for N_m3u8DL-RE"""
-        cmd = []
-        if self.headers:
-            cmd.extend([item for k, v in self.headers.items() for item in ["--header", f"{k}: {v}"]])
-
-        if self.cookies and (cookie_str := "; ".join(f"{k}={v}" for k, v in self.cookies.items())):
-            cmd.extend(["--header", f"Cookie: {cookie_str}"])
-
-        if use_proxy and (proxy_url := configuration_proxy.get("https") or configuration_proxy.get("http")):
-            cmd.extend(["--use-system-proxy", "false", "--custom-proxy", proxy_url])
-        
-        if auto_select_cfg:
-            cmd.extend(["--force-ansi-console", "--no-ansi-color"])
-        return cmd
-    
-    def determine_decryption_tool(self) -> str:
-        """Determine decryption tool based on preference and availability"""
-        if self.decrypt_preference == "bento4":
-            return get_bento4_decrypt_path()
-        if self.decrypt_preference == "shaka":
-            return get_shaka_packager_path()
-
-    def _match_external_subtitle_lang(self, ext_lang: str) -> bool:
-        """Check if external subtitle language matches filter"""
-        if not ext_lang or not subtitle_filter:
-            return False
-        
-        try:
-            if lang_match := re.search(r"lang=['\"]([^'\"]+)['\"]", subtitle_filter):
-                return any(t.lower() == ext_lang.lower() or ext_lang.lower().startswith(t.lower()) or t.lower() in ext_lang.lower() for t in [x.strip() for x in lang_match.group(1).split('|') if x.strip()])
-            return any(t.lower() in ext_lang.lower() for t in re.findall(r"[A-Za-z]{2,}", subtitle_filter))
-        except Exception:
-            return False
-
-    def parser_stream(self, show_table: bool = True) -> List[StreamInfo]:
-        """Analyze playlist and display table of available streams"""
-        analysis_path = self.output_dir / "analysis_temp"
-        analysis_path.mkdir(exist_ok=True)
-        if self.download_id:
-            download_tracker.update_status(self.download_id, "Parsing...")
-
-        # Normalize filter values
-        filters = getattr(self, 'custom_filters', None)
-        norm_v = self._normalize_filter(filters['video'] if filters and filters.get('video') else video_filter)
-        norm_a = self._normalize_filter(filters['audio'] if filters and filters.get('audio') else audio_filter)
-        norm_s = self._normalize_filter(filters['subtitle'] if filters and filters.get('subtitle') else subtitle_filter)
-        
-        cmd = [
-            get_n_m3u8dl_re_path(), 
-            "--write-meta-json", 
-            "--no-log", 
-            "--save-dir", str(analysis_path), 
-            "--tmp-dir", str(analysis_path),
-            "--save-name", "temp_analysis", 
-            "--select-video", norm_v, 
-            "--select-audio", norm_a, 
-            "--select-subtitle", norm_s, 
-            "--skip-download"
-        ]
-        cmd.extend(self._get_common_args())
-        cmd.append(self.url)
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors='replace', bufsize=1, universal_newlines=True)
-        
-        # Save parsing log
-        log_path = self.output_dir / f"{self.filename}_parsing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        with open(log_path, 'w', encoding='utf-8', errors='replace') as log_file:
-            log_file.write(f"Command: {' '.join(cmd)}\n{'='*80}\n\n")
-            log_parser = LogParser()
-            for line in proc.stdout:
-                if line := line.rstrip():
-                    log_parser.parse_line(line)
-                    log_file.write(line + "\n")
-                    log_file.flush()
-            proc.wait()
-        
-        analysis_dir = analysis_path / "temp_analysis"
-        self.meta_json_path = analysis_dir / "meta.json"
-        self.meta_selected_path = analysis_dir / "meta_selected.json"
-        self.raw_m3u8 = analysis_dir / "raw.m3u8"
-        self.raw_mpd = analysis_dir / "raw.mpd"
-        self.raw_ism = analysis_dir / "raw.ism"
-        
-        # Determine manifest type
-        self.manifest_type = "DASH" if self.raw_mpd.exists() else "HLS" if self.raw_m3u8.exists() else "ISM" if self.raw_ism.exists() else "Unknown"
-        
-        if self.meta_json_path.exists():
-            self.streams = parse_meta_json(str(self.meta_json_path), str(self.meta_selected_path))
-
-            # Check if video needs to be forced
-            try:
-                has_video = any(s.type == "Video" for s in self.streams)
-                video_selected = any(s.type == "Video" and s.selected for s in self.streams)
-                if has_video and not video_selected:
-                    console.print("[yellow]No video matched select_video filter; forcing 'best' for download[/yellow]")
-                    self.force_best_video = True
-            except Exception:
-                self.force_best_video = False
-
-            # Add external subtitles to stream list
-            for ext_sub in self.external_subtitles:
-                ext_lang = ext_sub.get('language', '') or ''
-                selected = self._match_external_subtitle_lang(ext_lang)
-                ext_type = ext_sub.get('type') or ext_sub.get('format') or 'srt'
-                ext_sub['_selected'] = selected
-                ext_sub['_ext'] = ext_type
-                self.streams.append(StreamInfo(type_="Subtitle [red]*EXT", language=ext_sub.get('language', ''), name=ext_sub.get('name', ''), selected=selected, extension=ext_type))
-
-            if show_table:
-                selected_set = {i for i, s in enumerate(self.streams) if getattr(s, 'selected', False)}
-                console.print(build_table(self.streams, selected_set, 0, window_size=len(self.streams), highlight_cursor=False))
-            return self.streams
-        
-        return []
-
-    def get_metadata(self) -> tuple:
-        """Get paths to metadata files"""
-        return str(self.meta_json_path), str(self.meta_selected_path), str(self.raw_m3u8), str(self.raw_mpd), str(self.raw_ism)
-    
-    def set_key(self, key):
-        """Set decryption key"""
         if isinstance(key, KeysManager):
             self.key = key.get_keys_list()
         else:
             self.key = key
-    
-    async def _download_external_subtitles(self):
-        """Download external subtitles using httpx"""
-        if not self.external_subtitles:
+
+    def parse_stream(self, show_table: bool = True) -> List[Stream]:
+        """
+        Fetch the manifest, parse all streams, apply StreamSelector
+        (marks ``stream.selected`` and generates n3u8dl args), then
+        optionally print the selection table.
+        """
+        if self.download_id:
+            download_tracker.update_status(self.download_id, "Parsing …")
+
+        # ── Detect format ─────────────────────────────────────────────────────
+        url_lower = self.url.lower().split("?")[0]
+        if url_lower.endswith(".mpd") or "mpd" in url_lower:
+            parser = DashParser(self.url, self.headers)
+        else:
+            parser = HLSParser(self.url, self.headers)
+
+        if not parser.fetch_manifest():
+            logger.error("MediaDownloader: manifest fetch failed")
             return []
-        
-        downloaded = []
-        async with create_async_client(headers=self.headers) as client:
-            for idx, sub in enumerate(self.external_subtitles):
-                try:
-                    if not sub.get('_selected', True):
-                        continue
 
-                    url, lang = sub['url'], sub.get('language', 'unknown')
-                    sub_type = sub.get('_ext') or sub.get('type') or sub.get('format') or 'srt'
-                    original_type = sub.get('type')
+        # ── Save raw manifest ─────────────────────────────────────────────────
+        if isinstance(parser, DashParser):
+            self.raw_mpd = parser.save_raw(self._tmp_dir)
+            self.manifest_type = "DASH"
+        else:
+            self.raw_m3u8 = parser.save_raw(self._tmp_dir)
+            self.manifest_type = "HLS"
 
-                    # Handle 'captions' type getting mapped to wrong extension
-                    if sub_type == 'captions':
-                        sub_type = 'vtt'
-                    
-                    # Determine filename suffix
-                    fname_suffix = lang
-                    if original_type == 'captions' or original_type == 'closed_captions':
-                        fname_suffix = f"{lang}_captions"
-                    
-                    sub_path = self.output_dir / f"{self.filename}.{fname_suffix}.{sub_type}"
-                    response = await client.get(url)
-                    response.raise_for_status()
+        # ── Parse streams ─────────────────────────────────────────────────────
+        self.streams = [s for s in parser.parse_streams() if s.type != "image"]
 
-                    with open(sub_path, 'wb') as f:
-                        f.write(response.content)
-                    downloaded.append({'path': str(sub_path), 'language': lang, 'type': sub_type, 'size': len(response.content)})
-                    
-                    # Update download progress for external subtitle
-                    if self.download_id and download_tracker:
-                        track_key = f"subtitle_{fname_suffix}"
-                        download_tracker.update_status(self.download_id, "downloading")
-                        download_tracker.update_progress(
-                            self.download_id, 
-                            track_key, 
-                            progress=100.0,
-                            size=f"{len(response.content) / 1024:.2f}KB",
-                            speed="N/A",  # Too fast/small to calculate meaningful speed
-                            segments="1/1",
-                            status="completed"
-                        )
+        # ── Apply selection ───────────────────────────────────────────────────
+        self._apply_selection()
 
-                except Exception as e:
-                    console.log(f"[red]Failed to download external subtitle: {e}[/red]")
-                    if self.download_id and download_tracker:
-                        download_tracker.update_progress(
-                            self.download_id,
-                            f"subtitle_{lang}_{idx}",
-                            status="failed"
-                        )
-        return downloaded
+        # ── Attach external subtitles ─────────────────────────────────────────
+        for ext in self.external_subtitles:
+            lang = ext.get("language", "")
+            selected = self._ext_lang_matches(lang, "subtitle")
+            ext["_selected"] = selected
+            fake = Stream(
+                type="subtitle",
+                language=lang,
+                name=ext.get("name", ""),
+                selected=selected,
+                is_external=True,
+            )
+            fake.id = "EXT"
+            self.streams.append(fake)
+
+        # ── Attach external audios ────────────────────────────────────────────
+        for ext in self.external_audios:
+            lang = ext.get("language", "")
+            selected = self._ext_lang_matches(lang, "audio")
+            ext["_selected"] = selected
+            fake = Stream(
+                type="audio",
+                language=lang,
+                name=ext.get("name", ""),
+                selected=selected,
+                is_external=True,
+            )
+            fake.id = "EXT"
+            self.streams.append(fake)
+
+        if show_table and self.streams:
+            console.print(build_table(self.streams))
+
+        return self.streams
+
+    # Alias for backward compat with any callers using the v0 name
+    parser_stream = parse_stream
+
+    def get_metadata(self) -> Tuple[str, str, str]:
+        """Return (raw_m3u8_path, raw_mpd_path, '') — strings, not Path objects."""
+        return (str(self.raw_m3u8), str(self.raw_mpd), "")
+
+    def _apply_selection(self) -> None:
+        f = self.custom_filters or {}
+        v_cfg = f.get("video") or _c.get("DOWNLOAD", "select_video")
+        a_cfg = f.get("audio") or _c.get("DOWNLOAD", "select_audio")
+        s_cfg = f.get("subtitle") or _c.get("DOWNLOAD", "select_subtitle")
+
+        selector = StreamSelector(v_cfg, a_cfg, s_cfg)
+        self._sv, self._sa, self._ss = selector.apply(self.streams)
+        logger.info(f"Selection → video={self._sv!r}  audio={self._sa!r}  subtitle={self._ss!r}")
+
+    def _ext_lang_matches(self, lang: str, track_type: str) -> bool:
+        cfg_key = "select_subtitle" if track_type == "subtitle" else "select_audio"
+        cfg = _c.get("DOWNLOAD", cfg_key, default="all")
+        if not cfg or cfg.lower() == "all":
+            return True
+        if cfg.lower() == "false":
+            return False
+        tokens = [t.strip() for t in re.split(r"[|,]", cfg) if t.strip()]
+        return any(t.lower() in lang.lower() for t in tokens)
+
 
     def start_download(self) -> Dict[str, Any]:
-        """Start the download process"""
-        filters = getattr(self, 'custom_filters', None)
-        
-        # Determine filters
-        norm_v = self._normalize_filter(filters['video'] if filters and 'video' in filters else ("best" if getattr(self, "force_best_video", False) else video_filter))
-        norm_a = self._normalize_filter(filters['audio'] if filters and 'audio' in filters else audio_filter)
-        norm_s = self._normalize_filter(filters['subtitle'] if filters and 'subtitle' in filters else subtitle_filter)
+        """Build the n3u8dl command and run it.  Returns the status dict."""
+        sv = self._sv or "worst"
+        sa = self._sa or "worst"
+        ss = self._ss or "all"
 
-        # Build command
         cmd = [
-            get_n_m3u8dl_re_path(), 
-            "--save-name", self.filename, 
-            "--save-dir", str(self.output_dir), 
-            "--tmp-dir", str(self.output_dir),
-            "--ffmpeg-binary-path", get_ffmpeg_path(), 
-            "--decryption-binary-path", self.determine_decryption_tool(),
-            "--write-meta-json", "false", 
+            get_n_m3u8dl_re_path(),
+            "--save-name", self.filename,
+            "--save-dir", str(self.output_dir),
+            "--tmp-dir", str(self._tmp_dir),
+            "--ffmpeg-binary-path", get_ffmpeg_path(),
+            "--write-meta-json", "false",
             "--binary-merge",
             "--del-after-done",
             "--auto-subtitle-fix", "false",
             "--check-segments-count", "false",
-            "--mp4-real-time-decryption", "false"
+            "--mp4-real-time-decryption", "false",
+            "--no-log",
         ]
 
-        if auto_select_cfg:
-            cmd.append("--no-log")
-            if norm_v == "false":
-                cmd.extend(["--drop-video", "all"])
-            else:
-                if norm_v:
-                    cmd.extend(["--select-video", norm_v])
-                else:
-                    console.print("[dim]No video filter selected.")
-            
-            if norm_a == "false":
-                cmd.extend(["--drop-audio", "all"])
-            else:
-                if norm_a:
-                    cmd.extend(["--select-audio", norm_a])
-                else:
-                    console.print("[dim]No audio filter selected.")
-
-            if norm_s == "false":
-                cmd.extend(["--drop-subtitle", "all"])
-            else:
-                if norm_s:
-                    cmd.extend(["--select-subtitle", norm_s])
-                else:
-                    console.print("[dim]No subtitle filter selected.")
+        if sv == "false":
+            cmd.extend(["--drop-video", "all"])
         else:
-            cmd.extend(["--log-level", "ERROR"])
-        
-        cmd.extend(self._get_common_args())
+            cmd.extend(["--select-video", sv])
 
-        # Add optional parameters
-        if concurrent_download:
+        if sa == "false":
+            cmd.extend(["--drop-audio", "all"])
+        else:
+            cmd.extend(["--select-audio", sa])
+
+        if ss == "false":
+            cmd.extend(["--drop-subtitle", "all"])
+        else:
+            cmd.extend(["--select-subtitle", ss])
+
+        cmd.extend(self._common_args())
+
+        if CONCURRENT_DOWNLOAD:
             cmd.append("--concurrent-download")
-        if thread_count > 0:
-            cmd.extend(["--thread-count", str(thread_count)])
-        if request_timeout > 0:
-            cmd.extend(["--http-request-timeout", str(request_timeout)])
-        if retry_count > 0:
-            cmd.extend(["--download-retry-count", str(retry_count)])
-        if max_speed and str(max_speed).lower() != "false":
-            cmd.extend(["--max-speed", max_speed])
-        if self.key:
-            keys_list = self.key.get_keys_list() if isinstance(self.key, KeysManager) else ([self.key] if isinstance(self.key, str) else self.key)
-            for single_key in keys_list:
-                cmd.extend(["--key", single_key])
-        
+        if THREAD_COUNT > 0:
+            cmd.extend(["--thread-count", str(THREAD_COUNT)])
+        if REQUEST_TIMEOUT > 0:
+            cmd.extend(["--http-request-timeout", str(REQUEST_TIMEOUT)])
+        if RETRY_COUNT > 0:
+            cmd.extend(["--download-retry-count", str(RETRY_COUNT)])
+        if MAX_SPEED and str(MAX_SPEED).lower() not in ("", "false"):
+            cmd.extend(["--max-speed", str(MAX_SPEED)])
+
         cmd.append(self.url)
-        
-        # Download external subtitles
+        logger.info(f"N_m3u8DL-RE command: {' '.join(cmd)}")
+
+        # Download external tracks concurrently
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            external_subs = loop.run_until_complete(self._download_external_subtitles())
+            ext_subs, ext_auds = loop.run_until_complete(self._download_external_tracks())
         finally:
             loop.close()
-        
-        log_parser = LogParser(show_warnings=False)
-        log_path = self.output_dir / f"{self.filename}_download_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        subtitle_sizes = {}
-        
-        with open(log_path, 'w', encoding='utf-8', errors='replace') as log_file:
-            log_file.write(f"Command: {' '.join(cmd)}\n{'='*80}\n\n")
-            
-            # In interactive mode (auto_select=false), don't use progress bar - just run n3u8dl directly
-            if not auto_select_cfg:
-                proc = subprocess.Popen(cmd)
-                if self.download_id:
-                    download_tracker.register_process(self.download_id, proc)
-                proc.wait()
 
-            else:
-                progress_ctx = nullcontext() if context_tracker.is_gui else Progress(
-                    TextColumn("[purple]{task.description}", justify="left"), CustomBarColumn(bar_width=40), ColoredSegmentColumn(),
-                    TextColumn("[dim][[/dim]"), CompactTimeColumn(), TextColumn("[dim]<[/dim]"), CompactTimeRemainingColumn(), TextColumn("[dim]][/dim]"),
-                    SizeColumn(), TextColumn("[dim]@[/dim]"), TextColumn("[red]{task.fields[speed]}[/red]", justify="right"), 
-                    console=console,
-                    refresh_per_second=10.0
-                )
-                
-                with progress_ctx as progress:
-                    tasks = {}
-                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors='replace', bufsize=1, universal_newlines=True)
-                    
-                    # Register process for potential termination
-                    if self.download_id:
-                        download_tracker.register_process(self.download_id, proc)
+        subtitle_sizes: Dict[str, str] = {}
 
-                    with proc:
-                        for line in proc.stdout:
-                            if self.download_id and download_tracker.is_stopped(self.download_id):
-                                proc.terminate()
-                                break
-                            
-                            log_file.write(line)
-                            log_parser.parse_line(line)
-                            self._parse_progress_line(line, progress, tasks, subtitle_sizes)
-                        
-                        # Ensure all tasks are complete
-                        if progress:
-                            for task_id in tasks.values():
-                                progress.update(task_id, completed=100)
-        
-        # Check if we were cancelled
+        progress_ctx = (
+            nullcontext()
+            if context_tracker.is_gui
+            else Progress(
+                TextColumn("[purple]{task.description}", justify="left"),
+                CustomBarColumn(bar_width=40),
+                ColoredSegmentColumn(),
+                TextColumn("[dim][[/dim]"),
+                CompactTimeColumn(),
+                TextColumn("[dim]<[/dim]"),
+                CompactTimeRemainingColumn(),
+                TextColumn("[dim]][/dim]"),
+                SizeColumn(),
+                TextColumn("[dim]@[/dim]"),
+                TextColumn("[red]{task.fields[speed]}[/red]", justify="right"),
+                console=console,
+                refresh_per_second=10.0,
+            )
+        )
+
+        with progress_ctx as progress:
+            tasks: Dict[str, Any] = {}
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1, universal_newlines=True)
+            if self.download_id:
+                download_tracker.register_process(self.download_id, proc)
+
+            with proc:
+                for line in proc.stdout:
+                    if " : " in str(line):
+                        logger.info(f"{line.rstrip()}")
+                    if self.download_id and download_tracker.is_stopped(self.download_id):
+                        proc.terminate()
+                        break
+                    self._parse_progress_line(line, progress, tasks, subtitle_sizes)
+
+                if progress:
+                    for tid in tasks.values():
+                        progress.update(tid, completed=100)
+
         if self.download_id and download_tracker.is_stopped(self.download_id):
             return {"error": "cancelled"}
 
-        # Check for key retrieval errors (Succedde spesso quando parsa m3u8 che hanno bisogna di licenza, ma non ho ancora trovato un caso per implementare license per quel cazzo di m3u8 quindi amen va su failed).
-        if any("Failed to get KEY" in error for error in log_parser.errors):
-            self.status = {"error": "key_error", "message": "Failed to retrieve decryption key"}
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="Failed to get decryption key")
-            return self.status
-
-        self.status = self._get_download_status(subtitle_sizes, external_subs)
+        self.status = self._build_status(subtitle_sizes, ext_subs, ext_auds)
 
         if self.key:
-            # IL 99% delle volte n3u8dl riesce a fare tutto ma in quel 1% sti cazzi meglio fare double check anche se si perde tempo.
-            self._manual_decrypt_check(self.status)
+            self._decrypt_check(self.status)
 
         return self.status
 
-    def _manual_decrypt_check(self, status: Dict[str, Any]):
-        """Check and manually decrypt files if they are still encrypted after download"""
-        decryptor = Decryptor(preference=self.decrypt_preference, license_url=getattr(self, 'license_url', None), drm_type=getattr(self, 'drm_type', None))
-        
-        # Prepare targets with their respective stream types
-        targets = []
-        if status.get('video'):
-            targets.append((status['video'], "video"))
-        if status.get('audios'):
-            for audio in status['audios']:
-                targets.append((audio, "audio"))
-            
-        keys = self.key.get_keys_list() if isinstance(self.key, KeysManager) else ([self.key] if isinstance(self.key, str) else self.key)
-        for target, stream_type in targets:
-            file_path = Path(target['path'])
-            if not file_path.exists():
-                continue
-                
-            # Check if still encrypted
-            console.print(f"[cyan]Check file [red]{file_path.name} [cyan]is still encrypted...")
-            if decryptor.detect_encryption(str(file_path)):
-                
-                # Decrypt to a temporary file
-                temp_output = file_path.with_suffix(file_path.suffix + ".decrypted")
-                
-                if decryptor.decrypt(str(file_path), keys, str(temp_output), stream_type=stream_type):
-                    try:
-                        # Replace the old file with the decrypted one
-                        file_path.unlink()
-                        temp_output.rename(file_path)
-                        
-                        # Update status with new size
-                        target['size'] = file_path.stat().st_size
-                    except Exception as e:
-                        console.print(f"[red]Failed to replace encrypted file: {e}[/red]")
-                        if temp_output.exists():
-                            temp_output.unlink()
-                else:
-                    if temp_output.exists():
-                        temp_output.unlink()
-                    console.print(f"[red]Manual decryption failed for: {file_path.name}[/red]")
+    def _common_args(self) -> List[str]:
+        cmd: List[str] = []
+        for k, v in self.headers.items():
+            cmd.extend(["--header", f"{k}: {v}"])
+        if self.cookies:
+            cookie_str = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+            cmd.extend(["--header", f"Cookie: {cookie_str}"])
+        if USE_PROXY:
+            proxy = PROXY_CFG.get("https") or PROXY_CFG.get("http", "")
+            if proxy:
+                cmd.extend(["--use-system-proxy", "false", "--custom-proxy", proxy])
+        return cmd
 
-    def _update_task(self, progress, tasks: dict, key: str, label: str, line: str):
-        """Generic task update helper"""
-        if key not in tasks:
-            if progress:
-                tasks[key] = progress.add_task(f"[yellow]{self.manifest_type} {label}", total=100, segment="0/0", speed="0Bps", size="0B/0B")
-            else:
-                tasks[key] = "gui_only"
-        
-        task = tasks[key]
-        cur_segment, cur_percent, cur_speed, cur_size = None, None, None, None
-
-        if m := SEGMENT_RE.search(line):
-            cur_segment = m.group(0)
-            if progress and task != "gui_only":
-                progress.update(task, segment=cur_segment)
-
-        if m := PERCENT_RE.search(line):
-            try:
-                cur_percent = float(m.group(1))
-                if progress and task != "gui_only":
-                    progress.update(task, completed=cur_percent)
-            except Exception:
-                pass
-
-        if m := SPEED_RE.search(line):
-            cur_speed = m.group(1)
-            if progress and task != "gui_only":
-                progress.update(task, speed=cur_speed)
-
-        if m := SIZE_RE.search(line):
-            cur_size = f"{m.group(1)}/{m.group(2)}"
-            if progress and task != "gui_only":
-                progress.update(task, size=cur_size)
-
+    def _decrypt_check(self, status: Dict[str, Any]) -> None:
         if self.download_id:
-            download_tracker.update_progress(self.download_id, key, cur_percent, cur_speed, cur_size, cur_segment)
-        return task
+            download_tracker.update_status(self.download_id, "Decrypting …")
 
-    def _parse_progress_line(self, line: str, progress, tasks: dict, subtitle_sizes: dict):
-        """Parse a progress line and update progress bars"""
-        if line.startswith("Vid"):
-            res = (VIDEO_LINE_RE.search(line).group(1) if VIDEO_LINE_RE.search(line) else next((s.resolution or s.extension or "main" for s in self.streams if s.type == "Video"), "main"))
-            self._update_task(progress, tasks, f"video_{res}", f"[cyan]Vid [red]{res}", line)
+        from VibraVid.source.utils.decrypt import Decryptor
+        from VibraVid.source.utils.object import KeysManager
 
-        elif line.startswith("Aud"):
-            if m := AUDIO_LINE_RE.search(line):
-                bitrate, lang_name = m.group(1).strip(), m.group(2).strip()
-                display = lang_name if any(c.isalpha() for c in lang_name) else next((s.language or s.name or bitrate for s in self.streams if s.type == "Audio" and s.bandwidth and bitrate in s.bandwidth), bitrate)
-                self._update_task(progress, tasks, f"audio_{lang_name}_{bitrate}", f"[cyan]Aud [red]{display}", line)
+        decryptor = Decryptor(preference=self.decrypt_preference, license_url=self.license_url, drm_type=self.drm_type,)
+        keys = (self.key.get_keys_list() if isinstance(self.key, KeysManager) else ([self.key] if isinstance(self.key, str) else self.key))
 
-        elif line.startswith("Sub"):
-            if m := SUBTITLE_LINE_RE.search(line):
-                lang, codec = m.group(1).strip(), m.group(2).strip()
-                
-                # SHIT Attempt to fix find actual language from streams if codec seems to be a tech type | TO REWRITE
-                display_lang = lang
-                if any(x in lang.lower() for x in ['stpp', 'ttml', 'vtt', 'srt']) or any(x in codec.lower() for x in ['stpp', 'ttml', 'vtt', 'srt']):
-                    for s in self.streams:
+        targets = []
+        if status.get("video"):
+            targets.append((status["video"], "video"))
+        for aud in status.get("audios", []):
+            targets.append((aud, "audio"))
 
-                        # Check if codec matches and lang matches (as sub-string)
-                        if s.type.lower().startswith('subtitle') and s.codec and (any(x in s.codec.lower() for x in ['stpp', 'ttml', 'vtt', 'srt'])):
-                            s_lang = (s.language or "").lower()
-                            p_lang = lang.lower()
-                            if s_lang == p_lang or s_lang in p_lang or p_lang in s_lang:
-                                if s.language:
-                                    display_lang = s.language
-                                    break
-                
-                # If still using tech name for display_lang, try to clean it
-                display_lang = get_subtitle_codec_name(display_lang)
-                task = self._update_task(progress, tasks, f"sub_{lang}_{codec}", f"[cyan]Sub [red]{display_lang}", line)
+        for target, stype in targets:
+            fp = Path(target["path"])
+            if not fp.exists():
+                continue
+            scheme, *_ = decryptor.detect_encryption(str(fp))
+            if scheme is None:
+                continue
+            out = fp.with_suffix(fp.suffix + ".dec")
+            if decryptor.decrypt(str(fp), keys, str(out), stream_type=stype):
+                try:
+                    fp.unlink()
+                    out.rename(fp)
+                    target["size"] = fp.stat().st_size
+                except Exception as exc:
+                    logger.error(f"Failed to replace encrypted file: {exc}")
+                    if out.exists():
+                        out.unlink()
+            else:
+                if out.exists():
+                    out.unlink()
 
-                if fm := SUBTITLE_FINAL_SIZE_RE.search(line):
-                    final_size = fm.group(1)
-                    if progress:
-                        progress.update(task, size=final_size, completed=100)
-                    subtitle_sizes[f"{lang}: {codec}"] = final_size
-                
-                elif not SIZE_RE.search(line):
-                    if sm := re.search(r"(\d+\.\d+(?:B|KB|MB|GB))\s*$", line):
-                        subtitle_sizes[f"{lang}: {codec}"] = sm.group(1)
+    async def _download_external_tracks(self) -> Tuple[List[Dict], List[Dict]]:
+        ext_subs: List[Dict] = []
+        ext_auds: List[Dict] = []
 
-    def _extract_language_from_filename(self, filename: str, base_name: str) -> str:
-        """Extract language from filename"""
-        stem = filename[len(base_name):].lstrip('.') if filename.startswith(base_name) else filename
-        return stem.rsplit('.', 1)[0].split('.')[0] if '.' in stem else stem
+        all_tasks = [(sub, "subtitle") for sub in self.external_subtitles if sub.get("_selected", True) ] + [(aud, "audio") for aud in self.external_audios if aud.get("_selected", True)]
+        if not all_tasks:
+            return ext_subs, ext_auds
 
-    def _get_download_status(self, subtitle_sizes: dict, external_subs: list) -> Dict[str, Any]:
-        """Get final download status"""
-        status = {'video': None, 'audios': [], 'subtitles': [], 'external_subtitles': external_subs, 'external_audios': []}
-        exts = {
-            'video': ['.mp4', '.mkv', '.m4v', '.ts', '.mov', '.webm'], 
-            'audio': ['.m4a', '.aac', '.mp3', '.ts', '.mp4', '.wav', '.webm'], 
-            'subtitle': ['.srt', '.vtt', '.ass', '.sub', '.ssa', '.m4s', '.ttml', '.xml']
+        async with create_async_client(headers=self.headers) as client:
+            for track, track_type in all_tasks:
+                try:
+                    logger.info(f"Downloading external {track_type}: {track.get('name') or track.get('language') or track.get('type') or 'unknown'}")
+                    lang = track.get("language", "unknown")
+                    flag = ""
+                    if track.get("forced"):
+                        flag = ".forced"
+                    elif track.get("sdh"):
+                        flag = ".sdh"
+
+                    fmt = (track.get("type") or track.get("format") or ("srt" if track_type == "subtitle" else "m4a"))
+                    if fmt == "captions":
+                        fmt = "vtt"
+
+                    logger.info(f"URL: {track['url']}")
+                    out_path = self.output_dir / f"{self.filename}.{lang}{flag}.{fmt}"
+                    r = await client.get(track["url"])
+                    r.raise_for_status()
+                    out_path.write_bytes(r.content)
+
+                    entry = {
+                        "path": str(out_path),
+                        "language": f"{lang}{flag}",   # ← include il flag nel language
+                        "type": fmt,
+                        "size": len(r.content),
+                    }
+
+                    if track_type == "subtitle":
+                        ext_subs.append(entry)
+                    else:
+                        ext_auds.append(entry)
+                except Exception as exc:
+                    logger.warning(f"External {track_type} download failed: {exc}")
+
+        return ext_subs, ext_auds
+
+    def _build_status(self, subtitle_sizes: Dict, ext_subs: List, ext_auds: List = None) -> Dict:
+        """
+        Scan output_dir and build the status dict:
+          { video, audios, subtitles, external_subtitles, external_audios }
+
+        Subtitle naming logic (3-pass):
+          Pass 1 — detect forced/CC from filename tag + match n3u8dl progress metadata
+          Pass 2 — size-based CC disambiguation within same-language groups
+          Pass 3 — assign final names, handle duplicates
+        """
+        status: Dict[str, Any] = {
+            "video": None,
+            "audios": [],
+            "subtitles": [],
+            "external_subtitles": ext_subs or [],
+            "external_audios": ext_auds or [],
         }
-        
-        # Find video
-        for ext in exts['video']:
-            if (f := self.output_dir / f"{self.filename}{ext}").exists():
-                status['video'] = {'path': str(f), 'size': f.stat().st_size}
-                break
-        
-        # Process downloaded subtitle metadata
-        downloaded_subs = [{
-            'lang': (d_name.split(':', 1)[0] if ':' in d_name else d_name).strip(), 
-            'name': (d_name.split(':', 1)[1] if ':' in d_name else d_name).strip(),
-            'size': sz, 'used': False} 
-            for d_name, size_str in subtitle_sizes.items() 
-                if (sz := internet_manager.format_file_size(size_str))
-        ]
 
-        def norm_lang(lang):
-            return set(lang.lower().replace('-', '.').split('.'))
-        seen_langs = {}
+        VIDEO_EXTS = {".mp4", ".mkv", ".m4v", ".ts", ".mov", ".webm"}
+        AUDIO_EXTS = {".m4a", ".aac", ".mp3", ".ts", ".mp4", ".wav", ".webm"}
+        SUB_EXTS = {".srt", ".vtt", ".ass", ".sub", ".ssa", ".m4s", ".ttml", ".xml"}
 
-        # Scan files
-        for f in sorted(list(self.output_dir.iterdir())):
+        # ── Build progress-metadata lookup ────────────────────────────────────
+        downloaded_subs: List[Dict] = []
+        for key_str, size_str in subtitle_sizes.items():
+            parts = key_str.split(":", 1)
+            raw_lang = parts[0].strip()
+            size_b = _parse_size_str(size_str)
+
+            is_forced = bool(re.search(r"(?:^|[-_.])forced(?:$|[-_.])", raw_lang, re.IGNORECASE))
+            is_cc = bool(
+                re.search(r"(?:^|[-_.])(?:cc|sdh|captions?)(?:$|[-_.])", raw_lang, re.IGNORECASE)
+            )
+            base_lang = re.sub(r"(?:^|[-_.])(?:forced|cc|sdh|captions?)(?:$|[-_.])", "", raw_lang, flags=re.IGNORECASE,).strip("-_.")
+
+            downloaded_subs.append(
+                {
+                    "raw_lang": raw_lang,
+                    "base_lang": base_lang or raw_lang,
+                    "is_forced": is_forced,
+                    "is_cc": is_cc,
+                    "size": size_b,
+                    "used": False,
+                }
+            )
+
+        def _norm_tokens(lang: str) -> set:
+            return set(lang.lower().replace("-", ".").split("."))
+
+        # ── Pass 1: collect subtitle candidates ───────────────────────────────
+        sub_candidates: List[Dict] = []
+
+        for f in sorted(self.output_dir.iterdir()):
             if not f.is_file():
                 continue
-            
-            # Audio
-            if any(f.name.lower().endswith(e) for e in exts['audio']):
-                if status['video'] and f.name == Path(status['video']['path']).name:
+            ext = f.suffix.lower()
+            f_name_l = f.name.lower()
+            fname_l = self.filename.lower()
+
+            if ext in VIDEO_EXTS and f.stem.lower() == fname_l:
+                if status["video"] is None:
+                    status["video"] = {"path": str(f), "size": f.stat().st_size}
+                continue
+
+            if ext in AUDIO_EXTS and f_name_l.startswith(fname_l):
+                if status["video"] and Path(status["video"]["path"]).name == f.name:
+                    continue
+                track_name = f.stem[len(self.filename) :].lstrip(".")
+                status["audios"].append(
+                    {"path": str(f), "name": track_name, "size": f.stat().st_size}
+                )
+                continue
+
+            if ext not in SUB_EXTS or not f_name_l.startswith(fname_l):
+                continue
+
+            f_size = f.stat().st_size
+            raw_tag = f.stem[len(self.filename) :].lstrip(".")
+
+            tag_forced = bool(re.search(r"(?:^|[-_.])forced(?:$|[-_.])", raw_tag, re.IGNORECASE))
+            tag_cc = bool(
+                re.search(r"(?:^|[-_.])(?:cc|sdh|captions?)(?:$|[-_.])", raw_tag, re.IGNORECASE)
+            )
+            tag_base = re.sub(r"(?:^|[-_.])(?:forced|cc|sdh|captions?)(?:$|[-_.])", "", raw_tag, flags=re.IGNORECASE).strip("-_.")
+            tag_base = tag_base or raw_tag
+
+            # N-m3u8DL-RE CC convention: "lang.lang" (e.g. "fre.fre")
+            if not tag_cc and not tag_forced and "." in tag_base:
+                _parts = tag_base.split(".")
+                if len(_parts) == 2 and _parts[0].lower() == _parts[1].lower():
+                    tag_base = _parts[0]
+                    tag_cc = True
+
+            best_meta = None
+            min_diff = float("inf")
+            f_tokens = _norm_tokens(tag_base)
+            for meta in downloaded_subs:
+                if meta["used"]:
                     continue
 
-                name = f.stem[len(self.filename):].lstrip('.') if f.stem.lower().startswith(self.filename.lower()) else f.stem
-                status['audios'].append({'path': str(f), 'name': name, 'size': f.stat().st_size})
-            
-            # Subtitle
-            elif any(f.name.lower().endswith(e) for e in exts['subtitle']):
-                ext_lang = self._extract_language_from_filename(f.stem, self.filename)
-                f_size = f.stat().st_size
-                best_sub, min_diff = None, float('inf')
-                
-                # Find best match
-                f_lang_tokens = norm_lang(ext_lang)
-                for sub in downloaded_subs:
-                    if sub.get('used'):
+                m_tokens = _norm_tokens(meta["base_lang"])
+                overlap = f_tokens & m_tokens
+                diff = abs(meta["size"] - f_size)
+                if ((not f_tokens or not m_tokens or overlap) and diff < min_diff and diff <= 2048):
+                    min_diff = diff
+                    best_meta = meta
+
+            if best_meta:
+                best_meta["used"] = True
+                is_forced = tag_forced or best_meta["is_forced"]
+                is_cc = tag_cc or best_meta["is_cc"]
+                base_lang = tag_base or best_meta["base_lang"]
+            else:
+                is_forced = tag_forced
+                is_cc = tag_cc
+                base_lang = tag_base
+
+            sub_candidates.append(
+                {
+                    "path": str(f),
+                    "size": f_size,
+                    "base_lang": base_lang,
+                    "is_forced": is_forced,
+                    "is_cc": is_cc,
+                    "tag_explicit": tag_forced or tag_cc,
+                }
+            )
+
+        # ── Pass 2: size-based CC disambiguation ──────────────────────────────
+        from collections import defaultdict
+
+        _lang_groups: dict = defaultdict(list)
+        for cand in sub_candidates:
+            if not cand["is_forced"]:
+                _lang_groups[cand["base_lang"]].append(cand)
+
+        for base_lang, group in _lang_groups.items():
+            untagged = [c for c in group if not c["is_cc"] and not c["tag_explicit"]]
+            if len(group) >= 2 and untagged:
+                sorted_group = sorted(group, key=lambda c: c["size"], reverse=True)
+                for i, cand in enumerate(sorted_group):
+                    if cand["tag_explicit"]:
                         continue
+                    cand["is_cc"] = i == 0
 
-                    s_lang_tokens = norm_lang(sub['lang'])
-                    overlap = f_lang_tokens & s_lang_tokens
-                    diff = abs(sub['size'] - f_size)
-                    if (not f_lang_tokens or not s_lang_tokens or overlap) or not downloaded_subs:
-                        if diff < min_diff and diff <= 2048:
-                            min_diff, best_sub = diff, sub
-                
-                # Determine display name
-                if best_sub:
-                    lang, name = best_sub['lang'], best_sub['name']
-                    best_sub['used'] = True
-                    final_name = f"{lang} - {name}" if seen_langs.get(lang) and name and name != lang else lang
-                    seen_langs[lang] = seen_langs.get(lang, 0) + 1
-                else:
-                    final_name = ext_lang
+        # ── Pass 3: assign final names ────────────────────────────────────────
+        seen_normal: Dict[str, int] = {}
+        for cand in sub_candidates:
+            base_lang = cand["base_lang"]
+            if cand["is_forced"]:
+                final_name = f"{base_lang}_forced"
+            elif cand["is_cc"]:
+                final_name = f"{base_lang}_cc"
+            else:
+                count = seen_normal.get(base_lang, 0)
+                final_name = base_lang if count == 0 else f"{base_lang} ({count + 1})"
+                seen_normal[base_lang] = count + 1
 
-                status['subtitles'].append({'path': str(f), 'language': final_name, 'name': final_name, 'size': f_size})
-        
+            status["subtitles"].append(
+                {
+                    "path": cand["path"],
+                    "language": final_name,
+                    "name": final_name,
+                    "size": cand["size"],
+                }
+            )
+
         return status
-    
-    def get_status(self) -> Dict[str, Any]:
-        """Get current download status"""
-        return self.status if self.status else self._get_download_status({}, [])
+
+    def get_status(self) -> Dict:
+        return self.status or self._build_status({}, [], [])
+
+    def _update_task(self, progress, tasks: dict, key: str, label: str, line: str) -> Any:
+        if key not in tasks:
+            tasks[key] = (
+                progress.add_task(
+                    f"[yellow]{self.manifest_type} {label}",
+                    total=100,
+                    segment="0/0",
+                    speed="0Bps",
+                    size="0B/0B",
+                )
+                if progress
+                else "gui"
+            )
+
+        task = tasks[key]
+
+        # Always update the tracker (needed for GUI mode where progress is None)
+        if self.download_id:
+            pct = (float(PERCENT_RE.search(line).group(1)) if PERCENT_RE.search(line) else None)
+            spd = SPEED_RE.search(line).group(1) if SPEED_RE.search(line) else None
+            sz = (f"{SIZE_RE.search(line).group(1)}/{SIZE_RE.search(line).group(2)}" if SIZE_RE.search(line) else None)
+            seg = SEGMENT_RE.search(line).group(0) if SEGMENT_RE.search(line) else None
+            download_tracker.update_progress(self.download_id, key, pct, spd, sz, seg)
+
+        if not progress or task == "gui":
+            return task
+
+        if m := SEGMENT_RE.search(line):
+            progress.update(task, segment=m.group(0))
+        if m := PERCENT_RE.search(line):
+            try:
+                progress.update(task, completed=float(m.group(1)))
+            except Exception:
+                pass
+        if m := SPEED_RE.search(line):
+            progress.update(task, speed=m.group(1))
+        if m := SIZE_RE.search(line):
+            progress.update(task, size=f"{m.group(1)}/{m.group(2)}")
+
+        return task
+
+    def _parse_progress_line(self, line: str, progress, tasks: dict, subtitle_sizes: dict) -> None:
+        if line.startswith("Vid"):
+            res = next(
+                (
+                    s.resolution
+                    for s in self.streams
+                    if s.type == "video" and s.selected
+                ),
+                "main",
+            )
+            self._update_task(progress, tasks, f"vid_{res}", f"[cyan]Vid [red]{res}", line)
+
+        elif line.startswith("Aud"):
+            m = re.search(r"Aud\s+(\S+)", line)
+            tag = m.group(1) if m else "aud"
+            self._update_task(progress, tasks, f"aud_{tag}", f"[cyan]Aud [red]{tag}", line)
+
+        elif line.startswith("Sub"):
+            m = re.search(r"Sub\s+(\S+)\s*\|\s*(\S+)", line)
+            if m:
+                lang, codec = m.group(1), m.group(2)
+                from VibraVid.source.utils.codec import get_subtitle_codec_name
+
+                display = get_subtitle_codec_name(lang)
+                task = self._update_task(progress, tasks, f"sub_{lang}_{codec}", f"[cyan]Sub [red]{display}", line)
+                if fm := _SUBFIN_RE.search(line):
+                    if progress and task not in (None, "gui"):
+                        progress.update(task, size=fm.group(1), completed=100)
+                    subtitle_sizes[f"{lang}:{codec}"] = fm.group(1)
+
+_SIZE_UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}
+
+
+def _parse_size_str(s: str) -> int:
+    """Convert '123.4KB' → bytes (int)."""
+    try:
+        m = re.match(r"([\d.]+)\s*(B|KB|MB|GB)", s, re.IGNORECASE)
+        if m:
+            return int(float(m.group(1)) * _SIZE_UNITS[m.group(2).upper()])
+    except Exception:
+        pass
+    return 0

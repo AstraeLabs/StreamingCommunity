@@ -9,6 +9,7 @@ from VibraVid.services._base.object import SeasonManager, Episode, Season
 from .client import CrunchyrollClient
 
 
+logger = logging.getLogger(__name__)
 _EP_NUM_RE = re.compile(r"^\d+(\.\d+)?$")
 
 
@@ -96,12 +97,12 @@ class GetSerieInfo:
                 if series_data:
                     self.series_name = series_data[0].get("title")
         except Exception as e:
-            logging.debug(f"Failed to fetch series title: {e}")
+            logger.error(f"Failed to fetch series title: {e}")
 
         response = _fetch_api_seasons(self.series_id, self.client, self.params)
         
         if response.status_code != 200:
-            logging.error(f"Failed to fetch seasons: {response.status_code}")
+            logger.error(f"Failed to fetch seasons: {response.status_code}")
             return
         
         data = response.json()
@@ -256,32 +257,3 @@ class GetSerieInfo:
             self._fetch_episodes_for_season(season_number)
         
         return season.episodes.episodes
-
-    def selectEpisode(self, season_number: int, episode_index: int) -> Episode:
-        """Get specific episode with audio information."""
-        episodes = self.getEpisodeSeasons(season_number)
-        if not episodes or episode_index < 0 or episode_index >= len(episodes):
-            return None
-            
-        episode: Episode = episodes[episode_index]
-        episode_id = episode.url.split("/")[-1] if episode.url else None
-        
-        if not episode_id:
-            return episode
-        
-        # Update URL to preferred language if available
-        audio_locales, urls_by_locale, main_guid = self._get_episode_audio_locales(episode_id)
-        
-        # Store main_guid for complete subtitles access
-        if main_guid:
-            episode.main_guid = main_guid                                       # [CRUNCHYROLL] Primary ID for full subtitle tracks
-            episode.main_url = f"{self.client.web_base_url}/watch/{main_guid}"  # [CRUNCHYROLL] Full URL for fallback
-        
-        # Continue with normal audio preference logic
-        if urls_by_locale:
-            preferred_lang = self.params.get("preferred_audio_language", "it-IT")
-            new_url = urls_by_locale.get(preferred_lang) or urls_by_locale.get("en-US") or list(urls_by_locale.values())[0]
-            if new_url:
-                episode.url = new_url
-        
-        return episode

@@ -12,7 +12,7 @@ _INITIALIZED = False
 _PREFERRED_ORDER = [
     'streamingcommunity', 'guardaserie', 'animeunity',
     'animeworld', 'crunchyroll', 'mediasetinfinity', 'raiplay',
-    'discoveryeu', 'dmax', 'nove', 'realtime',
+    'discovery', 'dmax', 'nove', 'realtime',
     'homegardentv', 'foodnetwork'
 ]
 

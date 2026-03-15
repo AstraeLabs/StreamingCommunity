@@ -11,6 +11,7 @@ from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client_curl, get_userAgent
 
 
+logger = logging.getLogger(__name__)
 PUBLIC_TOKEN = "bm9haWhkZXZtXzZpeWcwYThsMHE6"
 BASE_URL = "https://www.crunchyroll.com"
 API_BETA_BASE_URL = "https://beta-api.crunchyroll.com"
@@ -127,7 +128,7 @@ class CrunchyrollClient:
 
             return data
         except Exception as e:
-            logging.error(f"Token cache load failed: {e}")
+            logger.error(f"Token cache load failed: {e}")
             return {}
 
     def _save_token_cache(self) -> None:
@@ -155,7 +156,7 @@ class CrunchyrollClient:
                 json.dump(payload, f, indent=2)
 
         except Exception as e:
-            logging.error(f"Token cache save failed: {e}")
+            logger.error(f"Token cache save failed: {e}")
 
     def _get_headers(self) -> Dict:
         """Generate HTTP headers for API requests including authorization."""
@@ -198,7 +199,7 @@ class CrunchyrollClient:
         )
         
         if response.status_code != 200:
-            logging.error(f"Authentication failed: {response.status_code}")
+            logger.error(f"Authentication failed: {response.status_code}")
             return False
         
         result = response.json()
@@ -238,6 +239,7 @@ class CrunchyrollClient:
         )
         
         if response.status_code != 200:
+            logger.error(f"Token refresh failed: {response.status_code}")
             raise RuntimeError(f"Token refresh failed: {response.status_code}")
         
         result = response.json()
@@ -309,7 +311,8 @@ class CrunchyrollClient:
                 active_streams = payload.get("activeStreams", [])
 
                 if error_code in ("TOO_MANY_ACTIVE_STREAMS", "TOO_MANY_CONCURRENT_STREAMS") and active_streams:
-                    logging.warning(f"TOO_MANY_ACTIVE_STREAMS: cleaning up {len(active_streams)} streams")
+                    logger.warning(f"TOO_MANY_ACTIVE_STREAMS: cleaning up {len(active_streams)} streams")
+
                     for s in active_streams:
                         if isinstance(s, dict):
                             content_id = s.get("contentId")
@@ -345,7 +348,7 @@ class CrunchyrollClient:
             return response.status_code in (200, 204)
         
         except Exception as e:
-            logging.error(f"Failed to deauth stream token: {e}")
+            logger.error(f"Failed to deauth stream token: {e}")
             return False
 
     def get_available_versions(self, url_id: str) -> List[Dict]:
@@ -376,7 +379,7 @@ class CrunchyrollClient:
             return result
 
         except Exception as e:
-            logging.error(f"get_available_versions failed for {url_id}: {e}")
+            logger.error(f"get_available_versions failed for {url_id}: {e}")
             return []
 
     def get_versions_by_locales(self, url_id: str, locales: List[str]) -> List[Dict]:
@@ -388,7 +391,7 @@ class CrunchyrollClient:
             locales: List of BCP47 locales (e.g., ["it-IT", "en-US"])
         """
         if not locales:
-            logging.warning("get_versions_by_locales called with empty locales list")
+            logger.warning("get_versions_by_locales called with empty locales list")
             return []
         
         versions = []
@@ -399,10 +402,10 @@ class CrunchyrollClient:
             
             # Extract versions if available
             versions_list = playback_data.get('versions')
-            logging.debug(f"Found {len(versions_list) if isinstance(versions_list, list) else 0} versions for url_id: {url_id}")
+            logger.info(f"Found {len(versions_list) if isinstance(versions_list, list) else 0} versions for url_id: {url_id}")
             
             if not versions_list:
-                logging.warning(f"No versions found for url_id: {url_id}")
+                logger.warning(f"No versions found for url_id: {url_id}")
                 return []
 
             # Filter and fetch each version matching the requested locales
@@ -412,25 +415,25 @@ class CrunchyrollClient:
                 
                 version_guid = version.get('guid') or version.get('id')
                 audio_locale = version.get('audio_locale') or version.get('audio', {}).get('locale')
-                logging.debug(f"Checking version: guid={version_guid}, audio_locale={audio_locale}")
+                logger.info(f"Checking version: guid={version_guid}, audio_locale={audio_locale}")
 
                 if not version_guid or not audio_locale:
-                    logging.debug("Skipping version due to missing guid or audio_locale")
+                    logger.info("Skipping version due to missing guid or audio_locale")
                     continue
                 
                 # Check if this version's locale matches requested locales
                 if audio_locale not in locales:
-                    logging.debug(f"Skipping version due to locale mismatch: {audio_locale} not in {locales}")
+                    logger.info(f"Skipping version due to locale mismatch: {audio_locale} not in {locales}")
                     continue
                 
                 try:
                     # Get playback data for this specific version
-                    logging.debug(f"Fetching playback for version {version_guid} with locale {audio_locale}...")
+                    logger.info(f"Fetching playback for version {version_guid} with locale {audio_locale}...")
                     version_playback = self.get_streams(version_guid)
                     
                     mpd_url = version_playback.get('url')
                     token = version_playback.get("token") or _find_token_recursive(version_playback)
-                    logging.debug(f"Version {version_guid} - mpd_url: {mpd_url}, token: {'found' if token else 'not found'}")
+                    logger.info(f"Version {version_guid} - mpd_url: {mpd_url}, token: {'found' if token else 'not found'}")
                     
                     if mpd_url:
                         versions.append({
@@ -446,7 +449,7 @@ class CrunchyrollClient:
                         self.deauth_video(version_guid, token)
                 
                 except Exception as e:
-                    logging.error(f"Failed to fetch streams for version {version_guid}: {e}")
+                    logger.error(f"Failed to fetch streams for version {version_guid}: {e}")
                     continue
             
             # Deauth the main url_id as well
@@ -455,7 +458,7 @@ class CrunchyrollClient:
                 self.deauth_video(url_id, main_token)
         
         except Exception as e:
-            logging.error(f"Error in get_versions_by_locales: {e}")
+            logger.error(f"Error in get_versions_by_locales: {e}")
         
         return versions
         
@@ -545,7 +548,7 @@ def get_playback_session(client: CrunchyrollClient, url_id: str, main_guid: Opti
                 client.deauth_video(main_guid, main_token)
 
         except Exception as e:
-            logging.error(f"Failed to fetch subtitles from main track: {e}")
+            logger.error(f"Failed to fetch subtitles from main track: {e}")
             subtitles = _extract_subtitles(playback_data)
 
     else:
@@ -556,7 +559,7 @@ def get_playback_session(client: CrunchyrollClient, url_id: str, main_guid: Opti
         try:
             client.deauth_video(url_id, token)
         except Exception as e:
-            logging.error(f"Deauth during playback failed: {e}")
+            logger.error(f"Deauth during playback failed: {e}")
     
     headers = client._get_headers()
     return mpd_url, headers, subtitles, token, audio_locale

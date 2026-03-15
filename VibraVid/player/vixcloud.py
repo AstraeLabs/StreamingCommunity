@@ -13,6 +13,7 @@ from VibraVid.utils.http_client import create_client, get_userAgent, create_clie
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class VideoSource:
@@ -67,7 +68,7 @@ class VideoSource:
             self.iframe_src = soup.find("iframe").get("src")
 
         except Exception as e:
-            logging.error(f"Error getting iframe source: {e}")
+            logger.error(f"Error getting iframe source: {e}")
             raise
 
     def parse_script(self, script_text: str) -> None:
@@ -96,7 +97,7 @@ class VideoSource:
                 self.window_parameter = None
 
         except Exception as e:
-            logging.error(f"Error parsing script: {e}")
+            logger.error(f"Error parsing script: {e}")
             raise
 
     def get_content(self) -> None:
@@ -125,7 +126,7 @@ class VideoSource:
                 self.parse_script(script_text=script)
 
         except Exception as e:
-            logging.error(f"Error getting content: {e}")
+            logger.error(f"Error getting content: {e}")
             raise
 
     def get_playlist(self) -> str:
@@ -212,5 +213,5 @@ class VideoSourceAnime(VideoSource):
             return script
         
         except Exception as e:
-            logging.error(f"Error fetching embed URL: {e}")
+            logger.error(f"Error fetching embed URL: {e}")
             return None

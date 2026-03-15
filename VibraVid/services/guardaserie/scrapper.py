@@ -9,6 +9,9 @@ from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.services._base.object import SeasonManager, Season, Episode, Entries
 
 
+logger = logging.getLogger(__name__)
+
+
 class GetSerieInfo:
     def __init__(self, dict_serie: Entries) -> None:
         """
@@ -54,7 +57,7 @@ class GetSerieInfo:
             return len(season_elements)
 
         except Exception as e:
-            logging.error(f"Error parsing HTML page: {str(e)}")
+            logger.error(f"Error parsing HTML page: {str(e)}")
             return -1
 
     def get_episode_number(self, n_season: int) -> List[Episode]:
@@ -110,7 +113,7 @@ class GetSerieInfo:
             return list_episodes
         
         except Exception as e:
-            logging.error(f"Error parsing HTML page: {e}")
+            logger.error(f"Error parsing HTML page: {e}")
 
         return []
 
@@ -131,19 +134,7 @@ class GetSerieInfo:
         episodes = self.get_episode_number(season_number)
         
         if not episodes:
-            logging.error(f"No episodes found for season {season_number}")
+            logger.error(f"No episodes found for season {season_number}")
             return []
         
         return episodes
-        
-    def selectEpisode(self, season_number: int, episode_index: int) -> Episode:
-        """
-        Get information for a specific episode in a specific season.
-        """
-        episodes = self.get_episode_number(season_number)
-        
-        if not episodes or episode_index < 0 or episode_index >= len(episodes):
-            logging.error(f"Episode index {episode_index} is out of range for season {season_number}")
-            return None
-            
-        return episodes[episode_index]

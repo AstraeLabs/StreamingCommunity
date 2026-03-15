@@ -12,6 +12,9 @@ from VibraVid.utils.http_client import create_client_curl, get_userAgent, get_he
 from VibraVid.services._base.object import SeasonManager, Episode, Season
 
 
+logger = logging.getLogger(__name__)
+
+
 class GetSerieInfo:
     BAD_WORDS = [
         'Trailer', 'Promo', 'Teaser', 'Clip', 'Backstage', 'Le interviste', 'BALLETTI', 'Anteprime web', 'I servizi', 'Video trend', 'Extra', 'Le trame della settimana', 'Esclusive',
@@ -42,7 +45,7 @@ class GetSerieInfo:
             self.serie_id = f"SE{after}"
             return self.serie_id
         except Exception as e:
-            logging.error(f"Failed to extract serie id from url {self.url}: {e}")
+            logger.error(f"Failed to extract serie id from url {self.url}: {e}")
             self.serie_id = None
             return None
 
@@ -60,16 +63,16 @@ class GetSerieInfo:
             if response.status_code == 200 and response.text.strip().startswith('{'):
                 return response.json()
             else:
-                logging.warning(f"Unexpected response from series API: {response.status_code}")
+                logger.warning(f"Unexpected response from series API: {response.status_code}")
                 return None
         except Exception as e:
-            logging.error(f"Failed to get series data with error: {str(e)}")
+            logger.error(f"Failed to get series data with error: {str(e)}")
             return None
 
     def _process_available_seasons(self, data):
         """Process available seasons from series data"""
         if not data or not data.get('entries'):
-            logging.warning("No series data found in API")
+            logger.warning("No series data found in API")
             return []
 
         entry = data['entries'][0]
@@ -91,7 +94,7 @@ class GetSerieInfo:
                     'guid': season['guid']
                 })
             else:
-                logging.warning(f"Season URL not found: {url}")
+                logger.warning(f"Season URL not found: {url}")
 
         # Sort seasons from oldest to newest
         stagioni_disponibili.sort(key=lambda s: s['tvSeasonNumber'])
@@ -138,7 +141,7 @@ class GetSerieInfo:
             response_page = self.client.get(season['page_url'], headers={'User-Agent': get_userAgent()})
             
             if not response_page or response_page.status_code != 200:
-                logging.warning(f"Failed to fetch season page: {season.get('page_url')}")
+                logger.warning(f"Failed to fetch season page: {season.get('page_url')}")
                 continue
                 
             print("Response for _extract_season_sb_ids:", response_page.status_code, " Season:", season['tvSeasonNumber'])
@@ -170,7 +173,7 @@ class GetSerieInfo:
                             'sb': sb_id
                         })
             else:
-                logging.warning(f"No titleCarousel categories found for season {season['tvSeasonNumber']}")
+                logger.warning(f"No titleCarousel categories found for season {season['tvSeasonNumber']}")
 
     def _get_season_episodes(self, season, sb_id, category_name):
         """Get episodes for a specific season"""
@@ -238,7 +241,7 @@ class GetSerieInfo:
 
             return episodes
         except Exception as e:
-            logging.warning(f"_get_all_season_episodes failed for season {season.get('tvSeasonNumber')}: {e}")
+            logger.warning(f"_get_all_season_episodes failed for season {season.get('tvSeasonNumber')}: {e}")
             return []
 
     def _extract_episodes_from_rsc_text(self, sb_id, season_number, category_name, guid=None):
@@ -311,7 +314,7 @@ class GetSerieInfo:
                 time.sleep(1)
                 
             except Exception as e:
-                logging.error(f"Attempt {attempt+1} failed for season {season_number} with error: {e}")
+                logger.error(f"Attempt {attempt+1} failed for season {season_number} with error: {e}")
                 time.sleep(1)
         
         return episodes
@@ -354,7 +357,7 @@ class GetSerieInfo:
                     )
                     episodes.append(episode)
         except Exception as e:
-            logging.error(f"Error fetching episodes from feed API for sb_id {sb_id}: {e}")
+            logger.error(f"Error fetching episodes from feed API for sb_id {sb_id}: {e}")
         
         return episodes
 
@@ -368,7 +371,7 @@ class GetSerieInfo:
             
             # Step 2: Get public ID
             if not self._get_public_id():
-                logging.error("Failed to get public ID")
+                logger.error("Failed to get public ID")
                 return
                 
             # Step 3: Get series data
@@ -379,11 +382,11 @@ class GetSerieInfo:
                 
             # Fallback if no seasons found or API failed
             if not self.stagioni_disponibili:
-                logging.info("No seasons found via API. Attempting fallback homepage scrape...")
+                logger.info("No seasons found via API. Attempting fallback homepage scrape...")
                 self._fallback_homepage_scrape()
             
             if not self.stagioni_disponibili:
-                logging.error("No seasons found even after fallback")
+                logger.error("No seasons found even after fallback")
                 return
                 
             # Step 5: Build season page URLs - ONLY for seasons coming from API
@@ -417,7 +420,7 @@ class GetSerieInfo:
             self._populate_seasons_manager()
 
         except Exception as e:
-            logging.error(f"Error in collect_season: {str(e)}")
+            logger.error(f"Error in collect_season: {str(e)}")
 
     def _populate_seasons_manager(self):
         """Populate the seasons_manager with collected data - ONLY for seasons with episodes"""
@@ -461,16 +464,5 @@ class GetSerieInfo:
             return season.episodes.episodes
 
         available_numbers = [s.number for s in self.seasons_manager.seasons]
-        logging.error(f"Season {season_number} not found. Available seasons: {available_numbers}")
+        logger.error(f"Season {season_number} not found. Available seasons: {available_numbers}")
         return []
-        
-    def selectEpisode(self, season_number: int, episode_index: int) -> Episode:
-        """
-        Get information for a specific episode in a specific season.
-        """
-        episodes = self.getEpisodeSeasons(season_number)
-        if not episodes or episode_index < 0 or episode_index >= len(episodes):
-            logging.error(f"Episode index {episode_index} is out of range for season {season_number}")
-            return None
-            
-        return episodes[episode_index]

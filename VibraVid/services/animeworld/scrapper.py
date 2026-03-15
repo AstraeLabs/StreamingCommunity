@@ -1,7 +1,5 @@
 # 21.03.25
 
-import logging
-
 from bs4 import BeautifulSoup
 
 from VibraVid.utils.os import os_manager
@@ -70,14 +68,3 @@ class ScrapSerie:
         Note: For AnimeWorld, this returns all episodes as they're typically in one season.
         """
         return self.get_episodes()
-        
-    def selectEpisode(self, season_number: int = 1, episode_index: int = 0) -> Episode:
-        """
-        Get information for a specific episode.
-        """
-        episodes = self.get_episodes()
-        if not episodes or episode_index < 0 or episode_index >= len(episodes):
-            logging.error(f"Episode index {episode_index} is out of range")
-            return None
-            
-        return episodes[episode_index]

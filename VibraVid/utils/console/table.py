@@ -12,6 +12,9 @@ from rich import box
 from .message import start_message
 
 
+logger = logging.getLogger(__name__)
+
+
 class TVShowManager:
     def __init__(self):
         """
@@ -51,11 +54,11 @@ class TVShowManager:
             - data_slice (List[Dict[str, Any]]): List of dictionaries containing TV show details to display.
         """
         if not data_slice:
-            logging.error("Nothing to display.")
+            logger.error("Nothing to display.")
             return 404
             
         if not self.column_info:
-            logging.error("Error: Column information not configured.")
+            logger.error("Error: Column information not configured.")
             return 404
 
         # Create table with specified style
@@ -101,11 +104,11 @@ class TVShowManager:
             str: Last command executed before breaking out of the loop.
         """
         if not self.tv_shows:
-            logging.error("Error: No data available for display.")
+            logger.error("Error: No data available for display.")
             sys.exit(0)
             
         if not self.column_info:
-            logging.error("Error: Columns not configured.")
+            logger.error("Error: Columns not configured.")
             return ""
 
         total_items = len(self.tv_shows)

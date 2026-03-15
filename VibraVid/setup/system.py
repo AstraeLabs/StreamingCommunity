@@ -2,7 +2,7 @@
 
 import sys
 
-from .checker import check_bento4, check_mp4dump, check_ffmpeg, check_megatools, check_n_m3u8dl_re, check_shaka_packager
+from .checker import check_bento4, check_mp4dump, check_ffmpeg, check_n_m3u8dl_re, check_shaka_packager
 from .device_install import check_device_wvd_path, check_device_prd_path
 
 
@@ -12,7 +12,6 @@ bento4_decrypt_path = check_bento4()
 mp4dump_path = check_mp4dump()
 wvd_path = check_device_wvd_path()
 prd_path = check_device_prd_path()
-megatools_path = check_megatools()
 n_m3u8dl_re_path = check_n_m3u8dl_re()
 shaka_packager = check_shaka_packager()
 
@@ -37,9 +36,6 @@ def get_wvd_path() -> str:
 
 def get_prd_path() -> str:
     return prd_path
-
-def get_megatools_path() -> str:
-    return megatools_path
 
 def get_n_m3u8dl_re_path() -> str:
     return n_m3u8dl_re_path
