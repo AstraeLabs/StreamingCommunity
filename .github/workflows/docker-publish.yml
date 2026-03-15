@@ -22,10 +22,15 @@ jobs:
         steps:
             - name: Check commit message for version
               id: info
+              env:
+                  COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
               run: |
-                  MSG="${{ github.event.head_commit.message }}"
-                  VER=$(echo "$MSG" | grep -oE 'v[0-9]+\.[0-9]+([.][0-9]+)?' | head -1 || echo "")
-                  echo "tag_name=$VER" >> $GITHUB_OUTPUT
+                  RAW_VER=$(echo "$COMMIT_MESSAGE" | grep -iEo '(v|version\s*)[0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+                  if [ -n "$RAW_VER" ]; then
+                      echo "tag_name=v$RAW_VER" >> $GITHUB_OUTPUT
+                  else
+                      echo "tag_name=" >> $GITHUB_OUTPUT
+                  fi
 
     build-and-push:
         needs: check-version
