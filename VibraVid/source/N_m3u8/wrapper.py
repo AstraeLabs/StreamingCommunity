@@ -497,9 +497,7 @@ class MediaDownloader:
             raw_tag = f.stem[len(self.filename) :].lstrip(".")
 
             tag_forced = bool(re.search(r"(?:^|[-_.])forced(?:$|[-_.])", raw_tag, re.IGNORECASE))
-            tag_cc = bool(
-                re.search(r"(?:^|[-_.])(?:cc|sdh|captions?)(?:$|[-_.])", raw_tag, re.IGNORECASE)
-            )
+            #tag_cc = bool(re.search(r"(?:^|[-_.])(?:cc|sdh|captions?)(?:$|[-_.])", raw_tag, re.IGNORECASE))
             tag_base = re.sub(r"(?:^|[-_.])(?:forced|cc|sdh|captions?)(?:$|[-_.])", "", raw_tag, flags=re.IGNORECASE).strip("-_.")
             tag_base = tag_base or raw_tag
 
