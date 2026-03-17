@@ -21,8 +21,8 @@
         "concurrent_download": true,
         "max_speed": "",
         "select_video": "1920",
-        "select_audio": "ita|Ita|it",
-        "select_subtitle": "ita|eng|Ita|Eng|it|en",
+        "select_audio": "ita|it",
+        "select_subtitle": "ita|eng|it|en",
         "cleanup_tmp_folder": true
     },
     "PROCESS": {

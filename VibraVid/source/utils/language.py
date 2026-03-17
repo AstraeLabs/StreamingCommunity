@@ -2,37 +2,55 @@
 
 LANGUAGE_MAP = {
 
-    # --- ISO 639-2/T (3 char) ---
+    # --- ISO 639-2/T (terminological, 3 char) ---
     "ita": "it-IT",
     "eng": "en-US",
     "jpn": "ja-JP",
-    "ger": "de-DE",
-    "fre": "fr-FR",
+    "deu": "de-DE",
+    "fra": "fr-FR",
     "spa": "es-419",
     "por": "pt-BR",
     "rus": "ru-RU",
     "ara": "ar-SA",
-    "chi": "zh-CN",
+    "zho": "zh-CN",
     "kor": "ko-KR",
     "hin": "hi-IN",
     "tur": "tr-TR",
     "pol": "pl-PL",
-    "dut": "nl-NL",
+    "nld": "nl-NL",
     "swe": "sv-SE",
     "fin": "fi-FI",
     "nor": "nb-NO",
     "dan": "da-DK",
     "cat": "ca-ES",
-    "rum": "ro-RO",
-    "cze": "cs-CZ",
+    "ron": "ro-RO",
+    "ces": "cs-CZ",
     "hun": "hu-HU",
-    "gre": "el-GR",
+    "ell": "el-GR",
     "heb": "he-IL",
     "tha": "th-TH",
     "vie": "vi-VN",
     "ind": "id-ID",
-    "may": "ms-MY",
+    "msa": "ms-MY",
     "ukr": "uk-UA",
+    "slk": "sk-SK",
+    "hrv": "hr-HR",
+    "srp": "sr-RS",
+    "bul": "bg-BG",
+    "slv": "sl-SI",
+
+    # --- ISO 639-2/B (bibliographic, 3 char) ---
+    "ger": "de-DE",
+    "fre": "fr-FR",
+    "dut": "nl-NL",
+    "rum": "ro-RO",
+    "cze": "cs-CZ",
+    "gre": "el-GR",
+    "chi": "zh-CN",
+    "may": "ms-MY",
+    "slo": "sk-SK",
+    "scr": "hr-HR",
+    "alb": "sq-AL",
 
     # --- ISO 639-1 (2 char) ---
     "it": "it-IT",
@@ -40,8 +58,8 @@ LANGUAGE_MAP = {
     "ja": "ja-JP",
     "de": "de-DE",
     "fr": "fr-FR",
-    "es": "es-419",
-    "pt": "pt-BR",
+    # "es": "es-419",
+    # "pt": "pt-BR",
     "ru": "ru-RU",
     "ar": "ar-SA",
     "zh": "zh-CN",
@@ -53,6 +71,7 @@ LANGUAGE_MAP = {
     "sv": "sv-SE",
     "fi": "fi-FI",
     "nb": "nb-NO",
+    "no": "nb-NO",
     "da": "da-DK",
     "ca": "ca-ES",
     "ro": "ro-RO",
@@ -65,8 +84,14 @@ LANGUAGE_MAP = {
     "id": "id-ID",
     "ms": "ms-MY",
     "uk": "uk-UA",
+    "sk": "sk-SK",
+    "hr": "hr-HR",
+    "sr": "sr-RS",
+    "bg": "bg-BG",
+    "sl": "sl-SI",
+    "sq": "sq-AL",
 
-    # --- lowercase ---
+    # --- English full-name keys (lowercase) ---
     "italian": "it-IT",
     "english": "en-US",
     "japanese": "ja-JP",
@@ -77,6 +102,7 @@ LANGUAGE_MAP = {
     "russian": "ru-RU",
     "arabic": "ar-SA",
     "chinese": "zh-CN",
+    "mandarin": "zh-CN",
     "korean": "ko-KR",
     "hindi": "hi-IN",
     "turkish": "tr-TR",
@@ -97,23 +123,53 @@ LANGUAGE_MAP = {
     "indonesian": "id-ID",
     "malay": "ms-MY",
     "ukrainian": "uk-UA",
+    "slovak": "sk-SK",
+    "croatian": "hr-HR",
+    "serbian": "sr-RS",
+    "bulgarian": "bg-BG",
+    "slovenian": "sl-SI",
+    "albanian": "sq-AL",
 
-    # --- extra ---
+    # --- Common region/country shortcuts ---
     "us": "en-US",
+    "gb": "en-GB",
+    "au": "en-AU",
     "br": "pt-BR",
+    "pt": "pt-PT",
     "jp": "ja-JP",
     "cn": "zh-CN",
+    "tw": "zh-TW",
     "kr": "ko-KR",
+    "mx": "es-MX",
+    "es": "es-ES",
+
+    # --- BCP 47 variants (pass-through normalization) ---
+    "pt-br": "pt-BR",
+    "pt-pt": "pt-PT",
+    "zh-cn": "zh-CN",
+    "zh-tw": "zh-TW",
+    "zh-hans": "zh-CN",
+    "zh-hant": "zh-TW",
+    "en-gb": "en-GB",
+    "en-au": "en-AU",
+    "es-mx": "es-MX",
+    "es-es": "es-ES",
+    "es-us": "es-US",
 }
 
 
 def resolve_locale(lang: str) -> str:
-    """Convert a language code or name to a locale string (e.g. "it-IT")."""
+    """Convert a language code or name to a BCP 47 locale string (e.g. "it-IT")."""
     if not lang or not isinstance(lang, str):
-        return None
+        return ""
 
     lang = lang.strip()
-    if "-" in lang:
-        return lang
+    if not lang:
+        return ""
 
-    return LANGUAGE_MAP.get(lang.lower(), None)
+    if "-" in lang:
+        parts = lang.split("-", 1)
+        normalised = f"{parts[0].lower()}-{parts[1].upper()}"
+        return LANGUAGE_MAP.get(normalised, normalised if len(parts[1]) == 2 else lang)
+
+    return LANGUAGE_MAP.get(lang.lower(), "")

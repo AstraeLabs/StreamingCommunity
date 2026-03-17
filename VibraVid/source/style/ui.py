@@ -46,8 +46,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
         ("Bitrate", "right"),
         ("Codec", "left"),
         ("Channels", "center"),
-        ("Language", "left"),
-        ("Name", "left"),
+        ("Language", "left")
     ]
     for name, justify in cols:
         table.add_column(name, justify=justify, no_wrap=True)
@@ -89,14 +88,11 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
 
             is_sel = (s.selected if not interactive else (orig_idx in (selected or set())))
             res = s.resolution if s.type == "video" else ""
-            #fps = str(round(s.fps_float, 2)) if s.fps_float else ""
             bitrate = s.bitrate_display if s.bitrate else ""
             codec = s.get_short_codec()
             channels = get_channel_label(s.channels) if s.channels else ""
             language = s.language if s.language not in ("und", "") else ""
-            name = s.name or ""
             drm = s.drm.get_drm_display() if s.drm and s.drm.is_encrypted() else ""
-            #duration = s.get_duration_display()
 
         else:
             # Legacy StreamInfo compatibility
@@ -109,17 +105,12 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
                 else getattr(s, "selected", False)
             )
             res = getattr(s, "resolution", "") if stype_raw.lower() == "video" else ""
-            #fps_raw = getattr(s, "frame_rate", 0) or 0
-            #fps = str(round(float(fps_raw), 2)) if fps_raw else ""
             bw = getattr(s, "bandwidth", "") or ""
             bitrate = "" if bw in ("0 bps", "N/A") else bw
             codec = s.get_short_codec() if hasattr(s, "get_short_codec") else ""
             channels = get_channel_label(getattr(s, "channels", "") or "")
             language = getattr(s, "language", "") or ""
-            name = getattr(s, "name", "") or ""
             drm = ""
-            #dur_raw = getattr(s, "total_duration", 0) or 0
-            #duration = (internet_manager.format_time(float(dur_raw), add_hours=True) if dur_raw > 0 else "N/A")
 
         # ── Row style ─────────────────────────────────────────────────────────
         if interactive and highlight_cursor and orig_idx == cursor:
@@ -142,7 +133,6 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
             _c(codec, _COL_CODEC if codec else None),
             _c(channels, "white" if channels else None),
             _c(language, _COL_LANG if language else None),
-            _c(name, "white" if name else None),
             style=row_style,
         )
 

@@ -12,72 +12,75 @@ VIDEO_CODEC_MAP: dict[str, str] = {
     "hevc": "H.265",
     "h265": "H.265",
     "x265": "H.265",
-    "vp8": "VP8",
+    "vp8":  "VP8",
     "vp80": "VP8",
-    "vp9": "VP9",
+    "vp9":  "VP9",
     "vp09": "VP9",
     "vp90": "VP9",
-    "av1": "AV1",
+    "av1":  "AV1",
     "av01": "AV1",
     "dvhe": "Dolby Vision",
     "dvh1": "Dolby Vision",
+    "dvav": "Dolby Vision",
+    "dav1": "Dolby Vision",
     "mp4v": "MPEG-4",
     "mpeg4": "MPEG-4",
-    "vc1": "VC-1",
-    "wmv3": "WMV",
+    "vc1":   "VC-1",
+    "wmv3":  "WMV",
     "mjpeg": "MJPEG",
     "prores": "ProRes",
 }
 
 AUDIO_CODEC_MAP: dict[str, str] = {
-    "mp4a": "AAC",
-    "aac": "AAC",
-    "mp3": "MP3",
-    "mp4a.69": "MP3",
-    "mp4a.6b": "MP3",
-    "opus": "Opus",
-    "vorbis": "Vorbis",
-    "vorb": "Vorbis",
-    "ac3": "AC-3",
-    "ac-3": "AC-3",
-    "eac3": "E-AC-3",
-    "ec-3": "E-AC-3",
-    "dts": "DTS",
-    "dtsc": "DTS",
-    "dtse": "DTS",
-    "dtsh": "DTS",
-    "flac": "FLAC",
-    "alac": "ALAC",
-    "pcm": "PCM",
-    "lpcm": "PCM",
+    "mp4a":      "AAC",
+    "aac":       "AAC",
+    "mp3":       "MP3",
+    "mp4a.69":   "MP3",
+    "mp4a.6b":   "MP3",
+    "opus":      "Opus",
+    "vorbis":    "Vorbis",
+    "vorb":      "Vorbis",
+    "ac3":       "AC-3",
+    "ac-3":      "AC-3",
+    "eac3":      "E-AC-3",
+    "ec-3":      "E-AC-3",
+    "dts":       "DTS",
+    "dtsc":      "DTS",
+    "dtse":      "DTS",
+    "dtsh":      "DTS",
+    "flac":      "FLAC",
+    "alac":      "ALAC",
+    "pcm":       "PCM",
+    "lpcm":      "PCM",
     "pcm_s16le": "PCM",
-    "wma": "WMA",
-    "wmav2": "WMA",
-    "amr": "AMR",
-    "speex": "Speex",
+    "wma":       "WMA",
+    "wmav2":     "WMA",
+    "amr":       "AMR",
+    "speex":     "Speex",
 }
 
 SUBTITLE_CODEC_MAP: dict[str, str] = {
     "stpp.ttml.im1t": "TTML",
-    "stpp": "TTML",
-    "ttml": "TTML",
-    "wvtt": "VTT",
-    "vtt": "VTT",
-    "webvtt": "VTT",
-    "srt": "SRT",
-    "tx3g": "SRT",
-    "ass": "ASS",
-    "ssa": "SSA",
+    "stpp":    "TTML",
+    "ttml":    "TTML",
+    "wvtt":    "VTT",
+    "vtt":     "VTT",
+    "webvtt":  "VTT",
+    "srt":     "SRT",
+    "tx3g":    "SRT",
+    "ass":     "ASS",
+    "ssa":     "SSA",
+    "dfxp":    "TTML",
+    "xml":     "TTML",
 }
 
 CHANNEL_MAP: dict[str, str] = {
-    "1": "Mono",
-    "2": "Stereo",
-    "4": "4.0",
-    "6": "5.1",
-    "8": "7.1",
-
-    # DASH hex codes
+    "1":    "Mono",
+    "2":    "Stereo",
+    "4":    "4.0",
+    "6":    "5.1",
+    "8":    "7.1",
+    # DASH AudioChannelConfiguration hex codes
     "A000": "Stereo",
     "A001": "Mono",
     "A002": "2.1",
@@ -88,41 +91,154 @@ CHANNEL_MAP: dict[str, str] = {
 }
 
 
+SUBTITLE_CODEC_PREFIXES: tuple[str, ...] = (
+    "wvtt",        # WebVTT in ISOBMFF
+    "stpp",        # TTML (Synchronized Timed Text)
+    "ttml",        # TTML plain
+    "vtt",         # WebVTT plain
+    "webvtt",      # WebVTT variant
+    "srt",         # SubRip
+    "tx3g",        # QuickTime/MP4 text
+    "ass",         # Advanced SubStation Alpha
+    "ssa",         # SubStation Alpha
+    "dfxp",        # Distribution Format Exchange Profile (TTML)
+)
+
+AUDIO_CODEC_PREFIXES: tuple[str, ...] = (
+    "mp4a",    # AAC variants
+    "ec-3",    # E-AC-3 / Dolby Digital Plus
+    "ac-3",    # AC-3 / Dolby Digital
+    "ac3",
+    "eac3",
+    "opus",
+    "vorbis",
+    "vorb",
+    "flac",
+    "alac",
+    "dtsc",    # DTS Core
+    "dtse",    # DTS Express
+    "dtsh",    # DTS-HD
+    "dts",
+    "pcm",
+    "lpcm",
+    "wma",
+)
+
+VIDEO_CODEC_PREFIXES: tuple[str, ...] = (
+    "avc",     # H.264 / AVC  (also matches avc1.*)
+    "hvc",     # H.265 / HEVC (hvc1.*)
+    "hev",     # H.265 variant (hev1.*)
+    "hevc",
+    "av01",    # AV1
+    "vp09",    # VP9
+    "vp08",    # VP8
+    "dvhe",    # Dolby Vision HEVC
+    "dvh1",    # Dolby Vision HEVC (HVCL)
+    "dvav",    # Dolby Vision AVC
+    "dav1",    # Dolby Vision AV1
+    "mp4v",    # MPEG-4 Visual
+    "vc-1",
+    "vc1",
+)
+
+
+DV_CODEC_PREFIXES: tuple[str, ...] = ("dvh1", "dvhe", "dvav", "dav1")
+
+VIDEO_EXTENSIONS: frozenset[str] = frozenset({
+    ".mp4", ".mkv", ".m4v", ".ts", ".mov", ".webm", ".m2ts", ".avi"
+})
+
+AUDIO_EXTENSIONS: frozenset[str] = frozenset({
+    ".m4a", ".aac", ".mp3", ".ts", ".mp4", ".wav", ".webm", ".opus", ".flac"
+})
+
+SUBTITLE_EXTENSIONS: frozenset[str] = frozenset({
+    ".srt", ".vtt", ".ass", ".sub", ".ssa",
+    ".m4s", ".ttml", ".xml", ".dfxp",
+})
+
+
+CODEC_EXTENSION_MAP: dict[str, str] = {
+    # Video
+    "avc1":  "mp4",
+    "hvc1":  "mp4",
+    "hev1":  "mp4",
+    "av01":  "mp4",
+    "vp09":  "webm",
+    "vp08":  "webm",
+    "dvhe":  "mp4",
+    "dvh1":  "mp4",
+
+    # Audio
+    "mp4a":  "m4a",
+    "ec-3":  "m4a",
+    "ac-3":  "m4a",
+    "opus":  "webm",
+    "flac":  "flac",
+    "alac":  "m4a",
+
+    # Subtitle
+    "wvtt":  "vtt",
+    "stpp":  "ttml",
+    "ttml":  "ttml",
+    "srt":   "srt",
+    "ass":   "ass",
+    "ssa":   "ssa",
+}
+
+
+def get_codec_extension(codec_str: str, default: str = "mp4") -> str:
+    """
+    Return the preferred file extension for a codec string.
+
+    Performs prefix matching (e.g. 'avc1.640028' → 'mp4').
+    """
+    if not codec_str:
+        return default
+    c = codec_str.strip().lower()
+    for prefix, ext in CODEC_EXTENSION_MAP.items():
+        if c.startswith(prefix):
+            return ext
+    return default
+
+
 _VIDEO_CODEC_TOKEN: dict[str, str] = {
-    "h264": "avc1",
-    "h.264": "avc1",
-    "avc": "avc1",
-    "avc1": "avc1",
-    "h265": "hvc1",
-    "h.265": "hvc1",
-    "hevc": "hvc1",
-    "hvc1": "hvc1",
-    "hev1": "hvc1",
-    "av1": "av01",
-    "av01": "av01",
-    "vp9": "vp09",
-    "vp09": "vp09",
-    "vp8": "vp08",
-    "vp08": "vp08",
-    "dvhe": "dvhe",
-    "dolby vision": "dvhe",
+    "h264":          "avc1",
+    "h.264":         "avc1",
+    "avc":           "avc1",
+    "avc1":          "avc1",
+    "h265":          "hvc1",
+    "h.265":         "hvc1",
+    "hevc":          "hvc1",
+    "hvc1":          "hvc1",
+    "hev1":          "hvc1",
+    "av1":           "av01",
+    "av01":          "av01",
+    "vp9":           "vp09",
+    "vp09":          "vp09",
+    "vp8":           "vp08",
+    "vp08":          "vp08",
+    "dvhe":          "dvhe",
+    "dolby vision":  "dvhe",
+    "dv":            "dvhe",
 }
 
 _AUDIO_CODEC_TOKEN: dict[str, str] = {
-    "aac": "mp4a",
-    "mp4a": "mp4a",
-    "mp3": "mp4a.69",
-    "ac3": "ac-3",
-    "ac-3": "ac-3",
-    "eac3": "ec-3",
-    "e-ac-3": "ec-3",
-    "ec-3": "ec-3",
-    "ddplus": "ec-3",
-    "opus": "opus",
-    "vorbis": "vorbis",
-    "flac": "flac",
-    "alac": "alac",
-    "dts": "dtsc",
+    "aac":      "mp4a",
+    "mp4a":     "mp4a",
+    "mp3":      "mp4a.69",
+    "ac3":      "ac-3",
+    "ac-3":     "ac-3",
+    "eac3":     "ec-3",
+    "e-ac-3":   "ec-3",
+    "ec-3":     "ec-3",
+    "ddplus":   "ec-3",
+    "dd+":      "ec-3",
+    "opus":     "opus",
+    "vorbis":   "vorbis",
+    "flac":     "flac",
+    "alac":     "alac",
+    "dts":      "dtsc",
 }
 
 
@@ -141,12 +257,9 @@ def _lookup(codec_map: dict, codec_str: str) -> str:
         return ""
     c = codec_str.strip()
     c_lo = c.lower()
-
-    # Exact match (case-insensitive key)
     for k, v in codec_map.items():
         if c_lo == k.lower():
             return v
-    # Prefix match
     for k, v in codec_map.items():
         if c_lo.startswith(k.lower()):
             return v
@@ -179,6 +292,19 @@ def get_subtitle_codec_name(codec_str: str) -> str:
     return _lookup(SUBTITLE_CODEC_MAP, codec_str)
 
 
+def detect_stream_type(codec_str: str) -> str:
+    if not codec_str:
+        return ""
+    c = codec_str.strip().lower()
+    if any(c.startswith(p) for p in SUBTITLE_CODEC_PREFIXES):
+        return "subtitle"
+    if any(c.startswith(p) for p in AUDIO_CODEC_PREFIXES):
+        return "audio"
+    if any(c.startswith(p) for p in VIDEO_CODEC_PREFIXES):
+        return "video"
+    return ""
+
+
 def get_channel_label(channels: str) -> str:
     """Return human-readable channel layout label (e.g. '2' → 'Stereo', 'F801' → '5.1')."""
     if not channels:
@@ -186,7 +312,6 @@ def get_channel_label(channels: str) -> str:
     ch = channels.strip()
     if ch in CHANNEL_MAP:
         return CHANNEL_MAP[ch]
-    # Try parsing as plain integer (e.g. '6.0' → 6 → '5.1')
     try:
         n = int(float(ch))
         return CHANNEL_MAP.get(str(n), ch)
@@ -195,64 +320,42 @@ def get_channel_label(channels: str) -> str:
 
 
 _LANG_NAME_MAP: dict[str, str] = {
-    "it": "Italian",
-    "ita": "Italian",
-    "en": "English",
-    "eng": "English",
-    "ja": "Japanese",
-    "jpn": "Japanese",
-    "de": "German",
-    "ger": "German",
-    "fr": "French",
-    "fre": "French",
-    "es": "Spanish",
-    "spa": "Spanish",
-    "pt": "Portuguese",
-    "por": "Portuguese",
-    "ru": "Russian",
-    "rus": "Russian",
-    "ar": "Arabic",
-    "ara": "Arabic",
-    "zh": "Chinese",
-    "chi": "Chinese",
-    "ko": "Korean",
-    "kor": "Korean",
-    "hi": "Hindi",
-    "hin": "Hindi",
-    "tr": "Turkish",
-    "tur": "Turkish",
-    "pl": "Polish",
-    "pol": "Polish",
-    "nl": "Dutch",
-    "dut": "Dutch",
-    "sv": "Swedish",
-    "swe": "Swedish",
-    "fi": "Finnish",
-    "fin": "Finnish",
-    "nb": "Norwegian",
-    "nor": "Norwegian",
-    "da": "Danish",
-    "dan": "Danish",
-    "ro": "Romanian",
-    "rum": "Romanian",
-    "cs": "Czech",
-    "cze": "Czech",
-    "hu": "Hungarian",
-    "hun": "Hungarian",
-    "el": "Greek",
-    "gre": "Greek",
-    "he": "Hebrew",
-    "heb": "Hebrew",
-    "uk": "Ukrainian",
-    "ukr": "Ukrainian",
-    "th": "Thai",
-    "tha": "Thai",
-    "vi": "Vietnamese",
-    "vie": "Vietnamese",
-    "id": "Indonesian",
-    "ind": "Indonesian",
-    "ms": "Malay",
-    "may": "Malay",
+    "it": "Italian",    "ita": "Italian",
+    "en": "English",    "eng": "English",
+    "ja": "Japanese",   "jpn": "Japanese",
+    "de": "German",     "ger": "German",   "deu": "German",
+    "fr": "French",     "fre": "French",   "fra": "French",
+    "es": "Spanish",    "spa": "Spanish",
+    "pt": "Portuguese", "por": "Portuguese",
+    "ru": "Russian",    "rus": "Russian",
+    "ar": "Arabic",     "ara": "Arabic",
+    "zh": "Chinese",    "chi": "Chinese",  "zho": "Chinese",
+    "ko": "Korean",     "kor": "Korean",
+    "hi": "Hindi",      "hin": "Hindi",
+    "tr": "Turkish",    "tur": "Turkish",
+    "pl": "Polish",     "pol": "Polish",
+    "nl": "Dutch",      "dut": "Dutch",    "nld": "Dutch",
+    "sv": "Swedish",    "swe": "Swedish",
+    "fi": "Finnish",    "fin": "Finnish",
+    "nb": "Norwegian",  "nor": "Norwegian",
+    "da": "Danish",     "dan": "Danish",
+    "ro": "Romanian",   "rum": "Romanian", "ron": "Romanian",
+    "cs": "Czech",      "cze": "Czech",    "ces": "Czech",
+    "hu": "Hungarian",  "hun": "Hungarian",
+    "el": "Greek",      "gre": "Greek",    "ell": "Greek",
+    "he": "Hebrew",     "heb": "Hebrew",
+    "uk": "Ukrainian",  "ukr": "Ukrainian",
+    "th": "Thai",       "tha": "Thai",
+    "vi": "Vietnamese", "vie": "Vietnamese",
+    "id": "Indonesian", "ind": "Indonesian",
+    "ms": "Malay",      "may": "Malay",    "msa": "Malay",
+    "sk": "Slovak",     "slk": "Slovak",   "slo": "Slovak",
+    "hr": "Croatian",   "hrv": "Croatian",
+    "sr": "Serbian",    "srp": "Serbian",
+    "bg": "Bulgarian",  "bul": "Bulgarian",
+    "sl": "Slovenian",  "slv": "Slovenian",
+    "sq": "Albanian",
+    "ca": "Catalan",    "cat": "Catalan",
 }
 
 
@@ -267,7 +370,6 @@ def codec_matches_stream(stream, filter_str: str) -> bool:
     """
     Return True if the stream's codec matches the filter string.
     Filter: comma/pipe-separated codec tokens, e.g. 'h264|avc', 'hevc'.
-    Used by StreamSelector when filtering by codec.
     """
     if not filter_str:
         return True

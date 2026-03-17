@@ -13,22 +13,53 @@ from urllib.parse import urljoin, urlparse
 from VibraVid.core.manifest.stream import DRMInfo, Segment, Stream
 from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.utils import config_manager
+from VibraVid.source.utils.language import resolve_locale
 
 
 logger = logging.getLogger(__name__)
 timeout = config_manager.config.get_int("REQUESTS", "timeout", default=30)
 
+_CC_NAME_RE = re.compile(r"\[CC\]|(?<!\w)CC(?!\w)|closed[- _]captions?|SDH", re.IGNORECASE)
+_SDH_NAME_RE = re.compile(r"\[SDH\]|(?<!\w)SDH(?!\w)|hearing[- _]impaired|HI(?!\w)", re.IGNORECASE)
+_FORCED_NAME_RE = re.compile(r"\[forced\]|\bforced\b", re.IGNORECASE)
+_COMPOUND_LANG_RE = re.compile(r"^(.+?)[-_](forced|cc|sdh|hi|default)$", re.IGNORECASE)
+
+
+def _make_video_id(s: Stream) -> str:
+    """Build a stable synthetic ID for a video variant.
+    Priority: STABLE-VARIANT-ID (already in s.id) → vid:{res}@{bw}"""
+    if s.id and not s.id.startswith("vid:"):
+        return s.id
+    res = f"{s.width}x{s.height}" if s.width and s.height else (s.resolution or "?x?")
+    return f"vid:{res}@{s.bitrate}"
+
+
+def _make_rendition_id(group_id: str, language: str, name: str) -> str:
+    """Build a stable synthetic ID for an audio/subtitle rendition.
+    Priority: STABLE-RENDITION-ID (caller) → {group_id}:{language}"""
+    parts = [p for p in (group_id, language or name) if p]
+    return ":".join(parts) if parts else "unknown"
+
+
+_HDR_CODEC_PATTERNS = {
+    "dvh1": "DV", "dvhe": "DV",
+    "hvc1.2": "HDR10", "hev1.2": "HDR10",
+    "hvc1.8": "HDR10", "hev1.8": "HDR10",
+    "av01.1": "HDR10", "av01.2": "HDR10",
+}
+
+
+def _infer_video_range_from_codecs(codecs: str) -> str:
+    c = (codecs or "").lower()
+    for prefix, vrange in _HDR_CODEC_PATTERNS.items():
+        if prefix in c:
+            return vrange
+    return ""
+
 
 class HLSParser:
     """
     Fetch and parse an HLS master/variant playlist.
-
-    Usage::
-
-        parser = HLSParser(url, headers)
-        parser.fetch_manifest()                # or pass content= to skip fetch
-        streams = parser.parse_streams()
-        raw_text = parser.raw_content          # save to temp dir if needed
     """
     def __init__(self, m3u8_url: str, headers: Dict[str, str] = None, content: str = None):
         self.m3u8_url = m3u8_url
@@ -44,15 +75,12 @@ class HLSParser:
         return f"{p.scheme}://{p.netloc}{path}/"
 
     def fetch_manifest(self) -> bool:
-        """Fetch the manifest; uses injected content if already available."""
         if self._injected:
             self.raw_content = self._injected
             return True
-
         try:
             hdrs = dict(self.headers)
             hdrs.setdefault("User-Agent", get_headers().get("User-Agent", ""))
-
             with create_client(headers=hdrs, timeout=timeout, follow_redirects=True) as c:
                 r = c.get(self.m3u8_url)
                 r.raise_for_status()
@@ -63,31 +91,16 @@ class HLSParser:
             return False
 
     def save_raw(self, directory: Path) -> Path:
-        """Write raw_content to *directory*/raw.m3u8 and return the path."""
         path = Path(directory) / "raw.m3u8"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(self.raw_content or "", encoding="utf-8")
         return path
 
     def parse_streams(self) -> List[Stream]:
-        """
-        Parse the master playlist and return a list of Stream objects.
-
-        Handles:
-          • #EXT-X-STREAM-INF       → video variant streams
-          • #EXT-X-MEDIA TYPE=AUDIO → audio renditions
-          • #EXT-X-MEDIA TYPE=SUBTITLES → subtitle renditions
-          • #EXT-X-KEY / #EXT-X-SESSION-KEY → DRM / AES-128 per-stream
-
-        If no #EXT-X-STREAM-INF is found (single-rendition / variant playlist),
-        a minimal fallback video Stream is synthesised from #EXTINF data.
-        """
         if not self.raw_content:
             return []
 
-        # Parse DRM tags once from the master
         master_drm = self._parse_drm_tags(self.raw_content)
-
         streams: List[Stream] = []
         lines = self.raw_content.splitlines()
         i = 0
@@ -104,30 +117,42 @@ class HLSParser:
                     nxt = lines[i + 1].strip()
                     if nxt and not nxt.startswith("#"):
                         stream.playlist_url = urljoin(self._base_url, nxt)
+                        if not stream.id:
+                            stream.id = _make_video_id(stream)
                         streams.append(stream)
+                        logger.info(f"HLS add {stream}")
                 i += 2
                 continue
 
-            # ── Audio / subtitle rendition ────────────────────────────────
+            # ── Audio / subtitle / CC rendition ───────────────────────────
             if line.startswith("#EXT-X-MEDIA:"):
                 typ = self._attr(line, "TYPE", "").upper()
                 if typ == "AUDIO":
                     s = self._parse_media_tag(line, "audio", master_drm)
                     if s:
                         streams.append(s)
+                        logger.info(f"HLS add {s}")
                 elif typ == "SUBTITLES":
                     s = self._parse_media_tag(line, "subtitle", master_drm)
                     if s:
                         streams.append(s)
+                        logger.info(f"HLS add {s}")
                 elif typ == "CLOSED-CAPTIONS":
                     s = self._parse_media_tag(line, "subtitle", master_drm)
                     if s:
-                        s.name = f"{s.name} [CC]" if s.name else "[CC]"
+                        s.is_cc = True
+                        instream_id = self._attr(line, "INSTREAM-ID", "")
+                        if instream_id and not s.id:
+                            s.id = instream_id
+                        if s.name and "[CC]" not in s.name:
+                            s.name = f"{s.name} [CC]"
+                        elif not s.name:
+                            s.name = "[CC]"
                         streams.append(s)
+                        logger.info(f"HLS add {s}")
 
             i += 1
 
-        # Fallback: treat as variant / media playlist
         if not any(s.type == "video" for s in streams):
             streams = self._variant_fallback(streams, master_drm)
 
@@ -136,9 +161,17 @@ class HLSParser:
     def _parse_stream_inf(self, line: str) -> Stream:
         s = Stream(type="video", format="hls")
 
-        m = re.search(r"BANDWIDTH=(\d+)", line)
+        stable_id = self._attr(line, "STABLE-VARIANT-ID", "")
+        if stable_id:
+            s.id = stable_id
+
+        m = re.search(r"(?<![A-Z-])BANDWIDTH=(\d+)", line)
         if m:
             s.bitrate = int(m.group(1))
+
+        m = re.search(r"AVERAGE-BANDWIDTH=(\d+)", line)
+        if m:
+            s.avg_bitrate = int(m.group(1))
 
         m = re.search(r"RESOLUTION=(\d+)x(\d+)", line)
         if m:
@@ -154,45 +187,92 @@ class HLSParser:
         if m:
             s.codecs = m.group(1)
 
+        vr = self._attr(line, "VIDEO-RANGE", "").upper()
+        s.video_range = vr if vr else _infer_video_range_from_codecs(s.codecs)
+
+        hdcp = self._attr(line, "HDCP-LEVEL", "").upper()
+        if hdcp:
+            s.hdcp_level = hdcp
+
         return s
 
     def _parse_media_tag(self, line: str, stream_type: str, drm: DRMInfo) -> Optional[Stream]:
         s = Stream(type=stream_type, format="hls")
         s.drm = drm
 
-        m = re.search(r'LANGUAGE="([^"]+)"', line)
-        if m:
-            s.language = m.group(1)
+        stable_id = self._attr(line, "STABLE-RENDITION-ID", "")
+        group_id = self._attr(line, "GROUP-ID", "")
+        lang = self._attr(line, "LANGUAGE", "")
+        name = self._attr(line, "NAME", "")
 
-        m = re.search(r'NAME="([^"]+)"', line)
-        if m:
-            s.name = m.group(1)
+        if lang:
+            # Strip compound suffix from language code before resolving locale.
+            # "ita-forced" → base_lang="ita", suffix="forced"
+            # "eng-cc"     → base_lang="eng", suffix="cc"
+            lang_m = _COMPOUND_LANG_RE.match(lang)
+            if lang_m:
+                base_lang  = lang_m.group(1)
+                lang_suffix = lang_m.group(2).lower()
+            else:
+                base_lang   = lang
+                lang_suffix = ""
+            s.language          = lang            # preserve original for filename generation
+            s.resolved_language = resolve_locale(base_lang)
+        else:
+            lang_suffix = ""
+        if name:
+            s.name = name
 
-        m = re.search(r'GROUP-ID="([^"]+)"', line)
-        if m:
-            s.id = m.group(1)
+        s.id = stable_id if stable_id else _make_rendition_id(group_id, lang, name)
 
-        m = re.search(r'CHANNELS="([^"]+)"', line)
-        if m:
-            s.channels = m.group(1)
+        ch = self._attr(line, "CHANNELS", "")
+        if ch:
+            s.channels = ch
 
-        m = re.search(r'URI="([^"]+)"', line)
-        if m:
-            s.playlist_url = urljoin(self._base_url, m.group(1))
+        uri = self._attr(line, "URI", "")
+        if uri:
+            s.playlist_url = urljoin(self._base_url, uri)
 
-        # Detect FORCED attribute
-        forced = self._attr(line, "FORCED", "NO").upper()
-        if forced == "YES":
+        s.default    = self._attr(line, "DEFAULT",    "NO").upper() == "YES"
+        s.autoselect = self._attr(line, "AUTOSELECT", "NO").upper() == "YES"
+        s.forced     = self._attr(line, "FORCED",     "NO").upper() == "YES"
+
+        if not s.forced and stream_type == "subtitle":
+            if lang_suffix == "forced":
+                s.forced = True
+            elif name and _FORCED_NAME_RE.search(name):
+                s.forced = True
+        
+        if s.forced:
+            s.default = False
+
+        assoc = self._attr(line, "ASSOC-LANGUAGE", "")
+        if assoc:
+            s.assoc_language = assoc
+
+        chars = self._attr(line, "CHARACTERISTICS", "")
+        if chars:
+            s.accessibility = chars
+            if "describes-music-and-sound" in chars.lower() or "hearing" in chars.lower():
+                s.is_sdh = True
+
+        # is_cc: detect from NAME for TYPE=SUBTITLES
+        if not s.is_cc and name and _CC_NAME_RE.search(name):
+            s.is_cc = True
+
+        # is_sdh: detect from NAME if not already set via CHARACTERISTICS
+        if not s.is_sdh and name and _SDH_NAME_RE.search(name):
+            s.is_sdh = True
+
+        # Name annotation for display (non-destructive)
+        if s.forced and "[Forced]" not in (s.name or ""):
             s.name = f"{s.name} [Forced]" if s.name else "[Forced]"
 
-        # No URI → muxed track; still valid, return it
         return s
 
     def _variant_fallback(self, existing: List[Stream], drm: DRMInfo) -> List[Stream]:
-        """Build a minimal video Stream when the manifest is already a variant playlist."""
         total_dur = 0.0
         bandwidth = 0
-
         for line in (self.raw_content or "").splitlines():
             line = line.strip()
             if line.startswith("#EXTINF:"):
@@ -203,64 +283,49 @@ class HLSParser:
                 m = re.search(r"BANDWIDTH=(\d+)", line)
                 if m:
                     bandwidth = int(m.group(1))
-
         s = Stream(type="video", format="hls")
         s.bitrate = bandwidth
         s.duration = total_dur
         s.drm = drm
         s.playlist_url = self.m3u8_url
+        s.id = _make_video_id(s)
+        logger.info(f"HLS add {s}")
         return [s] + existing
 
     def _parse_drm_tags(self, content: str) -> DRMInfo:
-        """
-        Extract DRM / encryption info from #EXT-X-KEY and #EXT-X-SESSION-KEY.
-
-        Detects Widevine, PlayReady, and FairPlay (skd:// URI or 94ce86fb scheme).
-        For AES-128 the method is AES-128 and URI points to a key file.
-        """
         info = DRMInfo()
 
-        # ── AES-128 / SAMPLE-AES ─────────────────────────────────────────
         aes_m = re.search(r'#EXT-X-(?:SESSION-)?KEY:.*?METHOD=(AES[^,"\s]+)', content, re.IGNORECASE)
         if aes_m:
             info.method = aes_m.group(1)
 
-        # ── FairPlay: skd:// URI ──────────────────────────────────────────
         fp_skd = re.search(r'#EXT-X-(?:SESSION-)?KEY:.*?URI="(skd://[^"]+)"', content, re.IGNORECASE)
         if fp_skd:
             info.drm_type = "FP"
             info.method = "cbcs"
             return info
 
-        # ── Widevine / PlayReady via data: URI ────────────────────────────
         key_re = re.compile(r'#EXT-X-(?:SESSION-)?KEY:(.*?)URI="(data:[^"]+)"', re.IGNORECASE | re.DOTALL)
-        seen = set()
+        seen: set = set()
 
         for attrs, full_uri in key_re.findall(content):
             try:
                 b64 = full_uri.split(",", 1)[-1].split(";")[0].split('"')[0].strip()
-
-                is_wv = ("edef8ba9" in attrs.lower() or "edef8ba9" in full_uri.lower() or "widevine" in attrs.lower())
-                is_pr = ("9a04f079" in attrs.lower() or "9a04f079" in full_uri.lower() or "playready" in attrs.lower() or "com.microsoft" in attrs.lower())
-                is_fp = ("94ce86fb" in attrs.lower() or "94ce86fb" in full_uri.lower() or "fairplay" in attrs.lower() or "com.apple" in attrs.lower())
-
+                is_wv = "edef8ba9" in attrs.lower() or "edef8ba9" in full_uri.lower() or "widevine" in attrs.lower()
+                is_pr = "9a04f079" in attrs.lower() or "9a04f079" in full_uri.lower() or "playready" in attrs.lower() or "com.microsoft" in attrs.lower()
+                is_fp = "94ce86fb" in attrs.lower() or "94ce86fb" in full_uri.lower() or "fairplay" in attrs.lower() or "com.apple" in attrs.lower()
                 try:
                     decoded = base64.b64decode(b64)
                 except binascii.Error:
                     b64c = re.sub(r"[^A-Za-z0-9+/=]", "", b64)
                     decoded = base64.b64decode(b64c)
-
                 if b64 in seen:
                     continue
                 seen.add(b64)
-
-                # ── FairPlay ───────────────────────────────────────────
                 if is_fp:
                     info.set_pssh(b64)
                     info.drm_type = "FP"
                     return info
-
-                # ── Widevine probe ─────────────────────────────────────
                 try:
                     from pywidevine.pssh import PSSH
                     PSSH(decoded)
@@ -269,13 +334,10 @@ class HLSParser:
                     return info
                 except Exception:
                     pass
-
                 if is_wv:
                     info.set_pssh(b64)
                     info.drm_type = "WV"
                     return info
-
-                # ── PlayReady probe ────────────────────────────────────
                 try:
                     from pyplayready.system.pssh import PSSH as PR_PSSH
                     PR_PSSH(decoded)
@@ -284,19 +346,16 @@ class HLSParser:
                     return info
                 except Exception:
                     pass
-
                 if is_pr:
                     info.set_pssh(b64)
                     info.drm_type = "PR"
                     return info
-
             except Exception as exc:
                 logger.debug(f"HLSParser DRM probe error: {exc}")
 
         return info
 
     def get_drm_info(self) -> Dict:
-        """Return {"widevine": [...], "playready": [...], "fairplay": [...]} PSSH lists."""
         result = {"widevine": [], "playready": [], "fairplay": []}
         if not self.raw_content:
             return result
@@ -310,34 +369,19 @@ class HLSParser:
         return result
 
     def get_kids(self, pssh_list: list) -> list:
-        """Extract KIDs from a list of PSSH dicts (best-effort)."""
         kids = []
         for item in pssh_list:
             pssh_b64 = item["pssh"] if isinstance(item, dict) else item
             try:
                 data = base64.b64decode(pssh_b64)
-                # KID is at offset 32 in a Widevine PSSH (after box header + system_id)
-                if len(data) >= 48:
-                    kids.append(data[32:48].hex())
-                else:
-                    kids.append("")
+                kids.append(data[32:48].hex() if len(data) >= 48 else "")
             except Exception:
                 kids.append("")
         return kids
 
     def fetch_segments(self, playlist_url: str):
-        """
-        Fetch a variant / media playlist and return its segments.
-
-        Returns:
-            (segments, bandwidth, encryption_method, key_uri, iv, total_duration)
-        """
         try:
-            timeout = config_manager.config.get_int("REQUESTS", "timeout", default=30)
-
-            with create_client(
-                headers=self.headers, timeout=timeout, follow_redirects=True
-            ) as c:
+            with create_client(headers=self.headers, timeout=timeout, follow_redirects=True) as c:
                 r = c.get(playlist_url)
                 r.raise_for_status()
                 content = r.text
@@ -355,12 +399,10 @@ class HLSParser:
 
             for i, line in enumerate(content.splitlines()):
                 line = line.strip()
-
                 if line.startswith("#EXT-X-STREAM-INF:"):
                     m = re.search(r"BANDWIDTH=(\d+)", line)
                     if m:
                         bandwidth = int(m.group(1))
-
                 elif line.startswith("#EXT-X-KEY:"):
                     m_method = re.search(r"METHOD=([^,\s]+)", line)
                     m_uri = re.search(r'URI="([^"]+)"', line)
@@ -369,26 +411,21 @@ class HLSParser:
                         enc_method = m_method.group(1)
                         key_uri = urljoin(base, m_uri.group(1))
                         iv = m_iv.group(1) if m_iv else None
-
                 elif line.startswith("#EXTINF:"):
                     m = re.search(r"#EXTINF:([\d.]+)", line)
                     if m:
                         total_dur += float(m.group(1))
-                    for nxt in content.splitlines()[i + 1 :]:
+                    for nxt in content.splitlines()[i + 1:]:
                         nxt = nxt.strip()
                         if nxt and not nxt.startswith("#"):
-                            segments.append(
-                                Segment(urljoin(base, nxt), len(segments) + 1, "media")
-                            )
+                            segments.append(Segment(urljoin(base, nxt), len(segments) + 1, "media"))
                             break
 
             if not segments:
                 for line in content.splitlines():
                     line = line.strip()
                     if line and not line.startswith("#"):
-                        segments.append(
-                            Segment(urljoin(base, line), len(segments) + 1, "media")
-                        )
+                        segments.append(Segment(urljoin(base, line), len(segments) + 1, "media"))
 
             return segments, bandwidth, enc_method, key_uri, iv, total_dur
 
@@ -398,7 +435,6 @@ class HLSParser:
 
     @staticmethod
     def _attr(line: str, key: str, default: str = "") -> str:
-        """Extract an attribute value from a HLS tag line."""
         m = re.search(rf'{key}="([^"]*)"', line)
         if m:
             return m.group(1)
