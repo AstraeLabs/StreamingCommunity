@@ -115,6 +115,7 @@ The `episode_format` controls how the complete series directory structure and fi
 **Default format:** `"%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"`
 
 Results in:
+
 ```
 %(series_name)/      → Series folder  (Breaking Bad)
 S%(season:02d)/      → Season folder  (S01, S02, ...)
@@ -122,6 +123,7 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 ```
 
 **Format variables:**
+
 - `%(series_name)`: Series name (sanitized)
 - `%(series_name_slug)`: Series name as slug (e.g., "breaking-bad")
 - `%(series_year)`: Series release year (optional, removed if not available)
@@ -132,11 +134,11 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 
 **Inline Padding Syntax:**
 
-| Token | Result (n=1) | Description |
-|---|---|---|
-| `%(season:02d)` | `01` | Zero-pad to 2 digits |
-| `%(season:03d)` | `001` | Zero-pad to 3 digits |
-| `%(season:d)` | `1` | No padding |
+| Token           | Result (n=1) | Description          |
+| --------------- | ------------ | -------------------- |
+| `%(season:02d)` | `01`         | Zero-pad to 2 digits |
+| `%(season:03d)` | `001`        | Zero-pad to 3 digits |
+| `%(season:d)`   | `1`          | No padding           |
 
 **Custom Format Examples:**
 
@@ -157,6 +159,7 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 ---
 
 **Note:** The legacy `add_siteName` option has been removed. Use `%{site_name}` placeholder in folder names instead:
+
 ```json
 "movie_folder_name": "Movie/%{site_name}",
 "serie_folder_name": "Serie/%{site_name}"
@@ -468,6 +471,7 @@ The `environment` section is intended for deployments behind an HTTPS reverse pr
 ## Disclaimer
 
 > This software is for **educational and research purposes only**. The authors:
+>
 > - **DO NOT** assume responsibility for illegal use
 > - **DO NOT** provide or facilitate DRM circumvention tools, CDMs, or decryption keys
 > - **DO NOT** endorse piracy or copyright infringement
@@ -478,5 +482,5 @@ The `environment` section is intended for deployments behind an HTTPS reverse pr
 
 <div align="center">
 **Made with ❤️ for streaming lovers**
-*If you find this project useful, consider starring it! ⭐*
+*If you find this project useful, consider starring it! ⭐**
 </div>
