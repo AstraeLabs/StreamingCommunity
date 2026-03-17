@@ -10,10 +10,22 @@ from .base import BaseStreamingAPI
 _API_REGISTRY: Dict[str, type] = {}
 _INITIALIZED = False
 _PREFERRED_ORDER = [
-    'streamingcommunity', 'guardaserie', 'animeunity',
-    'animeworld', 'crunchyroll', 'mediasetinfinity', 'raiplay',
-    'discovery', 'dmax', 'nove', 'realtime',
-    'homegardentv', 'foodnetwork'
+    'streamingcommunity', 
+    'guardaserie', 
+    'animeunity',
+    'animeworld', 
+    'crunchyroll', 
+    'primevideo', 
+    'mediasetinfinity', 
+    'raiplay',
+    'discovery', 
+    'dmax', 
+    'nove', 
+    'realtime',
+    'homegardentv', 
+    'foodnetwork', 
+    'tubitv', 
+    'mostraguarda'
 ]
 
 
@@ -48,8 +60,6 @@ def _initialize_registry():
                     break
         except Exception as e:
             print(f"[Warning] Could not load API '{module_name}': {e}")
-            import traceback
-            traceback.print_exc()
     
     if not _API_REGISTRY:
         print("[CRITICAL] No streaming APIs could be loaded! Check that all dependencies are installed (pip install -r requirements.txt).")

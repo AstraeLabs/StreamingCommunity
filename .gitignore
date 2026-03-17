@@ -48,20 +48,10 @@ downloaded_files/
 
 # Other
 Video
-note.txt
-cmd.txt
-scripts.json
-active_requests.json
-working_proxies.json
 start.sh
 .DS_Store
 GUI/db.sqlite3
-console.log
 /Conf/domains.json
+/Conf/login.json
 /.cache
-.planning/phases/01-fastapi-backend-foundation
-.serena
-.planning
 docker-compose.yml
-end.py
-config_mio.json

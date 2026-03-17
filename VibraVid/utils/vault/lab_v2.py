@@ -4,11 +4,11 @@ import logging
 from base64 import b64decode
 from typing import List, Optional
 
-import requests
 from rich.console import Console
 from urllib.parse import urlparse
 
 from VibraVid.utils.config import config_manager
+from VibraVid.utils.http_client import create_client_curl, get_headers
 
 
 console = Console()
@@ -40,7 +40,7 @@ def _api_call(method: str, params: dict) -> dict:
     """POST a JSON-RPC-style request to the lab vault, return the `message` dict."""
     payload = {"method": method, "params": params, "token": TOKEN}
     try:
-        r = requests.post(VAULT_URL, json=payload, timeout=15)
+        r = create_client_curl(headers=get_headers()).post(VAULT_URL, json=payload)
         r.raise_for_status()
         data = r.json()
 
@@ -99,12 +99,9 @@ class LabDBVault:
         """
         pass
 
-    def get_keys_by_kids(self, license_url: Optional[str], kids: List[str], drm_type: str) -> List[str]:
+    def get_keys_by_kids(self, license_url: Optional[str], kids: List[str], drm_type: str, pssh: str = None) -> List[str]:
         """
         Retrieve keys for one or more KIDs
-
-        Returns:
-            List[str]: List of "kid:key" strings.
         """
         if not kids:
             return []
@@ -133,15 +130,15 @@ class LabDBVault:
                         results.append(f"{kid}:{v}")
 
         if results:
-            pssh_display = f"{kids[0][:30]}..." if kids else "..."
-            console.print(
-                f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])"
-            )
+            if pssh:
+                pssh_display = f"{pssh[:30]}..." if len(pssh) > 30 else pssh
+            else:
+                pssh_display = f"{kids[0][:30]}..." if kids else "..."
+            
+            console.print(f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])")
             for r in results:
                 kid_val, key_val = r.split(":", 1)
-                console.print(
-                    f"    - [red]{kid_val}[white]:[green]{key_val} [cyan]| [#a855f7]lab"
-                )
+                console.print(f"    - [red]{kid_val}[white]:[green]{key_val} [cyan]| [#a855f7]lab")
 
         return results
 

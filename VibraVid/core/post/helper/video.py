@@ -110,11 +110,7 @@ def resolve_compatible_extension(file_path: str, desired_ext: str) -> str:
 
     # Report what's incompatible
     for codec_type, codec, allowed in incompatible_codecs:
-        console.print(
-            f"[yellow]    WARN [cyan]Codec [red]{codec} [cyan]({codec_type}) "
-            f"[cyan]is not compatible with [red].{desired_ext}[cyan]. "
-            f"Allowed containers: [red]{', '.join(sorted(allowed))}"
-        )
+        console.print(f"[yellow]    WARN [cyan]Codec [red]{codec} [cyan]({codec_type}) [cyan]is not compatible with [red].{desired_ext}[cyan]. Allowed containers: [red]{', '.join(sorted(allowed))}")
 
     # Pick the best compatible container in preferred order
     for preferred in _PREFERRED_ORDER:

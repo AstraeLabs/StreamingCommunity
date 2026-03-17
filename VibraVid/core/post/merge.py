@@ -25,8 +25,7 @@ PARAM_VIDEO = config_manager.config.get_list("PROCESS", "param_video")
 PARAM_AUDIO = config_manager.config.get_list("PROCESS", "param_audio")
 PARAM_FINAL = config_manager.config.get_list("PROCESS", "param_final")
 FORCE_SUBTITLE = config_manager.config.get("PROCESS", "force_subtitle")
-SUBTITLE_DISPOSITION = config_manager.config.get_bool("PROCESS", "subtitle_disposition")
-SUBTITLE_DISPOSITION_LANGUAGE = config_manager.config.get_list("PROCESS", "subtitle_disposition_language")
+SUBTITLE_DISPOSITION_LANGUAGE = config_manager.config.get("PROCESS", "subtitle_disposition_language")
 
 
 def add_encoding_params(ffmpeg_cmd: List[str]):
@@ -316,36 +315,18 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     for idx in range(len(subtitles_list)):
         ffmpeg_cmd.extend([f'-disposition:s:{idx}', '0'])
     
-    # Set disposition ONLY if SUBTITLE_DISPOSITION is enabled
-    if SUBTITLE_DISPOSITION and len(subtitles_list) > 0:
-        disposition_idx = None
-        forced_flag = False
-        
-        # Find subtitle matching the configured language
+    # Set disposition if matching subtitle found
+    if SUBTITLE_DISPOSITION_LANGUAGE and len(subtitles_list) > 0:
+        config_lang = SUBTITLE_DISPOSITION_LANGUAGE.lower().strip()
         for idx, subtitle in enumerate(subtitles_list):
             subtitle_lang = subtitle.get('language', '').lower()
-            subtitle_title = subtitle.get('title', '').lower()
-            for lang in SUBTITLE_DISPOSITION_LANGUAGE:
-                config_lang = lang.lower().strip()
-                
-                if subtitle_lang == config_lang or subtitle_lang.startswith(config_lang):
-                    console.print(f"[yellow]    Setting disposition for subtitle: [red]{subtitle.get('language')}")
-                    disposition_idx = idx
-                    if 'forced' in subtitle_lang or 'forced' in subtitle_title:
-                        forced_flag = True
-                        console.print(f"[yellow]    Subtitle is forced: [red]{subtitle.get('language')}")
-                        
-                    break
-                    
-            if disposition_idx is not None:
+            if subtitle_lang == config_lang:
+                console.print(f"[yellow]    Setting disposition for subtitle: [red]{subtitle.get('language')}")
+                flags = 'default'
+                if '_forced' in config_lang:
+                    flags += '+forced'
+                ffmpeg_cmd.extend([f'-disposition:s:{idx}', flags])
                 break
-            
-        # If matching subtitle found, set disposition flags
-        if disposition_idx is not None:
-            flags = 'default'
-            if forced_flag:
-                flags += '+forced'
-            ffmpeg_cmd.extend([f'-disposition:s:{disposition_idx}', flags])
     
     # Overwrite
     ffmpeg_cmd += [out_path, "-y"]

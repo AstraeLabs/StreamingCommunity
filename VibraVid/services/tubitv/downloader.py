@@ -111,8 +111,8 @@ def download_series(select_season: Entries, season_selection: str = None, episod
         - scrape_serie (Any, optional): Pre-existing scraper instance to avoid recreation
     """
     start_message()
+    bearer_token = get_bearer_token()
     if scrape_serie is None:
-        bearer_token = get_bearer_token()
         scrape_serie = GetSerieInfo(select_season.url, bearer_token, select_season.name)
         scrape_serie.getNumberSeason()
     seasons_count = len(scrape_serie.seasons_manager)

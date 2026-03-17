@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -31,37 +32,53 @@ def _language(s) -> str:
     return (getattr(s, "language", "") or "").strip().lower()
 
 
+def _resolved_language(s) -> str:
+    return (getattr(s, "resolved_language", "") or "").strip().lower()
+
+
 def _codecs(s) -> str:
     return (getattr(s, "codecs", "") or "").strip().lower()
+
+
+def _stream_id(s) -> str:
+    sid = (getattr(s, "id", "") or "").strip()
+    if not sid or sid in ("EXT",) or sid.startswith("vid:"):
+        return ""
+    return sid
 
 
 @dataclass
 class FilterSpec:
     """
-    Structured representation of a user filter string.
+    Parsed, structured representation of a user filter string.
 
-    Accepted formats
-    ----------------
-    ``"best"`` / ``"worst"``  → select best or worst stream
-    ``"all"``                 → select all streams
-    ``"false"``               → drop all (no download)
-    ``"1080"``                → height constraint  (video)
-    ``"1920,H265"``           → height + codec     (video)
-    ``",H265"``               → codec only         (video)
-    ``"H265"``                → codec only (bare)  (video)
-    ``"ita|it"``              → language tokens    (audio/sub)
-    ``"ita|it,AAC"``          → language + codec   (audio)
-    ``",AAC"``                → codec only         (audio)
-    ``"res=1080:codecs=hvc1:for=best"``  → native n3u8dl passthrough
+    Accepted user-facing formats
+    ----------------------------
+    "best" / "worst"                        select best or worst stream
+    "all"                                   select all streams
+    "false"                                 drop (no download)
+    "1080"                                  height constraint (video)
+    "1920,H265"                             height + codec (video)
+    ",H265"                                 codec only (video)
+    "H265"                                  codec only bare (video)
+    "ita|it"                                language tokens (audio/sub)
+    "ita|it,AAC"                            language + codec (audio)
+    ",AAC"                                  codec only (audio)
+    "res=1080:codecs=hvc1:for=best"         native n3u8dl passthrough
+    "id=audio_128k_en:for=best"             id-based (real manifest IDs)
+
+    Language tokens are matched against both stream.language (raw code, e.g.
+    'ita') and stream.resolved_language (BCP 47, e.g. 'it-IT').  Token 'it'
+    therefore matches 'ita' because resolved_language='it-IT' contains 'it'.
     """
     drop: bool = False
     select_all: bool = False
-    select_best: bool = True  # True = best, False = worst (when not all/drop)
+    select_best: bool = True
 
-    # constraints
-    res: Optional[str] = None  # height string, e.g. "1080"
-    langs: Optional[str] = None  # pipe-sep lang tokens, e.g. "ita|it"
-    codec: Optional[str] = None  # downloader token, e.g. "hvc1", "mp4a"
+    res: Optional[str] = None
+    langs: Optional[str] = None
+    codec: Optional[str] = None
+    id: Optional[str] = None
     extra: dict = field(default_factory=dict)
 
     @classmethod
@@ -81,12 +98,10 @@ class FilterSpec:
             spec.select_best = False
             return spec
 
-        # Native n3u8dl format (contains key=value)
         if "=" in r:
             spec._parse_native(r, stream_type)
             return spec
 
-        # User shorthand:  "primary,codec"
         parts = r.split(",", 1)
         primary = parts[0].strip()
         codec_s = parts[1].strip() if len(parts) > 1 else ""
@@ -97,19 +112,16 @@ class FilterSpec:
         if not primary:
             return spec
 
-        # Purely numeric → height
         if re.match(r"^\d+$", primary):
             spec.res = primary
             return spec
 
-        # No pipe → check bare codec token
         if not codec_s and "|" not in primary:
             translated = get_codec_token(primary, stream_type)
             if translated.lower() != primary.lower():
                 spec.codec = translated
                 return spec
 
-        # Otherwise → language tokens
         spec.langs = primary
         return spec
 
@@ -127,6 +139,8 @@ class FilterSpec:
                 self.langs = v
             elif k in ("codecs", "codec"):
                 self.codec = v
+            elif k == "id":
+                self.id = v
             elif k == "for":
                 for_val = v.lower()
             else:
@@ -138,56 +152,168 @@ class FilterSpec:
         elif for_val == "worst":
             self.select_best = False
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Selection result
+# ─────────────────────────────────────────────────────────────────────────────
+
 @dataclass
 class SelectionResult:
     """
-    What the selector actually found after progressive fallback.
-    Downloader-specific formatters read this to build their own arg strings.
+    What StreamSelector found after progressive fallback.
+
+    Downloader-specific formatters (BaseFormatter subclasses) read this to
+    build their own CLI argument strings without touching selector logic.
+
+    matched_res       Normalised HEIGHT string (not width).
+                      "1920" input on a 1920×1080 stream → matched_res="1080".
+    matched_langs     Pipe-separated raw language tokens, e.g. "ita|it".
+    matched_codec     Downloader codec token, e.g. "hvc1".
+    matched_ids       Pipe-separated real manifest IDs (synthetic vid: excluded).
+    extra             Passthrough key-values for the formatter (bwMin, bwMax, …).
     """
     streams: list = field(default_factory=list)
 
-    # Which constraints were satisfied (None = constraint was relaxed away)
     matched_res: Optional[str] = None
     matched_langs: Optional[str] = None
     matched_codec: Optional[str] = None
+    matched_ids: Optional[str] = None
+    extra: dict = field(default_factory=dict)
 
     drop: bool = False
     select_all: bool = False
-    select_best: bool = True  # False → worst
+    select_best: bool = True
 
 
-class N3u8dlFormatter:
+# ─────────────────────────────────────────────────────────────────────────────
+# Formatter base
+# ─────────────────────────────────────────────────────────────────────────────
+
+class BaseFormatter(ABC):
     """
-    Converts a SelectionResult to a single n3u8dl --select-* argument string.
+    Converts a SelectionResult into a single filter-argument string for a specific downloader tool.
+    """
+    @abstractmethod
+    def format(self, result: SelectionResult) -> str:
+        """
+        Return the CLI filter string for this track.
 
-    n3u8dl syntax:
-        res=HEIGHT:lang='TOKENS':codecs=TOKEN:for=best|worst|all
+        Return values with special meaning (recognised by wrappers):
+          "false"  → drop / skip this track type
+          "all"    → pass all tracks of this type
+          "best"   → select the single best stream
+          "worst"  → select the single worst stream
+        """
+
+
+class N3u8dlFormatter(BaseFormatter):
+    """
+    Converts a SelectionResult to an N_m3u8DL-RE --select-* argument string.
+
+    N3u8DL-RE filter syntax (all values are regex):
+        res=REGEX:lang=REGEX:codecs=REGEX:id=REGEX:for=best|worst|all
+        bwMin=N:bwMax=N:segsMin=N:segsMax=N (numeric range extras)
+
+    Routing strategy
+    ────────────────
+    Video
+        Never emit id=  (our synthetic 'vid:…' IDs are unknown to n3u8dl).
+        Emit  res=HEIGHT:for=best|worst  or plain  best|worst.
+        HEIGHT is the actual pixel height of the selected stream, not the
+        user's input (which might have been a width like 1920).
+
+    Audio
+        Prefer  lang='…':for=best  when a language constraint exists.
+        Fall back to  id='…':for=best  only for real manifest IDs.
+        For DASH with multiple selected tracks, use id='id1|id2|id3':for=all
+
+    Subtitle
+        Always use  lang='…':for=all  when a language constraint exists.
+        Never emit id= with for=all — n3u8dl ignores id= in that mode and
+        downloads all subtitle streams regardless.
     """
 
     @staticmethod
-    def format(result: SelectionResult) -> str:
+    def _dedup_real_ids(matched_ids: Optional[str]) -> Optional[str]:
+        """Strip synthetic 'vid:…' IDs and deduplicate."""
+        if not matched_ids:
+            return None
+        seen: set = set()
+        result: List[str] = []
+        for i in matched_ids.split("|"):
+            i = i.strip()
+            if i and not i.startswith("vid:") and i not in seen:
+                seen.add(i)
+                result.append(i)
+        return "|".join(result) if result else None
+
+    def format(self, result: SelectionResult) -> str:
         if result.drop:
             return "false"
 
-        if result.select_all and not result.matched_res and not result.matched_langs and not result.matched_codec:
+        has_filters = bool(result.matched_ids or result.matched_res or result.matched_langs or result.matched_codec or result.extra)
+        if result.select_all and not has_filters:
             return "all"
-
-        if not result.matched_res and not result.matched_langs and not result.matched_codec:
+        if not has_filters:
             return "best" if result.select_best else "worst"
 
         parts: List[str] = []
-        if result.matched_res:
-            parts.append(f"res={result.matched_res}")
+        real_ids = self._dedup_real_ids(result.matched_ids)
+
+        if len(result.streams) > 1 and real_ids and not result.matched_res:
+
+            # Multiple audio tracks selected - use id='id1|id2|id3':for=all
+            parts.append(f"id='{real_ids}'")
+            if result.matched_codec:
+                parts.append(f"codecs={result.matched_codec}")
+            for k, v in result.extra.items():
+                parts.append(f"{k}={v}")
+            parts.append("for=all")
+            return ":".join(parts)
+
         if result.matched_langs:
-            parts.append(f"lang='{result.matched_langs}'")
-        if result.matched_codec:
-            parts.append(f"codecs={result.matched_codec}")
+            raw_tokens = [t.strip().lower() for t in result.matched_langs.split("|") if t.strip()]
+            seen_t: set = set()
+            unique_tokens: List[str] = []
+            for t in raw_tokens:
+                if t not in seen_t:
+                    seen_t.add(t)
+                    unique_tokens.append(t)
+            parts.append(f"lang='{('|'.join(unique_tokens))}'")
+            if result.matched_codec:
+                parts.append(f"codecs={result.matched_codec}")
+        elif result.matched_res:
+            parts.append(f"res={result.matched_res}")
+            if result.matched_codec:
+                parts.append(f"codecs={result.matched_codec}")
+        elif real_ids and not result.select_all:
+            parts.append(f"id='{real_ids}'")
+            if result.matched_codec:
+                parts.append(f"codecs={result.matched_codec}")
+        else:
+            if result.matched_codec:
+                parts.append(f"codecs={result.matched_codec}")
 
-        for_val = "all" if result.select_all else ("best" if result.select_best else "worst")
+        for k, v in result.extra.items():
+            parts.append(f"{k}={v}")
+
+        if result.select_all:
+            for_val = "all"
+        elif result.select_best:
+
+            # Use bestN when multiple language tracks were selected (audio multi-lang case).
+            # Only activate when matched_langs is set to avoid bestN on plain video "best".
+            n = len(result.streams)
+            for_val = f"best{n}" if (n > 1 and result.matched_langs) else "best"
+        else:
+            for_val = "worst"
         parts.append(f"for={for_val}")
-
         return ":".join(parts)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Matching helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _matches_res(s, res: str) -> bool:
     try:
@@ -200,7 +326,7 @@ def _matches_res(s, res: str) -> bool:
 
 
 def _matches_codec(s, token: str) -> bool:
-    """Prefix match; unknown codec is treated as matching (not filtered out)."""
+    """Prefix/substring match; unknown codec treated as matching."""
     if not token:
         return True
     raw = _codecs(s)
@@ -210,26 +336,73 @@ def _matches_codec(s, token: str) -> bool:
 
 
 def _matches_lang(s, langs: str) -> bool:
+    """
+    Match lang tokens against stream.language AND stream.resolved_language.
+
+    Token 'it' matches language='ita' because resolved_language='it-IT'
+    contains 'it'.  Token 'fre' matches directly on language='fre'.
+    Case-insensitive.
+    """
     tokens = [t.strip().lower() for t in langs.split("|") if t.strip()]
     sl = _language(s)
-    return any(t == sl or t in sl for t in tokens)
+    rl = _resolved_language(s)
+    for t in tokens:
+        if t == sl or t in sl:
+            return True
+        if rl and (t == rl or t in rl):
+            return True
+    return False
 
+
+def _matches_id(s, id_pattern: str) -> bool:
+    sid = _stream_id(s)
+    if not sid:
+        return False
+    try:
+        return bool(re.search(id_pattern, sid))
+    except re.error:
+        return sid == id_pattern
+
+
+def _collect_ids(streams: list) -> Optional[str]:
+    """Deduplicated real manifest IDs (synthetic vid: excluded)."""
+    seen: set = set()
+    ids: List[str] = []
+    for s in streams:
+        sid = _stream_id(s)
+        if sid and sid not in seen:
+            seen.add(sid)
+            ids.append(sid)
+    return "|".join(ids) if ids else None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stream selector
+# ─────────────────────────────────────────────────────────────────────────────
 
 class StreamSelector:
     """
-    Applies user filter strings to Stream objects, marks ``stream.selected``,
-    and returns downloader-formatted argument strings via ``apply()``.
+    Applies user filter strings to Stream objects, marks stream.selected,
+    and returns formatter output strings via apply().
+
+    The formatter is injected at construction time so that the same selector
+    logic works with any downloader backend.
+
+    Usage::
+
+        formatter = N3u8dlFormatter()           # swap for YtdlpFormatter, etc.
+        selector = StreamSelector("1080", "ita|it", "ita|eng", formatter)
+        sv, sa, ss = selector.apply(streams)    # n3u8dl-ready arg strings
     """
-    def __init__(self, video_filter: str, audio_filter: str, subtitle_filter: str, formatter=None):
+
+    def __init__(self, video_filter: str, audio_filter: str, subtitle_filter: str, formatter: BaseFormatter = None):
         self._vf = (video_filter or "best").strip()
         self._af = (audio_filter or "best").strip()
         self._sf = (subtitle_filter or "all").strip()
         self._formatter = formatter or N3u8dlFormatter()
 
     def apply(self, streams: list) -> Tuple[str, str, str]:
-        """
-        Mark ``stream.selected`` and return ``(sv, sa, ss)`` arg strings.
-        """
+        """Mark stream.selected and return (sv, sa, ss) formatter strings."""
         pv = FilterSpec.parse(self._vf, "video")
         pa = FilterSpec.parse(self._af, "audio")
         ps = FilterSpec.parse(self._sf, "subtitle")
@@ -242,19 +415,17 @@ class StreamSelector:
         sa = self._formatter.format(ra)
         ss = self._formatter.format(rs)
 
-        logger.info(f"StreamSelector n3u8dl args → video={sv!r}  audio={sa!r}  subtitle={ss!r}")
+        logger.info(f"StreamSelector args → video={sv!r}  audio={sa!r}  subtitle={ss!r}")
         return sv, sa, ss
-    
+
+    # ── Video ──────────────────────────────────────────────────────────────────
+
     def _select_video(self, streams: list, spec: FilterSpec) -> SelectionResult:
-        result = SelectionResult(select_best=spec.select_best)
+        result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
         videos = [s for s in streams if getattr(s, "type", "") == "video"]
-        logger.info(f"Video available: {[f'{_height(s)}p/{_codecs(s)}' for s in videos]} with filter spec: res={spec.res} codec={spec.codec} select_all={spec.select_all} drop={spec.drop}")
+        logger.info(f"Video available: {[f'{_height(s)}p/{_codecs(s)}' for s in videos]} | filter: id={spec.id} res={spec.res} codec={spec.codec} all={spec.select_all} drop={spec.drop}")
 
-        if spec.drop:
-            result.drop = True
-            return result
-
-        if not videos:
+        if spec.drop or not videos:
             result.drop = True
             return result
 
@@ -264,41 +435,39 @@ class StreamSelector:
             result.streams = videos
             result.select_all = True
             return result
-        
-        had_constraints = bool(spec.res or spec.codec)
-        pick_exact = _best if spec.select_best else _worst  # full match
-        pick_fallback = _worst  # any relaxed step
 
-        # Step 1: res + codec — full match → honour user best/worst
+        if spec.id:
+            pool = [s for s in videos if _matches_id(s, spec.id)]
+            if pool:
+                return self._mark_one_video(pool, _best if spec.select_best else _worst, result)
+            logger.info(f"StreamSelector video: id={spec.id!r} — no match, relaxing")
+
+        had_constraints = bool(spec.res or spec.codec)
+        pick_exact = _best if spec.select_best else _worst
+        pick_fallback = _worst
+
         if spec.res and spec.codec:
             pool = [s for s in videos if _matches_res(s, spec.res) and _matches_codec(s, spec.codec)]
             if pool:
-                return self._mark_one(pool, pick_exact, result, res=spec.res, codec=spec.codec)
-            logger.info(f"StreamSelector video: res={spec.res} + codecs={spec.codec} — no match, relaxing")
+                return self._mark_one_video(pool, pick_exact, result, spec.res, spec.codec)
+            logger.info(f"StreamSelector video: res={spec.res}+codec={spec.codec} — no match, relaxing")
 
-        # Step 2: codec only (res relaxed)
         if spec.codec:
             pool = [s for s in videos if _matches_codec(s, spec.codec)]
             if pool:
-                extra = f" for codec={spec.codec}" if spec.res else ""
-                logger.info(f"StreamSelector video: res={spec.res}{extra} not available, selecting worst")
                 result.select_best = False
-                return self._mark_one(pool, pick_fallback, result)
+                return self._mark_one_video(pool, pick_fallback, result, codec=spec.codec)
             logger.info(f"StreamSelector video: codec={spec.codec} — no match, relaxing")
 
-        # Step 3: res only (codec relaxed)
         if spec.res:
             pool = [s for s in videos if _matches_res(s, spec.res)]
             if pool:
                 if spec.codec:
-                    logger.info(f"StreamSelector video: codec={spec.codec} not available at res={spec.res}, selecting worst")
                     result.select_best = False
-                    return self._mark_one(pool, pick_fallback, result)
-                else:
-                    return self._mark_one(pool, pick_exact, result, res=spec.res)
-            logger.info(f"StreamSelector video: res={spec.res} — no match, falling back to worst")
+                    return self._mark_one_video(pool, pick_fallback, result, spec.res)
+                return self._mark_one_video(pool, pick_exact, result, spec.res)
+            logger.info(f"StreamSelector video: res={spec.res} — no match, falling back")
 
-        # Step 4: absolute fallback
         if had_constraints:
             result.select_best = False
             s = _worst(videos)
@@ -307,89 +476,114 @@ class StreamSelector:
         if s:
             s.selected = True
             result.streams = [s]
+            actual_h = _height(s)
+            if had_constraints and actual_h:
+                result.matched_res = str(actual_h)
         return result
 
+    # ── Audio ──────────────────────────────────────────────────────────────────
+
     def _select_audio(self, streams: list, spec: FilterSpec) -> SelectionResult:
-        result = SelectionResult(select_best=spec.select_best)
+        result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
         audios = [s for s in streams if getattr(s, "type", "") == "audio"]
-        logger.info(f"Audio available: {[f'{_language(s)}/{_codecs(s)}' for s in audios]} with filter spec: lang={spec.langs} codec={spec.codec} select_all={spec.select_all} drop={spec.drop}")
+        logger.info(f"Audio available: {[f'{_language(s)}({_resolved_language(s)})/{_codecs(s)}' for s in audios]} | filter: id={spec.id} lang={spec.langs} codec={spec.codec} all={spec.select_all} drop={spec.drop}")
 
-        if spec.drop:
+        if spec.drop or not audios:
             result.drop = True
             return result
 
-        if not audios:
-            result.drop = True
-            return result
-
-        if spec.select_all and not spec.langs and not spec.codec:
+        if spec.select_all and not spec.langs and not spec.codec and not spec.id:
             for s in audios:
                 s.selected = True
             result.streams = audios
             result.select_all = True
+            result.matched_ids = _collect_ids(audios)
             return result
 
-        # Step 1: lang + codec
+        if spec.id:
+            pool = [s for s in audios if _matches_id(s, spec.id)]
+            if pool:
+                self._mark_best_per_lang(pool, spec.select_best)
+                selected = [s for s in pool if s.selected]
+                result.streams = selected
+                result.matched_ids = _collect_ids(selected)
+                if spec.select_all:
+                    result.select_all = True
+                return result
+            logger.info(f"StreamSelector audio: id={spec.id!r} — no match, relaxing")
+
         if spec.langs and spec.codec:
             pool = [s for s in audios if _matches_lang(s, spec.langs) and _matches_codec(s, spec.codec)]
             if pool:
                 self._mark_best_per_lang(pool, spec.select_best)
-                result.streams = [s for s in pool if s.selected]
+                selected = [s for s in pool if s.selected]
+                result.streams = selected
                 result.matched_langs = spec.langs
                 result.matched_codec = spec.codec
+                result.matched_ids = _collect_ids(selected)
                 if spec.select_all:
                     result.select_all = True
                 return result
-            logger.info(f"StreamSelector audio: lang={spec.langs!r} + codec={spec.codec} — no match, relaxing")
+            logger.info(f"StreamSelector audio: lang={spec.langs!r}+codec={spec.codec} — no match, relaxing")
 
-        # Step 2: codec only
         if spec.codec:
             pool = [s for s in audios if _matches_codec(s, spec.codec)]
             if pool:
                 if spec.langs:
-                    logger.info(f"StreamSelector audio: lang={spec.langs!r} not available with codec={spec.codec}, selecting all {spec.codec} streams")
+                    logger.info(f"StreamSelector audio: lang={spec.langs!r} not found with codec={spec.codec}")
                 self._mark_best_per_lang(pool, spec.select_best)
-                result.streams = [s for s in pool if s.selected]
+                selected = [s for s in pool if s.selected]
+                result.streams = selected
                 result.matched_codec = spec.codec
+                result.matched_ids = _collect_ids(selected)
                 if spec.select_all:
                     result.select_all = True
                 return result
-            
-            # Codec specified but zero streams have it → drop
-            logger.info(f"StreamSelector audio: codec={spec.codec} not available — dropping audio (false)")
+            logger.info(f"StreamSelector audio: codec={spec.codec} not available — dropping")
             result.drop = True
             return result
 
-        # Step 3: lang only (no codec constraint)
         if spec.langs:
             pool = [s for s in audios if _matches_lang(s, spec.langs)]
             if pool:
                 self._mark_best_per_lang(pool, spec.select_best)
-                result.streams = [s for s in pool if s.selected]
+                selected = [s for s in pool if s.selected]
+                result.streams = selected
                 result.matched_langs = spec.langs
+                result.matched_ids = _collect_ids(selected)
                 if spec.select_all:
                     result.select_all = True
                 return result
             logger.info(f"StreamSelector audio: lang={spec.langs!r} — no match, falling back to best per lang")
 
-        # Step 4: no constraints or lang-only fallback → best per language
         self._mark_best_per_lang(audios, spec.select_best)
-        result.streams = [s for s in audios if s.selected]
+        selected = [s for s in audios if s.selected]
+        result.streams = selected
+        result.matched_ids = _collect_ids(selected)
         return result
 
+    # ── Subtitle ───────────────────────────────────────────────────────────────
+
     def _select_subtitle(self, streams: list, spec: FilterSpec) -> SelectionResult:
-        result = SelectionResult(select_best=spec.select_best)
+        result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
         subs = [s for s in streams if getattr(s, "type", "") == "subtitle"]
-        logger.info(f"Subtitle available: {[f'{_language(s)}' for s in subs]} with filter spec: lang={spec.langs} select_all={spec.select_all} drop={spec.drop}")
+        logger.info(f"Subtitle available: {[f'{_language(s)}({_resolved_language(s)})' for s in subs]} | filter: id={spec.id} lang={spec.langs} all={spec.select_all} drop={spec.drop}")
 
-        if spec.drop:
+        if spec.drop or not subs:
             result.drop = True
             return result
 
-        # No subtitle streams exist at all → drop
-        if not subs:
-            result.drop = True
-            return result
+        if spec.id:
+            pool = [s for s in subs if _matches_id(s, spec.id)]
+            if pool:
+                for s in pool:
+                    s.selected = True
+                result.streams = pool
+                result.matched_langs = spec.langs
+                result.matched_ids = _collect_ids(pool)
+                result.select_all = True
+                return result
+            logger.info(f"StreamSelector subtitle: id={spec.id!r} — no match, relaxing")
 
         if spec.select_all and not spec.langs:
             for s in subs:
@@ -405,26 +599,37 @@ class StreamSelector:
                     s.selected = True
                 result.streams = pool
                 result.matched_langs = spec.langs
+                result.matched_ids = _collect_ids(pool)
                 result.select_all = True
                 return result
-            logger.info(f"StreamSelector subtitle: lang={spec.langs!r} — no match, selecting all available")
+            logger.info(f"StreamSelector subtitle: lang={spec.langs!r} — no match, selecting all")
 
-        # Fallback: select all subs
         for s in subs:
             s.selected = True
         result.streams = subs
         result.select_all = True
         return result
 
+    # ── Internal helpers ───────────────────────────────────────────────────────
+
     @staticmethod
-    def _mark_one(pool: list, pick_fn, result: SelectionResult, res: Optional[str] = None, codec: Optional[str] = None, langs: Optional[str] = None) -> SelectionResult:
+    def _mark_one_video(pool: list, pick_fn, result: SelectionResult, res: Optional[str] = None, codec: Optional[str] = None) -> SelectionResult:
+        """
+        Pick one video stream and populate result.
+
+        matched_res is normalised to the actual stream HEIGHT so the formatter
+        emits res=1080 even when the user typed res=1920 (width).
+        matched_ids is intentionally left None — our synthetic 'vid:…' IDs
+        are not valid downloader identifiers.
+        """
         s = pick_fn(pool)
         if s:
             s.selected = True
             result.streams = [s]
-            result.matched_res = res
             result.matched_codec = codec
-            result.matched_langs = langs
+            if res is not None:
+                actual_h = _height(s)
+                result.matched_res = str(actual_h) if actual_h else res
         return result
 
     @staticmethod
@@ -436,6 +641,8 @@ class StreamSelector:
                 seen[lang] = True
                 s.selected = True
 
+    # ── Utility methods (used by external code) ────────────────────────────────
+
     @staticmethod
     def parse_filter(filter_str: str) -> dict:
         spec = FilterSpec.parse(filter_str or "", "video")
@@ -444,6 +651,8 @@ class StreamSelector:
         result: dict = {}
         if spec.select_all:
             result["for"] = "all"
+        if spec.id:
+            result["id"] = spec.id
         if spec.res:
             result["res"] = spec.res
         if spec.langs:
@@ -461,6 +670,10 @@ class StreamSelector:
             return [v.strip() for v in spec.langs.split("|") if v.strip()]
         return []
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sort helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _best(streams: list):
     return max(streams, key=_bitrate) if streams else None

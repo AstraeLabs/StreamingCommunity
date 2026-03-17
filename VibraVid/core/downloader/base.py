@@ -218,9 +218,7 @@ class BaseDownloader:
             try:
                 shutil.copy2(sub_info["src"], dst)
             except Exception as e:
-                console.print(
-                    f"[yellow]Warning: Could not copy subtitle {sub_info['language']}: {e}"
-                )
+                console.print(f"[yellow]Warning: Could not copy subtitle {sub_info['language']}: {e}")
 
     def _move_copied_audios(self) -> None:
         """Move staged audio files to final location."""
@@ -244,9 +242,7 @@ class BaseDownloader:
             try:
                 move_func(audio_info["src"], dst)
             except Exception as e:
-                console.print(
-                    f"[yellow]Warning: Could not move audio {audio_info['language']}: {e}"
-                )
+                console.print(f"[yellow]Warning: Could not move audio {audio_info['language']}: {e}")
 
     def _print_summary(self) -> None:
         """Print summary of the final output file."""

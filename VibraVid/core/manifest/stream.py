@@ -21,46 +21,23 @@ class DRMInfo:
         self.kid = None
         self.key = None
         self.system_id = None
-        self.drm_type = None  # 'WV' | 'PR' | 'FP' | 'UNK'
+        self.drm_type = None
         self.default_kid = None
-        self.method = None  # 'cenc' | 'cbcs' | …
-
-        # Multi-DRM support
+        self.method = None
         self._pssh_by_type: Dict[str, str] = {}
         self._drm_types: List[str] = []
 
     def set_pssh(self, pssh_base64: str, drm_type_hint: str = None) -> None:
-        """
-        Store a PSSH blob keyed by its DRM type.
-
-        Detection order
-        ───────────────
-        1. pywidevine PSSH parser — handles both full ISO PSSH boxes
-           (WV / PR / FP system IDs) AND raw Widevine protobuf blobs
-           (e.g. the "CAES…" blobs Amazon / Netflix embed in <cenc:pssh>).
-        2. pyplayready PSSH parser — secondary check specifically for PR
-           PSSH boxes that pywidevine might classify ambiguously.
-        3. Manual box-magic fallback — works when neither lib is installed.
-        4. drm_type_hint — caller-supplied label derived from schemeIdUri
-           (most reliable for raw protobuf / WMRM blobs).
-        5. self.drm_type already resolved by set_method().
-        6. "UNK" as last resort.
-        """
         detected: Optional[str] = None
-
-        # ── 1. pywidevine (handles raw WV protobuf + full PSSH boxes) ────────
         try:
             from pywidevine.pssh import PSSH as WV_PSSH
             from uuid import UUID as _UUID
-
             _WV_UUID = _UUID(hex="edef8ba979d64acea3c827dcd51d21ed")
             _PR_UUID = _UUID(hex="9a04f07998404286ab92e65be0885f95")
             _FP_UUID = _UUID(hex="94ce86fb07ff4f43adb893d2fa968ca2")
-
             wv_obj = WV_PSSH(pssh_base64)
-            sid = wv_obj.system_id  # UUID instance
+            sid = wv_obj.system_id
             self.system_id = str(sid)
-
             if sid == _WV_UUID:
                 detected = "WV"
             elif sid == _PR_UUID:
@@ -69,34 +46,31 @@ class DRMInfo:
                 detected = "FP"
             else:
                 detected = "UNK"
-
-            logger.debug(f"DRMInfo.set_pssh [pywidevine] detected={detected} sid={sid}")
-
         except ImportError:
-            logger.debug("DRMInfo.set_pssh: pywidevine not installed, falling back")
+            pass
         except Exception as exc:
             logger.debug(f"DRMInfo.set_pssh [pywidevine] error: {exc}")
 
-        # ── 2. pyplayready — secondary check for PR blobs ────────────────────
         if (not detected or detected == "UNK") and ((drm_type_hint or "").upper() in ("PR", "PLAYREADY") or (self.drm_type or "") == "PR"):
             try:
                 from pyplayready.system.pssh import PSSH as PR_PSSH
-
-                PR_PSSH(pssh_base64)  # raises on invalid PR data
+                PR_PSSH(pssh_base64)
                 detected = "PR"
-                logger.debug("DRMInfo.set_pssh [pyplayready] detected=PR")
             except ImportError:
-                logger.debug("DRMInfo.set_pssh: pyplayready not installed")
+                pass
             except Exception as exc:
                 logger.debug(f"DRMInfo.set_pssh [pyplayready] error: {exc}")
 
-        # ── 3. Manual ISO box-magic fallback ─────────────────────────────────
         if not detected or detected == "UNK":
             try:
                 data = base64.b64decode(pssh_base64)
                 if len(data) >= 28 and data[4:8] == b"pssh":
                     sid_bytes = data[12:28]
-                    sid_str = "-".join([sid_bytes[0:4].hex(), sid_bytes[4:6].hex(), sid_bytes[6:8].hex(), sid_bytes[8:10].hex(), sid_bytes[10:16].hex()])
+                    sid_str = "-".join([
+                        sid_bytes[0:4].hex(), sid_bytes[4:6].hex(),
+                        sid_bytes[6:8].hex(), sid_bytes[8:10].hex(),
+                        sid_bytes[10:16].hex(),
+                    ])
                     self.system_id = sid_str
                     sid_lo = sid_str.lower()
                     if sid_lo == self.WIDEVINE_SYSTEM_ID:
@@ -107,35 +81,25 @@ class DRMInfo:
                         detected = "FP"
                     else:
                         detected = "UNK"
-                    logger.debug(f"DRMInfo.set_pssh [manual] detected={detected}")
             except Exception as exc:
                 logger.debug(f"DRMInfo.set_pssh [manual] error: {exc}")
 
-        # ── 4-6. Hint / context / UNK fallback ───────────────────────────────
         if not detected or detected == "UNK":
             if drm_type_hint:
                 detected = drm_type_hint.upper()
-                logger.debug(f"DRMInfo.set_pssh [hint] detected={detected}")
             elif self.drm_type and self.drm_type != "UNK":
                 detected = self.drm_type
-                logger.debug(f"DRMInfo.set_pssh [context] detected={detected}")
             else:
                 detected = "UNK"
-                logger.debug("DRMInfo.set_pssh: falling back to UNK")
 
-        # ── Store ─────────────────────────────────────────────────────────────
         self._pssh_by_type[detected] = pssh_base64
         if detected not in self._drm_types:
             self._drm_types.append(detected)
-
-        # self.pssh / self.drm_type always point at the highest-priority type
         for pref in ("WV", "PR", "FP", "UNK"):
             if pref in self._pssh_by_type:
                 self.pssh = self._pssh_by_type[pref]
                 self.drm_type = pref
                 break
-
-    # ─────────────────────────────────────────────────────────────────────────
 
     def get_pssh_for(self, drm_type: str) -> Optional[str]:
         return self._pssh_by_type.get(drm_type.upper())
@@ -153,14 +117,12 @@ class DRMInfo:
         if not scheme_id_uri:
             return
         s = scheme_id_uri.lower()
-
         if "cbcs" in s:
             self.method = "cbcs"
         elif "cenc" in s or "mp4protection" in s:
             self.method = "cenc"
         else:
             self.method = (scheme_id_uri.split(":")[-1] if ":" in scheme_id_uri else scheme_id_uri)
-
         detected = None
         if self.WIDEVINE_SYSTEM_ID in s or "widevine" in s:
             detected = "WV"
@@ -168,7 +130,6 @@ class DRMInfo:
             detected = "PR"
         elif self.FAIRPLAY_SYSTEM_ID in s or "fairplay" in s or "com.apple" in s:
             detected = "FP"
-
         if detected and detected not in self._drm_types:
             self._drm_types.append(detected)
         if not self.drm_type and detected:
@@ -216,9 +177,6 @@ class Segment:
 class Stream:
     """
     Unified stream descriptor for both HLS and DASH content.
-
-    All display helpers (codec, channel, language) delegate to codec.py —
-    there is no local translation logic here.
     """
     type: str
 
@@ -228,11 +186,33 @@ class Stream:
     height: int = 0
     fps: str = ""
     bitrate: int = 0
+    avg_bitrate: int = 0
     codecs: str = ""
     language: str = "und"
+    resolved_language: str = ""
     name: str = ""
     channels: str = ""
     role: str = "main"
+
+    # Video-only
+    video_range: str = ""
+    hdcp_level: str = ""
+    scan_type: str = ""
+
+    # Audio-only
+    default: bool = False
+    autoselect: bool = False
+    assoc_language: str = ""
+    sample_rate: int = 0
+
+    # Subtitle / Audio flags
+    forced: bool = False
+    is_cc: bool = False
+    is_sdh: bool = False
+
+    # All types
+    label: str = ""
+    accessibility: str = ""
 
     drm: DRMInfo = field(default_factory=DRMInfo)
 
@@ -247,12 +227,12 @@ class Stream:
     selected: bool = False
     duration: float = 0.0
     format: str = ""
-
     is_external: bool = False
 
     def add_segment(self, seg: Segment) -> None:
         self.segments.append(seg)
 
+    # ─── Display helpers ───────────────────────────────────────────────────────
     @property
     def bitrate_display(self) -> str:
         bw = self.bitrate
@@ -261,6 +241,17 @@ class Stream:
         if bw >= 1_000:
             return f"{bw / 1e3:.0f} Kbps"
         return f"{bw} bps" if bw else "N/A"
+
+    @property
+    def avg_bitrate_display(self) -> str:
+        bw = self.avg_bitrate
+        if not bw:
+            return ""
+        if bw >= 1_000_000:
+            return f"~{bw / 1e6:.1f} Mbps"
+        if bw >= 1_000:
+            return f"~{bw / 1e3:.0f} Kbps"
+        return f"~{bw} bps"
 
     @property
     def fps_float(self) -> float:
@@ -274,9 +265,7 @@ class Stream:
 
     def get_type_display(self) -> str:
         base = {"video": "Video", "audio": "Audio", "subtitle": "Subtitle", "image": "Thumbnail"}.get(self.type, self.type.capitalize())
-        if self.is_external:
-            return f"{base} *EXT"
-        return base
+        return f"{base} *EXT" if self.is_external else base
 
     def get_duration_display(self) -> str:
         if self.duration <= 0:
@@ -284,32 +273,82 @@ class Stream:
         h = int(self.duration // 3600)
         m = int((self.duration % 3600) // 60)
         s = int(self.duration % 60)
-        if h:
-            return f"{h:02d}:{m:02d}:{s:02d}"
-        return f"{m:02d}:{s:02d}"
+        return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
     def get_short_codec(self) -> str:
-        """Delegates to codec.py — single source of truth."""
         from VibraVid.source.utils.codec import get_short_codec as _gsc
-
         return _gsc(self.type, self.codecs)
 
     def get_channel_label(self) -> str:
-        """Delegates to codec.py — human channel label (e.g. 'Stereo', '5.1')."""
         from VibraVid.source.utils.codec import get_channel_label as _gcl
-
         return _gcl(self.channels) if self.channels else ""
 
     def get_language_name(self) -> str:
-        """Delegates to codec.py — full English language name."""
         from VibraVid.source.utils.codec import get_language_name as _gln
-
         return _gln(self.language)
+
+    def get_hdr_display(self) -> str:
+        vr = (self.video_range or "").upper()
+        return vr if vr and vr != "SDR" else ""
+
+    def get_flags_display(self) -> str:
+        flags = []
+        if self.forced:
+            flags.append("Forced")
+        if self.is_cc:
+            flags.append("CC")
+        if self.is_sdh:
+            flags.append("SDH")
+        if self.default:
+            flags.append("Default")
+        return f"[{', '.join(flags)}]" if flags else ""
+    
+    def __str__(self) -> str:
+        """
+        Human-readable one-liner for logger.info and debug output.
+
+        Examples:
+            Stream(video | id='vid:1920x1080@4500000' | 1920x1080 | 4.5 Mbps | H.264 | SDR)
+            Stream(audio | id='audio:ita' | it-IT | 128 Kbps | AAC | Stereo | [Default])
+            Stream(subtitle | id='subs:ita-forced' | it-IT | VTT | [Forced])
+        """
+        try:
+            codec = self.get_short_codec() or self.codecs or None
+            lang = self.resolved_language or self.language or None
+            flags = self.get_flags_display() or None
+            drm = self.drm.get_drm_display() if self.drm.is_encrypted() else None
+            id_s = f"id={self.id!r}" if self.id else None
+
+            if self.type == "video":
+                fps_s = f"{self.fps_float:.0f}fps" if self.fps_float else None
+                vrange = self.video_range if self.video_range and self.video_range != "SDR" else None
+                avg_s = self.avg_bitrate_display or None
+                scan_s = self.scan_type if self.scan_type and self.scan_type != "progressive" else None
+                parts = [id_s, self.resolution or None, self.bitrate_display if self.bitrate else None, avg_s, codec, fps_s, vrange, scan_s, drm]
+
+            elif self.type == "audio":
+                ch = self.get_channel_label() or (self.channels if self.channels else None)
+                sr = f"{self.sample_rate}Hz" if self.sample_rate else None
+                parts = [id_s, lang, self.bitrate_display if self.bitrate else None, codec, ch, sr, flags, drm]
+
+            else:  # subtitle
+                parts = [id_s, lang, codec, flags]
+
+            filtered = [p for p in parts if p]
+            return f"Stream({self.type} | {' | '.join(filtered)})"
+
+        except Exception:
+            # Fallback: never raise in __str__
+            return f"Stream({self.type}, lang={self.language}, bw={self.bitrate})"
 
     def __repr__(self) -> str:
         drm_s = f", {self.drm.get_drm_display()}" if self.drm.is_encrypted() else ""
+        hdr_s = f", {self.video_range}" if self.video_range and self.video_range != "SDR" else ""
+        lang_s = self.resolved_language or self.language
         if self.type == "video":
-            return f"Stream(video, {self.resolution}, {self.bitrate_display}{drm_s})"
+            return f"Stream(video, {self.resolution}{hdr_s}, {self.bitrate_display}{drm_s})"
         if self.type == "audio":
-            return f"Stream(audio, {self.language}, {self.bitrate_display}{drm_s})"
-        return f"Stream({self.type}, {self.language})"
+            flags = self.get_flags_display()
+            return f"Stream(audio, {lang_s}{f' {flags}' if flags else ''}, {self.bitrate_display}{drm_s})"
+        flags = self.get_flags_display()
+        return f"Stream({self.type}, {lang_s}{f' {flags}' if flags else ''})"

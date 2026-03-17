@@ -16,8 +16,6 @@ _⚡ **Quick Start:** `pip install VibraVid && VibraVid`_
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Login](.github/doc/login.md)
-- [DNS Configuration](#dns-configuration)
-- [Useful Tools](#useful-tools)
 - [Downloaders](#downloaders)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
@@ -62,26 +60,6 @@ VibraVid
 python manual.py
 ```
 
----
-
-## DNS Configuration
-
-**Required for optimal functionality and reliability.**
-
-Use one of these DNS providers:
-
-- **Cloudflare DNS**: `1.1.1.1` - [Setup guide](https://developers.cloudflare.com/1.1.1.1/setup/)
-- **Quad9 DNS**: `9.9.9.9` - [Setup guide](https://quad9.net/)
-
----
-
-## Useful Tools
-
-- **🔐 [DRM Vault](https://main.viewdb.pages.dev/)** - Manage and browse your DRM keys and licenses
-- **🌐 [Domains List](https://main.viewdb.pages.dev/domains/) / [GitHub Mirror](https://astraelabs.github.io/Domains/)** - View all supported streaming service domains
-
----
-
 ## Downloaders
 
 | Type     | Description                 | Example                                  |
@@ -89,7 +67,6 @@ Use one of these DNS providers:
 | **HLS**  | HTTP Live Streaming (m3u8)  | [View example](./Test/Downloads/HLS.py)  |
 | **MP4**  | Direct MP4 download         | [View example](./Test/Downloads/MP4.py)  |
 | **DASH** | MPEG-DASH with DRM bypass\* | [View example](./Test/Downloads/DASH.py) |
-| **ISM**  | ISM Smooth Streaming        | [View example](./Test/Downloads/ISM.py)  |
 
 **\*DASH with DRM bypass:** Requires a valid L3 CDM (Content Decryption Module). This project does not provide or facilitate obtaining CDMs. Users must ensure compliance with applicable laws.
 
@@ -194,9 +171,9 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 		"retry_count": 40,
 		"concurrent_download": true,
 		"max_speed": "30MB",
-		"select_video": "res=.*1080.*:for=best",
-		"select_audio": "lang='ita|Ita':for=all",
-		"select_subtitle": "lang='ita|eng|Ita|Eng':for=all",
+		"select_video": "1920",
+		"select_audio": "ita|Ita",
+		"select_subtitle": "ita|eng|Ita|Eng",
 		"cleanup_tmp_folder": true
 	}
 }
@@ -226,8 +203,7 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 		"subtitle_order": ["ita", "eng"],
 		"merge_audio": true,
 		"merge_subtitle": true,
-		"subtitle_disposition": true,
-		"subtitle_disposition_language": ["forced-ita", "ita-forced"],
+		"subtitle_disposition_language": "ita_forced",
 		"extension": "mkv"
 	}
 }
@@ -244,9 +220,7 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 - **`subtitle_order`**: List of strings to order subtitle tracks (e.g., `["ita", "eng"]`)
 - **`merge_audio`**: Merge all audio tracks into a single output file (default: `true`)
 - **`merge_subtitle`**: Merge all subtitle tracks into a single output file (default: `true`)
-- **`subtitle_disposition`**: Automatically set default subtitle track (default: `true`)
-- **`subtitle_disposition_language`**: Languages to mark as default/forced
-    - Example: `["forced-ita", "ita-forced"]` for Italian forced subtitles
+- **`subtitle_disposition_language`**: Mark a specific subtitle as default/forced
 - **`force_subtitle`**: How subtitles are handled before remuxing
     - `"auto"` (default): subtitles are renamed/converted according to their detected format; VTT files are also sanitized (unmatched `<` replaced) to avoid data loss when muxed as SRT.
     - `"copy"`: do not convert or rename, just mux the original file as-is (useful if you want to preserve VTT output). This also skips the VTT sanitization step, so any problematic `<` characters remain untouched.

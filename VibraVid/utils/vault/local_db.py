@@ -255,9 +255,7 @@ class LocalDBVault:
                 return []
 
             pssh_display = f"{pssh[:30]}..." if len(pssh) > 30 else pssh
-            console.print(
-                f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])"
-            )
+            console.print(f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])")
             keys = []
             for row in rows:
                 kid, key, label = row
@@ -266,7 +264,7 @@ class LocalDBVault:
 
             return keys
 
-    def get_keys_by_kids(self, license_url: Optional[str], kids: List[str], drm_type: str) -> List[str]:
+    def get_keys_by_kids(self, license_url: Optional[str], kids: List[str], drm_type: str, pssh: str = None) -> List[str]:
         """
         Retrieve keys for one or more KIDs in a single SQL query.
 
@@ -274,6 +272,7 @@ class LocalDBVault:
             license_url (Optional[str]): License URL. If None, search globally by KID.
             kids (List[str]): List of KID values to look up.
             drm_type (str): Either 'widevine' or 'playready'.
+            pssh (str): Optional PSSH value for proper display context
 
         Returns:
             List[str]: List of "KID:KEY" strings found.
@@ -331,7 +330,11 @@ class LocalDBVault:
             if not found:
                 return []
 
-            pssh_display = f"{normalized_kids[0][:30]}..." if normalized_kids else "..."
+            if pssh:
+                pssh_display = f"{pssh[:30]}..." if len(pssh) > 30 else pssh
+            else:
+                pssh_display = f"{normalized_kids[0][:30]}..." if normalized_kids else "..."
+            
             console.print(f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])")
             result_keys = []
             for row in found:
