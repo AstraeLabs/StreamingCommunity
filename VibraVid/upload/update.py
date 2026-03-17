@@ -22,14 +22,14 @@ else:
     base_path = os.path.dirname(__file__)
 console = Console()
 auto_update_check = config_manager.config.get_bool("DEFAULT", "auto_update_check")
-
+timeout = config_manager.config.get_int("REQUESTS", "timeout")
 
 def fetch_github_releases():
     """Fetch releases data from GitHub API (sync)"""
     response = httpx.get(
         f"https://api.github.com/repos/{__author__}/{__title__}/releases",
         headers={'user-agent': get_userAgent()},
-        timeout=config_manager.config.get_int("REQUESTS", "timeout"),
+        timeout=timeout,
         follow_redirects=True
     )
     return response.json()

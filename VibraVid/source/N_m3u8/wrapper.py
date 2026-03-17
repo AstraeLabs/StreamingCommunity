@@ -24,20 +24,18 @@ from VibraVid.core.downloader.subtitle import download_external_tracks_with_prog
 from VibraVid.core.manifest.stream import Stream
 from VibraVid.source.backend import BaseDownloaderBackend, N3u8dlBackend
 from VibraVid.source.utils.codec import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
-from VibraVid.source.utils.decrypt import Decryptor
-from VibraVid.source.utils.object import KeysManager
+from VibraVid.source.utils.decrypt import Decryptor, KeysManager
 
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
 logger = logging.getLogger("Source")
-_c = config_manager.config
-CONCURRENT_DOWNLOAD = _c.get_bool("DOWNLOAD", "concurrent_download")
-THREAD_COUNT = _c.get_int("DOWNLOAD", "thread_count")
-RETRY_COUNT = _c.get_int("DOWNLOAD", "retry_count")
-REQUEST_TIMEOUT = _c.get_int("REQUESTS", "timeout")
-MAX_SPEED = _c.get("DOWNLOAD", "max_speed")
-USE_PROXY = _c.get_bool("REQUESTS", "use_proxy")
-PROXY_CFG = _c.get_dict("REQUESTS", "proxy")
+CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
+THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
+RETRY_COUNT = config_manager.config.get_int("DOWNLOAD", "retry_count")
+REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
+MAX_SPEED = config_manager.config.get("DOWNLOAD", "max_speed")
+USE_PROXY = config_manager.config.get_bool("REQUESTS", "use_proxy")
+PROXY_CFG = config_manager.config.get_dict("REQUESTS", "proxy")
 
 
 def _default_backend() -> N3u8dlBackend:
@@ -84,9 +82,9 @@ class MediaDownloader:
 
         if self.download_id:
             _output_type = (
-                "Movie" if _c.get("OUTPUT", "movie_folder_name") in str(self.output_dir)
-                else "TV" if _c.get("OUTPUT", "serie_folder_name") in str(self.output_dir)
-                else "Anime" if _c.get("OUTPUT", "anime_folder_name") in str(self.output_dir)
+                "Movie" if config_manager.config.get("OUTPUT", "movie_folder_name") in str(self.output_dir)
+                else "TV" if config_manager.config.get("OUTPUT", "serie_folder_name") in str(self.output_dir)
+                else "Anime" if config_manager.config.get("OUTPUT", "anime_folder_name") in str(self.output_dir)
                 else "other"
             )
             download_tracker.start_download(
@@ -304,9 +302,9 @@ class MediaDownloader:
     # ─────────────────────────────────────────────────────────────────────────
     def _apply_selection(self) -> None:
         f = self.custom_filters or {}
-        v_cfg = f.get("video") or _c.get("DOWNLOAD", "select_video")
-        a_cfg = f.get("audio") or _c.get("DOWNLOAD", "select_audio")
-        s_cfg = f.get("subtitle") or _c.get("DOWNLOAD", "select_subtitle")
+        v_cfg = f.get("video") or config_manager.config.get("DOWNLOAD", "select_video")
+        a_cfg = f.get("audio") or config_manager.config.get("DOWNLOAD", "select_audio")
+        s_cfg = f.get("subtitle") or config_manager.config.get("DOWNLOAD", "select_subtitle")
 
         formatter = self._backend.get_formatter()
         selector = StreamSelector(v_cfg, a_cfg, s_cfg, formatter=formatter)
@@ -315,7 +313,7 @@ class MediaDownloader:
 
     def _ext_lang_matches(self, lang: str, track_type: str) -> bool:
         cfg_key = "select_subtitle" if track_type == "subtitle" else "select_audio"
-        cfg = _c.get("DOWNLOAD", cfg_key, default="all")
+        cfg = config_manager.config.get("DOWNLOAD", cfg_key)
         if not cfg or cfg.lower() == "all":
             return True
         if cfg.lower() == "false":

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
-from VibraVid.core.manifest.stream import DRMInfo, Segment, Stream
+from VibraVid.core.manifest.stream import DRMInfo, Stream
 from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.utils import config_manager
 from VibraVid.source.utils.language import resolve_locale
@@ -367,71 +367,6 @@ class HLSParser:
         elif info.drm_type == "FP" and info.pssh:
             result["fairplay"].append({"pssh": info.pssh, "type": "FairPlay"})
         return result
-
-    def get_kids(self, pssh_list: list) -> list:
-        kids = []
-        for item in pssh_list:
-            pssh_b64 = item["pssh"] if isinstance(item, dict) else item
-            try:
-                data = base64.b64decode(pssh_b64)
-                kids.append(data[32:48].hex() if len(data) >= 48 else "")
-            except Exception:
-                kids.append("")
-        return kids
-
-    def fetch_segments(self, playlist_url: str):
-        try:
-            with create_client(headers=self.headers, timeout=timeout, follow_redirects=True) as c:
-                r = c.get(playlist_url)
-                r.raise_for_status()
-                content = r.text
-
-            if "WEBVTT" in content[:100]:
-                return [Segment(playlist_url, 1, "media")], None, None, None, None, 0.0
-
-            base = playlist_url.rsplit("/", 1)[0] + "/"
-            segments: List[Segment] = []
-            bandwidth = None
-            enc_method = None
-            key_uri = None
-            iv = None
-            total_dur = 0.0
-
-            for i, line in enumerate(content.splitlines()):
-                line = line.strip()
-                if line.startswith("#EXT-X-STREAM-INF:"):
-                    m = re.search(r"BANDWIDTH=(\d+)", line)
-                    if m:
-                        bandwidth = int(m.group(1))
-                elif line.startswith("#EXT-X-KEY:"):
-                    m_method = re.search(r"METHOD=([^,\s]+)", line)
-                    m_uri = re.search(r'URI="([^"]+)"', line)
-                    m_iv = re.search(r"IV=0x([0-9a-fA-F]+)", line)
-                    if m_method and m_uri:
-                        enc_method = m_method.group(1)
-                        key_uri = urljoin(base, m_uri.group(1))
-                        iv = m_iv.group(1) if m_iv else None
-                elif line.startswith("#EXTINF:"):
-                    m = re.search(r"#EXTINF:([\d.]+)", line)
-                    if m:
-                        total_dur += float(m.group(1))
-                    for nxt in content.splitlines()[i + 1:]:
-                        nxt = nxt.strip()
-                        if nxt and not nxt.startswith("#"):
-                            segments.append(Segment(urljoin(base, nxt), len(segments) + 1, "media"))
-                            break
-
-            if not segments:
-                for line in content.splitlines():
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        segments.append(Segment(urljoin(base, line), len(segments) + 1, "media"))
-
-            return segments, bandwidth, enc_method, key_uri, iv, total_dur
-
-        except Exception as exc:
-            logger.error(f"HLSParser.fetch_segments error: {exc}")
-            return [], None, None, None, None, 0.0
 
     @staticmethod
     def _attr(line: str, key: str, default: str = "") -> str:

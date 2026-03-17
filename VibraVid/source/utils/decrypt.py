@@ -36,6 +36,48 @@ _SCHEME_TO_MODE = {
 }
 
 
+class KeysManager:
+    def __init__(self, keys=None):
+        self._keys = []
+        if keys:
+            self.add_keys(keys)
+    
+    def add_keys(self, keys):
+        if isinstance(keys, str):
+            for k in keys.split('|'):
+                if ':' in k:
+                    kid, key = k.split(':', 1)
+                    self._keys.append((kid.strip(), key.strip()))
+
+        elif isinstance(keys, list):
+            for k in keys:
+                if isinstance(k, str):
+                    if ':' in k:
+                        kid, key = k.split(':', 1)
+                        self._keys.append((kid.strip(), key.strip()))
+
+                elif isinstance(k, dict):
+                    kid = k.get('kid', '')
+                    key = k.get('key', '')
+                    if kid and key:
+                        self._keys.append((kid.strip(), key.strip()))
+    
+    def get_keys_list(self):
+        return [f"{kid}:{key}" for kid, key in self._keys]
+    
+    def __len__(self):
+        return len(self._keys)
+    
+    def __iter__(self):
+        return iter(self._keys)
+    
+    def __getitem__(self, index):
+        return self._keys[index]
+    
+    def __bool__(self):
+        return len(self._keys) > 0
+
+
 class Decryptor:
     def __init__(self, preference: str = "bento4", license_url: str = None, drm_type: str = None):
         logger.info(f"Initializing Decryptor with preference: {preference}, license_url: {license_url}, drm_type: {drm_type}")

@@ -127,13 +127,7 @@ class DASH_Downloader(BaseDownloader):
         self.decrypt_preference = decrypt_preference.lower()
         self.key = key
         self.cookies = cookies or {}
-
-        self.drm_manager = DRMManager(
-            get_wvd_path(),
-            get_prd_path(),
-            config_manager.config.get_dict("DRM", "widevine"),
-            config_manager.config.get_dict("DRM", "playready"),
-        )
+        self.drm_manager = DRMManager(get_wvd_path(), get_prd_path(), config_manager.config.get_dict("DRM", "widevine"), config_manager.config.get_dict("DRM", "playready"))
 
         self.download_id = context_tracker.download_id
         self.site_name = context_tracker.site_name
@@ -203,30 +197,21 @@ class DASH_Downloader(BaseDownloader):
         return result
 
     def _collect_drm_from_mpd(self, raw_mpd_path: Optional[str]) -> Dict[str, List[Dict]]:
-        """Fallback: scan the saved raw .mpd via MPDParser to extract PSSH."""
+        """Fallback: scan the saved raw .mpd via DashParser to extract PSSH."""
         result: Dict[str, List[Dict]] = {"WV": [], "PR": []}
         try:
-            parser = DashParser(self.mpd_url, headers=self.mpd_headers)
             if raw_mpd_path and os.path.exists(raw_mpd_path):
-                parser.parse_from_file(raw_mpd_path)
+                with open(raw_mpd_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                parser = DashParser(self.mpd_url, headers=self.mpd_headers, content=content)
             else:
-                parser.parse()
+                parser = DashParser(self.mpd_url, headers=self.mpd_headers)
+                if not parser.fetch_manifest():
+                    return result
 
-            drm_info = parser.get_drm_info(self.drm_preference)
+            streams = parser.parse_streams()
+            result = self._collect_drm_from_streams(streams)
 
-            for entry in drm_info.get("widevine_pssh", []):
-                result["WV"].append(entry)
-            for entry in drm_info.get("playready_pssh", []):
-                result["PR"].append(entry)
-
-            if drm_info.get("available_drm_types"):
-                try:
-                    parser.print_adaptation_sets_info()
-                except Exception:
-                    pass
-
-        except ImportError:
-            logger.warning("MPDParser not available — skipping MPD DRM fallback")
         except Exception as exc:
             logger.debug(f"_collect_drm_from_mpd error: {exc}")
 
@@ -254,24 +239,27 @@ class DASH_Downloader(BaseDownloader):
 
         return keys or []
     def _fetch_keys_for_audio_mpd(self, audio_url: str, audio_headers: dict, raw_mpd_path: Optional[str], streams: list, license_url: Optional[str] = None, license_hdrs: Optional[dict] = None) -> List[str]:
-        """Fetch DRM keys for an extra-audio MPD. Primary: Stream.drm; fallback: MPDParser."""
+        """Fetch DRM keys for an extra-audio MPD. Primary: Stream.drm; fallback: DashParser."""
         drm_psshs = self._collect_drm_from_streams(streams)
 
         if not drm_psshs["WV"] and not drm_psshs["PR"]:
             try:
-                parser = DashParser(audio_url, headers=audio_headers)
                 if raw_mpd_path and os.path.exists(raw_mpd_path):
-                    parser.parse_from_file(raw_mpd_path)
+                    with open(raw_mpd_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    parser = DashParser(audio_url, headers=audio_headers, content=content)
                 else:
-                    parser.parse()
+                    parser = DashParser(audio_url, headers=audio_headers)
+                    parser.fetch_manifest()
 
-                drm_info = parser.get_drm_info(self.drm_preference)
-                for e in drm_info.get("widevine_pssh", []):
+                extra_streams = parser.parse_streams()
+                extra_drm = self._collect_drm_from_streams(extra_streams)
+                for e in extra_drm.get("WV", []):
                     drm_psshs["WV"].append(e)
-                for e in drm_info.get("playready_pssh", []):
+                for e in extra_drm.get("PR", []):
                     drm_psshs["PR"].append(e)
             except Exception as exc:
-                logger.debug(f"Audio MPDParser fallback: {exc}")
+                logger.debug(f"Audio DashParser fallback: {exc}")
 
         if not drm_psshs["WV"] and not drm_psshs["PR"]:
             return []
@@ -363,9 +351,7 @@ class DASH_Downloader(BaseDownloader):
                                 }
                             )
                         except Exception as e:
-                            console.print(
-                                f"[yellow]Could not move audio {audio_language}: {e}"
-                            )
+                            console.print(f"[yellow]Could not move audio {audio_language}: {e}")
 
                 for sf in audio_status.get("subtitles", []):
                     fpath = sf.get("path")
