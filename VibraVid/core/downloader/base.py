@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager, internet_manager
+from VibraVid.utils import config_manager
 from VibraVid.core.post import join_video, join_audios, join_subtitles
 from VibraVid.source.style.tracker import download_tracker
 from VibraVid.core.post.helper.nfo import create_nfo
@@ -244,46 +244,19 @@ class BaseDownloader:
             except Exception as e:
                 console.print(f"[yellow]Warning: Could not move audio {audio_info['language']}: {e}")
 
-    def _print_summary(self) -> None:
-        """Print summary of the final output file."""
-        if not os.path.exists(self.output_path):
-            return
-        
-        file_size = internet_manager.format_file_size(os.path.getsize(self.output_path))
-        duration = (
-            self.last_merge_result.get("time", "N/A")
-            if self.last_merge_result and isinstance(self.last_merge_result, dict)
-            else "N/A"
-        )
-        console.print(f"  [cyan]Path:     [red]{os.path.abspath(self.output_path)}")
-        console.print(f"  [cyan]Size:     [red]{file_size}")
-        console.print(f"  [cyan]Duration: [red]{duration}")
-
-
-    def _finalize(self, *, final_file: str, show_summary: bool = True) -> None:
-        """
-        Common tail for start():
-        move to final location → copy staged tracks → print summary →
-        NFO → tracker complete → tmp cleanup → post_run hooks.
-        """
+    def _finalize(self, *, final_file: str) -> None:
+        """Common tail for start(): move to final location → copy staged tracks → print summary → NFO → tracker complete → tmp cleanup → post_run hooks."""
         if final_file and os.path.exists(final_file):
             self._move_to_final_location(final_file)
 
         self._move_copied_subtitles()
         self._move_copied_audios()
 
-        if show_summary:
-            self._print_summary()
-
         if CREATE_NFO_FILES:
             create_nfo(self.output_path)
 
         if self.download_id:
-            download_tracker.complete_download(
-                self.download_id,
-                success=True,
-                path=os.path.abspath(self.output_path),
-            )
+            download_tracker.complete_download(self.download_id, success=True, path=os.path.abspath(self.output_path))
 
         if CLEANUP_TMP:
             shutil.rmtree(self.output_dir, ignore_errors=True)

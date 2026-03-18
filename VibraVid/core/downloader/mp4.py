@@ -56,7 +56,7 @@ def signal_handler(signum, frame, interrupt_handler, original_handler):
         signal.signal(signum, original_handler)
 
 
-def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = None, show_final_info: bool = True, download_id: str = None, site_name: str = None):
+def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = None, download_id: str = None, site_name: str = None):
     """
     Downloads an MP4 video
 
@@ -65,7 +65,6 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
         - path: The local file path to save the video to
         - referer: Optional referer header to include in the request
         - headers_: Optional additional headers to include in the request
-        - show_final_info: Whether to display final file info after download
         - download_id: Optional ID for tracking the download in the GUI
         - site_name: Optional site name for tracking purposes in the GUI
     """
@@ -300,13 +299,8 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
             return None, interrupt_handler.kill_download
  
     if os.path.exists(path):
-        if show_final_info:
-            file_size = internet_manager.format_file_size(os.path.getsize(path))
-            console.print(f"  [cyan]Path: [red]{os.path.abspath(path)}")
-            console.print(f"  [cyan]Size: [red]{file_size}")
-
-            if incomplete_error or (total and os.path.getsize(path) < total):
-                console.print("[yellow]Warning: download was incomplete (partial file saved).")
+        if incomplete_error or (total and os.path.getsize(path) < total):
+            console.print("[yellow]Warning: download was incomplete (partial file saved).")
 
         if CREATE_NFO_FILES:
             create_nfo(path)

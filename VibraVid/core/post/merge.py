@@ -177,7 +177,7 @@ def join_audios(video_path: str, audio_tracks: List[Dict[str, str]], out_path: s
         audio_path = audio_track.get('path')
         audio_lang = audio_track.get('name', 'unknown')
         _, diff, video_duration, audio_duration = check_duration_v_a(video_path, audio_path)
-        console.print(f"[yellow]    - [cyan]Audio lang [red]{audio_lang}, [cyan]Path: [red]{audio_path}, [cyan]Video duration: [red]{video_duration:.2f}s, [cyan]Audio duration: [red]{audio_duration:.2f}s, [cyan]Diff: [red]{diff:.2f}s")
+        console.print(f"[yellow]    - [cyan]Audio lang [red]{audio_lang}, [cyan]Video duration: [red]{video_duration:.2f}s, [cyan]Audio duration: [red]{audio_duration:.2f}s, [cyan]Diff: [red]{diff:.2f}s")
         
         # If any audio track has a significant duration difference, use -shortest
         if diff > limit_duration_diff:
@@ -286,7 +286,7 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     for idx, subtitle in enumerate(subtitles_list):
         sub_path = subtitle['path']
         lang_display = subtitle.get('lang', subtitle.get('language', 'unknown'))
-        console.print(f"[yellow]    - [cyan]Subtitle lang [red]{lang_display}, [cyan]Path: [red]{sub_path}")
+        console.print(f"[yellow]    - [cyan]Subtitle lang [red]{lang_display}")
         ffmpeg_cmd += ["-map", f"{idx + 1}:s"]
         
         # Determine best codec mapping for this specific subtitle into this container

@@ -116,12 +116,17 @@ class DashParser:
         dur_str = self._root.get("mediaPresentationDuration", "")
         global_duration = self._parse_iso_duration(dur_str)
 
-        for period in self._root.findall("mpd:Period", _NS):
+        all_periods = self._root.findall("mpd:Period", _NS)
+        is_multi_period = len(all_periods) > 1
+        global_seen_fingerprints: set = set()
+
+        for period_idx, period in enumerate(all_periods):
             period_base_url = self._resolve_element_base_url(period, self._base_url)
             period_start = self._parse_iso_duration(period.get("start", ""))
             period_duration = self._parse_iso_duration(period.get("duration", dur_str))
+            period_seen_fingerprints: set = set()
 
-            for adapt in period.findall("mpd:AdaptationSet", _NS):
+            for adapt_idx, adapt in enumerate(period.findall("mpd:AdaptationSet", _NS)):
                 adapt_base_url = self._resolve_element_base_url(adapt, period_base_url)
                 mime = (adapt.get("contentType") or adapt.get("mimeType") or "").lower()
 
@@ -146,18 +151,26 @@ class DashParser:
                         continue
 
                 adapt_drm = self._extract_drm(adapt)
-                seen_rep_keys: set = set()
 
                 for rep in adapt.findall("mpd:Representation", _NS):
+                    rep_id = rep.get("id", "")
+
                     rep_base_url = self._resolve_element_base_url(rep, adapt_base_url)
                     s = self._parse_representation(rep, adapt, stype, adapt_drm, global_duration or period_duration, period_start, rep_base_url)
                     if s is None:
                         continue
-                    dedup_key = (s.language, (s.codecs or "").lower(), s.bitrate)
-                    if dedup_key in seen_rep_keys:
-                        logger.info(f"DASH stream skipped (duplicate) | {stype} lang={s.language}  codecs={s.codecs}  bw={s.bitrate_display}")
+
+                    fingerprint = (s.type, s.id, s.bitrate, (s.codecs or "").lower(), (s.language or "").lower(), (s.channels or ""), s.sample_rate,)
+                    if fingerprint in period_seen_fingerprints:
+                        logger.debug(f"DASH stream skipped (intra-period duplicate) | id={rep_id!r} period={period_idx} lang={s.language} bw={s.bitrate} codec={s.codecs}")
                         continue
-                    seen_rep_keys.add(dedup_key)
+                    period_seen_fingerprints.add(fingerprint)
+                    if not is_multi_period:
+                        if fingerprint in global_seen_fingerprints:
+                            logger.debug(f"DASH stream skipped (global duplicate) | id={rep_id!r} lang={s.language} bw={s.bitrate} codec={s.codecs}")
+                            continue
+                        global_seen_fingerprints.add(fingerprint)
+
                     streams.append(s)
                     logger.info(f"DASH stream added | {s}")
 
@@ -413,7 +426,7 @@ class DashParser:
                 )
         elif "$Time$" in media_tpl:
             logger.warning("DashParser: SegmentTemplate $Time$ without SegmentTimeline — skipping")
-
+    
     def _apply_segment_list(self, seg_list, stream, base_url):
         init_el = seg_list.find("mpd:Initialization", _NS)
         if init_el is not None:
@@ -424,8 +437,6 @@ class DashParser:
             media_url = seg_el.get("media", "")
             if media_url:
                 stream.add_segment(Segment(urljoin(base_url, media_url), idx, "media"))
-        if not any(s.seg_type == "media" for s in stream.segments):
-            logger.warning(f"DashParser: SegmentList for {stream.id!r} produced no media segments")
 
     @staticmethod
     def _parse_iso_duration(s: str) -> float:
