@@ -243,6 +243,7 @@ def main():
     initialize()
 
     try:
+        
         search_functions = load_search_functions()
         parser = setup_argument_parser(search_functions)
         args = parser.parse_args()

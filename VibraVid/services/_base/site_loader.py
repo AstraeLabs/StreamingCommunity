@@ -10,6 +10,7 @@ from typing import Dict
 from rich.console import Console
 
 from VibraVid.setup import get_is_binary_installation
+from VibraVid.utils.os import os_manager
 
 
 console = Console()
@@ -103,8 +104,14 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
         base_path = os.path.dirname(os.path.dirname(__file__))
     
     logger.info(f"Loading site modules from: {base_path}")
+    
     modules_metadata = []
-    for init_file in glob.glob(os.path.join(base_path, '*', '__init__.py')):
+    
+    # Escape base_path for glob to handle paths with special characters like brackets
+    escaped_base_path = os_manager.get_glob_path(base_path)
+    found_inits = glob.glob(os.path.join(escaped_base_path, '*', '__init__.py'))
+    
+    for init_file in found_inits:
         module_name = os.path.basename(os.path.dirname(init_file))
         try:
             with open(init_file, 'r', encoding='utf-8') as f:
@@ -133,7 +140,7 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
                 modules_metadata.append((module_name, indice, use_for))
                 
         except Exception as e:
-            console.print(f"[yellow]Warning: Could not read metadata from {module_name}: {str(e)}")
+            console.print(f"[yellow]Warning: Could not read metadata from {module_name}: {str(e)}[/yellow]")
     
     # Sort by index and create lazy loaders with consecutive indices
     sorted_modules = sorted(modules_metadata, key=lambda x: x[1])
