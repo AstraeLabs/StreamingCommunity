@@ -285,12 +285,10 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     # Add subtitle maps and metadata
     for idx, subtitle in enumerate(subtitles_list):
         sub_path = subtitle['path']
-        lang_display = subtitle.get('lang', subtitle.get('language', 'unknown'))
-        console.print(f"[yellow]    - [cyan]Subtitle lang [red]{lang_display}")
-        ffmpeg_cmd += ["-map", f"{idx + 1}:s"]
-        
-        # Determine best codec mapping for this specific subtitle into this container
         sub_ext = os.path.splitext(sub_path)[1].lower().lstrip('.')
+        lang_display = subtitle.get('lang', subtitle.get('language', 'unknown'))
+        console.print(f"[yellow]    - [cyan]Subtitle lang [red]{lang_display}.{sub_ext}")
+        ffmpeg_cmd += ["-map", f"{idx + 1}:s"]
         
         if output_ext == '.mp4':
             ffmpeg_cmd += [f"-c:s:{idx}", "mov_text"]

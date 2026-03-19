@@ -30,7 +30,7 @@ from VibraVid.utils.tmdb_client import tmdb_client
 
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
-logger  = logging.getLogger("Source")
+logger  = logging.getLogger("n3u8dl_re")
 
 CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
 THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
@@ -313,8 +313,6 @@ class MediaDownloader:
         sel_video = [s for s in self.streams if s.type == "video"    and s.selected and not s.is_external]
         sel_audio = [s for s in self.streams if s.type == "audio"    and s.selected and not s.is_external]
         sel_subs  = [s for s in self.streams if s.type == "subtitle" and s.selected and not s.is_external]
-
-        logger.info(f"Preparing labels for {len(self.streams)} streams (type={self.manifest_type})")
 
         # Video
         self._has_video = bool(sel_video)

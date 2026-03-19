@@ -132,22 +132,21 @@ def manage_selection(cmd_insert: str, max_count: int) -> List[int]:
     return list_selection
 
 
-def map_movie_title(title_name: str, title_year: str = None) -> str:
+def map_movie_path(title_name: str, title_year: str = None) -> tuple:
     """
-    Maps the movie title to a specific format using the movie_format config.
+    Maps the complete movie directory and filename using the movie_format config.
 
     Parameters:
         title_name (str): The name of the movie.
         title_year (str): The release year of the movie (optional).
 
     Returns:
-        str: The formatted movie filename (without extension).
+        tuple: (path_components, filename) where path_components is a list for path assembly and filename is the final movie filename.
     """
     map_movie_temp = MOVIE_FORMAT
-    logger.info(f"Mapping movie title with name: {title_name} and year: {title_year}")
+    logger.info(f"Mapping movie path with name: {title_name} and year: {title_year}")
 
     if title_name is not None:
-
         # Support both %(title_name) and %(title_name_slug)
         map_movie_temp = map_movie_temp.replace("%(title_name)", os_manager.get_sanitize_file(title_name))
         map_movie_temp = map_movie_temp.replace("%(title_name_slug)", tmdb_client._slugify(title_name))
@@ -163,7 +162,11 @@ def map_movie_title(title_name: str, title_year: str = None) -> str:
         map_movie_temp = map_movie_temp.replace("(%(title_year))", "").strip()
         map_movie_temp = map_movie_temp.replace("%(title_year)", "").strip()
 
-    return map_movie_temp
+    # Split into path components and filename
+    parts = map_movie_temp.split('/')
+    filename = parts[-1] if parts else map_movie_temp
+    path_components = parts[:-1] if len(parts) > 1 else []
+    return (path_components, filename)
 
 
 def map_series_name(series_name: str, series_year: str = None) -> str:

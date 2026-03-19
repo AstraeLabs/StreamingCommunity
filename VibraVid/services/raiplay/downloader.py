@@ -11,7 +11,7 @@ from rich.prompt import Prompt
 from VibraVid.utils import config_manager, start_message
 from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_path
+from VibraVid.services._base.tv_display_manager import map_movie_path, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
 from VibraVid.core.downloader import DASH_Downloader, HLS_Downloader
@@ -60,24 +60,17 @@ def download_film(select_title: Entries) -> Tuple[str, bool]:
     master_playlist = VideoSource.extract_m3u8_url(first_item_path)
 
     # Define the filename and path for the downloaded film
-    title_name = f"{map_movie_title(select_title.name, select_title.year)}.{extension_output}"
-    title_path = os.path.join(site_constants.MOVIE_FOLDER, title_name.replace(f".{extension_output}", ""))
+    path_components, filename = map_movie_path(select_title.name, select_title.year)
+    movie_path = os.path.join(site_constants.MOVIE_FOLDER, *path_components) if path_components else site_constants.MOVIE_FOLDER
+    movie_name = f"{filename}.{extension_output}"
 
     # HLS
     if ".mpd" not in master_playlist:
-        return HLS_Downloader(
-            m3u8_url=fix_manifest_url(master_playlist),
-            license_url=generate_license_url(select_title.mpd_id),
-            output_path=os.path.join(title_path, title_name)
-        ).start()
+        return HLS_Downloader(m3u8_url=fix_manifest_url(master_playlist), license_url=generate_license_url(select_title.mpd_id), output_path=os.path.join(movie_path, movie_name)).start()
 
     # MPD
     else:
-        return DASH_Downloader(
-            mpd_url=master_playlist,
-            license_url=generate_license_url(select_title.mpd_id),
-            output_path=os.path.join(title_path, title_name),
-        ).start()
+        return DASH_Downloader(mpd_url=master_playlist, license_url=generate_license_url(select_title.mpd_id), output_path=os.path.join(movie_path, movie_name)).start()
     
 
 def download_episode(obj_episode, index_season_selected, index_episode_selected, scrape_serie):
