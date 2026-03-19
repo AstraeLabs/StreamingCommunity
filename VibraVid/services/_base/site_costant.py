@@ -12,6 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 def get_site_name_from_stack():
+    """
+    Extract site name from the call stack.
+    
+    Returns:
+        str: Site name, or None if not found
+    """
     for frame_info in inspect.stack():
         file_path = frame_info.filename
         if f"{lazy_loader_folder}{os.sep}" in file_path:
@@ -20,7 +26,18 @@ def get_site_name_from_stack():
                 site_name = parts[1].split(os.sep)[0]
                 if site_name not in ('_base', 'site_loader', '__pycache__'):
                     return site_name
+        
+        # Try to extract from any path with __init__.py or module files
+        dir_name = os.path.dirname(file_path)
+        potential_site = os.path.basename(dir_name)
+        
+        # Check if this directory looks like a service module
+        if (potential_site and potential_site not in ('_base', '__pycache__', 'VibraVid') and not potential_site.startswith('.')):
+            init_file = os.path.join(dir_name, '__init__.py')
+            if os.path.exists(init_file):
+                return potential_site
     
+    logger.error("Could not extract site_name from call stack - returning None")
     return None
 
 class SiteConstant:
