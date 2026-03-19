@@ -1,5 +1,6 @@
 # 18.07.25
 
+import logging
 import os
 from typing import Optional
 
@@ -9,6 +10,7 @@ from .binary_paths import binary_paths
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class DeviceSearcher:
@@ -21,11 +23,13 @@ class DeviceSearcher:
             for file in os.listdir(self.base_dir):
                 if file.lower().endswith(ext):
                     path = os.path.join(self.base_dir, file)
+                    logger.info("Found %s file in binary directory: %s", ext, path)
                     return path
                 
             return None
         
         except Exception as e:
+            logger.exception("Error checking existing %s files", ext)
             console.print(f"[red]Error checking existing {ext} files: {e}")
             return None
 
@@ -40,15 +44,18 @@ class DeviceSearcher:
                     if filename:
                         if file == filename:
                             path = os.path.join(root, file)
+                            logger.info("Found %s at %s", filename, path)
                             return path
                         
                     elif ext:
                         if file.lower().endswith(ext):
                             path = os.path.join(root, file)
+                            logger.info("Found %s at %s", ext, path)
                             return path
                         
             return None
         except Exception as e:
+            logger.exception("Error during recursive search for filename %s", filename)
             console.print(f"[red]Error during recursive search for filename {filename}: {e}")
             return None
 
@@ -61,9 +68,10 @@ class DeviceSearcher:
             try:
                 target_path = os.path.join(self.base_dir, filename)
                 if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+                    logger.info("Found %s in binary directory: %s", filename, target_path)
                     return target_path
-                
             except Exception as e:
+                logger.exception("Error checking for existing file %s", filename)
                 console.print(f"[red]Error checking for existing file {filename}: {e}")
                 return None
 

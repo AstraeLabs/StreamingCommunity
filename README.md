@@ -85,7 +85,7 @@ Key configuration parameters in `config.json`:
 		"movie_folder_name": "Movie",
 		"serie_folder_name": "Serie",
 		"anime_folder_name": "Anime",
-		"movie_format": "%(title_name) (%(title_year))",
+		"movie_format": "%(title_name) (%(title_year))/%(title_name) (%(title_year))",
 		"episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
 	}
 }
@@ -108,9 +108,28 @@ Key configuration parameters in `config.json`:
 
 ---
 
-#### Episode Format Configuration
+#### Movie Format Configuration
 
-The `episode_format` controls how the complete series directory structure and filenames are organized. The format includes folder paths and filename in one string.
+**Default format:** `"%(title_name) (%(title_year))/%(title_name) (%(title_year))"`
+
+Results in:
+
+```
+%(title_name) (%(title_year))/  → Movie folder  (Inception (2010))
+%(title_name) (%(title_year))   → Filename      (Inception (2010).mkv)
+```
+
+**Format variables:**
+- `%(title_name)`: Movie title
+- `%(title_name_slug)`: Movie title as slug
+- `%(title_year)`: Movie release year (optional, removed if not available)
+- `%(quality)`: Video resolution
+- `%(language)`: Audio languages
+- `%(video_codec)`: Video codec
+- `%(audio_codec)`: Audio codec
+---
+
+#### Episode Format Configuration
 
 **Default format:** `"%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"`
 
@@ -124,13 +143,17 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 
 **Format variables:**
 
-- `%(series_name)`: Series name (sanitized)
-- `%(series_name_slug)`: Series name as slug (e.g., "breaking-bad")
-- `%(series_year)`: Series release year (optional, removed if not available)
+- `%(series_name)`: Series name
+- `%(series_name_slug)`: Series name as slug
+- `%(series_year)`: Series release year
 - `%(season:FORMAT)`: Season number — padding controlled inline (see table below)
 - `%(episode:FORMAT)`: Episode number — padding controlled inline (see table below)
 - `%(episode_name)`: Episode title (sanitized)
-- `%(episode_name_slug)`: Episode title as slug (e.g., "the-iron-throne")
+- `%(episode_name_slug)`: Episode title as slug
+- `%(quality)`: Video resolution
+- `%(language)`: Audio languages
+- `%(video_codec)`: Video codec
+- `%(audio_codec)`: Audio codec
 
 **Inline Padding Syntax:**
 
@@ -140,21 +163,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 | `%(season:03d)` | `001`        | Zero-pad to 3 digits |
 | `%(season:d)`   | `1`          | No padding           |
 
-**Custom Format Examples:**
-
-```json
-"episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
-// Results: Breaking Bad/S01/Pilot S01E05.mkv
-
-"episode_format": "%(series_name)/Season %(season:d)/E%(episode:d) - %(episode_name)"
-// Results: Breaking Bad/Season 1/E5 - Pilot.mkv
-
-"episode_format": "%(series_name) (%(series_year))/%(episode_name) [S%(season:02d)E%(episode:02d)]"
-// Results: Breaking Bad (2008)/Pilot [S01E05].mkv
-
-"episode_format": "Shows/%(series_name)/%(series_year)/%(episode_name)"
-// Results: Shows/Breaking Bad/2008/Pilot.mkv
-```
 
 ---
 

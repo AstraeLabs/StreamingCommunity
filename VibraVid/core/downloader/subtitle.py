@@ -11,6 +11,15 @@ from VibraVid.source.utils.language import resolve_locale
 
 
 logger = logging.getLogger("SubtitleDownloader")
+VALID_SUBTITLE_FORMATS = {"vtt", "srt", "ass", "ssa", "ttml2", "ttml", "xml", "dfxp"}
+
+
+def is_valid_format(fmt: str, track_type: str) -> bool:
+    """Check if the detected format is valid for the given track type."""
+    fmt_lower = fmt.lower()
+    if track_type == "subtitle":
+        return fmt_lower in VALID_SUBTITLE_FORMATS
+    return False
 
 
 def _extract_lang_and_flags(lang_raw: str, track_info: Dict = None) -> Tuple[str, set]:
@@ -151,6 +160,9 @@ async def download_external_tracks_with_progress(headers: Dict, external_subtitl
                 lang_raw = (track.get("language") or "unknown").strip()
                 raw_url = track["url"]
                 final_url, fmt = await resolve_url(client, raw_url, track_type)
+                if not is_valid_format(fmt, track_type):
+                    logger.error(f"Skipping {track_type} with invalid format '{fmt}' for {lang_raw}: {raw_url}")
+                    continue
 
                 # ── Build normalised filename ───────────────────────────
                 base_lang, flag_suffix = normalize_sub_filename(lang_raw, track)

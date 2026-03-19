@@ -127,7 +127,7 @@ def create_async_client(*, headers: Optional[Dict[str, str]] = None, cookies: Op
 
 def create_client_curl(*, headers: Optional[Dict[str, str]] = None, cookies: Optional[Dict[str, str]] = None,
     timeout: Optional[Union[int, float]] = None, verify: Optional[bool] = None, proxies: Optional[Dict[str, str]] = None,
-    impersonate: str = "chrome142", allow_redirects: bool = True,
+    impersonate: str = "chrome136", allow_redirects: bool = True,
 ):
     """Factory for a configured curl_cffi session."""
     session = requests.Session()

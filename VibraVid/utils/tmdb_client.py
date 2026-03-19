@@ -19,16 +19,12 @@ api_key = config_manager.login.get("TMDB", "api_key")
 
 class TMDBClient:
     def __init__(self, api_key: str):
-        """
-        Initialize the class with the API key.
-        """
+        """Initialize the class with the API key."""
         self.api_key = api_key
         self.base_url = "https://api.themoviedb.org/3"
 
     def _make_request(self, endpoint, params=None, retries=3):
-        """
-        Make a request to the given API endpoint with optional parameters.
-        """
+        """Make a request to the given API endpoint with optional parameters."""
         if params is None:
             params = {}
 
@@ -61,27 +57,19 @@ class TMDBClient:
         return {}
 
     def _slugify(self, text):
-        """
-        Normalize and slugify a given text.
-        """
+        """Normalize and slugify a given text."""
         text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
         text = re.sub(r'[^\w\s-]', '', text).strip().lower()
         text = re.sub(r'[-\s]+', '-', text)
-        logger.info(f"Slugified '{text}'")
         return text
 
     def _slugs_match(self, slug1: str, slug2: str, threshold: float = 0.85) -> bool:
-        """
-        Check if two slugs are similar enough using fuzzy matching.
-        """
+        """Check if two slugs are similar enough using fuzzy matching."""
         ratio = SequenceMatcher(None, slug1, slug2).ratio()
         return ratio >= threshold
 
     def get_type_and_id_by_slug_year(self, slug: str, year: str = None, media_type: str = None, language_preference: str = "it"):
-        """
-        Get the type (movie or tv) and ID from TMDB based on slug and year.
-        """
-
+        """Get the type (movie or tv) and ID from TMDB based on slug and year."""
         # Anime often dont have a year, so we should be flexible with it
         if year:
             year = int(year)
@@ -139,9 +127,7 @@ class TMDBClient:
             return None
 
     def get_year_by_slug_and_type(self, slug: str, media_type: str, language_preference: str = "it"):
-        """
-        Returns the year from the first search result that matches the slug.
-        """
+        """Returns the year from the first search result that matches the slug."""
         if media_type == "movie":
             results = self._make_request("search/movie", {"query": slug.replace('-', ' '), "language": language_preference}).get("results", [])
             logger.info(f"Found {len(results)} movie results for slug '{slug}'")
@@ -189,9 +175,7 @@ class TMDBClient:
         return None
 
     def get_backdrop_url(self, media_type: str, tmdb_id: int, size: str = "w1280"):
-        """
-        Get the backdrop URL for a movie or TV show.
-        """
+        """Get the backdrop URL for a movie or TV show."""
         try:
             logger.info(f"Getting backdrop for {media_type} with TMDB ID {tmdb_id}")
             details = self._make_request(f"{media_type}/{tmdb_id}", {"language": "it"})
@@ -207,9 +191,7 @@ class TMDBClient:
         return None
 
     def search_movie(self, query: str):
-        """
-        Search for a movie and return the TMDB ID of the first result.
-        """
+        """Search for a movie and return the TMDB ID of the first result."""
         results = self._make_request("search/movie", {"query": query, "language": "it"}).get("results", [])
         logger.info(f"Found {len(results)} movie results for query '{query}'")
 
@@ -218,9 +200,7 @@ class TMDBClient:
         return None
 
     def get_movie_details(self, tmdb_id: int):
-        """
-        Get movie details including title and IMDB ID.
-        """
+        """Get movie details including title and IMDB ID."""
         details = self._make_request(f"movie/{tmdb_id}", {"language": "it"})
         logger.info(f"Got details for movie ID {tmdb_id}: {details.get('title')} (IMDB ID: {details.get('imdb_id')})")
 
@@ -291,5 +271,6 @@ class TMDBClient:
         return series
 
 
+# Istance
 tmdb_client = TMDBClient(api_key)
 tmdb = tmdb_client

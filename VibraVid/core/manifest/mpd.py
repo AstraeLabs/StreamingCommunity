@@ -172,7 +172,7 @@ class DashParser:
                         global_seen_fingerprints.add(fingerprint)
 
                     streams.append(s)
-                    logger.info(f"DASH stream added | {s}")
+                    logger.info(f"DASH add | {s}")
 
         return streams
 

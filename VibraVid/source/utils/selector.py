@@ -60,7 +60,7 @@ class FilterSpec:
     "1920,H265"                             height + codec (video)
     ",H265"                                 codec only (video)
     "H265"                                  codec only bare (video)
-    "ita|it"                                language tokens (audio/sub)
+    "ita|it" or "ita it"                    language tokens (audio/sub) — pipe or space separated
     "ita|it,AAC"                            language + codec (audio)
     ",AAC"                                  codec only (audio)
     "res=1080:codecs=hvc1:for=best"         native n3u8dl passthrough
@@ -111,13 +111,14 @@ class FilterSpec:
             spec.res = primary
             return spec
 
-        if not codec_s and "|" not in primary:
+        if not codec_s and "|" not in primary and " " not in primary:
             translated = get_codec_token(primary, stream_type)
             if translated.lower() != primary.lower():
                 spec.codec = translated
                 return spec
 
-        spec.langs = primary
+        raw_langs = primary
+        spec.langs = "|".join(t.strip() for t in re.split(r'[|\s]+', raw_langs) if t.strip())
         return spec
 
     def _parse_native(self, r: str, stream_type: str) -> None:
@@ -158,7 +159,7 @@ class SelectionResult:
     What StreamSelector found after progressive fallback.
 
     matched_res       Normalised HEIGHT string (not width). "1920" input on a 1920×1080 stream → matched_res="1080".
-    matched_langs     Pipe-separated raw language tokens, e.g. "ita|it".
+    matched_langs     Pipe-separated ACTUAL stream language tags, e.g. "it-IT|en-US".
     matched_codec     Downloader codec token, e.g. "hvc1".
     matched_ids       Pipe-separated real manifest IDs (synthetic vid: excluded).
     extra             Passthrough key-values for the formatter (bwMin, bwMax, …).
@@ -294,9 +295,14 @@ class N3u8dlFormatter(BaseFormatter):
         stream = result.streams[0] if result.streams else None
 
         if real_ids and not result.select_all:
-            for k, v in result.extra.items():
-                parts.append(f"{k}={v}")
-            return ":".join(parts)
+            if not result.matched_langs and not result.matched_res:
+                id_tokens = [i.strip() for i in real_ids.split("|") if i.strip()]
+                id_pattern = "|".join(rf"\b{i}\b" for i in id_tokens)
+                parts.append(f"id='{id_pattern}'")
+                for k, v in result.extra.items():
+                    parts.append(f"{k}={v}")
+                parts.append(f"for={'best' if result.select_best else 'worst'}")
+                return ":".join(parts)
 
         if result.matched_res:
             parts.append(f"res={result.matched_res}")
@@ -369,8 +375,17 @@ def _matches_codec(s, token: str) -> bool:
 
 
 def _matches_lang(s, langs: str) -> bool:
-    """Match lang tokens against stream.language AND stream.resolved_language."""
-    tokens = [t.strip().lower() for t in langs.split("|") if t.strip()]
+    """
+    Match lang tokens against stream.language AND stream.resolved_language.
+
+    Supports:
+    - pipe-separated tokens:  "ita|it"
+    - space-separated tokens: "ita it"  (treated identically)
+    - ISO 639-2 three-letter codes (eng, ita, fra …) matched against
+      ISO 639-1 + region tags (en-US, it-IT, fr-FR …) by trying the
+      two-letter prefix.
+    """
+    tokens = [t.strip().lower() for t in re.split(r'[|\s]+', langs) if t.strip()]
     sl = _language(s)
     rl = _resolved_language(s)
     for t in tokens:
@@ -378,6 +393,13 @@ def _matches_lang(s, langs: str) -> bool:
             return True
         if rl and (t == rl or t in rl):
             return True
+        
+        if len(t) == 3 and t.isalpha():
+            t2 = t[:2]
+            if t2 == sl or t2 in sl:
+                return True
+            if rl and (t2 == rl or t2 in rl):
+                return True
     return False
 
 
@@ -401,6 +423,15 @@ def _collect_ids(streams: list) -> Optional[str]:
             seen.add(sid)
             ids.append(sid)
     return "|".join(ids) if ids else None
+
+
+def _actual_langs(streams: list) -> str:
+    """Return pipe-separated ACTUAL language tags from the selected streams, preserving insertion order and deduplicating."""
+    seen: dict = {}
+    for s in streams:
+        lang = (getattr(s, "language", "") or "und").lower()
+        seen[lang] = True
+    return "|".join(seen.keys())
 
 
 class StreamSelector:
@@ -523,7 +554,7 @@ class StreamSelector:
                 self._mark_best_per_lang(pool, spec.select_best)
                 selected = [s for s in pool if s.selected]
                 result.streams = selected
-                result.matched_langs = spec.langs
+                result.matched_langs = _actual_langs(selected) or spec.langs
                 result.matched_codec = spec.codec
                 result.matched_ids = _collect_ids(selected)
                 if spec.select_all:
@@ -554,7 +585,7 @@ class StreamSelector:
                 self._mark_best_per_lang(pool, spec.select_best)
                 selected = [s for s in pool if s.selected]
                 result.streams = selected
-                result.matched_langs = spec.langs
+                result.matched_langs = _actual_langs(selected) or spec.langs
                 result.matched_ids = _collect_ids(selected)
                 if spec.select_all:
                     result.select_all = True
@@ -582,7 +613,6 @@ class StreamSelector:
                 for s in pool:
                     s.selected = True
                 result.streams = pool
-                result.matched_langs = spec.langs
                 result.matched_ids = _collect_ids(pool)
                 result.select_all = True
                 return result
@@ -601,7 +631,7 @@ class StreamSelector:
                 for s in pool:
                     s.selected = True
                 result.streams = pool
-                result.matched_langs = spec.langs
+                result.matched_langs = _actual_langs(pool) or spec.langs
                 result.matched_ids = _collect_ids(pool)
                 result.select_all = True
                 return result
