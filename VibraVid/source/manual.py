@@ -21,7 +21,7 @@ from VibraVid.source.style.bar_manager import DownloadBarManager
 from VibraVid.source.utils.selector import StreamSelector, N3u8dlFormatter
 from VibraVid.source.style.ui import build_table
 from VibraVid.source.utils.language import resolve_locale, LANGUAGE_MAP
-from VibraVid.core.downloader.subtitle import (download_external_tracks_with_progress, build_ext_track_label)
+from VibraVid.core.downloader.subtitle import download_external_tracks_with_progress, build_ext_track_label, is_valid_format, ext_from_url
 from VibraVid.source.utils.codec import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
 from VibraVid.source.utils.decrypt import Decryptor, KeysManager
 from VibraVid.utils.tmdb_client import tmdb_client
@@ -400,22 +400,28 @@ class MediaDownloader:
         for s in self.streams:
             if s.type == "subtitle" and s.selected and not s.is_external:
                 sub_url = s.playlist_url or (s.segments[0].url if s.segments else None)
-                if sub_url:
-                    new_ext_subs.append(
-                        {
-                            "url":       sub_url,
-                            "language":  s.language or "und",
-                            "name":      s.name or "",
-                            "forced":    s.forced,
-                            "sdh":       s.is_sdh,
-                            "cc":        s.is_cc,
-                            "default":   s.default,
-                            "type":      "vtt" if "vtt" in (s.codecs or "").lower() else "srt",
-                            "_selected": True,
-                        }
-                    )
-                    logger.info(f"Subtitle -> external: {s.language}  url={sub_url[:80]}")
+                if not sub_url:
+                    continue
+
+                ext = ext_from_url(sub_url, "")
+                if not ext or not is_valid_format(ext, "subtitle"):
+                    logger.info(f"Skipping external subtitle (unsupported format): {s.language} url={sub_url}")
                     s.selected = False
+                    continue
+
+                new_ext_subs.append({
+                    "url":       sub_url,
+                    "language":  s.language or "und",
+                    "name":      s.name or "",
+                    "forced":    s.forced,
+                    "sdh":       s.is_sdh,
+                    "cc":        s.is_cc,
+                    "default":   s.default,
+                    "type":      ext,
+                    "_selected": True,
+                })
+                logger.info(f"Subtitle -> external: {s.language}  url={sub_url[:80]}")
+                s.selected = False
 
         self.external_subtitles.extend(new_ext_subs)
         if new_ext_subs:

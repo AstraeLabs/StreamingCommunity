@@ -295,9 +295,9 @@ class N3u8dlFormatter(BaseFormatter):
         stream = result.streams[0] if result.streams else None
 
         if real_ids and not result.select_all:
-            if not result.matched_langs and not result.matched_res:
-                id_tokens = [i.strip() for i in real_ids.split("|") if i.strip()]
-                id_pattern = "|".join(rf"\b{i}\b" for i in id_tokens)
+            id_tokens = [i.strip() for i in real_ids.split("|") if i.strip()]
+            if len(id_tokens) == 1:
+                id_pattern = rf"\b{id_tokens[0]}\b"
                 parts.append(f"id='{id_pattern}'")
                 for k, v in result.extra.items():
                     parts.append(f"{k}={v}")
@@ -432,6 +432,96 @@ def _actual_langs(streams: list) -> str:
         lang = (getattr(s, "language", "") or "und").lower()
         seen[lang] = True
     return "|".join(seen.keys())
+
+
+def _subtitle_pref_score(s) -> tuple:
+    """Higher is better: prefer forced, then cleaner/non-accessibility variants."""
+    return (
+        1 if bool(getattr(s, "forced", False)) else 0,
+        1 if not bool(getattr(s, "is_cc", False)) else 0,
+        1 if not bool(getattr(s, "is_sdh", False)) else 0,
+        1 if bool(getattr(s, "default", False)) else 0,
+        _bitrate(s),
+    )
+
+
+def _subtitle_lang_key(s) -> str:
+    """Key used for grouping subtitle variants of the same language."""
+    return _resolved_language(s) or _language(s) or "und"
+
+
+def _subtitle_flags(s) -> set:
+    """Return a set of flags for a subtitle stream, e.g. {"forced", "cc"}."""
+    flags: set = set()
+    if bool(getattr(s, "forced", False)):
+        flags.add("forced")
+    if bool(getattr(s, "is_cc", False)):
+        flags.add("cc")
+    if bool(getattr(s, "is_sdh", False)):
+        flags.add("sdh")
+    return flags
+
+
+def _canon_lang_token(token: str) -> str:
+    """Canonicalise a language token for matching: lowercase, strip, remove region, etc."""
+    t = (token or "").strip().lower().replace("_", "-")
+    if not t:
+        return ""
+    base = t.split("-", 1)[0]
+    if len(base) == 3 and base.isalpha():
+        return base[:2]
+    return base
+
+
+def _parse_subtitle_lang_requests(langs: str) -> List[Tuple[str, set]]:
+    """Parse subtitle language requests into a list of (base_lang, flags) tuples."""
+    requests: List[Tuple[str, set]] = []
+    seen: set = set()
+
+    for raw in [t.strip().lower() for t in re.split(r'[|\s]+', langs or "") if t.strip()]:
+        parts = [p for p in raw.split("_") if p]
+        if not parts:
+            continue
+
+        base_raw = parts[0]
+        flags = {p for p in parts[1:] if p in {"forced", "cc", "sdh", "hi"}}
+        if "hi" in flags:
+            flags.discard("hi")
+            flags.add("cc")
+
+        base = _canon_lang_token(base_raw)
+        if not base:
+            continue
+
+        key = (base, tuple(sorted(flags)))
+        if key in seen:
+            continue
+        seen.add(key)
+        requests.append((base, flags))
+
+    return requests
+
+
+def _subtitle_matches_request(s, base: str, req_flags: set) -> bool:
+    """Check if a subtitle stream matches the requested base language and flags."""
+    if not _matches_lang(s, base):
+        return False
+
+    if not req_flags:
+        return True
+
+    sflags = _subtitle_flags(s)
+    return req_flags.issubset(sflags)
+
+
+def _subtitle_variant_key(s) -> Tuple[str, ...]:
+    """Variant bucket used for plain language requests (no explicit flags)."""
+    flags = _subtitle_flags(s)
+    ordered: List[str] = []
+    for f in ("forced", "cc", "sdh"):
+        if f in flags:
+            ordered.append(f)
+    return tuple(ordered)
 
 
 class StreamSelector:
@@ -626,14 +716,47 @@ class StreamSelector:
             return result
 
         if spec.langs:
-            pool = [s for s in subs if _matches_lang(s, spec.langs)]
-            if pool:
+            requests = _parse_subtitle_lang_requests(spec.langs)
+            selected: List = []
+            used_ids: set = set()
+
+            for base, req_flags in requests:
+                pool = [s for s in subs if _subtitle_matches_request(s, base, req_flags)]
+                if not pool:
+                    continue
+
+                # Explicit flags (e.g. it_forced) are strict: choose one best matching track.
+                if req_flags:
+                    pick = sorted(pool, key=_subtitle_pref_score, reverse=True)[0]
+                    sid = _stream_id(pick) or id(pick)
+                    if sid in used_ids:
+                        continue
+                    used_ids.add(sid)
+                    pick.selected = True
+                    selected.append(pick)
+                    continue
+
+                # Plain language request (e.g. "it"): keep one best track per subtitle variant
+                # so we can download CC + Forced + SDH + Plain without duplicate copies.
+                variants: dict = {}
                 for s in pool:
-                    s.selected = True
-                result.streams = pool
-                result.matched_langs = _actual_langs(pool) or spec.langs
-                result.matched_ids = _collect_ids(pool)
-                result.select_all = True
+                    vkey = _subtitle_variant_key(s)
+                    variants.setdefault(vkey, []).append(s)
+
+                for _vkey, vpool in variants.items():
+                    pick = sorted(vpool, key=_subtitle_pref_score, reverse=True)[0]
+                    sid = _stream_id(pick) or id(pick)
+                    if sid in used_ids:
+                        continue
+                    used_ids.add(sid)
+                    pick.selected = True
+                    selected.append(pick)
+
+            if selected:
+                result.streams = selected
+                result.matched_langs = _actual_langs(selected) or spec.langs
+                result.matched_ids = _collect_ids(selected)
+                result.select_all = len(selected) > 1
                 return result
             logger.info(f"StreamSelector subtitle: lang={spec.langs!r} — no match, selecting all")
 
@@ -666,6 +789,15 @@ class StreamSelector:
         seen: dict = {}
         for s in sorted(streams, key=_bitrate, reverse=best):
             lang = _language(s) or "und"
+            if lang not in seen:
+                seen[lang] = True
+                s.selected = True
+
+    @staticmethod
+    def _mark_best_subtitle_per_lang(streams: list) -> None:
+        seen: dict = {}
+        for s in sorted(streams, key=_subtitle_pref_score, reverse=True):
+            lang = _subtitle_lang_key(s)
             if lang not in seen:
                 seen[lang] = True
                 s.selected = True

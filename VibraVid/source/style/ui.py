@@ -53,10 +53,10 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
         ("DRM", "center"),
         ("Sel", "center"),
         ("Resolution", "left"),
-        ("HDR", "center"),
         ("Bitrate", "right"),
         ("Codec", "left"),
         ("Channels", "center"),
+        ("Extra", "center"),
         ("Language", "left")
     ]
     for name, justify in cols:
@@ -111,11 +111,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
             stype_label = getattr(s, "type", "")
             if is_ext and "*EXT" not in stype_label:
                 stype_label = f"{stype_label} *EXT"
-            is_sel = (
-                orig_idx in (selected or set())
-                if interactive
-                else getattr(s, "selected", False)
-            )
+            is_sel = (orig_idx in (selected or set()) if interactive else getattr(s, "selected", False))
             res = getattr(s, "resolution", "") if stype_raw.lower() == "video" else ""
             hdr = ""
             bw = getattr(s, "bandwidth", "") or ""
@@ -143,10 +139,10 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
             _c(drm, drm_col if drm else None),
             sel_text,
             _c(res, _COL_RES if res else None),
-            _c(hdr, hdr_col),
             _c(bitrate, _COL_BITRATE if bitrate else None),
             _c(codec, _COL_CODEC if codec else None),
             _c(channels, "white" if channels else None),
+            _c(hdr, hdr_col),
             _c(language, _COL_LANG if language else None),
             style=row_style,
         )
