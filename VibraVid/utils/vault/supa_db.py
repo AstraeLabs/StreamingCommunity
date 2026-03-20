@@ -169,31 +169,6 @@ class ExternalSupaDBVault:
         """Convenience wrapper for a single KID lookup."""
         return self.get_keys_by_kids(license_url, [kid], drm_type)
 
-    # --------- UPDATE
-    def update_key_validity(self, kid: str, is_valid: bool, license_url: Optional[str] = None, drm_type: Optional[str] = None, pssh: Optional[str] = None) -> bool:
-        """
-        Update validity status of a key.
-        If license_url is provided the update is scoped to that license.
 
-        Returns:
-            bool: True if updated successfully, False otherwise
-        """
-        payload: dict = {"kid": kid, "is_valid": is_valid}
-
-        if license_url:
-            payload["license_url"] = self._clean_license_url(license_url)
-
-        if drm_type:
-            payload["drm_type"] = drm_type.lower()
-
-        if pssh:
-            payload["pssh"] = pssh
-
-        result = self._post("update-key-validity", payload)
-        logger.info(f"Vault response for update_key_validity: {result}")
-        return bool(result and result.get("success", False))
-
-
-# Initialize
 is_supa_external_db_valid = not (VAULT_URL == "")
 obj_externalSupaDbVault = ExternalSupaDBVault() if is_supa_external_db_valid else None

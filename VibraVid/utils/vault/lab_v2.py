@@ -147,16 +147,6 @@ class LabDBVault:
         """Convenience wrapper for a single KID lookup."""
         return self.get_keys_by_kids(license_url, [kid], drm_type)
 
-    # --------- UPDATE
-    def update_key_validity(self, kid: str, is_valid: bool, license_url: Optional[str] = None, drm_type: Optional[str] = None, pssh: Optional[str] = None) -> bool:
-        """
-        Update the validity status of a key in the lab vault.
-
-        Returns:
-            bool: True if updated successfully.
-        """
-        pass
-
 
 is_lab_db_valid = bool(VAULT_URL and TOKEN)
 obj_labDbVault = LabDBVault() if is_lab_db_valid else None

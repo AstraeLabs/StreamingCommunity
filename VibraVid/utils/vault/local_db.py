@@ -52,7 +52,6 @@ class LocalDBVault:
                     kid TEXT NOT NULL,
                     key TEXT NOT NULL,
                     label TEXT,
-                    is_valid BOOLEAN DEFAULT 1,
                     FOREIGN KEY (cache_id) REFERENCES drm_cache(id) ON DELETE CASCADE,
                     UNIQUE(cache_id, kid)
                 )
@@ -243,7 +242,7 @@ class LocalDBVault:
                 """
                 SELECT kid, key, label 
                 FROM drm_keys 
-                WHERE cache_id = ? AND is_valid = 1
+                WHERE cache_id = ?
             """,
                 (cache_id,),
             )
@@ -297,7 +296,6 @@ class LocalDBVault:
                     WHERE c.base_url_license = ?
                     AND c.drm_type = ?
                     AND k.kid IN ({placeholders})
-                    AND k.is_valid = 1
                 """,
                     [base_url, drm_type] + normalized_kids,
                 )
@@ -309,7 +307,6 @@ class LocalDBVault:
                     JOIN drm_cache c ON k.cache_id = c.id
                     WHERE c.drm_type = ?
                     AND k.kid IN ({placeholders})
-                    AND k.is_valid = 1
                 """,
                     [drm_type] + normalized_kids,
                 )
@@ -349,7 +346,6 @@ class LocalDBVault:
         return self.get_keys_by_kids(license_url, [kid], drm_type)
 
 
-# Initialize
 if SQLITE3_AVAILABLE:
     try:
         if CREATE_DB_ON_STARTUP:

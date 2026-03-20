@@ -359,8 +359,6 @@ class Decryptor:
 
             if success:
                 logger.info(f"Decryption successful: {os.path.basename(output_path)}")
-                if kid and self.is_supa_db_connected:
-                    self._mark_key_valid(kid, pssh)
                 return True
 
             # Forced decryption on undetected file → fallback copy
@@ -376,16 +374,6 @@ class Decryptor:
             logger.error(f"Decryption error: {e}")
             console.print(f"[red]Decryption error: {e}.")
             return False
-
-    def _mark_key_invalid(self, kid: str, pssh: str = None):
-        if self.is_supa_db_connected:
-            if obj_externalSupaDbVault.update_key_validity(kid, False, self.license_url, self.drm_type, pssh):
-                console.print(f"[yellow]Marked key {kid} as invalid in Supabase")
-
-    def _mark_key_valid(self, kid: str, pssh: str = None):
-        if self.is_supa_db_connected:
-            if obj_externalSupaDbVault.update_key_validity(kid, True, self.license_url, self.drm_type, pssh):
-                logger.info(f"Marked key {kid} as valid")
 
     def _decrypt_bento4(self, encrypted_path, keys, output_path):
         cmd = [self.mp4decrypt_path]
