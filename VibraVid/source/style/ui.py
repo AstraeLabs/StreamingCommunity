@@ -21,7 +21,17 @@ _COL_BITRATE = "bright_blue"
 _COL_LANG = "bright_magenta"
 _COL_CODEC = "bright_cyan"
 _COL_RES = "bright_green"
+_COL_HDR = "bold yellow"
 _TYPE_COLOUR = {"video": _COL_VIDEO, "audio": _COL_AUDIO, "subtitle": _COL_SUB}
+
+_HDR_STYLE = {
+    "HDR10": "bold yellow",
+    "HDR10+": "bold yellow",
+    "HLG": "bold green",
+    "DV": "bold magenta",
+    "PQ": "bold yellow",
+    "HDR": "bold yellow",
+}
 
 
 def _c(text: str, colour: Optional[str]) -> Text:
@@ -46,6 +56,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
         ("Bitrate", "right"),
         ("Codec", "left"),
         ("Channels", "center"),
+        ("Extra", "center"),
         ("Language", "left")
     ]
     for name, justify in cols:
@@ -71,7 +82,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
     else:
         start, end = 0, total
     
-    _ellipsis = ("…", "", "", "", "", "", "", "", "", "")
+    _ellipsis = ("…", "", "", "", "", "", "", "", "", "", "")
     if interactive and start > 0:
         table.add_row(*_ellipsis)
 
@@ -88,6 +99,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
 
             is_sel = (s.selected if not interactive else (orig_idx in (selected or set())))
             res = s.resolution if s.type == "video" else ""
+            hdr = s.get_hdr_display() if s.type == "video" else ""
             bitrate = s.bitrate_display if s.bitrate else ""
             codec = s.get_short_codec()
             channels = get_channel_label(s.channels) if s.channels else ""
@@ -99,12 +111,9 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
             stype_label = getattr(s, "type", "")
             if is_ext and "*EXT" not in stype_label:
                 stype_label = f"{stype_label} *EXT"
-            is_sel = (
-                orig_idx in (selected or set())
-                if interactive
-                else getattr(s, "selected", False)
-            )
+            is_sel = (orig_idx in (selected or set()) if interactive else getattr(s, "selected", False))
             res = getattr(s, "resolution", "") if stype_raw.lower() == "video" else ""
+            hdr = ""
             bw = getattr(s, "bandwidth", "") or ""
             bitrate = "" if bw in ("0 bps", "N/A") else bw
             codec = s.get_short_codec() if hasattr(s, "get_short_codec") else ""
@@ -122,6 +131,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
 
         sel_text = _c("X", "bold bright_green") if is_sel else _c("", "")
         drm_col = _COL_DRM_MULTI if "+" in drm else _COL_DRM
+        hdr_col = _HDR_STYLE.get(hdr.upper(), _COL_HDR) if hdr else None
 
         table.add_row(
             _c(str(orig_idx + 1), None),
@@ -132,6 +142,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
             _c(bitrate, _COL_BITRATE if bitrate else None),
             _c(codec, _COL_CODEC if codec else None),
             _c(channels, "white" if channels else None),
+            _c(hdr, hdr_col),
             _c(language, _COL_LANG if language else None),
             style=row_style,
         )

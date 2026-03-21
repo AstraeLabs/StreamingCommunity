@@ -163,7 +163,7 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
                 console.print("[dim]Parsing license ...")
                 cdm.parse_license(session_id, license_payload)
             except Exception as e:
-                logger.error(f"Error parsing license for {kid_info}: {e}")
+                logger.error(f"Error parsing license for {pssh[:30]}: {e}")
                 console.print(f"[red]Error parsing license for pssh {pssh[:30]}...: {e}")
                 continue
 

@@ -14,7 +14,7 @@ from VibraVid.setup import get_wvd_path, get_prd_path
 from VibraVid.source.style.tracker import download_tracker, context_tracker
 from VibraVid.source.utils.media_players import MediaPlayers
 
-from VibraVid.source.N_m3u8 import MediaDownloader
+from VibraVid.source.n3u8dl_re import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
 
 from .base import BaseDownloader
@@ -217,8 +217,6 @@ class HLS_Downloader(BaseDownloader):
 
         if self.download_id:
             download_tracker.update_status(self.download_id, "Parsing HLS ...")
-        if context_tracker.should_print:
-            console.print("[dim]Parsing HLS ...")
 
         streams = self.media_downloader.parse_stream(show_table=context_tracker.should_print)
 
@@ -254,8 +252,7 @@ class HLS_Downloader(BaseDownloader):
 
         if self.download_id:
             download_tracker.update_status(self.download_id, "Downloading ...")
-        if context_tracker.should_print:
-            console.print("[dim]\nStarting download ...")
+        print()
 
         status = self.media_downloader.start_download()
 
@@ -284,5 +281,5 @@ class HLS_Downloader(BaseDownloader):
                 download_tracker.complete_download(self.download_id, success=False, error="Merge failed")
             return None, True
 
-        self._finalize(final_file=final_file, show_summary=context_tracker.should_print)
+        self._finalize(final_file=final_file)
         return self.output_path, False

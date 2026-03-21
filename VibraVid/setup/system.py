@@ -7,41 +7,78 @@ from .device_install import check_device_wvd_path, check_device_prd_path
 
 
 is_binary_installation = getattr(sys, 'frozen', False)
-ffmpeg_path, ffprobe_path = check_ffmpeg()
-bento4_decrypt_path = check_bento4()
-mp4dump_path = check_mp4dump()
-wvd_path = check_device_wvd_path()
-prd_path = check_device_prd_path()
-n_m3u8dl_re_path = check_n_m3u8dl_re()
-shaka_packager = check_shaka_packager()
+_ffmpeg_path = None
+_ffprobe_path = None
+_bento4_decrypt_path = None
+_mp4dump_path = None
+_wvd_path = None
+_prd_path = None
+_n_m3u8dl_re_path = None
+_shaka_packager_path = None
+_initialized = False
+
+
+def _initialize_paths():
+    """Initialize all binary paths. Called after logger is configured."""
+    global _ffmpeg_path, _ffprobe_path, _bento4_decrypt_path, _mp4dump_path
+    global _wvd_path, _prd_path, _n_m3u8dl_re_path, _shaka_packager_path
+    global _initialized
+    
+    if _initialized:
+        return
+    
+    _ffmpeg_path, _ffprobe_path = check_ffmpeg()
+    _bento4_decrypt_path = check_bento4()
+    _mp4dump_path = check_mp4dump()
+    _wvd_path = check_device_wvd_path()
+    _prd_path = check_device_prd_path()
+    _n_m3u8dl_re_path = check_n_m3u8dl_re()
+    _shaka_packager_path = check_shaka_packager()
+    _initialized = True
 
 
 def get_is_binary_installation() -> bool:
     return is_binary_installation
 
 def get_ffmpeg_path() -> str:
-    return ffmpeg_path
+    if not _initialized:
+        _initialize_paths()
+    return _ffmpeg_path
 
 def get_ffprobe_path() -> str:
-    return ffprobe_path
+    if not _initialized:
+        _initialize_paths()
+    return _ffprobe_path
 
 def get_bento4_decrypt_path() -> str:
-    return bento4_decrypt_path
+    if not _initialized:
+        _initialize_paths()
+    return _bento4_decrypt_path
 
 def get_mp4dump_path() -> str:
-    return mp4dump_path
+    if not _initialized:
+        _initialize_paths()
+    return _mp4dump_path
 
 def get_wvd_path() -> str:
-    return wvd_path
+    if not _initialized:
+        _initialize_paths()
+    return _wvd_path
 
 def get_prd_path() -> str:
-    return prd_path
+    if not _initialized:
+        _initialize_paths()
+    return _prd_path
 
 def get_n_m3u8dl_re_path() -> str:
-    return n_m3u8dl_re_path
+    if not _initialized:
+        _initialize_paths()
+    return _n_m3u8dl_re_path
 
 def get_shaka_packager_path() -> str:
-    return shaka_packager
+    if not _initialized:
+        _initialize_paths()
+    return _shaka_packager_path
 
 def get_info_wvd(cdm_device_path):
     if cdm_device_path is None:

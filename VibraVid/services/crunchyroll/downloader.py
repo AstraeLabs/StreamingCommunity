@@ -10,7 +10,7 @@ from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, os_manager, start_message
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import map_movie_title, map_episode_path
+from VibraVid.services._base.tv_display_manager import map_movie_path, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 from VibraVid.source.utils.language import resolve_locale
 
@@ -112,8 +112,9 @@ def download_film(select_title: Entries) -> str:
     client = CrunchyrollClient()
 
     # Define filename and path
-    title_name = f"{map_movie_title(select_title.name, select_title.year)}.{extension_output}"
-    title_path = os.path.join(site_constants.MOVIE_FOLDER, title_name.replace(f".{extension_output}", ""))
+    path_components, filename = map_movie_path(select_title.name, select_title.year)
+    movie_path = os.path.join(site_constants.MOVIE_FOLDER, *path_components) if path_components else site_constants.MOVIE_FOLDER
+    movie_name = f"{filename}.{extension_output}"
 
     # Extract media ID
     url_id = select_title.get('url').split('/')[-1]
@@ -151,7 +152,7 @@ def download_film(select_title: Entries) -> str:
         license_headers=license_headers,
         mpd_sub_list=mpd_list_sub,
         mpd_audio_list=mpd_audio_list,
-        output_path=os.path.join(title_path, title_name),
+        output_path=os.path.join(movie_path, movie_name),
     ).start()
 
     # Small delay to avoid rate limiting

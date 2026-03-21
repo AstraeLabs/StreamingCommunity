@@ -120,7 +120,7 @@ class HLSParser:
                         if not stream.id:
                             stream.id = _make_video_id(stream)
                         streams.append(stream)
-                        logger.info(f"HLS add {stream}")
+                        logger.info(f"HLS add | {stream}")
                 i += 2
                 continue
 
@@ -131,12 +131,12 @@ class HLSParser:
                     s = self._parse_media_tag(line, "audio", master_drm)
                     if s:
                         streams.append(s)
-                        logger.info(f"HLS add {s}")
+                        logger.info(f"HLS add | {s}")
                 elif typ == "SUBTITLES":
                     s = self._parse_media_tag(line, "subtitle", master_drm)
                     if s:
                         streams.append(s)
-                        logger.info(f"HLS add {s}")
+                        logger.info(f"HLS add |{s}")
                 elif typ == "CLOSED-CAPTIONS":
                     s = self._parse_media_tag(line, "subtitle", master_drm)
                     if s:
@@ -149,7 +149,7 @@ class HLSParser:
                         elif not s.name:
                             s.name = "[CC]"
                         streams.append(s)
-                        logger.info(f"HLS add {s}")
+                        logger.info(f"HLS add | {s}")
 
             i += 1
 
@@ -289,7 +289,7 @@ class HLSParser:
         s.drm = drm
         s.playlist_url = self.m3u8_url
         s.id = _make_video_id(s)
-        logger.info(f"HLS add {s}")
+        logger.info(f"HLS add | {s}")
         return [s] + existing
 
     def _parse_drm_tags(self, content: str) -> DRMInfo:

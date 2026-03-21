@@ -40,6 +40,7 @@ def _api_call(method: str, params: dict) -> dict:
     """POST a JSON-RPC-style request to the lab vault, return the `message` dict."""
     payload = {"method": method, "params": params, "token": TOKEN}
     try:
+        logger.info(f"Calling Lab API ({method}): {params}")
         r = create_client_curl(headers=get_headers()).post(VAULT_URL, json=payload)
         r.raise_for_status()
         data = r.json()
@@ -145,16 +146,6 @@ class LabDBVault:
     def get_keys_by_kid(self, license_url: Optional[str], kid: str, drm_type: str) -> List[str]:
         """Convenience wrapper for a single KID lookup."""
         return self.get_keys_by_kids(license_url, [kid], drm_type)
-
-    # --------- UPDATE
-    def update_key_validity(self, kid: str, is_valid: bool, license_url: Optional[str] = None, drm_type: Optional[str] = None, pssh: Optional[str] = None) -> bool:
-        """
-        Update the validity status of a key in the lab vault.
-
-        Returns:
-            bool: True if updated successfully.
-        """
-        pass
 
 
 is_lab_db_valid = bool(VAULT_URL and TOKEN)

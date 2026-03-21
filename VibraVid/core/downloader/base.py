@@ -1,4 +1,4 @@
-# 2.03.26
+﻿# 2.03.26
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from typing import Dict, List, Optional
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager, internet_manager
+from VibraVid.utils import config_manager
 from VibraVid.core.post import join_video, join_audios, join_subtitles
+from VibraVid.core.post.helper.video import get_media_metadata
 from VibraVid.source.style.tracker import download_tracker
 from VibraVid.core.post.helper.nfo import create_nfo
 from VibraVid.cli.run import execute_hooks
@@ -32,14 +33,14 @@ class BaseDownloader:
     Shared base for HLS_Downloader and DASH_Downloader.
 
     Subclasses are responsible for setting up:
-        self.output_path        – full final file path
-        self.filename_base      – stem without extension
-        self.output_dir         – temp working directory
-        self.download_id        – tracker ID (or None)
-        self.last_merge_result  – populated by merge methods
-        self.copied_subtitles   – list staging subtitles for deferred copy
-        self.copied_audios      – list staging audios for deferred copy
-        self.audio_only         – True when there is no video track
+        self.output_path = full final file path
+        self.filename_base = stem without extension
+        self.output_dir = temp working directory
+        self.download_id = tracker ID (or None)
+        self.last_merge_result = populated by merge methods
+        self.copied_subtitles = list staging subtitles for deferred copy
+        self.copied_audios = list staging audios for deferred copy
+        self.audio_only = True when there is no video track
     """
 
     def _no_media_downloaded(self, status: dict) -> bool:
@@ -244,46 +245,65 @@ class BaseDownloader:
             except Exception as e:
                 console.print(f"[yellow]Warning: Could not move audio {audio_info['language']}: {e}")
 
-    def _print_summary(self) -> None:
-        """Print summary of the final output file."""
-        if not os.path.exists(self.output_path):
-            return
-        
-        file_size = internet_manager.format_file_size(os.path.getsize(self.output_path))
-        duration = (
-            self.last_merge_result.get("time", "N/A")
-            if self.last_merge_result and isinstance(self.last_merge_result, dict)
-            else "N/A"
-        )
-        console.print(f"  [cyan]Path:     [red]{os.path.abspath(self.output_path)}")
-        console.print(f"  [cyan]Size:     [red]{file_size}")
-        console.print(f"  [cyan]Duration: [red]{duration}")
-
-
-    def _finalize(self, *, final_file: str, show_summary: bool = True) -> None:
-        """
-        Common tail for start():
-        move to final location → copy staged tracks → print summary →
-        NFO → tracker complete → tmp cleanup → post_run hooks.
-        """
+    def _finalize(self, *, final_file: str) -> None:
+        """Common tail for start(): move to final location."""
         if final_file and os.path.exists(final_file):
             self._move_to_final_location(final_file)
 
+        dynamic_placeholders = ["%(quality)", "%(language)", "%(video_codec)", "%(audio_codec)"]
+        if any(p in self.output_path for p in dynamic_placeholders):
+            try:
+                metadata = get_media_metadata(self.output_path)
+                logger.info(f"Metadata for dynamic rename: {metadata}")
+                
+                new_path = self.output_path
+                replacements = {
+                    "quality": metadata.get("quality", ""),
+                    "language": metadata.get("language", ""),
+                    "video_codec": metadata.get("video_codec", ""),
+                    "audio_codec": metadata.get("audio_codec", "")
+                }
+                
+                for key, val in replacements.items():
+                    placeholder = f"%({key})"
+                    if val:
+                        new_path = new_path.replace(placeholder, str(val))
+                    else:
+                        new_path = new_path.replace(f"[{placeholder}]", "").replace(f"({placeholder})", "").replace(placeholder, "")
+
+                new_path = new_path.replace("  ", " ").replace(" .", ".").strip()
+                
+                if new_path != self.output_path:
+                    new_dir = os.path.dirname(new_path)
+                    old_path = self.output_path
+                    
+                    if not os.path.exists(new_dir):
+                        os.makedirs(new_dir, exist_ok=True)
+                        
+                    os.rename(old_path, new_path)
+                    
+                    old_dir = os.path.dirname(old_path)
+                    if old_dir != new_dir and os.path.exists(old_dir):
+                        try:
+                            if not os.listdir(old_dir) and any(p in old_dir for p in dynamic_placeholders):
+                                os.rmdir(old_dir)
+                        except Exception:
+                            pass
+
+                    self.output_path = new_path
+                    logger.info(f"Dynamic rename applied: {self.output_path}")
+
+            except Exception as e:
+                console.print(f"[yellow]Warning: Dynamic rename failed: {e}")
+
         self._move_copied_subtitles()
         self._move_copied_audios()
-
-        if show_summary:
-            self._print_summary()
 
         if CREATE_NFO_FILES:
             create_nfo(self.output_path)
 
         if self.download_id:
-            download_tracker.complete_download(
-                self.download_id,
-                success=True,
-                path=os.path.abspath(self.output_path),
-            )
+            download_tracker.complete_download(self.download_id, success=True, path=os.path.abspath(self.output_path))
 
         if CLEANUP_TMP:
             shutil.rmtree(self.output_dir, ignore_errors=True)

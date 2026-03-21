@@ -3,14 +3,15 @@
         "close_console": true,
         "show_message": true,
         "fetch_domain_online": true,
-        "auto_update_check": true
+        "auto_update_check": true,
+        "imp_service": ["default"]
     },
     "OUTPUT": {
         "root_path": "Video",
         "movie_folder_name": "Movie",
         "serie_folder_name": "Serie",
         "anime_folder_name": "Anime",
-        "movie_format": "%(title_name) (%(title_year))",
+        "movie_format": "%(title_name) (%(title_year))/%(title_name) (%(title_year))",
         "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
     },
     "DOWNLOAD": {

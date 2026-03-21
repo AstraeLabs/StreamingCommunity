@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 
 from VibraVid.utils import os_manager, config_manager, start_message
 from VibraVid.services._base import site_constants, Entries
-from VibraVid.services._base.tv_display_manager import manage_selection, map_episode_path, map_movie_title
+from VibraVid.services._base.tv_display_manager import manage_selection, map_episode_path, map_movie_path
 
 from VibraVid.core.downloader import MP4_Downloader, HLS_Downloader
 
@@ -50,31 +50,24 @@ def download_episode(obj_episode, index_select, scrape_serie, video_source):
     if scrape_serie.is_series:
         episode_number = int(float(obj_episode.number)) if isinstance(obj_episode.number, (int, float, str)) else 1
         episode_name = f"Episode {obj_episode.number}"
+
         path_components, filename = map_episode_path(series_name=scrape_serie.series_name, series_year=None, season_number=1, episode_number=episode_number, episode_name=episode_name)
-        
         mp4_path = os_manager.get_sanitize_path(os.path.join(site_constants.ANIME_FOLDER, *path_components))
         mp4_name = filename
     else:
-        mp4_path = os_manager.get_sanitize_path(os.path.join(site_constants.MOVIE_FOLDER, scrape_serie.series_name))
-        mp4_name = map_movie_title(scrape_serie.series_name, None)
+        path_components, filename = map_movie_path(scrape_serie.series_name, None)
+        mp4_path = os_manager.get_sanitize_path(os.path.join(site_constants.MOVIE_FOLDER, *path_components) if path_components else site_constants.MOVIE_FOLDER)
+        mp4_name = filename
 
     # Create output folder
     os_manager.create_path(mp4_path)
 
     # Start downloading
     if not DOWNOAD_HLS:
-        path, kill_handler = MP4_Downloader(
-            url=str(video_source.src_mp4).strip(),
-            path=os.path.join(mp4_path, f"{mp4_name}.mp4")
-        )
-        return path, kill_handler
+        return MP4_Downloader(url=str(video_source.src_mp4).strip(), path=os.path.join(mp4_path, f"{mp4_name}.mp4"))
     
     else:
-        path, kill_handler = HLS_Downloader(
-            m3u8_url=video_source.master_playlist,
-            output_path=os.path.join(mp4_path, f"{mp4_name}.{extension_output}")
-        ).start()
-        return path, kill_handler
+        return HLS_Downloader(m3u8_url=video_source.master_playlist, output_path=os.path.join(mp4_path, f"{mp4_name}.{extension_output}")).start()
 
 def download_series(select_title: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie = None):
     """

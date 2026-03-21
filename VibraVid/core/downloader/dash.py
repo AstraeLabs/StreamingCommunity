@@ -16,7 +16,7 @@ from VibraVid.source.style.tracker import download_tracker, context_tracker
 from VibraVid.source.utils.media_players import MediaPlayers
 from VibraVid.source.utils.language import resolve_locale
 
-from VibraVid.source.N_m3u8 import MediaDownloader
+from VibraVid.source.n3u8dl_re import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.manifest.mpd import DashParser
 
@@ -424,7 +424,6 @@ class DASH_Downloader(BaseDownloader):
         # ── Parse ─────────────────────────────────────────────────────────────
         if self.download_id:
             download_tracker.update_status(self.download_id, "Parsing DASH ...")
-        console.print("[dim]Parsing DASH ...")
 
         streams = self.media_downloader.parse_stream(show_table=context_tracker.should_print)
 
@@ -467,8 +466,7 @@ class DASH_Downloader(BaseDownloader):
 
         if self.download_id:
             download_tracker.update_status(self.download_id, "Downloading ...")
-        if context_tracker.should_print:
-            console.print("[dim]\nStarting download ...")
+        print()
 
         self.media_downloader.set_key(self.decryption_keys)
         status = self.media_downloader.start_download()
@@ -511,5 +509,5 @@ class DASH_Downloader(BaseDownloader):
                 download_tracker.complete_download(self.download_id, success=False, error="Merge failed")
             return None, True
 
-        self._finalize(final_file=final_file, show_summary=context_tracker.should_print)
+        self._finalize(final_file=final_file)
         return self.output_path, False

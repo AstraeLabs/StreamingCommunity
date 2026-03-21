@@ -31,6 +31,7 @@ class ExternalSupaDBVault:
         """Internal helper: POST to an endpoint, return parsed JSON or None on error."""
         url = f"{self.base_url}/{endpoint}"
         try:
+            logger.info("Post to Supabase endpoint '%s' with payload: %s", endpoint, payload)
             response = create_client(headers=self.headers).post(url, json=payload)
             response.raise_for_status()
             return response.json()
@@ -54,9 +55,7 @@ class ExternalSupaDBVault:
         Returns:
             int: Number of keys successfully added
         """
-        logger.info(
-            f"Adding {len(keys_list)} keys to vault for DRM type '{drm_type}' and license URL '{license_url}'"
-        )
+        logger.info(f"Adding {len(keys_list)} keys to vault for DRM type '{drm_type}' and license URL '{license_url}'")
         if not keys_list:
             return 0
 
@@ -112,10 +111,7 @@ class ExternalSupaDBVault:
             "drm_type": drm_type,
         }
 
-        logger.info(
-            f"Supabase get_keys_by_pssh: license_url={base_license_url}, drm_type={drm_type}, pssh={pssh[:20]}…"
-        )
-
+        logger.info(f"Supabase get_keys_by_pssh: license_url={base_license_url}, drm_type={drm_type}, pssh={pssh[:20]}…")
         result = self._post("get-keys", payload)
         logger.info(f"Vault response for get_keys_by_pssh: {result}")
 
@@ -173,31 +169,6 @@ class ExternalSupaDBVault:
         """Convenience wrapper for a single KID lookup."""
         return self.get_keys_by_kids(license_url, [kid], drm_type)
 
-    # --------- UPDATE
-    def update_key_validity(self, kid: str, is_valid: bool, license_url: Optional[str] = None, drm_type: Optional[str] = None, pssh: Optional[str] = None) -> bool:
-        """
-        Update validity status of a key.
-        If license_url is provided the update is scoped to that license.
 
-        Returns:
-            bool: True if updated successfully, False otherwise
-        """
-        payload: dict = {"kid": kid, "is_valid": is_valid}
-
-        if license_url:
-            payload["license_url"] = self._clean_license_url(license_url)
-
-        if drm_type:
-            payload["drm_type"] = drm_type.lower()
-
-        if pssh:
-            payload["pssh"] = pssh
-
-        result = self._post("update-key-validity", payload)
-        logger.info(f"Vault response for update_key_validity: {result}")
-        return bool(result and result.get("success", False))
-
-
-# Initialize
 is_supa_external_db_valid = not (VAULT_URL == "")
 obj_externalSupaDbVault = ExternalSupaDBVault() if is_supa_external_db_valid else None

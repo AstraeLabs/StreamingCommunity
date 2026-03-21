@@ -1,8 +1,6 @@
 # 10.12.23
 
-import os
 import sys
-import platform
 import argparse
 from typing import Callable
 
@@ -10,10 +8,11 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from . import call_global_search
-from VibraVid.services._base import load_search_functions
 from VibraVid.utils import config_manager, start_message, setup_logger
+from VibraVid.services._base import load_search_functions
 from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
 from VibraVid.upload import git_update, binary_update
+from VibraVid.setup.system import _initialize_paths
 from VibraVid.upload.version import __version__, __title__
 
 
@@ -35,27 +34,6 @@ def run_function(func: Callable[..., None], search_terms: str = None, selections
         func(search_terms, selections=selections)
     else:
         func(search_terms)
-
-
-def initialize():
-    """Initialize the application with system checks and setup."""
-    setup_logger()
-    start_message(False)
-
-    # Windows 7 terminal size fix
-    if platform.system() == "Windows" and "7" in platform.version():
-        os.system('mode 120, 40')
-    
-    # Python version check
-    if sys.version_info < (3, 7):
-        console.log("[red]Install python version > 3.7.16")
-        sys.exit(0)
-
-    # Attempt GitHub update
-    try:
-        git_update()
-    except Exception as e:
-        console.log(f"[red]Error with loading github: {str(e)}")
 
 
 def force_exit():
@@ -208,18 +186,15 @@ def handle_direct_site_selection(args, input_to_function, module_name_to_functio
     
     # Handle auto-first option
     if args.auto_first and search_terms:
-        try:
-            database = func_to_run(search_terms, get_onlyDatabase=True)
-            if database and hasattr(database, 'media_list') and database.media_list:
-                first_item = database.media_list[0]
-                item_dict = first_item.__dict__.copy() if hasattr(first_item, '__dict__') else {}
-                func_to_run(direct_item=item_dict, selections=selections)
-                return True
-            else:
-                console.print("[yellow]No results found. Falling back to interactive mode.")
-        except Exception as e:
-            console.print(f"[red]Auto-first failed: {str(e)}")
-    
+        database = func_to_run(search_terms, get_onlyDatabase=True)
+        if database and hasattr(database, 'media_list') and database.media_list:
+            first_item = database.media_list[0]
+            item_dict = first_item.__dict__.copy() if hasattr(first_item, '__dict__') else {}
+            func_to_run(direct_item=item_dict, selections=selections)
+            return True
+        else:
+            console.print("[yellow]No results found. Falling back to interactive mode.")
+
     run_function(func_to_run, search_terms=search_terms, selections=selections)
     return True
 
@@ -239,10 +214,17 @@ def get_user_site_selection(args, choice_labels):
 
 
 def main():
+    setup_logger()
+    _initialize_paths()
     execute_hooks('pre_run')
-    initialize()
+    start_message(False)
+    try:
+        git_update()
+    except Exception as e:
+        console.log(f"[red]Error loading github: {str(e)}")
 
     try:
+        
         search_functions = load_search_functions()
         parser = setup_argument_parser(search_functions)
         args = parser.parse_args()

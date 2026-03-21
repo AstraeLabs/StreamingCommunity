@@ -114,6 +114,11 @@ class OsManager:
 
             return result
 
+    def get_glob_path(self, path: str) -> str:
+        """Escape path for glob to prevent issues with special characters like brackets."""
+        import glob
+        return glob.escape(path)
+
     def create_path(self, path: str, mode: int = 0o755) -> bool:
         """
         Create directory path with specified permissions.

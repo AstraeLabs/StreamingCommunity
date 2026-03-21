@@ -1,7 +1,5 @@
 # 13.03.26
 
-from __future__ import annotations
-
 import re
 import logging
 from abc import ABC, abstractmethod
@@ -9,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from VibraVid.source.utils.codec import get_codec_token
+
 
 logger = logging.getLogger(__name__)
 
@@ -61,15 +60,11 @@ class FilterSpec:
     "1920,H265"                             height + codec (video)
     ",H265"                                 codec only (video)
     "H265"                                  codec only bare (video)
-    "ita|it"                                language tokens (audio/sub)
+    "ita|it" or "ita it"                    language tokens (audio/sub) — pipe or space separated
     "ita|it,AAC"                            language + codec (audio)
     ",AAC"                                  codec only (audio)
     "res=1080:codecs=hvc1:for=best"         native n3u8dl passthrough
-    "id=audio_128k_en:for=best"             id-based (real manifest IDs)
-
-    Language tokens are matched against both stream.language (raw code, e.g.
-    'ita') and stream.resolved_language (BCP 47, e.g. 'it-IT').  Token 'it'
-    therefore matches 'ita' because resolved_language='it-IT' contains 'it'.
+    "id=audio_128k_en:for=best"             id-based (real manifest IDs).
     """
     drop: bool = False
     select_all: bool = False
@@ -116,13 +111,14 @@ class FilterSpec:
             spec.res = primary
             return spec
 
-        if not codec_s and "|" not in primary:
+        if not codec_s and "|" not in primary and " " not in primary:
             translated = get_codec_token(primary, stream_type)
             if translated.lower() != primary.lower():
                 spec.codec = translated
                 return spec
 
-        spec.langs = primary
+        raw_langs = primary
+        spec.langs = "|".join(t.strip() for t in re.split(r'[|\s]+', raw_langs) if t.strip())
         return spec
 
     def _parse_native(self, r: str, stream_type: str) -> None:
@@ -162,12 +158,8 @@ class SelectionResult:
     """
     What StreamSelector found after progressive fallback.
 
-    Downloader-specific formatters (BaseFormatter subclasses) read this to
-    build their own CLI argument strings without touching selector logic.
-
-    matched_res       Normalised HEIGHT string (not width).
-                      "1920" input on a 1920×1080 stream → matched_res="1080".
-    matched_langs     Pipe-separated raw language tokens, e.g. "ita|it".
+    matched_res       Normalised HEIGHT string (not width). "1920" input on a 1920×1080 stream → matched_res="1080".
+    matched_langs     Pipe-separated ACTUAL stream language tags, e.g. "it-IT|en-US".
     matched_codec     Downloader codec token, e.g. "hvc1".
     matched_ids       Pipe-separated real manifest IDs (synthetic vid: excluded).
     extra             Passthrough key-values for the formatter (bwMin, bwMax, …).
@@ -185,14 +177,7 @@ class SelectionResult:
     select_best: bool = True
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Formatter base
-# ─────────────────────────────────────────────────────────────────────────────
-
 class BaseFormatter(ABC):
-    """
-    Converts a SelectionResult into a single filter-argument string for a specific downloader tool.
-    """
     @abstractmethod
     def format(self, result: SelectionResult) -> str:
         """
@@ -207,31 +192,7 @@ class BaseFormatter(ABC):
 
 
 class N3u8dlFormatter(BaseFormatter):
-    """
-    Converts a SelectionResult to an N_m3u8DL-RE --select-* argument string.
-
-    N3u8DL-RE filter syntax (all values are regex):
-        res=REGEX:lang=REGEX:codecs=REGEX:id=REGEX:for=best|worst|all
-        bwMin=N:bwMax=N:segsMin=N:segsMax=N (numeric range extras)
-
-    Routing strategy
-    ────────────────
-    Video
-        Never emit id=  (our synthetic 'vid:…' IDs are unknown to n3u8dl).
-        Emit  res=HEIGHT:for=best|worst  or plain  best|worst.
-        HEIGHT is the actual pixel height of the selected stream, not the
-        user's input (which might have been a width like 1920).
-
-    Audio
-        Prefer  lang='…':for=best  when a language constraint exists.
-        Fall back to  id='…':for=best  only for real manifest IDs.
-        For DASH with multiple selected tracks, use id='id1|id2|id3':for=all
-
-    Subtitle
-        Always use  lang='…':for=all  when a language constraint exists.
-        Never emit id= with for=all — n3u8dl ignores id= in that mode and
-        downloads all subtitle streams regardless.
-    """
+    """Converts a SelectionResult to an N_m3u8DL-RE --select-* argument string."""
 
     @staticmethod
     def _dedup_real_ids(matched_ids: Optional[str]) -> Optional[str]:
@@ -247,6 +208,30 @@ class N3u8dlFormatter(BaseFormatter):
                 result.append(i)
         return "|".join(result) if result else None
 
+    @staticmethod
+    def _bw_range(stream) -> Optional[str]:
+        """Return 'bwMin=N:bwMax=N+5' from stream.bitrate (kbps), or None."""
+        bw = _bitrate(stream)
+        if not bw:
+            return None
+        kbps = bw // 1000
+        return f"bwMin={kbps}:bwMax={kbps + 5}"
+
+    @staticmethod
+    def _stream_codecs(stream) -> Optional[str]:
+        """Return raw codecs string from stream, or None.
+        For video streams, extract only the first codec (video codec, not audio).
+        """
+        c = _codecs(stream)
+        if not c:
+            return None
+        # For video streams, extract only the video codec (first element before comma)
+        stream_type = getattr(stream, "type", "").lower()
+        if stream_type == "video":
+            first_codec = c.split(",")[0].strip()
+            return first_codec if first_codec else None
+        return c
+
     def format(self, result: SelectionResult) -> str:
         if result.drop:
             return "false"
@@ -257,63 +242,117 @@ class N3u8dlFormatter(BaseFormatter):
         if not has_filters:
             return "best" if result.select_best else "worst"
 
-        parts: List[str] = []
         real_ids = self._dedup_real_ids(result.matched_ids)
 
-        if len(result.streams) > 1 and real_ids and not result.matched_res:
+        if len(result.streams) > 1:
+            return self._format_multi(result, real_ids)
 
-            # Multiple audio tracks selected - use id='id1|id2|id3':for=all
-            parts.append(f"id='{real_ids}'")
-            if result.matched_codec:
+        return self._format_single(result, real_ids)
+
+    def _format_multi(self, result: SelectionResult, real_ids: Optional[str]) -> str:
+        """
+        Multiple selected streams.
+
+        Audio (multi-lang):
+          • Has real IDs  → id='\bA\b|\bB\b'  (no for=, n3u8dl picks all matching)
+          • No real IDs   → lang='ita|it':codecs=...:for=allN
+        """
+        parts: List[str] = []
+
+        if real_ids and not result.matched_res:
+            id_tokens = [i.strip() for i in real_ids.split("|") if i.strip()]
+            id_pattern = "|".join(rf"\b{i}\b" for i in id_tokens)
+            parts.append(f"id='{id_pattern}'")
+            for k, v in result.extra.items():
+                parts.append(f"{k}={v}")
+
+            parts.append("for=all")
+            return ":".join(parts)
+
+        # Fallback: language filter + optional codec + for=allN
+        if result.matched_langs:
+            raw_tokens = [t.strip().lower() for t in result.matched_langs.split("|") if t.strip()]
+            seen_t: set = set()
+            unique: List[str] = []
+            for t in raw_tokens:
+                if t not in seen_t:
+                    seen_t.add(t)
+                    unique.append(t)
+            parts.append(f"lang='{('|'.join(unique))}'")
+        if result.matched_codec:
+            parts.append(f"codecs={result.matched_codec}")
+        for k, v in result.extra.items():
+            parts.append(f"{k}={v}")
+        n = len(result.streams)
+        parts.append(f"for=all{n}")
+        return ":".join(parts)
+
+    def _format_single(self, result: SelectionResult, real_ids: Optional[str]) -> str:
+        """
+        Single selected stream (video or audio/subtitle).
+        """
+        parts: List[str] = []
+        stream = result.streams[0] if result.streams else None
+
+        if real_ids and not result.select_all:
+            id_tokens = [i.strip() for i in real_ids.split("|") if i.strip()]
+            if len(id_tokens) == 1:
+                id_pattern = rf"\b{id_tokens[0]}\b"
+                parts.append(f"id='{id_pattern}'")
+                for k, v in result.extra.items():
+                    parts.append(f"{k}={v}")
+                parts.append(f"for={'best' if result.select_best else 'worst'}")
+                return ":".join(parts)
+
+        if result.matched_res:
+            parts.append(f"res={result.matched_res}")
+            if stream:
+                raw_codec = self._stream_codecs(stream)
+                if raw_codec:
+                    parts.append(f"codecs={raw_codec}")
+                bw = self._bw_range(stream)
+                if bw:
+                    parts.append(bw)
+            elif result.matched_codec:
                 parts.append(f"codecs={result.matched_codec}")
             for k, v in result.extra.items():
                 parts.append(f"{k}={v}")
-            parts.append("for=all")
+            parts.append(f"for={'best' if result.select_best else 'worst'}")
             return ":".join(parts)
 
         if result.matched_langs:
             raw_tokens = [t.strip().lower() for t in result.matched_langs.split("|") if t.strip()]
             seen_t: set = set()
-            unique_tokens: List[str] = []
+            unique: List[str] = []
             for t in raw_tokens:
                 if t not in seen_t:
                     seen_t.add(t)
-                    unique_tokens.append(t)
-            parts.append(f"lang='{('|'.join(unique_tokens))}'")
-            if result.matched_codec:
+                    unique.append(t)
+            parts.append(f"lang='{('|'.join(unique))}'")
+            if stream:
+                raw_codec = self._stream_codecs(stream)
+                if raw_codec:
+                    parts.append(f"codecs={raw_codec}")
+                bw = self._bw_range(stream)
+                if bw:
+                    parts.append(bw)
+            elif result.matched_codec:
                 parts.append(f"codecs={result.matched_codec}")
-        elif result.matched_res:
-            parts.append(f"res={result.matched_res}")
-            if result.matched_codec:
-                parts.append(f"codecs={result.matched_codec}")
-        elif real_ids and not result.select_all:
-            parts.append(f"id='{real_ids}'")
-            if result.matched_codec:
-                parts.append(f"codecs={result.matched_codec}")
-        else:
-            if result.matched_codec:
-                parts.append(f"codecs={result.matched_codec}")
+            for k, v in result.extra.items():
+                parts.append(f"{k}={v}")
+            parts.append(f"for={'best' if result.select_best else 'worst'}")
+            return ":".join(parts)
 
+        if result.matched_codec:
+            parts.append(f"codecs={result.matched_codec}")
         for k, v in result.extra.items():
             parts.append(f"{k}={v}")
+        if parts:
+            parts.append(f"for={'best' if result.select_best else 'worst'}")
+            return ":".join(parts)
 
-        if result.select_all:
-            for_val = "all"
-        elif result.select_best:
+        return "best" if result.select_best else "worst"
 
-            # Use bestN when multiple language tracks were selected (audio multi-lang case).
-            # Only activate when matched_langs is set to avoid bestN on plain video "best".
-            n = len(result.streams)
-            for_val = f"best{n}" if (n > 1 and result.matched_langs) else "best"
-        else:
-            for_val = "worst"
-        parts.append(f"for={for_val}")
-        return ":".join(parts)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Matching helpers
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _matches_res(s, res: str) -> bool:
     try:
@@ -339,11 +378,14 @@ def _matches_lang(s, langs: str) -> bool:
     """
     Match lang tokens against stream.language AND stream.resolved_language.
 
-    Token 'it' matches language='ita' because resolved_language='it-IT'
-    contains 'it'.  Token 'fre' matches directly on language='fre'.
-    Case-insensitive.
+    Supports:
+    - pipe-separated tokens:  "ita|it"
+    - space-separated tokens: "ita it"  (treated identically)
+    - ISO 639-2 three-letter codes (eng, ita, fra …) matched against
+      ISO 639-1 + region tags (en-US, it-IT, fr-FR …) by trying the
+      two-letter prefix.
     """
-    tokens = [t.strip().lower() for t in langs.split("|") if t.strip()]
+    tokens = [t.strip().lower() for t in re.split(r'[|\s]+', langs) if t.strip()]
     sl = _language(s)
     rl = _resolved_language(s)
     for t in tokens:
@@ -351,6 +393,13 @@ def _matches_lang(s, langs: str) -> bool:
             return True
         if rl and (t == rl or t in rl):
             return True
+        
+        if len(t) == 3 and t.isalpha():
+            t2 = t[:2]
+            if t2 == sl or t2 in sl:
+                return True
+            if rl and (t2 == rl or t2 in rl):
+                return True
     return False
 
 
@@ -376,25 +425,106 @@ def _collect_ids(streams: list) -> Optional[str]:
     return "|".join(ids) if ids else None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Stream selector
-# ─────────────────────────────────────────────────────────────────────────────
+def _actual_langs(streams: list) -> str:
+    """Return pipe-separated ACTUAL language tags from the selected streams, preserving insertion order and deduplicating."""
+    seen: dict = {}
+    for s in streams:
+        lang = (getattr(s, "language", "") or "und").lower()
+        seen[lang] = True
+    return "|".join(seen.keys())
+
+
+def _subtitle_pref_score(s) -> tuple:
+    """Higher is better: prefer forced, then cleaner/non-accessibility variants."""
+    return (
+        1 if bool(getattr(s, "forced", False)) else 0,
+        1 if not bool(getattr(s, "is_cc", False)) else 0,
+        1 if not bool(getattr(s, "is_sdh", False)) else 0,
+        1 if bool(getattr(s, "default", False)) else 0,
+        _bitrate(s),
+    )
+
+
+def _subtitle_lang_key(s) -> str:
+    """Key used for grouping subtitle variants of the same language."""
+    return _resolved_language(s) or _language(s) or "und"
+
+
+def _subtitle_flags(s) -> set:
+    """Return a set of flags for a subtitle stream, e.g. {"forced", "cc"}."""
+    flags: set = set()
+    if bool(getattr(s, "forced", False)):
+        flags.add("forced")
+    if bool(getattr(s, "is_cc", False)):
+        flags.add("cc")
+    if bool(getattr(s, "is_sdh", False)):
+        flags.add("sdh")
+    return flags
+
+
+def _canon_lang_token(token: str) -> str:
+    """Canonicalise a language token for matching: lowercase, strip, remove region, etc."""
+    t = (token or "").strip().lower().replace("_", "-")
+    if not t:
+        return ""
+    base = t.split("-", 1)[0]
+    if len(base) == 3 and base.isalpha():
+        return base[:2]
+    return base
+
+
+def _parse_subtitle_lang_requests(langs: str) -> List[Tuple[str, set]]:
+    """Parse subtitle language requests into a list of (base_lang, flags) tuples."""
+    requests: List[Tuple[str, set]] = []
+    seen: set = set()
+
+    for raw in [t.strip().lower() for t in re.split(r'[|\s]+', langs or "") if t.strip()]:
+        parts = [p for p in raw.split("_") if p]
+        if not parts:
+            continue
+
+        base_raw = parts[0]
+        flags = {p for p in parts[1:] if p in {"forced", "cc", "sdh", "hi"}}
+        if "hi" in flags:
+            flags.discard("hi")
+            flags.add("cc")
+
+        base = _canon_lang_token(base_raw)
+        if not base:
+            continue
+
+        key = (base, tuple(sorted(flags)))
+        if key in seen:
+            continue
+        seen.add(key)
+        requests.append((base, flags))
+
+    return requests
+
+
+def _subtitle_matches_request(s, base: str, req_flags: set) -> bool:
+    """Check if a subtitle stream matches the requested base language and flags."""
+    if not _matches_lang(s, base):
+        return False
+
+    if not req_flags:
+        return True
+
+    sflags = _subtitle_flags(s)
+    return req_flags.issubset(sflags)
+
+
+def _subtitle_variant_key(s) -> Tuple[str, ...]:
+    """Variant bucket used for plain language requests (no explicit flags)."""
+    flags = _subtitle_flags(s)
+    ordered: List[str] = []
+    for f in ("forced", "cc", "sdh"):
+        if f in flags:
+            ordered.append(f)
+    return tuple(ordered)
+
 
 class StreamSelector:
-    """
-    Applies user filter strings to Stream objects, marks stream.selected,
-    and returns formatter output strings via apply().
-
-    The formatter is injected at construction time so that the same selector
-    logic works with any downloader backend.
-
-    Usage::
-
-        formatter = N3u8dlFormatter()           # swap for YtdlpFormatter, etc.
-        selector = StreamSelector("1080", "ita|it", "ita|eng", formatter)
-        sv, sa, ss = selector.apply(streams)    # n3u8dl-ready arg strings
-    """
-
     def __init__(self, video_filter: str, audio_filter: str, subtitle_filter: str, formatter: BaseFormatter = None):
         self._vf = (video_filter or "best").strip()
         self._af = (audio_filter or "best").strip()
@@ -417,8 +547,6 @@ class StreamSelector:
 
         logger.info(f"StreamSelector args → video={sv!r}  audio={sa!r}  subtitle={ss!r}")
         return sv, sa, ss
-
-    # ── Video ──────────────────────────────────────────────────────────────────
 
     def _select_video(self, streams: list, spec: FilterSpec) -> SelectionResult:
         result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
@@ -481,8 +609,6 @@ class StreamSelector:
                 result.matched_res = str(actual_h)
         return result
 
-    # ── Audio ──────────────────────────────────────────────────────────────────
-
     def _select_audio(self, streams: list, spec: FilterSpec) -> SelectionResult:
         result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
         audios = [s for s in streams if getattr(s, "type", "") == "audio"]
@@ -518,7 +644,7 @@ class StreamSelector:
                 self._mark_best_per_lang(pool, spec.select_best)
                 selected = [s for s in pool if s.selected]
                 result.streams = selected
-                result.matched_langs = spec.langs
+                result.matched_langs = _actual_langs(selected) or spec.langs
                 result.matched_codec = spec.codec
                 result.matched_ids = _collect_ids(selected)
                 if spec.select_all:
@@ -549,7 +675,7 @@ class StreamSelector:
                 self._mark_best_per_lang(pool, spec.select_best)
                 selected = [s for s in pool if s.selected]
                 result.streams = selected
-                result.matched_langs = spec.langs
+                result.matched_langs = _actual_langs(selected) or spec.langs
                 result.matched_ids = _collect_ids(selected)
                 if spec.select_all:
                     result.select_all = True
@@ -561,8 +687,6 @@ class StreamSelector:
         result.streams = selected
         result.matched_ids = _collect_ids(selected)
         return result
-
-    # ── Subtitle ───────────────────────────────────────────────────────────────
 
     def _select_subtitle(self, streams: list, spec: FilterSpec) -> SelectionResult:
         result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
@@ -579,7 +703,6 @@ class StreamSelector:
                 for s in pool:
                     s.selected = True
                 result.streams = pool
-                result.matched_langs = spec.langs
                 result.matched_ids = _collect_ids(pool)
                 result.select_all = True
                 return result
@@ -593,14 +716,47 @@ class StreamSelector:
             return result
 
         if spec.langs:
-            pool = [s for s in subs if _matches_lang(s, spec.langs)]
-            if pool:
+            requests = _parse_subtitle_lang_requests(spec.langs)
+            selected: List = []
+            used_ids: set = set()
+
+            for base, req_flags in requests:
+                pool = [s for s in subs if _subtitle_matches_request(s, base, req_flags)]
+                if not pool:
+                    continue
+
+                # Explicit flags (e.g. it_forced) are strict: choose one best matching track.
+                if req_flags:
+                    pick = sorted(pool, key=_subtitle_pref_score, reverse=True)[0]
+                    sid = _stream_id(pick) or id(pick)
+                    if sid in used_ids:
+                        continue
+                    used_ids.add(sid)
+                    pick.selected = True
+                    selected.append(pick)
+                    continue
+
+                # Plain language request (e.g. "it"): keep one best track per subtitle variant
+                # so we can download CC + Forced + SDH + Plain without duplicate copies.
+                variants: dict = {}
                 for s in pool:
-                    s.selected = True
-                result.streams = pool
-                result.matched_langs = spec.langs
-                result.matched_ids = _collect_ids(pool)
-                result.select_all = True
+                    vkey = _subtitle_variant_key(s)
+                    variants.setdefault(vkey, []).append(s)
+
+                for _vkey, vpool in variants.items():
+                    pick = sorted(vpool, key=_subtitle_pref_score, reverse=True)[0]
+                    sid = _stream_id(pick) or id(pick)
+                    if sid in used_ids:
+                        continue
+                    used_ids.add(sid)
+                    pick.selected = True
+                    selected.append(pick)
+
+            if selected:
+                result.streams = selected
+                result.matched_langs = _actual_langs(selected) or spec.langs
+                result.matched_ids = _collect_ids(selected)
+                result.select_all = len(selected) > 1
                 return result
             logger.info(f"StreamSelector subtitle: lang={spec.langs!r} — no match, selecting all")
 
@@ -614,14 +770,7 @@ class StreamSelector:
 
     @staticmethod
     def _mark_one_video(pool: list, pick_fn, result: SelectionResult, res: Optional[str] = None, codec: Optional[str] = None) -> SelectionResult:
-        """
-        Pick one video stream and populate result.
-
-        matched_res is normalised to the actual stream HEIGHT so the formatter
-        emits res=1080 even when the user typed res=1920 (width).
-        matched_ids is intentionally left None — our synthetic 'vid:…' IDs
-        are not valid downloader identifiers.
-        """
+        """Pick one video stream and populate result."""
         s = pick_fn(pool)
         if s:
             s.selected = True
@@ -630,6 +779,9 @@ class StreamSelector:
             if res is not None:
                 actual_h = _height(s)
                 result.matched_res = str(actual_h) if actual_h else res
+            real_id = _stream_id(s)
+            if real_id:
+                result.matched_ids = real_id
         return result
 
     @staticmethod
@@ -641,7 +793,14 @@ class StreamSelector:
                 seen[lang] = True
                 s.selected = True
 
-    # ── Utility methods (used by external code) ────────────────────────────────
+    @staticmethod
+    def _mark_best_subtitle_per_lang(streams: list) -> None:
+        seen: dict = {}
+        for s in sorted(streams, key=_subtitle_pref_score, reverse=True):
+            lang = _subtitle_lang_key(s)
+            if lang not in seen:
+                seen[lang] = True
+                s.selected = True
 
     @staticmethod
     def parse_filter(filter_str: str) -> dict:
@@ -669,11 +828,6 @@ class StreamSelector:
         if spec.langs:
             return [v.strip() for v in spec.langs.split("|") if v.strip()]
         return []
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Sort helpers
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _best(streams: list):
     return max(streams, key=_bitrate) if streams else None

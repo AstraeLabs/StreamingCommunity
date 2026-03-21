@@ -11,6 +11,15 @@ from VibraVid.source.utils.language import resolve_locale
 
 
 logger = logging.getLogger("SubtitleDownloader")
+VALID_SUBTITLE_FORMATS = {"vtt", "srt", "ass", "ssa", "ttml2", "ttml", "xml", "dfxp"}
+
+
+def is_valid_format(fmt: str, track_type: str) -> bool:
+    """Check if the detected format is valid for the given track type."""
+    fmt_lower = fmt.lower()
+    if track_type == "subtitle":
+        return fmt_lower in VALID_SUBTITLE_FORMATS
+    return False
 
 
 def _extract_lang_and_flags(lang_raw: str, track_info: Dict = None) -> Tuple[str, set]:
@@ -117,9 +126,10 @@ async def resolve_url(client: Any, url: str, track_type: str) -> Tuple[str, str]
             line = line.strip()
             if line and not line.startswith("#"):
                 fmt = ext_from_url(line, "UNK")
-                logger.debug(f"Resolved manifest → segment: {line[:80]}")
+                logger.debug(f"Resolved manifest → segment: {line} (fmt={fmt})")
                 return line, fmt
         logger.warning(f"Manifest parsed but no segment found in {url!r}")
+        return url, ext_from_url(url, "UNK")
 
     fmt = ext_from_url(url, "UNK")
     return url, fmt
@@ -148,17 +158,15 @@ async def download_external_tracks_with_progress(headers: Dict, external_subtitl
         for track, track_type in all_tasks:
             try:
                 lang_raw = (track.get("language") or "unknown").strip()
-                #forced   = bool(track.get("forced"))
-                #sdh      = bool(track.get("sdh"))
-                #cc       = bool(track.get("cc"))
-
-                # ── Resolve manifest → actual segment URL ───────────────
                 raw_url = track["url"]
                 final_url, fmt = await resolve_url(client, raw_url, track_type)
+                if not is_valid_format(fmt, track_type):
+                    logger.error(f"Skipping {track_type} with invalid format '{fmt}' for {lang_raw}: {raw_url}")
+                    continue
 
                 # ── Build normalised filename ───────────────────────────
                 base_lang, flag_suffix = normalize_sub_filename(lang_raw, track)
-                out_path = output_dir / f"{filename}.{base_lang}{flag_suffix}.{fmt}"
+                out_path = output_dir / f"{base_lang}{flag_suffix}.{fmt}"
 
                 # ── Reuse pre-created task or create fallback ───────────
                 task_key = track.get("_task_key", f"ext_{track_type}_{lang_raw}_{id(track)}")
