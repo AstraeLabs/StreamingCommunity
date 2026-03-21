@@ -16,6 +16,9 @@ from VibraVid.utils import config_manager
 from VibraVid.core.manifest.m3u8 import HLSParser
 from VibraVid.core.manifest.mpd import DashParser
 from VibraVid.core.manifest.stream import Stream
+from VibraVid.utils.tmdb_client import tmdb_client
+from VibraVid.utils.http_client import create_async_client, create_client, get_headers
+
 from VibraVid.source.style.tracker import download_tracker
 from VibraVid.source.style.bar_manager import DownloadBarManager
 from VibraVid.source.utils.selector import StreamSelector, N3u8dlFormatter
@@ -24,18 +27,6 @@ from VibraVid.source.utils.language import resolve_locale, LANGUAGE_MAP
 from VibraVid.core.downloader.subtitle import download_external_tracks_with_progress, build_ext_track_label, is_valid_format, ext_from_url
 from VibraVid.source.utils.codec import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
 from VibraVid.source.utils.decrypt import Decryptor, KeysManager
-from VibraVid.utils.tmdb_client import tmdb_client
-from VibraVid.utils.http_client import create_async_client, create_client
-
-
-console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
-logger  = logging.getLogger("manual")
-CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
-THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
-RETRY_COUNT = config_manager.config.get_int("DOWNLOAD", "retry_count")
-REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
-USE_PROXY = config_manager.config.get_bool("REQUESTS", "use_proxy")
-PROXY_CFG = config_manager.config.get_dict("REQUESTS", "proxy")
 
 try:
     from Cryptodome.Cipher import AES as _AES
@@ -48,6 +39,52 @@ except ImportError:
         _HAS_AES = True
     except ImportError:
         _HAS_AES = False
+
+
+console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
+logger  = logging.getLogger("manual")
+CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
+THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
+RETRY_COUNT = config_manager.config.get_int("DOWNLOAD", "retry_count")
+REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
+USE_PROXY = config_manager.config.get_bool("REQUESTS", "use_proxy")
+PROXY_CFG = config_manager.config.get_dict("REQUESTS", "proxy")
+
+
+def _resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
+    """Synchronously probe *url* to determine the real subtitle format.
+
+    If the response is an HLS manifest (``#EXTM3U``), the first media segment
+    URL is extracted and its extension is used.  Returns ``(final_url, ext)``
+    where *ext* may be an empty string if nothing recognisable was found.
+    """
+    try:
+        hdrs = dict(headers)
+        hdrs.setdefault("User-Agent", get_headers().get("User-Agent", ""))
+        logger.info(f"_resolve_subtitle_url_sync: probing subtitle URL {url!r} with headers {hdrs}")
+        with create_client(headers=hdrs, timeout=15, follow_redirects=True) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+            text = resp.text.strip()
+    except Exception as exc:
+        logger.info(f"_resolve_subtitle_url_sync: request failed for {url!r}: {exc}")
+        return url, ext_from_url(url, "")
+
+    if text.startswith("#EXTM3U"):
+        for line in text.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                resolved_ext = ext_from_url(line, "")
+                logger.info(f"Resolved HLS subtitle manifest -> segment {line!r} (ext={resolved_ext!r})")
+                return line, resolved_ext
+        logger.info(f"_resolve_subtitle_url_sync: manifest at {url!r} had no segments")
+        return url, ""
+
+    content_type = resp.headers.get("content-type", "").lower()
+    for mime, ext in (("vtt", "vtt"), ("webvtt", "vtt"), ("srt", "srt"), ("ttml", "ttml"), ("xml", "xml"), ("dfxp", "dfxp")):
+        if mime in content_type:
+            return url, ext
+    return url, ext_from_url(url, "")
 
 
 def _lang_variants(normalized_lang: str) -> Set[str]:
@@ -364,7 +401,7 @@ class MediaDownloader:
 
         for ext in self.external_subtitles:
             lang     = ext.get("language", "")
-            selected = self._ext_lang_matches(lang, "subtitle")
+            selected = self._ext_track_matches(ext, "subtitle")
             ext["_selected"] = selected
             fake = Stream(type="subtitle", language=lang, name=ext.get("name", ""), selected=selected, is_external=True,)
             fake.id = "EXT"
@@ -405,9 +442,12 @@ class MediaDownloader:
 
                 ext = ext_from_url(sub_url, "")
                 if not ext or not is_valid_format(ext, "subtitle"):
-                    logger.info(f"Skipping external subtitle (unsupported format): {s.language} url={sub_url}")
-                    s.selected = False
-                    continue
+                    resolved_url, ext = _resolve_subtitle_url_sync(sub_url, self.headers)
+                    if not ext or not is_valid_format(ext, "subtitle"):
+                        logger.info(f"Skipping external subtitle (unsupported format): {s.language} url={sub_url}")
+                        s.selected = False
+                        continue
+                    sub_url = resolved_url
 
                 new_ext_subs.append({
                     "url":       sub_url,
@@ -782,14 +822,69 @@ class MediaDownloader:
         logger.info(f"Selection -> video={self._sv!r}  audio={self._sa!r}  subtitle={self._ss!r}")
 
     def _ext_lang_matches(self, lang: str, track_type: str) -> bool:
+        """Return True if the external track with the given *lang* tag should be downloaded."""
         cfg_key = "select_subtitle" if track_type == "subtitle" else "select_audio"
         cfg = config_manager.config.get("DOWNLOAD", cfg_key)
         if not cfg or cfg.lower() == "all":
             return True
         if cfg.lower() == "false":
             return False
-        tokens = [t.strip() for t in re.split(r"[|,]", cfg) if t.strip()]
-        return any(t.lower() in lang.lower() for t in tokens)
+
+        tokens = [t.strip().lower() for t in re.split(r"[|,]", cfg) if t.strip()]
+        lang_l = lang.strip().lower()
+
+        for token in tokens:
+
+            # Strip flag suffixes (forced/cc/sdh/hi) to get the bare language token
+            base_token = token.split("_")[0]
+            if base_token in lang_l or lang_l.startswith(base_token):
+                return True
+            
+            # ISO-639-2 three-letter -> two-letter prefix match ("ita" -> "it")
+            if len(base_token) == 3 and base_token.isalpha() and lang_l.startswith(base_token[:2]):
+                return True
+        return False
+
+    def _ext_track_matches(self, track: Dict, track_type: str) -> bool:
+        """Return True if *track* (a full external track dict with flag fields) matches the configured selection filter, including flag requirements.
+        """
+        cfg_key = "select_subtitle" if track_type == "subtitle" else "select_audio"
+        cfg = config_manager.config.get("DOWNLOAD", cfg_key)
+        if not cfg or cfg.lower() == "all":
+            return True
+        if cfg.lower() == "false":
+            return False
+
+        lang = (track.get("language") or "").strip().lower()
+        tokens = [t.strip().lower() for t in re.split(r"[|,]", cfg) if t.strip()]
+
+        for token in tokens:
+            parts = token.split("_")
+            base_token = parts[0]
+            req_flags  = {p for p in parts[1:] if p in {"forced", "cc", "sdh", "hi"}}
+            if "hi" in req_flags:
+                req_flags.discard("hi")
+                req_flags.add("cc")
+
+            # Language match
+            lang_ok = (base_token in lang or lang.startswith(base_token) or (len(base_token) == 3 and base_token.isalpha() and lang.startswith(base_token[:2])))
+            if not lang_ok:
+                continue
+
+            # Flag match: every requested flag must be present
+            if req_flags:
+                track_flags: set = set()
+                if track.get("forced"):
+                    track_flags.add("forced")
+                if track.get("cc"):
+                    track_flags.add("cc")
+                if track.get("sdh"):
+                    track_flags.add("sdh")
+                if not req_flags.issubset(track_flags):
+                    continue
+
+            return True
+        return False
 
     def _decrypt_check(self, status: Dict[str, Any]) -> None:
         if self.download_id:
