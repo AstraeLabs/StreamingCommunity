@@ -59,21 +59,23 @@ class OsManager:
         return name_with_year + ext
 
     def get_sanitize_path(self, path: str) -> str:
-        """Sanitize complete path."""
+        """Sanitize a complete path while preserving the native OS path separator."""
         if not path:
             return path
 
-        # Decode unicode characters and perform basic sanitization
+        # Decode unicode characters first (unidecode is safe on separators and drive letters — it only touches non-ASCII glyphs).
         decoded = unidecode(path)
-        sanitized = sanitize_filepath(decoded)
 
         if self.system == 'windows':
-            # Handle network paths (UNC or IP-based)
-            if sanitized.startswith('\\\\') or sanitized.startswith('//'):
-                parts = sanitized.replace('/', '\\').split('\\')
-                sanitized_parts = parts[:4]
+            # ── Windows ───────────────────────────────────────────────────────
+            # Normalise *input* separators to backslash so the checks below
+            # work regardless of whether the caller used / or \.
+            normalised = decoded.replace('/', '\\')
 
-                # Sanitize remaining parts
+            # Handle network paths (UNC or IP-based)  \\server\share\...
+            if normalised.startswith('\\\\'):
+                parts = normalised.split('\\')
+                sanitized_parts = parts[:4]
                 if len(parts) > 4:
                     sanitized_parts.extend([
                         self.get_sanitize_file(part)
@@ -82,24 +84,23 @@ class OsManager:
                     ])
                 return '\\'.join(sanitized_parts)
 
-            # Handle drive letters
-            elif len(sanitized) >= 2 and sanitized[1] == ':':
-                drive = sanitized[:2]
-                rest = sanitized[2:].lstrip('\\').lstrip('/')
-                path_parts = [drive] + [
-                    self.get_sanitize_file(part)
-                    for part in rest.replace('/', '\\').split('\\')
-                    if part
-                ]
-                return '\\'.join(path_parts)
+            # Handle drive letters  C:\...
+            if len(normalised) >= 2 and normalised[1] == ':':
+                drive = normalised[:2]          # e.g. "C:"
+                rest  = normalised[2:].lstrip('\\')
+                parts = [p for p in rest.split('\\') if p]
+                sanitized_parts = [drive] + [self.get_sanitize_file(p) for p in parts]
+                return '\\'.join(sanitized_parts)
 
-            # Regular path
-            else:
-                parts = sanitized.replace('/', '\\').split('\\')
-                return '\\'.join(p for p in parts if p)
-        
+            # Regular relative path
+            parts = [p for p in normalised.split('\\') if p]
+            return '\\'.join(self.get_sanitize_file(p) for p in parts)
+
         else:
-            # Handle Unix-like paths (Linux and macOS)
+            # ── Unix-like (Linux / macOS) ──────────────────────────────────
+            # Use pathvalidate only on non-Windows where forward slashes are
+            # the native separator and the function behaves correctly.
+            sanitized = sanitize_filepath(decoded)
             is_absolute = sanitized.startswith('/')
             parts = sanitized.replace('\\', '/').split('/')
             sanitized_parts = [
@@ -107,11 +108,9 @@ class OsManager:
                 for part in parts
                 if part
             ]
-
             result = '/'.join(sanitized_parts)
             if is_absolute:
                 result = '/' + result
-
             return result
 
     def get_glob_path(self, path: str) -> str:
