@@ -69,23 +69,44 @@
           {{ series.name }}
         </h1>
 
-        <!-- Download Full Series Button -->
-        <form method="post" class="flex">
-          {% csrf_token %}
-          <input type="hidden" name="source_alias" value="{{ series.source_alias }}">
-          <input type="hidden" name="item_payload" value="{{ series.item_payload }}">
-          <input type="hidden" name="download_type" value="full_series">
-          <button 
-            type="submit" 
-            onclick="return confirm('Sei sicuro di voler scaricare TUTTE le stagioni della serie?')"
-            class="px-5 py-3 sm:px-8 sm:py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold text-sm sm:text-base rounded-lg shadow-xl hover:shadow-2xl hover:shadow-red-600/20 transition-all transform hover:scale-[1.02] flex items-center gap-2 sm:gap-3">
-            <svg class="w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-            </svg>
-            <span class="whitespace-nowrap">SCARICA SERIE COMPLETA</span>
-            <span class="hidden sm:inline">({{ seasons|length }} Stagioni)</span>
-          </button>
-        </form>
+        <!-- Download Actions Container -->
+        <div class="flex flex-wrap gap-3 sm:gap-4 mt-4 sm:mt-6">
+          <!-- Download Full Series Button -->
+          <form method="post" class="flex flex-1 sm:flex-none">
+            {% csrf_token %}
+            <input type="hidden" name="source_alias" value="{{ series.source_alias }}">
+            <input type="hidden" name="item_payload" value="{{ series.item_payload }}">
+            <input type="hidden" name="download_type" value="full_series">
+            <button 
+              type="submit" 
+              onclick="return confirm('Sei sicuro di voler scaricare TUTTE le stagioni della serie?')"
+              class="w-full px-5 py-3 sm:px-8 sm:py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold text-sm sm:text-base rounded-lg shadow-xl hover:shadow-2xl hover:shadow-red-600/20 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2 sm:gap-3">
+              <svg class="w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+              </svg>
+              <span class="whitespace-nowrap">SCARICA L'INTERA SERIE</span>
+              <span class="hidden sm:inline">({{ seasons|length }} Stagioni)</span>
+            </button>
+          </form>
+
+          <!-- Download Selected Seasons Button -->
+          <form method="post" id="download-selected-seasons-form" class="flex flex-1 sm:flex-none">
+            {% csrf_token %}
+            <input type="hidden" name="source_alias" value="{{ series.source_alias }}">
+            <input type="hidden" name="item_payload" value="{{ series.item_payload }}">
+            <input type="hidden" name="download_type" value="selected_seasons">
+            <input type="hidden" name="selected_seasons" id="selected-seasons-input" value="">
+            <button 
+              type="button" 
+              onclick="submitSelectedSeasons()"
+              class="w-full px-5 py-3 sm:px-8 sm:py-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold text-sm sm:text-base rounded-lg shadow-xl hover:shadow-2xl hover:shadow-orange-600/20 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2 sm:gap-3">
+              <svg class="w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+              </svg>
+              <span class="whitespace-nowrap" id="selected-seasons-btn-label">SCARICA LE STAGIONI SELEZIONATE (0)</span>
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   </div>
@@ -98,10 +119,18 @@
       <!-- Season Header -->
       <div class="bg-gradient-to-r from-gray-900 to-gray-800 p-4 sm:p-6 lg:p-8 border-b border-gray-700">
         <div class="flex items-center gap-3 sm:gap-5">
-          <!-- Season Number Badge -->
-          <div class="flex-shrink-0 w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 bg-gradient-to-br from-red-600 to-pink-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-2xl shadow-red-600/50">
-            <span class="text-xl sm:text-2xl lg:text-3xl font-black text-white">{{ season.number }}</span>
-          </div>
+          <!-- Season Checkbox (Hidden, styled through label) -->
+          <label class="cursor-pointer group flex-shrink-0 relative">
+            <input type="checkbox" title="Seleziona la stagione {{ season.number }}" class="season-checkbox hidden" value="{{ season.number }}">
+            <div class="season-card w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 bg-gradient-to-br from-red-600 to-pink-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-2xl shadow-red-600/50 transition-all border-2 border-transparent">
+              <span class="season-number text-xl sm:text-2xl lg:text-3xl font-black text-white z-[1]">{{ season.number }}</span>
+              <div class="season-check-overlay absolute inset-0 bg-red-800 opacity-0 transition-opacity flex items-center justify-center rounded-lg sm:rounded-xl">
+                <svg class="w-6 h-6 sm:w-8 sm:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                </svg>
+              </div>
+            </div>
+          </label>
           
           <!-- Season Info -->
           <div class="flex-1 min-w-0">
@@ -230,6 +259,16 @@
 </div>
 
 <style>
+  .season-checkbox:checked + .season-card {
+    border-color: rgb(248 113 113);
+  }
+  .season-checkbox:checked + .season-card .season-number {
+    display: none;
+  }
+  .season-checkbox:checked + .season-card .season-check-overlay {
+    opacity: 1;
+  }
+
   .episode-checkbox:checked + .episode-card {
     border-color: rgb(220 38 38);
     background-color: rgba(220, 38, 38, 0.1);
@@ -255,6 +294,37 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script>
+  function updateSelectedSeasonsButtonLabel() {
+    const selectedCount = document.querySelectorAll('.season-checkbox:checked').length;
+    const label = document.getElementById('selected-seasons-btn-label');
+    if (!label) return;
+
+    label.textContent = `SCARICA LE STAGIONI SELEZIONATE (${selectedCount})`;
+  }
+
+  window.submitSelectedSeasons = function() {
+    const checkboxes = document.querySelectorAll('.season-checkbox:checked');
+    const selectedSeasons = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (selectedSeasons.length === 0) {
+      alert('Seleziona almeno una stagione da scaricare.');
+      return;
+    }
+    
+    if (confirm(`Sei sicuro di voler scaricare le stagioni selezionate: ${selectedSeasons.join(', ')}?`)) {
+      document.getElementById('selected-seasons-input').value = selectedSeasons.join(',');
+      document.getElementById('download-selected-seasons-form').submit();
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.season-checkbox').forEach((checkbox) => {
+      checkbox.addEventListener('change', updateSelectedSeasonsButtonLabel);
+    });
+    updateSelectedSeasonsButtonLabel();
+  });
+</script>
 <script type="module">
   import { init } from '{% static "js/series.js" %}';
   init();

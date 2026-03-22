@@ -21,6 +21,17 @@ def _is_user_stop_requested() -> bool:
     download_id = context_tracker.download_id
     if not download_id:
         return False
+    
+    # In GUI context, "cancelled_scheduled_downloads" tracks cancelled queues
+    if getattr(context_tracker, "is_gui", False):
+        try:
+            callback = getattr(context_tracker, "is_cancelled_callback", None)
+            if callback and callback(download_id):
+                return True
+        except Exception as e:
+            logger.error(f"Error checking schedule cancellation: {e}")
+            pass
+            
     return download_tracker.is_stopped(download_id)
 
 
@@ -82,6 +93,10 @@ def process_season_selection(scrape_serie: Any, seasons_count: int, season_selec
     
     # Loop through the selected seasons and download episodes
     for season_number in list_season_select:
+        if _is_user_stop_requested():
+            console.print("[yellow]Download stopped by user.")
+            break
+
         season = scrape_serie.seasons_manager.get_season_by_number(season_number)
         
         if not season:
@@ -122,9 +137,13 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
     
     if download_all:
         for i_episode in range(1, episodes_count + 1):
+            if _is_user_stop_requested():
+                console.print(f"[yellow]Download stopped by user before episode {i_episode}.")
+                break
+                
             path, stopped = download_video_callback(episodes[i_episode-1], index_season_selected, i_episode)
             
-            if stopped:
+            if _is_user_stop_requested() or stopped:
                 if _is_user_stop_requested():
                     break
                 console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}.")
@@ -187,9 +206,15 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
 
         # Download selected episodes if not stopped
         for i_episode in list_episode_select:
+            if _is_user_stop_requested():
+                console.print(f"[yellow]Download stopped by user before episode {i_episode}.")
+                break
+                
             path, stopped = download_video_callback(episodes[i_episode-1], index_season_selected, i_episode)
             
-            if stopped:
+            if stopped or _is_user_stop_requested():
                 if _is_user_stop_requested():
                     break
                 console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}.")
+        
+        console.print(f"\n[red]End downloaded [yellow]season: [red]{index_season_selected}.")

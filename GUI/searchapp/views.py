@@ -3,6 +3,7 @@
 import os
 import time
 import json
+import re
 import threading
 import atexit
 import signal
@@ -55,8 +56,7 @@ def _remove_scheduled_download(download_id: str) -> None:
 
 def _cancel_scheduled_download(download_id: str) -> None:
     with scheduled_downloads_lock:
-        if download_id in scheduled_downloads:
-            cancelled_scheduled_downloads.add(download_id)
+        cancelled_scheduled_downloads.add(download_id)
         scheduled_downloads.pop(download_id, None)
 
 
@@ -65,12 +65,61 @@ def _is_scheduled_cancelled(download_id: str) -> bool:
         return download_id in cancelled_scheduled_downloads
 
 
+def _extract_series_base_title(raw_title: str) -> str:
+    """Normalize title to a stable series base name (strip season/episode suffixes)."""
+    title = str(raw_title or "").strip()
+    if not title:
+        return ""
+    # Examples: "Show - S1", "Show - S1 E3", "Show - S01 E01-02"
+    base = re.split(r"\s-\sS\d+(?:\sE[\d\-\*,]+)?", title, maxsplit=1, flags=re.IGNORECASE)[0]
+    return base.strip()
+
+
+def _same_series(title: str, series_base: str) -> bool:
+    if not series_base:
+        return False
+    return _extract_series_base_title(title).casefold() == series_base.casefold()
+
+
 def _get_scheduled_downloads() -> List[Dict[str, Any]]:
     with scheduled_downloads_lock:
         return sorted(
             list(scheduled_downloads.values()),
             key=lambda item: item.get("scheduled_at", 0),
         )
+
+
+def _enrich_active_downloads_with_series(active_downloads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Attach series_name for active TV downloads so GUI can show the parent series."""
+    with scheduled_downloads_lock:
+        scheduled_by_id = {k: dict(v) for k, v in scheduled_downloads.items()}
+
+    enriched: List[Dict[str, Any]] = []
+    for item in active_downloads:
+        row = dict(item)
+        media_type = str(row.get("type") or "").lower()
+
+        if media_type in {"serie", "tv", "series", "anime"}:
+            series_name = ""
+            row_id = row.get("id")
+
+            scheduled_info = scheduled_by_id.get(row_id)
+            if scheduled_info:
+                series_name = _extract_series_base_title(scheduled_info.get("title", ""))
+
+            if not series_name:
+                title = str(row.get("title") or "").strip()
+                title_base = _extract_series_base_title(title)
+                # Only trust title-derived series name when title contains the Sxx suffix pattern.
+                if title_base and title_base != title:
+                    series_name = title_base
+
+            if series_name:
+                row["series_name"] = series_name
+
+        enriched.append(row)
+
+    return enriched
 
 
 def _prune_scheduled_downloads(_active_downloads: List[Dict[str, Any]], history: List[Dict[str, Any]]) -> None:
@@ -223,6 +272,7 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
             context_tracker.site_name = site
             context_tracker.media_type = media_type
             context_tracker.is_gui = True
+            context_tracker.is_cancelled_callback = _is_scheduled_cancelled
             
             api = get_api(site)
             
@@ -494,6 +544,7 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
                         context_tracker.site_name = source_alias
                         context_tracker.media_type = media_type
                         context_tracker.is_gui = True
+                        context_tracker.is_cancelled_callback = _is_scheduled_cancelled
 
                         api.start_download(media_item, season=season_num, episodes="*")
                     except Exception as e:
@@ -532,6 +583,68 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
 
         return redirect("download_dashboard")
 
+    # --- SELECTED SEASONS DOWNLOAD ---
+    elif download_type == "selected_seasons":
+        selected_seasons_raw = request.POST.get("selected_seasons", "")
+        if not selected_seasons_raw:
+            messages.error(request, "Nessuna stagione selezionata.")
+            return redirect("search_home")
+            
+        selected_seasons = [s.strip() for s in selected_seasons_raw.split(",") if s.strip()]
+        
+        def _download_selected_seasons_task():
+            try:
+                api = get_api(source_alias)
+                entries_fields = {k: v for k, v in item_payload.items() if k in Entries.__dataclass_fields__}
+                media_item = Entries(**entries_fields)
+                
+                planned_seasons = []
+                for season_num in selected_seasons:
+                    season_title = f"{name} - S{season_num}"
+                    planned_id = f"{source_alias}_{int(time.time())}_{hash(season_title + str(season_num)) % 10000}_{season_num}"
+                    planned_seasons.append((planned_id, season_num))
+                    _add_scheduled_download(
+                        planned_id,
+                        season_title,
+                        source_alias,
+                        media_type,
+                        season=season_num,
+                        episodes="*",
+                    )
+
+                for download_id, season_num in planned_seasons:
+                    try:
+                        if _is_scheduled_cancelled(download_id):
+                            _remove_scheduled_download(download_id)
+                            continue
+
+                        context_tracker.download_id = download_id
+                        context_tracker.site_name = source_alias
+                        context_tracker.media_type = media_type
+                        context_tracker.is_gui = True
+                        context_tracker.is_cancelled_callback = _is_scheduled_cancelled
+
+                        api.start_download(media_item, season=season_num, episodes="*")
+                    except Exception as e:
+                        error_msg = str(e) or "Errore sconosciuto"
+                        print(f"[Error] Download season {season_num}: {e}")
+                        
+                        try:
+                            _remove_scheduled_download(download_id)
+                            if download_id not in download_tracker.downloads:
+                                season_title = f"{name} - S{season_num}"
+                                download_tracker.start_download(download_id, season_title, source_alias, media_type)
+                            download_tracker.complete_download(download_id, success=False, error=error_msg)
+                        except Exception as tracker_err:
+                            print(f"[Error] Failed to update download tracker: {tracker_err}")
+
+            except Exception as e:
+                print(f"[Error] Selected seasons download task: {e}")
+
+        download_executor.submit(_download_selected_seasons_task)
+
+        return redirect("download_dashboard")
+
     # --- SELECTED EPISODES DOWNLOAD ---
     else:
         if not season_number:
@@ -558,7 +671,7 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
 
 def download_dashboard(request: HttpRequest) -> HttpResponse:
     """Dashboard to view all active and completed downloads."""
-    active_downloads = download_tracker.get_active_downloads()
+    active_downloads = _enrich_active_downloads_with_series(download_tracker.get_active_downloads())
     history = download_tracker.get_history()
     _prune_scheduled_downloads(active_downloads, history)
     scheduled = _get_scheduled_downloads()
@@ -578,7 +691,7 @@ def download_dashboard(request: HttpRequest) -> HttpResponse:
 
 def get_downloads_json(request: HttpRequest) -> JsonResponse:
     """API endpoint to get real-time download progress."""
-    active_downloads = download_tracker.get_active_downloads()
+    active_downloads = _enrich_active_downloads_with_series(download_tracker.get_active_downloads())
     history = download_tracker.get_history()
     _prune_scheduled_downloads(active_downloads, history)
     scheduled = _get_scheduled_downloads()
@@ -597,13 +710,84 @@ def kill_download(request: HttpRequest) -> JsonResponse:
             data = json.loads(request.body)
             download_id = data.get("download_id")
             if download_id:
-                _cancel_scheduled_download(download_id)
                 download_tracker.request_stop(download_id)
                 return JsonResponse({"status": "success"})
         
         except Exception as e:
             return JsonResponse({"status": "error", "message": str(e)}, status=400)
     
+    return JsonResponse({"status": "error", "message": "Method not allowed", "status_code": 405}, status=405)
+
+
+@csrf_exempt
+def kill_and_clear_queue(request: HttpRequest) -> JsonResponse:
+    """API view to cancel a specific download and empty the entire scheduled queue."""
+    if request.method == "POST":
+        try:
+            data = json.loads(request.body)
+            
+            # 1. Kill the active process if provided
+            download_id = data.get("download_id")
+            series_name = data.get("series_name")
+            target_site = ""
+            target_series = _extract_series_base_title(series_name)
+            
+            if download_id:
+                # Resolve target site/title from current scheduled queue first.
+                with scheduled_downloads_lock:
+                    info = scheduled_downloads.get(download_id)
+                if info:
+                    target_site = str(info.get("site") or "").strip()
+                    if not target_series:
+                        target_series = _extract_series_base_title(info.get("title", ""))
+
+                # Fallback to active downloads if needed.
+                if not info:
+                    active_items = download_tracker.get_active_downloads()
+                    active_info = next((d for d in active_items if d.get("id") == download_id), None)
+                    if active_info:
+                        target_site = str(active_info.get("site") or "").strip()
+                        if not target_series:
+                            target_series = _extract_series_base_title(active_info.get("title", ""))
+
+                _cancel_scheduled_download(download_id)
+                download_tracker.request_stop(download_id)
+
+            # 2. Stop other active downloads for the same series (same site + same series base).
+            if target_series:
+                active_to_stop = []
+                for item in download_tracker.get_active_downloads():
+                    current_id = item.get("id")
+                    if not current_id:
+                        continue
+                    if target_site and str(item.get("site") or "").strip() != target_site:
+                        continue
+                    if _same_series(item.get("title", ""), target_series):
+                        active_to_stop.append(current_id)
+
+                for current_id in active_to_stop:
+                    _cancel_scheduled_download(current_id)
+                    download_tracker.request_stop(current_id)
+            
+            # 3. Clear queued items for the same series (same site + same series base).
+            with scheduled_downloads_lock:
+                to_remove = []
+                for d_id, d_info in scheduled_downloads.items():
+                    if not target_series:
+                        continue
+                    if target_site and str(d_info.get("site") or "").strip() != target_site:
+                        continue
+                    if _same_series(d_info.get("title", ""), target_series):
+                        cancelled_scheduled_downloads.add(d_id)
+                        to_remove.append(d_id)
+                for d_id in to_remove:
+                    scheduled_downloads.pop(d_id, None)
+                
+            return JsonResponse({"status": "success"})
+        
+        except Exception as e:
+            return JsonResponse({"status": "error", "message": str(e)}, status=400)
+            
     return JsonResponse({"status": "error", "message": "Method not allowed", "status_code": 405}, status=405)
 
 

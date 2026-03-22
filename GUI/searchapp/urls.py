@@ -15,6 +15,7 @@ urlpatterns = [
     path("downloads/", views.download_dashboard, name="download_dashboard"),
     path("api/get-downloads/", views.get_downloads_json, name="get_downloads_json"),
     path("api/kill-download/", views.kill_download, name="kill_download"),
+    path("api/kill-and-clear-queue/", views.kill_and_clear_queue, name="kill_and_clear_queue"),
     path("api/clear-history/", views.clear_download_history, name="clear_download_history"),
     
     # Watchlist

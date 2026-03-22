@@ -104,9 +104,9 @@ function renderScheduledDownloads(downloads) {
             ${scheduleDate}
           </div>
           <button
-            onclick="window.killDownload('${dl.id}')"
+            onclick="window.killSeriesQueue('${dl.id}')"
             class="px-3 py-2 bg-red-600/10 hover:bg-red-600 active:bg-red-700 text-red-500 hover:text-white border border-red-600/30 rounded text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 min-h-[34px]"
-            title="Annulla questo download"
+            title="Annulla questo download programmato"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -124,6 +124,7 @@ function generateDownloadCardHTML(dl) {
   const hasTasks = Object.keys(dl.tasks || {}).length > 0;
   
   const typeLabel = normalizeTypeLabel(dl.type, dl.title);
+  const isSeries = typeLabel === 'Serie';
   const elapsedSec = Math.floor(Date.now() / 1000 - (dl.start_time || 0));
   const timeStr = formatTime(elapsedSec);
 
@@ -157,16 +158,33 @@ function generateDownloadCardHTML(dl) {
               <span class="px-2.5 py-1 sm:px-3 bg-white/10 backdrop-blur-sm text-gray-300 text-[10px] sm:text-xs font-semibold rounded">
                 ${escapeHtml(dl.site)}
               </span>
+              ${dl.series_name ? `
+              <span class="max-w-full sm:max-w-[260px] px-2.5 py-1 sm:px-3 bg-blue-600/20 border border-blue-500/30 text-blue-200 text-[10px] sm:text-xs font-semibold rounded truncate" title="${escapeHtml(dl.series_name)}">
+                ${escapeHtml(dl.series_name)}
+              </span>
+              ` : ''}
               <button 
                 onclick="window.killDownload('${dl.id}')"
                 class="w-full sm:w-auto sm:ml-2 px-3 py-2 sm:px-2 sm:py-0.5 bg-red-600/10 hover:bg-red-600 active:bg-red-700 text-red-500 hover:text-white border border-red-600/30 rounded text-xs sm:text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 sm:gap-1 min-h-[36px] sm:min-h-0"
-                title="Smetti di scaricare e cancella il processo"
+                title="Smetti di scaricare questo singolo processo"
               >
                 <svg class="w-4 h-4 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                 </svg>
-                KILL
+                CANCELLA DOWNLOAD CORRENTE
               </button>
+              ${isSeries ? `
+              <button 
+                onclick="window.killAndClearQueue('${dl.id}')"
+                class="w-full sm:w-auto sm:ml-1 px-3 py-2 sm:px-2 sm:py-0.5 bg-orange-600/10 hover:bg-orange-600 active:bg-orange-700 text-orange-500 hover:text-white border border-orange-600/30 rounded text-xs sm:text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 sm:gap-1 min-h-[36px] sm:min-h-0"
+                title="Cancella questo download e tutti i successivi della serie"
+              >
+                <svg class="w-4 h-4 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                </svg>
+                CANCELLA DOWNLOAD CORRENTE E SUCCESSIVI
+              </button>
+              ` : ''}
             </div>
             <h3 class="text-lg sm:text-xl lg:text-2xl font-bold text-white mb-1 text-center sm:text-left">
               ${escapeHtml(dl.title)}
@@ -386,6 +404,57 @@ async function killDownload(id) {
   }
 }
 
+async function killAndClearQueue(id, seriesName = '') {
+  let promptMsg = 'Sei sicuro di voler terminare questo download ORA ed eliminare TUTTI gli altri in attesa?';
+  if (seriesName) {
+    promptMsg = `Sei sicuro di voler terminare questo download ORA ed eliminare tutti quelli in attesa per la serie "${seriesName}"?`;
+  }
+  if (!confirm(promptMsg)) return;
+  try {
+    const payload = { download_id: id };
+    if (seriesName) payload.series_name = seriesName;
+    const response = await fetch(window.KILL_AND_CLEAR_QUEUE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload)
+    });
+    
+    if (response.ok) {
+      console.log(`Download ${id} cancelled and queue cleared`);
+      updateProgress();
+    } else {
+      alert('Impossibile svuotare la coda.');
+    }
+  } catch (error) {
+    console.error('Error clearing queue:', error);
+  }
+}
+
+async function killSeriesQueue(id, seriesName = '') {
+  const msg = seriesName
+    ? `Sei sicuro di voler annullare tutti i download in attesa per la serie "${seriesName}"?`
+    : 'Sei sicuro di voler annullare tutti i download in attesa per questa serie?';
+  if (!confirm(msg)) return;
+  try {
+    const payload = { download_id: id };
+    if (seriesName) payload.series_name = seriesName;
+    const response = await fetch(window.KILL_AND_CLEAR_QUEUE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (response.ok) {
+      updateProgress();
+    } else {
+      alert('Impossibile annullare in massa i download programmati.');
+    }
+  } catch (error) {
+    console.error('Error clearing series queue:', error);
+  }
+}
+
 async function clearHistory() {
   if (!confirm('Sei sicuro di voler cancellare tutta la cronologia?')) return;
   try {
@@ -406,6 +475,8 @@ async function clearHistory() {
 export function init() {
   window.toggleTasks = toggleTasks;
   window.killDownload = killDownload;
+  window.killAndClearQueue = killAndClearQueue;
+  window.killSeriesQueue = killSeriesQueue;
   window.clearHistory = clearHistory;
   updateProgress();
   setInterval(updateProgress, UPDATE_INTERVAL);

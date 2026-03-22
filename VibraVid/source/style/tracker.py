@@ -290,6 +290,14 @@ class ContextTracker:
     def is_gui(self, value):
         self.local.is_gui = value
         ContextTracker._global_is_gui = value
+
+    @property
+    def is_cancelled_callback(self):
+        return getattr(self.local, 'is_cancelled_callback', None)
+
+    @is_cancelled_callback.setter
+    def is_cancelled_callback(self, value):
+        self.local.is_cancelled_callback = value
         
     @property
     def is_parallel_cli(self):
