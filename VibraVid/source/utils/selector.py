@@ -758,7 +758,10 @@ class StreamSelector:
                 result.matched_ids = _collect_ids(selected)
                 result.select_all = len(selected) > 1
                 return result
-            logger.info(f"StreamSelector subtitle: lang={spec.langs!r} — no match, selecting all")
+            
+            logger.info(f"StreamSelector subtitle: lang={spec.langs!r} — no match, dropping")
+            result.drop = True
+            return result
 
         for s in subs:
             s.selected = True
