@@ -1069,3 +1069,84 @@ def watchlist_status(request: HttpRequest) -> JsonResponse:
             "items_count": WatchlistItem.objects.count()
         })
     return JsonResponse({"last_checked": 0, "items_count": 0})
+
+
+@require_http_methods(["GET"])
+def settings_editor(request: HttpRequest) -> HttpResponse:
+    conf_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "Conf")
+    config_path = os.path.join(conf_dir, "config.json")
+    login_path = os.path.join(conf_dir, "login.json")
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_content = f.read()
+    except Exception as e:
+        config_content = f"# Errore nella lettura del file: {e}"
+    
+    try:
+        with open(login_path, 'r', encoding='utf-8') as f:
+            login_content = f.read()
+    except Exception as e:
+        login_content = f"# Errore nella lettura del file: {e}"
+    
+    return render(request, "searchapp/settings_editor.html", {
+        "config_content": config_content,
+        "login_content": login_content,
+    })
+
+
+@require_http_methods(["POST"])
+@csrf_exempt
+def save_settings(request: HttpRequest) -> JsonResponse:
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+        file_type = data.get('file_type')  # 'config' or 'login'
+        content = data.get('content', '').strip()
+        
+        if not file_type or not content:
+            return JsonResponse({
+                "success": False,
+                "error": "Parametri mancanti"
+            }, status=400)
+        
+        try:
+            json.loads(content)
+        except json.JSONDecodeError as e:
+            return JsonResponse({
+                "success": False,
+                "error": f"JSON non valido: {str(e)}"
+            }, status=400)
+        
+        conf_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "Conf")
+        if file_type == 'config':
+            file_path = os.path.join(conf_dir, "config.json")
+        elif file_type == 'login':
+            file_path = os.path.join(conf_dir, "login.json")
+        else:
+            return JsonResponse({
+                "success": False,
+                "error": "Tipo di file non valido"
+            }, status=400)
+        
+        backup_path = file_path + ".backup"
+        if os.path.exists(file_path):
+            try:
+                import shutil
+                shutil.copy2(file_path, backup_path)
+            except Exception as e:
+                print(f"Backup failed: {e}")
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            formatted = json.dumps(json.loads(content), indent=4, ensure_ascii=False)
+            f.write(formatted)
+        
+        return JsonResponse({
+            "success": True,
+            "message": f"{file_type}.json salvato con successo"
+        })
+    
+    except Exception as e:
+        return JsonResponse({
+            "success": False,
+            "error": f"Errore nel salvataggio: {str(e)}"
+        }, status=500)

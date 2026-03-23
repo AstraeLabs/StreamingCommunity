@@ -1,0 +1,238 @@
+{% extends "searchapp/base.html" %}
+{% load static %}
+
+{% block title %}Modifica Impostazioni{% endblock %}
+
+{% block content %}
+<div class="py-6 sm:py-8 lg:py-12 animate-fade-in">
+  
+  <!-- Page Header -->
+  <div class="mb-8 sm:mb-12">
+    <div class="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
+      <button 
+        onclick="window.history.back()" 
+        class="p-2 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
+      >
+        <svg class="w-5 h-5 sm:w-6 sm:h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+        </svg>
+      </button>
+      <h1 class="text-3xl sm:text-4xl font-black text-white leading-tight">
+        Impostazioni
+      </h1>
+    </div>
+    <p class="text-gray-400 ml-14">
+      Modifica i file di configurazione dell'applicazione
+    </p>
+  </div>
+
+  <!-- Tab Buttons -->
+  <div class="flex gap-3 mb-6 flex-wrap">
+    <button 
+      id="config-tab-btn"
+      onclick="switchTab('config')"
+      class="px-4 sm:px-6 py-2 sm:py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-all tab-btn active"
+    >
+      config.json
+    </button>
+    <button 
+      id="login-tab-btn"
+      onclick="switchTab('login')"
+      class="px-4 sm:px-6 py-2 sm:py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-lg transition-all tab-btn"
+    >
+      login.json
+    </button>
+  </div>
+
+  <!-- Editor Sections -->
+  <div class="bg-gradient-to-br from-gray-900/80 to-gray-900/40 backdrop-blur-xl border border-gray-800 rounded-xl overflow-hidden">
+    
+    <!-- Config Tab -->
+    <div id="config-content" class="tab-content">
+      <div class="p-4 sm:p-6">
+        <textarea 
+          id="config-editor"
+          class="w-full h-96 sm:h-[600px] bg-black/50 border border-gray-700 rounded-lg p-4 text-sm text-white font-mono focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600/30 resize-vertical"
+          spellcheck="false"
+        ></textarea>
+        <div class="mt-4 flex gap-3 flex-wrap justify-end">
+          <button 
+            onclick="resetEditor('config')"
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-all"
+          >
+            Ripristina
+          </button>
+          <button 
+            onclick="saveSettings('config')"
+            class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 active:scale-95"
+          >
+            Salva config.json
+          </button>
+        </div>
+        <p id="config-message" class="mt-3 text-sm text-gray-400"></p>
+      </div>
+    </div>
+
+    <!-- Login Tab -->
+    <div id="login-content" class="tab-content hidden">
+      <div class="p-4 sm:p-6">
+        <textarea 
+          id="login-editor"
+          class="w-full h-96 sm:h-[600px] bg-black/50 border border-gray-700 rounded-lg p-4 text-sm text-white font-mono focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600/30 resize-vertical"
+          spellcheck="false"
+        ></textarea>
+        <div class="mt-4 flex gap-3 flex-wrap justify-end">
+          <button 
+            onclick="resetEditor('login')"
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-all"
+          >
+            Ripristina
+          </button>
+          <button 
+            onclick="saveSettings('login')"
+            class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 active:scale-95"
+          >
+            Salva login.json
+          </button>
+        </div>
+        <p id="login-message" class="mt-3 text-sm text-gray-400"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .tab-btn.active {
+    @apply bg-red-600;
+  }
+  
+  .tab-btn:not(.active) {
+    @apply bg-gray-800;
+  }
+  
+  .tab-content {
+    display: none;
+  }
+  
+  .tab-content.active {
+    display: block;
+  }
+</style>
+
+<script>
+  // Store original content
+  let originalConfig = '';
+  let originalLogin = '';
+
+  document.addEventListener('DOMContentLoaded', function() {
+    // Load initial content
+    const config = `{{ config_content|escapejs }}`;
+    const login = `{{ login_content|escapejs }}`;
+    
+    document.getElementById('config-editor').value = config;
+    document.getElementById('login-editor').value = login;
+    
+    originalConfig = config;
+    originalLogin = login;
+  });
+
+  function switchTab(tab) {
+    // Hide all tabs
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    
+    // Show selected tab
+    document.getElementById(tab + '-content').classList.add('active');
+    document.getElementById(tab + '-tab-btn').classList.add('active');
+  }
+
+  function resetEditor(tab) {
+    const original = tab === 'config' ? originalConfig : originalLogin;
+    document.getElementById(tab + '-editor').value = original;
+    showMessage(tab, 'Editor ripristinato', 'info');
+  }
+
+  function showMessage(fileType, message, type = 'success') {
+    const messageEl = document.getElementById(fileType + '-message');
+    messageEl.textContent = message;
+    messageEl.className = 'mt-3 text-sm ' + (
+      type === 'success' ? 'text-green-400' :
+      type === 'error' ? 'text-red-400' :
+      'text-blue-400'
+    );
+    
+    if (type === 'success' || type === 'error') {
+      setTimeout(() => {
+        messageEl.textContent = '';
+        messageEl.className = 'mt-3 text-sm text-gray-400';
+      }, 5000);
+    }
+  }
+
+  async function saveSettings(fileType) {
+    const editor = document.getElementById(fileType + '-editor');
+    const content = editor.value.trim();
+    
+    if (!content) {
+      showMessage(fileType, 'Contenuto vuoto', 'error');
+      return;
+    }
+    
+    // Validate JSON
+    try {
+      JSON.parse(content);
+    } catch (e) {
+      showMessage(fileType, `JSON non valido: ${e.message}`, 'error');
+      return;
+    }
+    
+    showMessage(fileType, 'Salvataggio in corso...', 'info');
+    
+    try {
+      const response = await fetch('{% url "save_settings" %}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({
+          file_type: fileType,
+          content: content
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showMessage(fileType, data.message || 'Impostazioni salvate con successo!', 'success');
+        if (fileType === 'config') {
+          originalConfig = content;
+        } else {
+          originalLogin = content;
+        }
+      } else {
+        showMessage(fileType, data.error || 'Errore nel salvataggio', 'error');
+      }
+    } catch (error) {
+      showMessage(fileType, `Errore: ${error.message}`, 'error');
+    }
+  }
+
+  function getCookie(name) {
+    const cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+          return decodeURIComponent(cookie.substring(name.length + 1));
+        }
+      }
+    }
+    return cookieValue;
+  }
+
+  // Show config tab by default
+  switchTab('config');
+</script>
+{% endblock %}

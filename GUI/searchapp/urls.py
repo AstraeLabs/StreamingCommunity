@@ -29,4 +29,8 @@ urlpatterns = [
     path("watchlist/auto-interval/", views.set_watchlist_polling_interval, name="set_watchlist_polling_interval"),
     path("watchlist/clear/", views.clear_watchlist, name="clear_watchlist"),
     path("api/watchlist-status/", views.watchlist_status, name="watchlist_status"),
+    
+    # Settings
+    path("settings/", views.settings_editor, name="settings_editor"),
+    path("api/save-settings/", views.save_settings, name="save_settings"),
 ]
