@@ -13,6 +13,7 @@ from VibraVid.services._base import load_search_functions
 from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
 from VibraVid.upload import git_update, binary_update
 from VibraVid.setup.system import _initialize_paths
+from VibraVid.setup.system import (get_ffmpeg_path, get_ffprobe_path, get_bento4_decrypt_path, get_mp4dump_path, get_wvd_path, get_prd_path,  get_n_m3u8dl_re_path, get_shaka_packager_path)
 from VibraVid.upload.version import __version__, __title__
 
 
@@ -71,12 +72,12 @@ def setup_argument_parser(search_functions):
     parser.add_argument('-sv', '--video', type=str, help='Select video tracks.')
     parser.add_argument('-sa', '--audio', type=str, help='Select audio tracks.')
     parser.add_argument('-ss', '--subtitle', type=str, help='Select subtitle tracks.')
-    parser.add_argument('--auto-select', dest='auto_select', type=str, choices=['true','false'], help='Auto-select streams based on config filters (overrides config). false=interactive selection')
 
     parser.add_argument('--use_proxy', action='store_true', help='Enable proxy for requests')
     parser.add_argument('--extension', type=str, help='Output file extension (mkv, mp4)')
 
     parser.add_argument('-UP', '--update', action='store_true', help='Auto-update to latest version (binary only)')
+    parser.add_argument('--dep', action='store_true', help='Show all dependency paths (config, services, binaries)')
     parser.add_argument('--version', action='version', version=f'{__title__} {__version__}')
     
     # Provider subcommands for DRM helpers
@@ -130,7 +131,6 @@ def apply_config_updates(args):
         'sv': 'DOWNLOAD.select_video',
         'sa': 'DOWNLOAD.select_audio',
         'ss': 'DOWNLOAD.select_subtitle',
-        'auto_select': 'DOWNLOAD.auto_select',
         'use_proxy': 'REQUESTS.use_proxy',
         'extension': 'PROCESS.extension',
         'close_console': 'DEFAULT.close_console'
@@ -142,7 +142,7 @@ def apply_config_updates(args):
             continue
 
         # convert boolean-like strings
-        if arg_name in ('close_console', 'auto_select') and isinstance(val, str):
+        if arg_name in ('close_console') and isinstance(val, str):
             val = val.lower() == 'true'
         config_updates[config_key] = val
 
@@ -180,8 +180,7 @@ def handle_direct_site_selection(args, input_to_function, module_name_to_functio
     func_to_run = input_to_function.get(site_key) or module_name_to_function.get(site_key)
     
     if func_to_run is None:
-        available_sites = ", ".join(sorted(module_name_to_function.keys()))
-        console.print(f"[red]Unknown site: '{args.site}'. Available: [yellow]{available_sites}")
+        console.print(f"[red]Unknown site: '{args.site}'.")
         return False
     
     # Handle auto-first option
@@ -213,21 +212,61 @@ def get_user_site_selection(args, choice_labels):
     return msg.ask(prompt_message, choices=choice_keys, default="0", show_choices=False, show_default=False)
 
 
-def main():
-    setup_logger()
-    _initialize_paths()
-    execute_hooks('pre_run')
-    start_message(False)
-    try:
-        git_update()
-    except Exception as e:
-        console.log(f"[red]Error loading github: {str(e)}")
-
-    try:
+def show_dependencies(search_functions):
+    """Show all dependency paths: config files, services, and external binaries."""
+    console.print("\n[cyan]╔════════════════════════════════════════════════════════════╗")
+    console.print("[cyan]║[yellow]  DEPENDENCY PATHS[cyan]                                          ║")
+    console.print("[cyan]╚════════════════════════════════════════════════════════════╝")
+    console.print(f"  [yellow]Config:[/] [white]{config_manager.config_file_path}[/]")
+    console.print(f"  [yellow]Login:[/]  [white]{config_manager.login_file_path}[/]")
+    console.print()
+    
+    console.print("[bold cyan]Available Services:")
+    for func in sorted(search_functions.values(), key=lambda x: x.indice):
+        if func.source.lower() == "default":
+            base_path = func.base_path if func.base_path else "N/A"
+            service_path = f"{base_path}\\{func.module_name}" if base_path != "N/A" else "N/A"
+        else:
+            service_path = f"{func.base_path}\\{func.module_name}" if func.base_path else "N/A"
         
+        console.print(f"  [{COLOR_MAP.get(func.use_for, 'white')}][{func.indice}][/] [yellow]{func.module_name.capitalize()}[/]: [white]{service_path}[/]")
+    console.print()
+    
+    console.print("[bold cyan]External Dependencies:")
+    deps = {
+        "FFmpeg": get_ffmpeg_path(),
+        "FFprobe": get_ffprobe_path(),
+        "Bento4 (mp4decrypt)": get_bento4_decrypt_path(),
+        "Bento4 (mp4dump)": get_mp4dump_path(),
+        "N_m3u8DL-RE": get_n_m3u8dl_re_path(),
+        "Shaka Packager": get_shaka_packager_path(),
+    }
+    
+    for dep_name, dep_path in deps.items():
+        status = "[green]✓[/]" if dep_path else "[red]✗[/]"
+        path_display = dep_path if dep_path else "[red]Not found[/]"
+        console.print(f"  {status} [yellow]{dep_name}:[/] [white]{path_display}[/]")
+    console.print()
+    
+    console.print("[bold cyan]◆ DRM Device Files:[/]")
+    drm_devices = {
+        "Widevine (.wvd)": get_wvd_path(),
+        "PlayReady (.prd)": get_prd_path(),
+    }
+    for device_name, device_path in drm_devices.items():
+        status = "[green]✓[/]" if device_path else "[red]✗[/]"
+        path_display = device_path if device_path else "[red]Not found[/]"
+        console.print(f"  {status} [yellow]{device_name}:[/] [white]{path_display}[/]")
+
+
+def main():
+    try:
         search_functions = load_search_functions()
         parser = setup_argument_parser(search_functions)
         args = parser.parse_args()
+        if hasattr(args, 'dep') and args.dep:
+            show_dependencies(search_functions)
+            return
 
         # Handle provider subcommands (pywidevine / pyplayready)
         provider = getattr(args, 'provider', None)
@@ -255,6 +294,17 @@ def main():
                     return export_prd_device(args.device, getattr(args, 'output_dir', '.'))
                 if action == 'test':
                     return test_playready_device(args)
+        
+        # Initialize
+        setup_logger()
+        _initialize_paths()
+        execute_hooks('pre_run')
+        start_message(False)
+        try:
+            git_update()
+        except Exception as e:
+            console.log(f"[red]Error loading github: {str(e)}")
+
         
         # Handle auto-update
         if args.update:

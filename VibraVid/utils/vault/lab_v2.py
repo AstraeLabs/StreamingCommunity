@@ -14,8 +14,8 @@ from VibraVid.utils.http_client import create_client_curl, get_headers
 console = Console()
 logger = logging.getLogger(__name__)
 db_config = config_manager.config.get_dict("DRM", "vault")
-VAULT_URL = db_config.get("lab_v2").get("url", "")
-TOKEN = db_config.get("lab_v2").get("token", "")
+VAULT_URL = db_config.get("lab_v2", {}).get("url", "")
+TOKEN = db_config.get("lab_v2", {}).get("token", "")
 
 
 def _extract_kid_from_pssh(pssh_b64: str) -> Optional[str]:

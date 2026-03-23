@@ -192,7 +192,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 
 #### Performance Settings
 
-- **`auto_select`**: Automatically select streams based on filters (default: `true`). When `false`, enables interactive stream selection mode where user can manually choose video/audio/subtitle tracks before download.
 - **`skip_download`**: Skip the download step and process existing files (default: `false`)
 - **`thread_count`**: Number of parallel download threads (default: `12`)
 - **`retry_count`**: Maximum retry attempts for failed segments (default: `40`)
@@ -244,7 +243,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 ```json
 {
 	"REQUESTS": {
-		"verify": false,
 		"timeout": 30,
 		"max_retry": 10,
 		"use_proxy": false,
@@ -256,7 +254,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 }
 ```
 
-- **`verify`**: Enable SSL certificate verification (default: `false`)
 - **`timeout`**: Request timeout in seconds (default: `30`)
 - **`max_retry`**: Maximum retry attempts for failed requests (default: `10`)
 - **`use_proxy`**: Enable proxy support for HTTP requests (default: `false`)

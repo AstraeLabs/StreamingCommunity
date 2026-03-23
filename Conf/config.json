@@ -15,7 +15,6 @@
         "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
     },
     "DOWNLOAD": {
-        "auto_select": true,
         "skip_download": false,
         "thread_count": 8,
         "retry_count": 25,
@@ -39,7 +38,6 @@
         "extension": "mkv"
     },
     "REQUESTS": {
-        "verify": false,
         "timeout": 30,
         "max_retry": 8,
         "use_proxy": false,
@@ -59,10 +57,6 @@
         "vault": {
             "supa": {
                 "url": "https://crqczuxpqjmrjvdvqvlx.supabase.co",
-                "token": ""
-            },
-            "lab_v2": {
-                "url": "",
                 "token": ""
             }
         },

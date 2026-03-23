@@ -26,13 +26,6 @@ def _get_timeout() -> int:
         return 20
 
 
-def _get_verify() -> bool:
-    try:
-        return bool(config_manager.config.get_bool("REQUESTS", "verify"))
-    except Exception:
-        return True
-
-
 def _get_proxies() -> Optional[Dict[str, str]]:
     """Return proxies dict if `USE_PROXY` is true and proxy config is present, else None."""
     if not USE_PROXY:
@@ -42,6 +35,7 @@ def _get_proxies() -> Optional[Dict[str, str]]:
         proxies = CONF_PROXY if isinstance(CONF_PROXY, dict) else config_manager.config.get_dict("REQUESTS", "proxy")
         if not isinstance(proxies, dict):
             return None
+        
         # Normalize empty strings
         cleaned: Dict[str, str] = {}
         for scheme, url in proxies.items():
@@ -59,8 +53,9 @@ def _default_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     return headers
 
 
-def create_client(*, headers: Optional[Dict[str, str]] = None, cookies: Optional[Dict[str, str]] = None, timeout: Optional[Union[int, float]] = None,
-    verify: Optional[bool] = None, proxies: Optional[Dict[str, str]] = None, http2: bool = False, follow_redirects: bool = True,
+def create_client(*, 
+    headers: Optional[Dict[str, str]] = None, cookies: Optional[Dict[str, str]] = None, timeout: Optional[Union[int, float]] = None,
+    proxies: Optional[Dict[str, str]] = None, http2: bool = False, follow_redirects: bool = True,
 ) -> httpx.Client:
     """Factory for a configured httpx.Client."""
     proxy_value = proxies if proxies is not None else _get_proxies()
@@ -68,7 +63,6 @@ def create_client(*, headers: Optional[Dict[str, str]] = None, cookies: Optional
         headers=_default_headers(headers),
         cookies=cookies,
         timeout=timeout if timeout is not None else _get_timeout(),
-        verify=_get_verify() if verify is None else verify,
         follow_redirects=follow_redirects,
         http2=http2,
     )
@@ -103,7 +97,6 @@ def create_async_client(*, headers: Optional[Dict[str, str]] = None, cookies: Op
         headers=_default_headers(headers),
         cookies=cookies,
         timeout=timeout if timeout is not None else _get_timeout(),
-        verify=_get_verify() if verify is None else verify,
         follow_redirects=follow_redirects,
         http2=http2,
     )
@@ -135,7 +128,6 @@ def create_client_curl(*, headers: Optional[Dict[str, str]] = None, cookies: Opt
     if cookies:
         session.cookies.update(cookies)
     session.timeout = timeout if timeout is not None else _get_timeout()
-    session.verify = _get_verify() if verify is None else verify
     proxy_value = proxies if proxies is not None else _get_proxies()
     if proxy_value:
         session.proxies = proxy_value

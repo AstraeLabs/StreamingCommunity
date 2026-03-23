@@ -22,7 +22,6 @@ from VibraVid.source.style.tracker import  download_tracker, context_tracker
 msg = Prompt()
 console = Console()
 logger = logging.getLogger(__name__)
-REQUEST_VERIFY = config_manager.config.get_bool('REQUESTS', 'verify')
 CREATE_NFO_FILES = config_manager.config.get_bool('PROCESS', 'generate_nfo', default=False)
 SKIP_DOWNLOAD = config_manager.config.get_bool('DOWNLOAD', 'skip_download')
 

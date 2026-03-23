@@ -290,7 +290,6 @@ class ConfigManager:
             ('PROCESS', 'param_video', str),
             ('PROCESS', 'param_audio', str),
             ('PROCESS', 'param_final', str),
-            ('REQUESTS', 'verify', bool),
             ('REQUESTS', 'timeout', int),
             ('REQUESTS', 'max_retry', int),
             ('REQUESTS', 'use_proxy', bool),

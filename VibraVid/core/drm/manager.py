@@ -38,8 +38,8 @@ class DRMManager:
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
 
     def _lookup_keys(self, db_obj, base_url: str, kids: list, drm_type: str, pssh: str = None) -> list:
-        """Lookup keys in database, optionally passing PSSH for proper display context."""
-        return list(db_obj.get_keys_by_kids(None, kids, drm_type, pssh) or [])
+        """Lookup keys in database, optionally passing PSSH and base_url for proper context."""
+        return list(db_obj.get_keys_by_kids(base_url, kids, drm_type, pssh) or [])
 
     def _missing_kids(self, all_kids: list[str], found_keys: list[str]) -> list[str]:
         """Return list of KIDs that are in all_kids but not in found_keys."""

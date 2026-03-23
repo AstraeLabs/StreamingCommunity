@@ -25,7 +25,7 @@ def setup_logger(name=None):
 
     # 3. Define format
     log_format = logging.Formatter(
-        '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+        '[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
