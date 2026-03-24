@@ -100,6 +100,24 @@ def _video_range_from_codecs(codecs: str) -> str:
     return ""
 
 
+def _is_ad_period(period_url: str, period_element) -> bool:
+    """Check if a period is advertisement content.
+    
+    Advertisement periods typically:
+    - Have "/ad/" in their base URL (e.g., https://.../ad/ixmedia/encoding-xxx/)
+    - Have no content protection (DRM)
+    """
+    is_ad_presente = "/ad/" in period_url.lower()
+    has_drm = period_element.find(".//mpd:ContentProtection", _NS) is not None
+    
+    logger.info(f"_is_ad_period | url={period_url} | has_/ad/={is_ad_presente} | has_drm={has_drm}")
+    
+    if is_ad_presente and not has_drm:
+        return True
+    return False
+
+
+
 class DashParser:
     """
     Fetch and parse an MPEG-DASH MPD manifest.
@@ -164,6 +182,10 @@ class DashParser:
 
         for period_idx, period in enumerate(all_periods):
             period_base_url = self._resolve_element_base_url(period, self._base_url)
+            if _is_ad_period(period_base_url, period):
+                logger.info(f"DASH period skipped (advertisement) | period={period_idx} url={period_base_url}")
+                continue
+            
             period_start = self._parse_iso_duration(period.get("start", ""))
             period_duration = self._parse_iso_duration(period.get("duration", dur_str))
 
@@ -188,25 +210,25 @@ class DashParser:
                     )
                     stype = detect_stream_type(codecs_hint)
                     if not stype:
-                        logger.debug(f"DashParser: AdaptationSet skipped — unknown mime={mime!r} codecs={codecs_hint!r}")
+                        logger.info(f"DashParser: AdaptationSet skipped — unknown mime={mime!r} codecs={codecs_hint!r}")
                         continue
 
                 adapt_drm = self._extract_drm(adapt)
 
                 for rep in adapt.findall("mpd:Representation", _NS):
                     rep_id = rep.get("id", "")
-
                     rep_base_url = self._resolve_element_base_url(rep, adapt_base_url)
+                    if "/ad/" in rep_base_url.lower() and not adapt_drm.is_encrypted():
+                        logger.info(f"DASH stream skipped (advertisement) | id={rep_id!r} period={period_idx} url={rep_base_url}")
+                        continue
+                    
                     s = self._parse_representation(rep, adapt, stype, adapt_drm, global_duration or period_duration, period_start, rep_base_url)
                     if s is None:
                         continue
 
                     dedup_key = _stream_dedup_key(s)
                     if dedup_key in global_seen_keys:
-                        logger.debug(
-                            f"DASH stream skipped (duplicate) | id={rep_id!r} period={period_idx} "
-                            f"lang={s.language} bw={s.bitrate} codec={s.codecs}"
-                        )
+                        logger.info(f"DASH stream skipped (duplicate) | id={rep_id!r} period={period_idx} lang={s.language} bw={s.bitrate} codec={s.codecs}")
                         continue
                     global_seen_keys.add(dedup_key)
 
@@ -373,29 +395,52 @@ class DashParser:
             scheme = (cp.get("schemeIdUri") or "").lower()
             info.set_method(scheme)
             drm_hint = _drm_hint_from_scheme(scheme)
+            
+            # Try to find PSSH in multiple locations:
+            # 1. cenc:pssh
             pssh_el = cp.find(".//cenc:pssh", _NS)
+            
+            # 2. mpd:pssh
+            if pssh_el is None:
+                pssh_el = cp.find("mpd:pssh", _NS)
+            
+            # 3. direct child pssh without namespace
+            if pssh_el is None:
+                pssh_el = cp.find("pssh")
+            
             if pssh_el is not None and pssh_el.text:
                 info.set_pssh(pssh_el.text.strip(), drm_type_hint=drm_hint)
+                logger.info(f"DashParser: PSSH extracted from ContentProtection | scheme={scheme[:40]} | drm_hint={drm_hint}")
+            
+            # PlayReady specific: check for <pro> element
             _MSPR_NS = "urn:microsoft:playready"
             pro_el = cp.find(f"{{{_MSPR_NS}}}pro")
             if pro_el is not None and pro_el.text and pro_el.text.strip():
                 if not info.get_pssh_for("PR"):
                     info.set_pssh(pro_el.text.strip(), drm_type_hint="PR")
+                    logger.info("DashParser: PlayReady PSSH extracted from <pro> element")
+            
+            # Extract KID from multiple possible attribute names
             for attr in ("{urn:mpeg:cenc:2013}default_KID", "cenc:default_KID", "default_KID"):
                 kid = cp.get(attr)
                 if kid:
                     info.set_kid(kid)
+                    logger.info(f"DashParser: KID extracted | kid={kid[:32]}... from attr={attr}")
                     info.default_kid = info.kid
                     break
+
         if not info.drm_type and (info.kid or info.default_kid):
             for cp in element.findall(".//mpd:ContentProtection", _NS):
                 scheme = (cp.get("schemeIdUri") or "").lower()
                 dtype = _drm_hint_from_scheme(scheme)
+                logger.info(f"DashParser: inferring DRM type from scheme | scheme={scheme} | inferred_type={dtype}")
+
                 if dtype:
                     if dtype not in info._drm_types:
                         info._drm_types.append(dtype)
                     if not info.drm_type:
                         info.drm_type = dtype
+
         if not info.kid and self.provided_kid:
             info.set_kid(self.provided_kid)
             info.default_kid = info.kid
@@ -413,7 +458,7 @@ class DashParser:
                 self._base_url = urljoin(self._base_url, candidate)
                 if not self._base_url.endswith("/"):
                     self._base_url += "/"
-        logger.debug(f"DashParser: effective base URL = {self._base_url}")
+        logger.info(f"DashParser: effective base URL = {self._base_url}")
 
     @staticmethod
     def _resolve_element_base_url(element, parent_base: str) -> str:
@@ -425,6 +470,9 @@ class DashParser:
 
     
     def _apply_segment_template(self, tmpl, rep_id, stream, period_start, base_url):
+        if "/ad/" in base_url.lower():
+            logger.info(f"DashParser: segment skipped (ad path) | url={base_url}")
+            return
         init_tpl = tmpl.get("initialization", "").replace("$RepresentationID$", rep_id)
         media_tpl = tmpl.get("media", "").replace("$RepresentationID$", rep_id)
         start_num = int(tmpl.get("startNumber", 1))
@@ -456,15 +504,13 @@ class DashParser:
         elif "$Number$" in media_tpl:
             seg_duration = int(tmpl.get("duration", 0))
             if seg_duration <= 0 or stream.duration <= 0:
-                logger.warning("DashParser: SegmentTemplate $Number$ without timeline: missing duration — cannot generate segments")
+                logger.error("DashParser: SegmentTemplate $Number$ without timeline: missing duration — cannot generate segments")
                 return
             total_segments = math.ceil(stream.duration * timescale / seg_duration)
             for i in range(start_num, start_num + total_segments):
-                stream.add_segment(
-                    Segment(urljoin(base_url, media_tpl.replace("$Number$", str(i))), i, "media")
-                )
+                stream.add_segment(Segment(urljoin(base_url, media_tpl.replace("$Number$", str(i))), i, "media"))
         elif "$Time$" in media_tpl:
-            logger.warning("DashParser: SegmentTemplate $Time$ without SegmentTimeline — skipping")
+            logger.error("DashParser: SegmentTemplate $Time$ without SegmentTimeline — skipping")
     
     def _apply_segment_list(self, seg_list, stream, base_url):
         init_el = seg_list.find("mpd:Initialization", _NS)

@@ -311,7 +311,7 @@ class CrunchyrollClient:
                 active_streams = payload.get("activeStreams", [])
 
                 if error_code in ("TOO_MANY_ACTIVE_STREAMS", "TOO_MANY_CONCURRENT_STREAMS") and active_streams:
-                    logger.warning(f"TOO_MANY_ACTIVE_STREAMS: cleaning up {len(active_streams)} streams")
+                    logger.error(f"TOO_MANY_ACTIVE_STREAMS: cleaning up {len(active_streams)} streams")
 
                     for s in active_streams:
                         if isinstance(s, dict):
@@ -391,7 +391,7 @@ class CrunchyrollClient:
             locales: List of BCP47 locales (e.g., ["it-IT", "en-US"])
         """
         if not locales:
-            logger.warning("get_versions_by_locales called with empty locales list")
+            logger.error("get_versions_by_locales called with empty locales list")
             return []
         
         versions = []
@@ -405,7 +405,7 @@ class CrunchyrollClient:
             logger.info(f"Found {len(versions_list) if isinstance(versions_list, list) else 0} versions for url_id: {url_id}")
             
             if not versions_list:
-                logger.warning(f"No versions found for url_id: {url_id}")
+                logger.error(f"No versions found for url_id: {url_id}")
                 return []
 
             # Filter and fetch each version matching the requested locales

@@ -136,9 +136,7 @@ class HLS_Downloader(BaseDownloader):
                     content = f.read()
 
             parser = M3U8Parser(self.m3u8_url, self.headers, content=content)
-            drm_info = (
-                parser.get_drm_info()
-            )  # → {'widevine': [...], 'playready': [...]}
+            drm_info = (parser.get_drm_info())  # → {'widevine': [...], 'playready': [...]}
 
             for entry in drm_info.get("widevine", []):
                 result["WV"].append(
@@ -156,11 +154,8 @@ class HLS_Downloader(BaseDownloader):
                         "type": "PlayReady",
                     }
                 )
-
-        except ImportError:
-            logger.warning("M3U8Parser not available — skipping HLS DRM fallback")
         except Exception as exc:
-            logger.debug(f"_collect_drm_from_m3u8 error: {exc}")
+            logger.error(f"_collect_drm_from_m3u8 error: {exc}")
 
         return result
 

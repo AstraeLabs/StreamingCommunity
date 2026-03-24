@@ -351,7 +351,7 @@ class HLSParser:
                     info.drm_type = "PR"
                     return info
             except Exception as exc:
-                logger.debug(f"HLSParser DRM probe error: {exc}")
+                logger.error(f"HLSParser DRM probe error: {exc}")
 
         return info
 

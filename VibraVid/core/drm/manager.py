@@ -59,7 +59,7 @@ class DRMManager:
             try:
                 obj_externalSupaDbVault.set_keys(keys_list, drm_type, base_license_url, pssh_val, kid_to_label)
             except Exception as e:
-                logger.warning(f"Failed to sync to Supabase (will continue): {e}")
+                logger.error(f"Failed to sync to Supabase (will continue): {e}")
                 console.print(f"[yellow]Warning: Could not sync to Supabase: {e}")
 
     def _db_lookup(self, all_kids: list[str], base_license_url: str, drm_type: str, pssh_val: str = None) -> tuple[list[str], str]:

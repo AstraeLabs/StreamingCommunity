@@ -235,7 +235,7 @@ def execute_hooks(stage: str, context: Optional[Dict[str, Any]] = None) -> None:
             if stdout:
                 console.print(f"[cyan][hook:{name} stdout]\n{stdout}")
             if stderr:
-                logger.warning(f"Hook '{name}' stderr: {stderr}")
+                logger.error(f"Hook '{name}' stderr: {stderr}")
                 console.print(f"[yellow][hook:{name} stderr]\n{stderr}")
 
             if result.returncode != 0:

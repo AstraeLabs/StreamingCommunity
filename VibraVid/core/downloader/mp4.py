@@ -136,7 +136,7 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
 
         # If HEAD indicates HTML/JSON, attempt a GET without Range/If-Range as fallback
         if 'text/html' in content_type or 'application/json' in content_type:
-            logger.warning("HEAD indicates non-video; retrying GET without Range/If-Range...")
+            logger.error("HEAD indicates non-video; retrying GET without Range/If-Range...")
 
             try:
                 resp_check = client.get(url, headers=headers)
@@ -169,7 +169,7 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
                 total = None
 
             if total is None:
-                logger.warning("No Content-Length received; streaming until peer closes connection.")
+                logger.error("No Content-Length received; streaming until peer closes connection.")
  
             start_time = time.time()
             downloaded = 0

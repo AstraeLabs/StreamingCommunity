@@ -121,7 +121,7 @@ class Decryptor:
     def _run_mp4dump(self, file_path, fmt="json"):
         try:
             cmd = [self.mp4dump_path, "--verbosity", "0", "--format", fmt, file_path]
-            logger.debug(f"mp4dump cmd: {' '.join(cmd)}")
+            logger.info(f"mp4dump cmd: {' '.join(cmd)}")
             r = subprocess.run(cmd, capture_output=True, timeout=15)
             raw = r.stdout
 
@@ -329,7 +329,7 @@ class Decryptor:
                     shutil.copy(encrypted_path, output_path)
                     return True
                 else:
-                    logger.warning("Encryption not detected but keys provided — forcing decryption attempt.")
+                    logger.error("Encryption not detected but keys provided — forcing decryption attempt.")
                     encryption_mode = "unknown"
 
             if isinstance(keys, str):
@@ -344,7 +344,7 @@ class Decryptor:
                     else:
                         key_kids.append(k.lower())
                 if key_kids and kid.lower() not in key_kids:
-                    logger.warning(f"Detected KID ({kid}) not in provided key KIDs ({key_kids}) — proceeding anyway.")
+                    logger.error(f"Detected KID ({kid}) not in provided key KIDs ({key_kids}) — proceeding anyway.")
             else:
                 logger.info("No KID detected — proceeding with provided keys.")
 
@@ -363,7 +363,7 @@ class Decryptor:
 
             # Forced decryption on undetected file → fallback copy
             if encryption_mode == "unknown":
-                logger.warning("Forced decryption failed — file was likely clear-text. Copying.")
+                logger.error("Forced decryption failed — file was likely clear-text. Copying.")
                 shutil.copy(encrypted_path, output_path)
                 return True
 
@@ -416,7 +416,7 @@ class Decryptor:
             return True
 
         # Retry without stream type
-        logger.warning("Shaka failed with stream type — retrying without it.")
+        logger.error("Shaka failed with stream type — retrying without it.")
         stream_spec_plain = f"input='{encrypted_path}',output='{output_path}'"
         cmd_retry = _build_cmd(stream_spec_plain)
         result_retry = subprocess.run(cmd_retry, capture_output=True, text=True, timeout=300)

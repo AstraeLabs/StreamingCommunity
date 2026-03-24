@@ -38,13 +38,13 @@ class GetSerieInfo:
             # Extract episodes from blocks[1]['items']
             blocks = json_response.get('blocks', [])
             if len(blocks) < 2:
-                logger.warning(f"Unexpected response structure: {len(blocks)} blocks found")
+                logger.error(f"Unexpected response structure: {len(blocks)} blocks found")
                 return
                 
             items = blocks[1].get('items', [])
             
             if not items:
-                logger.warning("No episodes found in response")
+                logger.error("No episodes found in response")
                 return
             
             # Store all episodes
@@ -108,7 +108,7 @@ class GetSerieInfo:
         try:
             # Make sure we have collected title info
             if not self.all_episodes:
-                logger.warning("No episodes loaded, calling collect_info_title()")
+                logger.error("No episodes loaded, calling collect_info_title()")
                 self.collect_info_title()
             
             season = self.seasons_manager.get_season_by_number(number_season)
@@ -123,7 +123,7 @@ class GetSerieInfo:
             ]
             
             if not season_episodes:
-                logger.warning(f"No episodes found for season {number_season}")
+                logger.error(f"No episodes found for season {number_season}")
                 return
             
             # Sort episodes by episode number in ascending order

@@ -156,7 +156,7 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
             base_path = source
         
         if not os.path.isdir(base_path):
-            logger.warning(f"Import source path not found: {base_path}")
+            logger.error(f"Import source path not found: {base_path}")
             continue
         
         logger.info(f"Loading site modules from source '{source}': {base_path}")
@@ -171,7 +171,7 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
             
             # Skip if already loaded from a previous source
             if module_name in loaded_module_names:
-                logger.debug(f"Skipping duplicate module '{module_name}' from source '{source}'")
+                logger.info(f"Skipping duplicate module '{module_name}' from source '{source}'")
                 continue
             
             try:

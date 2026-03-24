@@ -45,17 +45,14 @@ class GetSerieInfo:
         Retrieve general information about the TV series from Tubi TV.
         """
         try:
-            # Get series info and total seasons
-            response = create_client(headers=self.headers).get(
-                f'https://content-cdn.production-public.tubi.io/cms/series/{self.content_id}/episodes'
-            )
+            response = create_client(headers=self.headers).get(f'https://content-cdn.production-public.tubi.io/cms/series/{self.content_id}/episodes')
             response.raise_for_status()
 
             json_data = response.json()
             episodes_by_season = json_data.get('episodes_by_season', {})
             
             if not episodes_by_season:
-                logger.warning("No seasons found in response")
+                logger.error("No seasons found in response")
                 return
             
             # Store episodes by season
@@ -108,7 +105,7 @@ class GetSerieInfo:
                     episodes.append(episode)
             
             if not episodes:
-                logger.warning(f"No episodes found for season {number_season}")
+                logger.error(f"No episodes found for season {number_season}")
                 return
             
             # Sort episodes by episode number

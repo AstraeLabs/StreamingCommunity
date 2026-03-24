@@ -63,7 +63,7 @@ class GetSerieInfo:
             if response.status_code == 200 and response.text.strip().startswith('{'):
                 return response.json()
             else:
-                logger.warning(f"Unexpected response from series API: {response.status_code}")
+                logger.error(f"Unexpected response from series API: {response.status_code}")
                 return None
         except Exception as e:
             logger.error(f"Failed to get series data with error: {str(e)}")
@@ -72,7 +72,7 @@ class GetSerieInfo:
     def _process_available_seasons(self, data):
         """Process available seasons from series data"""
         if not data or not data.get('entries'):
-            logger.warning("No series data found in API")
+            logger.error("No series data found in API")
             return []
 
         entry = data['entries'][0]
@@ -94,7 +94,7 @@ class GetSerieInfo:
                     'guid': season['guid']
                 })
             else:
-                logger.warning(f"Season URL not found: {url}")
+                logger.error(f"Season URL not found: {url}")
 
         # Sort seasons from oldest to newest
         stagioni_disponibili.sort(key=lambda s: s['tvSeasonNumber'])
@@ -141,7 +141,7 @@ class GetSerieInfo:
             response_page = self.client.get(season['page_url'], headers={'User-Agent': get_userAgent()})
             
             if not response_page or response_page.status_code != 200:
-                logger.warning(f"Failed to fetch season page: {season.get('page_url')}")
+                logger.error(f"Failed to fetch season page: {season.get('page_url')}")
                 continue
                 
             print("Response for _extract_season_sb_ids:", response_page.status_code, " Season:", season['tvSeasonNumber'])
@@ -173,7 +173,7 @@ class GetSerieInfo:
                             'sb': sb_id
                         })
             else:
-                logger.warning(f"No titleCarousel categories found for season {season['tvSeasonNumber']}")
+                logger.error(f"No titleCarousel categories found for season {season['tvSeasonNumber']}")
 
     def _get_season_episodes(self, season, sb_id, category_name):
         """Get episodes for a specific season"""
@@ -241,7 +241,7 @@ class GetSerieInfo:
 
             return episodes
         except Exception as e:
-            logger.warning(f"_get_all_season_episodes failed for season {season.get('tvSeasonNumber')}: {e}")
+            logger.error(f"_get_all_season_episodes failed for season {season.get('tvSeasonNumber')}: {e}")
             return []
 
     def _extract_episodes_from_rsc_text(self, sb_id, season_number, category_name, guid=None):

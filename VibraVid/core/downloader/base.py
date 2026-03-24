@@ -195,9 +195,7 @@ class BaseDownloader:
                 self.copied_audios.append(
                     {
                         "src": audio_path,
-                        "language": audio.get(
-                            "language", audio.get("name", f"audio{idx}")
-                        ),
+                        "language": audio.get("language", audio.get("name", f"audio{idx}")),
                         "extension": os.path.splitext(audio_path)[1],
                     }
                 )

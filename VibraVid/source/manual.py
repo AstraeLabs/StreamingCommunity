@@ -263,7 +263,7 @@ async def _download_segments_async(segments: List[Dict], out_dir: Path, headers:
                             key_data = await _fetch_key(client, key_url)
                             data = _decrypt_aes128(data, key_data, enc.get("iv"), num)
                         else:
-                            logger.warning(f"AES-128 segment {num} — no key URI, writing raw")
+                            logger.error(f"AES-128 segment {num} — no key URI, writing raw")
 
                     seg_path.write_bytes(data)
                     nb = len(data)
@@ -287,7 +287,7 @@ async def _download_segments_async(segments: List[Dict], out_dir: Path, headers:
                         is_503 = "503" in str(exc) or "Service Unavailable" in str(exc)
                         if is_503:
                             wait_time = min(3 * (2 ** attempt), 30)
-                            logger.warning(f"Segment {num} got 503 CDN rate limit, waiting {wait_time}s before retry {attempt + 1}/{retry}")
+                            logger.error(f"Segment {num} got 503 CDN rate limit, waiting {wait_time}s before retry {attempt + 1}/{retry}")
                         else:
                             wait_time = 0.5 * (2 ** attempt)
                             logger.info(f"Segment {num} error ({type(exc).__name__}), retry {attempt + 1}/{retry} after {wait_time}s")
@@ -510,7 +510,7 @@ class MediaDownloader:
                         ext_result["ext_subs"] = subs
                         ext_result["ext_auds"] = auds
                     except Exception as exc:
-                        logger.warning(f"External downloads failed: {exc}")
+                        logger.error(f"External downloads failed: {exc}")
                     finally:
                         self._unregister_loop(ext_loop)
                         ext_loop.close()
@@ -527,10 +527,7 @@ class MediaDownloader:
                         try:
                             self._download_stream(s, bar_manager)
                         except Exception as exc:
-                            logger.error(
-                                f"Stream download error ({s.type}/{s.language}): {exc}",
-                                exc_info=True,
-                            )
+                            logger.error(f"Stream download error ({s.type}/{s.language}): {exc}", exc_info=True)
 
                     # daemon=True: automatic cleanup on hard exit (Ctrl+C, crash)
                     t = threading.Thread(target=_run_stream, daemon=True)
@@ -992,7 +989,7 @@ class MediaDownloader:
             task_lang  = normalized.split("-")[0].lower() if normalized else raw
 
             if task_lang in seen_normalized:
-                logger.debug(f"Audio {raw!r} already mapped as {task_lang!r} -- skip dup")
+                logger.info(f"Audio {raw!r} already mapped as {task_lang!r} -- skip dup")
                 continue
             seen_normalized.add(task_lang)
 
@@ -1013,7 +1010,7 @@ class MediaDownloader:
                 self._sub_labels[f"{raw}:{tmdb_client._slugify(name)}"] = label
             self._sub_labels.setdefault(raw, label)
 
-        logger.debug(f"Labels ready -- video={self._video_label!r} audio={list(self._audio_labels)[:4]}  subs={list(self._sub_labels)[:4]}")
+        logger.info(f"Labels ready -- video={self._video_label!r} audio={list(self._audio_labels)[:4]}  subs={list(self._sub_labels)[:4]}")
 
     @staticmethod
     def _sub_stream_label(s: Stream) -> str:

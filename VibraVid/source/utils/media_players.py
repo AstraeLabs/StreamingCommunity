@@ -24,7 +24,7 @@ class MediaPlayers:
                 with open(f, "w", encoding="utf-8") as fh:
                     fh.write("")
             except Exception as e:
-                logger.warning(f"Failed to create ignore file {f}: {e}")
+                logger.error(f"Failed to create ignore file {f}: {e}")
 
     def remove(self) -> None:
         for f in self.ignore_files:
@@ -32,4 +32,4 @@ class MediaPlayers:
                 if os.path.exists(f):
                     os.remove(f)
             except Exception as e:
-                logger.warning(f"Failed to remove ignore file {f}: {e}")
+                logger.error(f"Failed to remove ignore file {f}: {e}")

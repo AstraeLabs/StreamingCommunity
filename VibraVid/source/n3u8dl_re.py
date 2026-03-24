@@ -271,7 +271,7 @@ class MediaDownloader:
                     download_result["ext_subs"] = ext_subs
                     download_result["ext_auds"] = ext_auds
                 except Exception as exc:
-                    logger.warning(f"External downloads failed: {exc}")
+                    logger.error(f"External downloads failed: {exc}")
                 finally:
                     loop.close()
 
@@ -299,7 +299,7 @@ class MediaDownloader:
 
             download_thread.join(timeout=300)
             if download_thread.is_alive():
-                logger.warning("External download thread timed out — proceeding anyway")
+                logger.error("External download thread timed out — proceeding anyway")
 
             ext_subs = download_result["ext_subs"]
             ext_auds = download_result["ext_auds"]
@@ -406,7 +406,7 @@ class MediaDownloader:
             task_lang = normalized.split("-")[0].lower() if normalized else raw
 
             if task_lang in seen_normalized:
-                logger.debug(f"Audio {raw!r} already mapped as {task_lang!r}, skipping duplicate")
+                logger.info(f"Audio {raw!r} already mapped as {task_lang!r}, skipping duplicate")
                 continue
             seen_normalized.add(task_lang)
 
@@ -428,7 +428,7 @@ class MediaDownloader:
                 self._sub_labels[f"{raw}:{tmdb_client._slugify(name)}"] = label
             self._sub_labels.setdefault(raw, label)
 
-        logger.debug(f"Labels ready — video={self._video_label!r} audio={self._audio_labels} subs={self._sub_labels}")
+        logger.info(f"Labels ready — video={self._video_label!r} audio={self._audio_labels} subs={self._sub_labels}")
 
     @staticmethod
     def _sub_stream_label(s: Stream) -> str:

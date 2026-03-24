@@ -14,7 +14,6 @@ from VibraVid.utils.http_client import get_headers
 from VibraVid.setup import get_wvd_path, get_prd_path
 from VibraVid.source.style.tracker import download_tracker, context_tracker
 from VibraVid.source.utils.media_players import MediaPlayers
-from VibraVid.source.utils.language import resolve_locale
 
 from VibraVid.source.n3u8dl_re import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
@@ -75,20 +74,17 @@ def _filter_subtitles(sub_list: list, filter_str: str) -> list:
         token = token.strip()
         if not token:
             continue
-        if "-" in token:
-            wanted_locales.add(token.lower())
-        else:
-            resolved = resolve_locale(token)
-            if resolved:
-                wanted_locales.add(resolved.lower())
+        wanted_locales.add(token.lower())
 
     if not wanted_locales:
         return sub_list
 
     filtered = []
     for s in sub_list:
+        lang_resolved = (s.get("language_resolved") or "").strip().lower()
         lang = (s.get("language") or "").strip().lower()
-        if lang in wanted_locales:
+        
+        if lang_resolved in wanted_locales or lang in wanted_locales:
             filtered.append(s)
 
     return filtered
@@ -151,9 +147,14 @@ class DASH_Downloader(BaseDownloader):
         self.copied_audios = []
         self.audio_only = False
 
-    def _collect_drm_from_streams(self, streams: list) -> Dict[str, List[Dict]]:
+    def _collect_drm_from_streams(self, streams: list, check_selected: bool = True) -> Dict[str, List[Dict]]:
         """
         Read PSSH data directly from Stream.drm (DRMInfo) on selected streams.
+
+        Args:
+            streams: List of Stream objects
+            check_selected: If True, only collect from streams with selected=True.
+                          If False, collect from all streams with DRM (used for fallback).
 
         Returns:
             {
@@ -166,10 +167,20 @@ class DASH_Downloader(BaseDownloader):
 
         for s in streams:
             drm = getattr(s, "drm", None)
-            if not (getattr(s, "selected", False) and drm and drm.is_encrypted()):
-                continue
+            is_encrypted = drm and drm.is_encrypted()
+            is_selected = getattr(s, "selected", False)
+            
+            # If check_selected=True, require selected=True AND encrypted
+            # If check_selected=False, just require encrypted (for fallback from MPD)
+            if check_selected:
+                if not (is_selected and is_encrypted):
+                    continue
+            else:
+                if not is_encrypted:
+                    continue
 
             label = _stream_drm_label(s)
+            logger.info(f"DASH DRM collected from stream: {s.id or 'unnamed'} | type={s.type} | encrypted={is_encrypted} | selected={is_selected}")
 
             for dt in drm.get_all_drm_types():  # 'WV', 'PR', 'FP', 'UNK'
                 if dt not in result:
@@ -180,11 +191,8 @@ class DASH_Downloader(BaseDownloader):
                     continue
 
                 seen[dt].add(pssh)
-                kid = (
-                    getattr(drm, "kid", None)
-                    or getattr(drm, "default_kid", None)
-                    or "N/A"
-                )
+                kid = (getattr(drm, "kid", None) or getattr(drm, "default_kid", None) or "N/A")
+                logger.info(f"  → PSSH added for {dt}: KID={kid}")
                 result[dt].append(
                     {
                         "pssh": pssh,
@@ -200,6 +208,7 @@ class DASH_Downloader(BaseDownloader):
         """Fallback: scan the saved raw .mpd via DashParser to extract PSSH."""
         result: Dict[str, List[Dict]] = {"WV": [], "PR": []}
         try:
+            logger.info(f"_collect_drm_from_mpd: Attempting fallback DRM extraction from raw_mpd_path={raw_mpd_path}")
             if raw_mpd_path and os.path.exists(raw_mpd_path):
                 with open(raw_mpd_path, "r", encoding="utf-8") as f:
                     content = f.read()
@@ -210,10 +219,17 @@ class DASH_Downloader(BaseDownloader):
                     return result
 
             streams = parser.parse_streams()
-            result = self._collect_drm_from_streams(streams)
+            logger.info(f"_collect_drm_from_mpd: Re-parsed MPD returned {len(streams)} streams")
+            
+            # Fallback collection: don't check selected status (streams are freshly parsed)
+            result = self._collect_drm_from_streams(streams, check_selected=False)
+            
+            wv_count = len(result.get("WV", []))
+            pr_count = len(result.get("PR", []))
+            logger.info(f"_collect_drm_from_mpd: Collected {wv_count} WV PSSH + {pr_count} PR PSSH")
 
         except Exception as exc:
-            logger.debug(f"_collect_drm_from_mpd error: {exc}")
+            logger.info(f"_collect_drm_from_mpd error: {exc}")
 
         return result
 
@@ -259,7 +275,7 @@ class DASH_Downloader(BaseDownloader):
                 for e in extra_drm.get("PR", []):
                     drm_psshs["PR"].append(e)
             except Exception as exc:
-                logger.debug(f"Audio DashParser fallback: {exc}")
+                logger.error(f"Audio DashParser fallback: {exc}")
 
         if not drm_psshs["WV"] and not drm_psshs["PR"]:
             return []
@@ -343,13 +359,11 @@ class DASH_Downloader(BaseDownloader):
                         final_path = os.path.join(self.output_dir, f"{self.filename_base}.{audio_language}{ext}")
                         try:
                             shutil.move(fpath, final_path)
-                            external_audios.append(
-                                {
+                            external_audios.append({
                                     "file": os.path.basename(final_path),
                                     "language": audio_language,
-                                    "path": final_path,
-                                }
-                            )
+                                    "path": final_path
+                            })
                         except Exception as e:
                             console.print(f"[yellow]Could not move audio {audio_language}: {e}")
 
@@ -361,14 +375,12 @@ class DASH_Downloader(BaseDownloader):
                         final_sub = os.path.join(self.output_dir, f"{self.filename_base}.{sub_lang}{ext}")
                         try:
                             shutil.move(fpath, final_sub)
-                            external_subtitles.append(
-                                {
-                                    "path": final_sub,
-                                    "language": sub_lang,
-                                    "name": sub_lang,
-                                    "size": os.path.getsize(final_sub),
-                                }
-                            )
+                            external_subtitles.append({
+                                "path": final_sub,
+                                "language": sub_lang,
+                                "name": sub_lang,
+                                "size": os.path.getsize(final_sub),
+                            })
                         except Exception as e:
                             console.print(f"[yellow]Could not move subtitle {sub_lang}: {e}")
 

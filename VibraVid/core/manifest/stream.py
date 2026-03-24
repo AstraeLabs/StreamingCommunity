@@ -32,12 +32,15 @@ class DRMInfo:
         try:
             from pywidevine.pssh import PSSH as WV_PSSH
             from uuid import UUID as _UUID
+
             _WV_UUID = _UUID(hex="edef8ba979d64acea3c827dcd51d21ed")
             _PR_UUID = _UUID(hex="9a04f07998404286ab92e65be0885f95")
             _FP_UUID = _UUID(hex="94ce86fb07ff4f43adb893d2fa968ca2")
+
             wv_obj = WV_PSSH(pssh_base64)
             sid = wv_obj.system_id
             self.system_id = str(sid)
+
             if sid == _WV_UUID:
                 detected = "WV"
             elif sid == _PR_UUID:
@@ -46,10 +49,11 @@ class DRMInfo:
                 detected = "FP"
             else:
                 detected = "UNK"
+                
         except ImportError:
             pass
         except Exception as exc:
-            logger.debug(f"DRMInfo.set_pssh [pywidevine] error: {exc}")
+            logger.error(f"DRMInfo.set_pssh [pywidevine] error: {exc}")
 
         if (not detected or detected == "UNK") and ((drm_type_hint or "").upper() in ("PR", "PLAYREADY") or (self.drm_type or "") == "PR"):
             try:
@@ -59,7 +63,7 @@ class DRMInfo:
             except ImportError:
                 pass
             except Exception as exc:
-                logger.debug(f"DRMInfo.set_pssh [pyplayready] error: {exc}")
+                logger.error(f"DRMInfo.set_pssh [pyplayready] error: {exc}")
 
         if not detected or detected == "UNK":
             try:
@@ -82,7 +86,7 @@ class DRMInfo:
                     else:
                         detected = "UNK"
             except Exception as exc:
-                logger.debug(f"DRMInfo.set_pssh [manual] error: {exc}")
+                logger.error(f"DRMInfo.set_pssh [manual] error: {exc}")
 
         if not detected or detected == "UNK":
             if drm_type_hint:

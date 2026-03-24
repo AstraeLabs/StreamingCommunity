@@ -118,7 +118,7 @@ async def resolve_url(client: Any, url: str, track_type: str) -> Tuple[str, str]
         resp.raise_for_status()
         text = resp.text.strip()
     except Exception as exc:
-        logger.warning(f"resolve_url probe failed for {url!r}: {exc}")
+        logger.error(f"resolve_url probe failed for {url!r}: {exc}")
         return url, ext_from_url(url, "UNK")
 
     if text.startswith("#EXTM3U"):
@@ -126,9 +126,10 @@ async def resolve_url(client: Any, url: str, track_type: str) -> Tuple[str, str]
             line = line.strip()
             if line and not line.startswith("#"):
                 fmt = ext_from_url(line, "UNK")
-                logger.debug(f"Resolved manifest → segment: {line} (fmt={fmt})")
+                logger.info(f"Resolved manifest → segment: {line} (fmt={fmt})")
                 return line, fmt
-        logger.warning(f"Manifest parsed but no segment found in {url!r}")
+        
+        logger.error(f"Manifest parsed but no segment found in {url!r}")
         return url, ext_from_url(url, "UNK")
 
     fmt = ext_from_url(url, "UNK")
@@ -218,20 +219,17 @@ async def download_external_tracks_with_progress(headers: Dict, external_subtitl
 
                     if task_id is not None and progress:
                         final_kb  = size / 1024
-                        size_disp = (
-                            f"{size / (1024**2):.2f}MB" if final_kb >= 1024
-                            else f"{final_kb:.0f}KB"
-                        )
+                        size_disp = (f"{size / (1024**2):.2f}MB" if final_kb >= 1024 else f"{final_kb:.0f}KB")
                         progress.update(task_id, completed=100, size=size_disp, speed="")
 
                     logger.info(f"Downloaded {track_type} {lang_raw}: {size} bytes → {out_path.name}")
                 else:
-                    logger.warning(f"Failed to download {track_type} {lang_raw} (empty file)")
+                    logger.error(f"Failed to download {track_type} {lang_raw} (empty file)")
                     if task_id is not None and progress:
                         progress.update(task_id, speed="FAILED")
 
             except Exception as exc:
-                logger.warning(f"External {track_type} download failed ({track.get('language','?')}): {exc}")
+                logger.error(f"External {track_type} download failed ({track.get('language','?')}): {exc}")
                 tid = tasks.get(track.get("_task_key", ""))
                 if tid is not None and progress:
                     progress.update(tid, speed="ERR")

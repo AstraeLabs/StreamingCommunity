@@ -308,7 +308,7 @@ class ConfigManager:
                     cached_count += 1
                     
             except Exception as e:
-                logger.warning(f"Failed to precache {section}.{key}: {e}")
+                logger.error(f"Failed to precache {section}.{key}: {e}")
     
     def _handle_config_error(self) -> None:
         """Handle configuration errors by downloading the reference version."""

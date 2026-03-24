@@ -308,7 +308,7 @@ def sanitize_srt_file(subtitle_path: str) -> str:
         
         return subtitle_path
     except Exception as e:
-        logger.warning(f"Could not sanitize SRT file {os.path.basename(subtitle_path)}: {str(e)}")
+        logger.error(f"Could not sanitize SRT file {os.path.basename(subtitle_path)}: {str(e)}")
         return subtitle_path
 
 
@@ -319,17 +319,17 @@ def sanitize_vtt_file(subtitle_path: str) -> str:
             content = f.read()
         
         # Replace unmatched '<' symbols (not followed by closing '>') with '- '
-        logger.debug(f"Sanitizing VTT: {os.path.basename(subtitle_path)}")
+        logger.info(f"Sanitizing VTT: {os.path.basename(subtitle_path)}")
         sanitized_content = re.sub(r'<(?![^>]*>)', '- ', content)
         
         if sanitized_content != content:
             with open(subtitle_path, 'w', encoding='utf-8') as f:
                 f.write(sanitized_content)
-            logger.debug(f"VTT sanitized: {os.path.basename(subtitle_path)}")
+            logger.info(f"VTT sanitized: {os.path.basename(subtitle_path)}")
         
         return subtitle_path
     except Exception as e:
-        logger.warning(f"Could not sanitize VTT file {os.path.basename(subtitle_path)}: {str(e)}")
+        logger.error(f"Could not sanitize VTT file {os.path.basename(subtitle_path)}: {str(e)}")
         return subtitle_path
 
 
