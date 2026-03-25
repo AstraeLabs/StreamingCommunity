@@ -199,6 +199,48 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 - **`max_speed`**: Speed limit per stream (e.g., `"30MB"`, `"10MB"`)
 - **`cleanup_tmp_folder`**: Remove temporary files after download (default: `true`)
 
+#### Stream Selection Filters
+
+Control which streams are downloaded using `select_video`, `select_audio`, and `select_subtitle`:
+
+**Video Filter Syntax (`select_video`):**
+
+| Format | Description |
+|--------|-------------|
+| `"best"` | Best available resolution
+| `"worst"` | Worst available resolution
+| `"1080"` | Exact height (fallback to worst if not found)
+| `"1080,H265"` | Height + codec constraint
+| `"1080|best"` | Height with fallback to best
+| `"1080|best,H265"` | Height + codec with fallback to best
+| `"false"` | Skip video (download)
+
+**Audio Filter Syntax (`select_audio`):**
+
+| Format | Description | Behavior if not found |
+|--------|-------------|-----------------------|
+| `"best"` | Best available bitrate per language | Selects best across all languages
+| `"worst"` | Worst available bitrate per language | Selects worst across all languages
+| `"all"` | All audio tracks | Downloads all |
+| `"default"` | Only streams marked as default | DROP if no default stream exists |
+| `"non-default"` | Only streams NOT marked as default | DROP if no non-default streams exist |
+| `"ita"` | Find Italian audio | **DROP** (no download) |
+| `"ita"` + other language tokens | Find specified languages (pipe-separated) | **DROP** if none found |
+| `"ita,MP4A"` | Find Italian + MP4A codec | **DROP** if combination not found |
+| `"false"` | Skip audio | Does not download |
+
+**Subtitle Filter Syntax (`select_subtitle`):**
+
+| Format | Description |
+|--------|-------------|
+| `"all"` | All subtitles
+| `"default"` | Only streams marked as default
+| `"non-default"` | Only streams NOT marked as default
+| `"ita|eng"` | Language tokens (pipe-separated)
+| `"ita_forced"` | Language with flag (forced/cc/sdh)
+| `"ita_forced|eng_cc"` | Multiple languages with flags
+| `"false"` | Skip subtitles
+
 ### Processing Settings
 
 ```json
@@ -413,53 +455,81 @@ Hooks are automatically executed before the main flow (`pre_run`), after each co
 
 ## Docker
 
-### Basic Setup
+### Recommended: Docker Compose (Production Ready)
+
+Use `docker-compose.yml` for best results with persistent data:
+
+```bash
+# Start the container
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the container (data persists)
+docker-compose down
+
+# Restart the container
+docker-compose up -d
+```
+
+### Private Network Deployment
+
+For deployments with a custom domain and private IP (e.g., LAN streaming):
+
+Edit `docker-compose.yml` and uncomment the `environment` section, then update:
+
+```yaml
+environment:
+  DJANGO_DEBUG: "false"
+  ALLOWED_HOSTS: "streaming.example.local,localhost,127.0.0.1,192.168.1.50"
+  CSRF_TRUSTED_ORIGINS: "https://streaming.example.local"
+  USE_X_FORWARDED_HOST: "true"
+  SECURE_PROXY_SSL_HEADER_ENABLED: "true"
+  CSRF_COOKIE_SECURE: "true"
+  SESSION_COOKIE_SECURE: "true"
+  DJANGO_SECRET_KEY: "your-secure-secret-key-here"
+```
+
+Replace the domain and IP with your actual values.
+
+### Manual Docker Build & Run
+
+If you prefer not to use docker-compose:
 
 ```bash
 # Build image
-docker build -t vibravid-api .
+docker build -t vibravid .
 
-# Run with Cloudflare DNS
-docker run -d --name vibravid --dns 1.1.1.1 -p 8000:8000 vibravid-api
+# Run with persistent volumes (recommended)
+docker run -d \
+  --name vibravid \
+  -p 8000:8000 \
+  -v vibravid_db:/app/GUI \
+  -v vibravid_videos:/app/Video \
+  -v vibravid_logs:/app/logs \
+  -v vibravid_config:/app/Conf \
+  --restart unless-stopped \
+  vibravid
 ```
 
-### Volumes and Permissions
+### Binding Local Folders
 
-When mounting a local folder as a volume, you might encounter permission issues. Using `-u root` ensures the container has the necessary rights to write to your host machine:
+To save downloads to a specific folder on your host machine:
 
 ```bash
-docker run -d --name vibravid --dns 1.1.1.1 -p 8000:8000 -u root -v D:\Download:/app/Video vibravid-api
+# Linux/macOS
+docker run -d --name vibravid -p 8000:8000 \
+  -v ~/Downloads/Videos:/app/Video \
+  vibravid
+
+# Windows (PowerShell)
+docker run -d --name vibravid -p 8000:8000 `
+  -v "D:\Video:/app/Video" `
+  vibravid
 ```
 
-### Docker Compose Example
-
-Recommended for stability and easy DNS configuration:
-
-```yaml
-services:
-    vibravid:
-        build: .
-        container_name: vibravid
-        user: root
-        dns:
-            - 1.1.1.1
-            - 8.8.8.8
-        ports:
-            - "8000:8000"
-        #environment:
-        # Replace these example values with your public domain and private LAN IP.
-        #ALLOWED_HOSTS: "streaming.example.local localhost 127.0.0.1 192.168.1.50"
-        #CSRF_TRUSTED_ORIGINS: "https://streaming.example.local"
-        #USE_X_FORWARDED_HOST: "true"
-        #SECURE_PROXY_SSL_HEADER_ENABLED: "true"
-        #CSRF_COOKIE_SECURE: "true"
-        #SESSION_COOKIE_SECURE: "true"
-        volumes:
-            - ./Video:/app/Video
-        restart: unless-stopped
-```
-
-The `environment` section is intended for deployments behind an HTTPS reverse proxy. Replace the example domain and private IP with your own values.
+**Note:** Path separators differ by OS. Use `/` for Linux/macOS and `\` for Windows paths.
 
 ---
 

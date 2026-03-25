@@ -104,11 +104,26 @@ class DASH_Downloader(BaseDownloader):
     6. ``_merge_files()``   — FFmpeg mux
     7. ``_finalize()``      — move, summary, NFO, tracker, cleanup
     """
-
     def __init__(self, mpd_url: Optional[str] = None, mpd_headers: Optional[Dict[str, str]] = None, mpd_sub_list: Optional[list] = None, mpd_audio_list: Optional[list] = None,
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None, license_data: Optional[str] = None,
         output_path: Optional[str] = None, drm_preference: str = "widevine", decrypt_preference: str = "bento4", key: Optional[str] = None, cookies: Optional[Dict[str, str]] = None,
     ):
+        """
+        Parameters:
+            - mpd_url: DASH MPD manifest URL.
+            - mpd_headers: HTTP headers for MPD requests.
+            - mpd_sub_list: External subtitles list of dicts. Example: [{"language": "it", "url": "..."}, ...]
+            - mpd_audio_list: External audio MPD specs. Example: [{"url": "...", "language": "en", "headers": {...}}, ...]
+            - license_url: DRM license server URL for Widevine/PlayReady.
+            - license_headers: HTTP headers for DRM license requests.
+            - license_certificate: Widevine certificate (base64) for license challenge.
+            - license_data: PlayReady license data for SOAP envelope.
+            - output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
+            - drm_preference: DRM system preference: "widevine", "playready".
+            - decrypt_preference: Decryption tool: "bento4", "shaka".
+            - key: Manual decryption key (hex format) if known.
+            - cookies: HTTP cookies for authenticated requests.
+        """
         self.mpd_url = str(mpd_url).strip() if mpd_url else None
         self.mpd_headers = mpd_headers or get_headers()
         self.mpd_sub_list = mpd_sub_list or []

@@ -1,34 +1,46 @@
 FROM python:3.11-slim
 
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nano \
     libicu-dev \
     ffmpeg \
+    curl \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
+# Create non-root user for security
 RUN groupadd -r appuser && \
     useradd -r -g appuser -u 1000 -m -d /home/appuser -s /bin/bash appuser
 
 WORKDIR /app
 
+# Install Python dependencies
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY GUI/requirements.txt ./GUI/requirements.txt
 RUN pip install --no-cache-dir -r GUI/requirements.txt
 
+# Copy application code
 COPY . . 
 
+# Create required directories and set permissions
 RUN mkdir -p /app/Video /app/logs /app/data \
              /home/appuser/.config && \
     chown -R appuser:appuser /app /home/appuser && \
     chmod -R 755 /app /home/appuser
 
+# Switch to non-root user
 USER appuser
 
+# Set environment variables
 ENV PYTHONPATH="/app:${PYTHONPATH}" \
-    HOME=/home/appuser
+    HOME=/home/appuser \
+    PYTHONUNBUFFERED=1
+
+# Declare volumes for persistent data
+VOLUME ["/app/GUI", "/app/Video", "/app/logs", "/app/Conf", "/app/data"]
 
 EXPOSE 8000
 

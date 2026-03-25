@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  vibravid:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: vibravid
+    
+    ### Networking
+    ports:
+      - "8000:8000"
+    # Uncomment for custom DNS (e.g., Cloudflare DNS)
+    # dns:
+    #   - 1.1.1.1
+    #   - 8.8.8.8
+    networks:
+      - vibravid_network
+    
+    ### Volumes - Persistent Data
+    volumes:
+      # Database persistence
+      - vibravid_db:/app/GUI
+      # Downloads persistence  
+      - vibravid_videos:/app/Video
+      # Logs persistence
+      - vibravid_logs:/app/logs
+      # Configuration persistence
+      - vibravid_config:/app/Conf
+    
+    ### Environment Variables
+    environment:
+      DJANGO_DEBUG: "false"
+      DJANGO_SECRET_KEY: "change-me-to-a-secure-key"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: "/app:${PYTHONPATH}"
+      
+      # Host Configuration
+      ALLOWED_HOSTS: "localhost,127.0.0.1"
+      CSRF_TRUSTED_ORIGINS: "http://localhost:8000,http://127.0.0.1:8000"
+      
+      # Uncomment for private network deployment (behind reverse proxy)
+      # ALLOWED_HOSTS: "streaming.example.local,localhost,127.0.0.1,192.168.1.50"
+      # CSRF_TRUSTED_ORIGINS: "https://streaming.example.local"
+      # USE_X_FORWARDED_HOST: "true"
+      # SECURE_PROXY_SSL_HEADER_ENABLED: "true"
+      # CSRF_COOKIE_SECURE: "true"
+      # SESSION_COOKIE_SECURE: "true"
+      
+      # Optional: Watchlist Auto-Download Interval (seconds)
+      # WATCHLIST_AUTO_INTERVAL_SECONDS: "14400"
+    
+    ### Restart Policy
+    restart: unless-stopped
+    
+    ### Resource Limits (optional)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2'
+    #       memory: 2G
+    #     reservations:
+    #       cpus: '1'
+    #       memory: 1G
+
+### Persistent Named Volumes
+volumes:
+  vibravid_db:
+    driver: local
+  vibravid_videos:
+    driver: local
+  vibravid_logs:
+    driver: local
+  vibravid_config:
+    driver: local
+
+### Internal Network
+networks:
+  vibravid_network:
+    driver: bridge

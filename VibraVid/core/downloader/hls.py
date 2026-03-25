@@ -36,19 +36,30 @@ class HLS_Downloader(BaseDownloader):
     Flow
     ----
     1. ``parse_stream()``   — fetch manifest → auto-select → show table
-    2. DRM extraction       — read DRMInfo from selected Stream objects
-                              (fallback: M3U8Parser scan of the saved raw .m3u8)
+    2. DRM extraction       — read DRMInfo from selected Stream objects (fallback: M3U8Parser scan of the saved raw .m3u8)
     3. Key fetch            — DRMManager → Widevine or PlayReady
     4. ``start_download()`` — run n3u8dl, decrypt, build status dict
     5. ``_merge_files()``   — FFmpeg mux
     6. ``_finalize()``      — move, summary, NFO, tracker, cleanup
     """
-
     def __init__(self, m3u8_url: str, headers: Optional[Dict[str, str]] = None,
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None,
         output_path: Optional[str] = None, drm_preference: str = "widevine", decrypt_preference: str = "bento4", key: Optional[str] = None,
         cookies: Optional[Dict[str, str]] = None,
     ):
+        """
+        Parameters:
+        m3u8_url: M3U8 manifest URL to download.
+        headers: HTTP headers for requests (auth, user-agent, etc).
+        license_url: DRM license server URL for Widevine/PlayReady.
+        license_headers: HTTP headers for DRM license requests.
+        license_certificate: Widevine certificate (base64) for license challenge.
+        output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
+        drm_preference: DRM system preference: "widevine", "playready", or "auto".
+        decrypt_preference: Decryption tool: "bento4", "shaka".
+        key: Manual decryption key (hex format) if known.
+        cookies: HTTP cookies for authenticated requests.
+        """
         self.m3u8_url = str(m3u8_url).strip()
         self.headers = headers or get_headers()
         self.license_url = str(license_url).strip() if license_url else None

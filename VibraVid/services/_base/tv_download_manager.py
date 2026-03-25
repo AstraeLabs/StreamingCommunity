@@ -147,8 +147,6 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
                 if _is_user_stop_requested():
                     break
                 console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}.")
-        
-        console.print(f"\n[red]End downloaded [yellow]season: [red]{index_season_selected}.")
     
     else:
         # Display episodes list and manage user selection
@@ -216,5 +214,3 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
                 if _is_user_stop_requested():
                     break
                 console.print(f"[yellow]Warning: episode {i_episode} failed for season {index_season_selected}.")
-        
-        console.print(f"\n[red]End downloaded [yellow]season: [red]{index_season_selected}.")

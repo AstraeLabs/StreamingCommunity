@@ -55,14 +55,20 @@ class FilterSpec:
     ----------------------------
     "best" / "worst"                        select best or worst stream
     "all"                                   select all streams
+    "default"                               select only stream(s) with default=True
+    "non-default"                           select only stream(s) with default=False
     "false"                                 drop (no download)
     "1080"                                  height constraint (video)
     "1920,H265"                             height + codec (video)
     ",H265"                                 codec only (video)
     "H265"                                  codec only bare (video)
+    "1080|best"                             height with fallback to best (video)
+    "1080|best,H265"                        height + codec with fallback to best (video)
     "ita|it" or "ita it"                    language tokens (audio/sub) — pipe or space separated
     "ita|it,AAC"                            language + codec (audio)
     ",AAC"                                  codec only (audio)
+    "ita|best"                              language with fallback to best (audio)
+    "ita|best,AAC"                          language + codec with fallback to best (audio)
     "res=1080:codecs=hvc1:for=best"         native n3u8dl passthrough
     "id=audio_128k_en:for=best"             id-based (real manifest IDs).
     """
@@ -74,6 +80,8 @@ class FilterSpec:
     langs: Optional[str] = None
     codec: Optional[str] = None
     id: Optional[str] = None
+    fallback_to_best: bool = False
+    select_default: Optional[bool] = None  # None=no filter, True=only default, False=only non-default
     extra: dict = field(default_factory=dict)
 
     @classmethod
@@ -92,14 +100,36 @@ class FilterSpec:
         if r.lower() == "worst":
             spec.select_best = False
             return spec
+        if r.lower() == "default":
+            spec.select_default = True
+            return spec
+        if r.lower() == "non-default":
+            spec.select_default = False
+            return spec
 
         if "=" in r:
             spec._parse_native(r, stream_type)
             return spec
 
+        # Split by comma to extract codec part if present
         parts = r.split(",", 1)
         primary = parts[0].strip()
         codec_s = parts[1].strip() if len(parts) > 1 else ""
+
+        # Check for fallback strategy in codec part (e.g., "ac-3|best")
+        if codec_s and "|" in codec_s:
+            codec_parts = codec_s.split("|", 1)
+            codec_part = codec_parts[0].strip()
+            fallback_part = codec_parts[1].strip().lower()
+            
+            if fallback_part in ("best", "worst"):
+                if fallback_part == "best":
+                    spec.fallback_to_best = True
+                elif fallback_part == "worst":
+                    spec.fallback_to_best = False
+                    spec.select_best = False
+                
+                codec_s = codec_part
 
         if codec_s:
             spec.codec = get_codec_token(codec_s, stream_type)
@@ -107,16 +137,44 @@ class FilterSpec:
         if not primary:
             return spec
 
+        # Check for fallback strategy pattern (e.g., "1080|best", "ita|best")
+        # Only trigger if primary contains "|" AND the second part is "best" or "worst"
+        if "|" in primary:
+            parts_pipe = primary.split("|", 1)
+            constraint_part = parts_pipe[0].strip()
+            fallback_part = parts_pipe[1].strip().lower()
+
+            # Check if this is a fallback strategy pattern (second part is "best" or "worst")
+            if fallback_part in ("best", "worst"):
+                if fallback_part == "best":
+                    spec.fallback_to_best = True
+                elif fallback_part == "worst":
+                    spec.fallback_to_best = False
+                    spec.select_best = False
+
+                # Now parse the constraint part (first part)
+                if re.match(r"^\d+$", constraint_part):
+                    # Video height constraint: "1080|best"
+                    spec.res = constraint_part
+                    return spec
+                else:
+                    # Language/audio constraint: "ita|best"
+                    spec.langs = "|".join(t.strip() for t in re.split(r'[|\s]+', constraint_part) if t.strip())
+                    return spec
+
+        # Original logic for resolution constraint
         if re.match(r"^\d+$", primary):
             spec.res = primary
             return spec
 
+        # Original logic for codec-only patterns
         if not codec_s and "|" not in primary and " " not in primary:
             translated = get_codec_token(primary, stream_type)
             if translated.lower() != primary.lower():
                 spec.codec = translated
                 return spec
 
+        # Language/subtitle tokens (including patterns like "ita|it", "ita it")
         raw_langs = primary
         spec.langs = "|".join(t.strip() for t in re.split(r'[|\s]+', raw_langs) if t.strip())
         return spec
@@ -548,10 +606,42 @@ class StreamSelector:
         logger.info(f"StreamSelector args → video={sv!r}  audio={sa!r}  subtitle={ss!r}")
         return sv, sa, ss
 
+    def _apply_default_filter(self, selected: list, spec: FilterSpec) -> list:
+        """Filter selected streams by default flag if requested."""
+        if spec.select_default is None:
+            return selected
+        if not selected:
+            return selected
+        
+        filtered = [s for s in selected if bool(getattr(s, "default", False)) == spec.select_default]
+        if filtered:
+            logger.info(f"StreamSelector: applied default filter (select_default={spec.select_default}) → {len(filtered)}/{len(selected)} streams")
+            return filtered
+        logger.info(f"StreamSelector: default filter (select_default={spec.select_default}) resulted in 0 streams, keeping original {len(selected)}")
+        return selected
+
     def _select_video(self, streams: list, spec: FilterSpec) -> SelectionResult:
         result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
         videos = [s for s in streams if getattr(s, "type", "") == "video"]
-        logger.info(f"Video available: {[f'{_height(s)}p/{_codecs(s)}' for s in videos]} | filter: id={spec.id} res={spec.res} codec={spec.codec} all={spec.select_all} drop={spec.drop}")
+        logger.info(f"Video available: {[f'{_height(s)}p/{_codecs(s)}' for s in videos]} | filter: id={spec.id} res={spec.res} codec={spec.codec} all={spec.select_all} drop={spec.drop} default={spec.select_default}")
+
+        if spec.drop or not videos:
+            result.drop = True
+            return result
+
+        # Handle explicit "default" or "non-default" filter
+        if spec.select_default is not None and not spec.res and not spec.codec and not spec.id and not spec.select_all:
+            filtered = [s for s in videos if bool(getattr(s, "default", False)) == spec.select_default]
+            if filtered:
+                s = (_best if spec.select_best else _worst)(filtered)
+                if s:
+                    s.selected = True
+                    result.streams = [s]
+                    logger.info(f"StreamSelector video: selected stream with default={spec.select_default}")
+                return result
+            logger.info(f"StreamSelector video: no stream with default={spec.select_default}")
+            result.drop = True
+            return result
 
         if spec.drop or not videos:
             result.drop = True
@@ -572,7 +662,7 @@ class StreamSelector:
 
         had_constraints = bool(spec.res or spec.codec)
         pick_exact = _best if spec.select_best else _worst
-        pick_fallback = _worst
+        pick_fallback = _best if spec.fallback_to_best else _worst
 
         if spec.res and spec.codec:
             pool = [s for s in videos if _matches_res(s, spec.res) and _matches_codec(s, spec.codec)]
@@ -583,7 +673,7 @@ class StreamSelector:
         if spec.codec:
             pool = [s for s in videos if _matches_codec(s, spec.codec)]
             if pool:
-                result.select_best = False
+                result.select_best = spec.fallback_to_best
                 return self._mark_one_video(pool, pick_fallback, result, codec=spec.codec)
             logger.info(f"StreamSelector video: codec={spec.codec} — no match, relaxing")
 
@@ -591,14 +681,14 @@ class StreamSelector:
             pool = [s for s in videos if _matches_res(s, spec.res)]
             if pool:
                 if spec.codec:
-                    result.select_best = False
+                    result.select_best = spec.fallback_to_best
                     return self._mark_one_video(pool, pick_fallback, result, spec.res)
                 return self._mark_one_video(pool, pick_exact, result, spec.res)
             logger.info(f"StreamSelector video: res={spec.res} — no match, falling back")
 
         if had_constraints:
-            result.select_best = False
-            s = _worst(videos)
+            result.select_best = spec.fallback_to_best
+            s = pick_fallback(videos)
         else:
             s = pick_exact(videos)
         if s:
@@ -612,9 +702,23 @@ class StreamSelector:
     def _select_audio(self, streams: list, spec: FilterSpec) -> SelectionResult:
         result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
         audios = [s for s in streams if getattr(s, "type", "") == "audio"]
-        logger.info(f"Audio available: {[f'{_language(s)}({_resolved_language(s)})/{_codecs(s)}' for s in audios]} | filter: id={spec.id} lang={spec.langs} codec={spec.codec} all={spec.select_all} drop={spec.drop}")
+        logger.info(f"Audio available: {[f'{_language(s)}({_resolved_language(s)})/{_codecs(s)}' for s in audios]} | filter: id={spec.id} lang={spec.langs} codec={spec.codec} all={spec.select_all} drop={spec.drop} default={spec.select_default}")
 
         if spec.drop or not audios:
+            result.drop = True
+            return result
+
+        # Handle explicit "default" or "non-default" filter
+        if spec.select_default is not None and not spec.langs and not spec.codec and not spec.id and not spec.select_all:
+            filtered = [s for s in audios if bool(getattr(s, "default", False)) == spec.select_default]
+            if filtered:
+                self._mark_best_per_lang(filtered, spec.select_best)
+                selected = [s for s in filtered if s.selected]
+                result.streams = selected
+                result.matched_ids = _collect_ids(selected)
+                logger.info(f"StreamSelector audio: selected {len(selected)} stream(s) with default={spec.select_default}")
+                return result
+            logger.info(f"StreamSelector audio: no stream(s) with default={spec.select_default}")
             result.drop = True
             return result
 
@@ -631,8 +735,8 @@ class StreamSelector:
             if pool:
                 self._mark_best_per_lang(pool, spec.select_best)
                 selected = [s for s in pool if s.selected]
-                result.streams = selected
-                result.matched_ids = _collect_ids(selected)
+                result.streams = self._apply_default_filter(selected, spec)
+                result.matched_ids = _collect_ids(result.streams)
                 if spec.select_all:
                     result.select_all = True
                 return result
@@ -643,10 +747,10 @@ class StreamSelector:
             if pool:
                 self._mark_best_per_lang(pool, spec.select_best)
                 selected = [s for s in pool if s.selected]
-                result.streams = selected
-                result.matched_langs = _actual_langs(selected) or spec.langs
+                result.streams = self._apply_default_filter(selected, spec)
+                result.matched_langs = _actual_langs(result.streams) or spec.langs
                 result.matched_codec = spec.codec
-                result.matched_ids = _collect_ids(selected)
+                result.matched_ids = _collect_ids(result.streams)
                 if spec.select_all:
                     result.select_all = True
                 return result
@@ -657,11 +761,13 @@ class StreamSelector:
             if pool:
                 if spec.langs:
                     logger.info(f"StreamSelector audio: lang={spec.langs!r} not found with codec={spec.codec}")
-                self._mark_best_per_lang(pool, spec.select_best)
+                # Use fallback strategy when falling back to codec-only selection
+                use_best_per_lang = spec.select_best if not (spec.langs and not spec.fallback_to_best) else spec.fallback_to_best
+                self._mark_best_per_lang(pool, use_best_per_lang)
                 selected = [s for s in pool if s.selected]
-                result.streams = selected
+                result.streams = self._apply_default_filter(selected, spec)
                 result.matched_codec = spec.codec
-                result.matched_ids = _collect_ids(selected)
+                result.matched_ids = _collect_ids(result.streams)
                 if spec.select_all:
                     result.select_all = True
                 return result
@@ -674,26 +780,44 @@ class StreamSelector:
             if pool:
                 self._mark_best_per_lang(pool, spec.select_best)
                 selected = [s for s in pool if s.selected]
-                result.streams = selected
-                result.matched_langs = _actual_langs(selected) or spec.langs
-                result.matched_ids = _collect_ids(selected)
+                result.streams = self._apply_default_filter(selected, spec)
+                result.matched_langs = _actual_langs(result.streams) or spec.langs
+                result.matched_ids = _collect_ids(result.streams)
                 if spec.select_all:
                     result.select_all = True
                 return result
-            logger.info(f"StreamSelector audio: lang={spec.langs!r} — no match, falling back to best per lang")
+            logger.info(f"StreamSelector audio: lang={spec.langs!r} — no match, dropping")
+            result.drop = True
+            return result
 
+        # No constraint: select best per lang across all available languages
         self._mark_best_per_lang(audios, spec.select_best)
         selected = [s for s in audios if s.selected]
-        result.streams = selected
-        result.matched_ids = _collect_ids(selected)
+        result.streams = self._apply_default_filter(selected, spec)
+        result.matched_ids = _collect_ids(result.streams)
         return result
 
     def _select_subtitle(self, streams: list, spec: FilterSpec) -> SelectionResult:
         result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
         subs = [s for s in streams if getattr(s, "type", "") == "subtitle"]
-        logger.info(f"Subtitle available: {[f'{_language(s)}({_resolved_language(s)})' for s in subs]} | filter: id={spec.id} lang={spec.langs} all={spec.select_all} drop={spec.drop}")
+        logger.info(f"Subtitle available: {[f'{_language(s)}({_resolved_language(s)})' for s in subs]} | filter: id={spec.id} lang={spec.langs} all={spec.select_all} drop={spec.drop} default={spec.select_default}")
 
         if spec.drop or not subs:
+            result.drop = True
+            return result
+
+        # Handle explicit "default" or "non-default" filter
+        if spec.select_default is not None and not spec.langs and not spec.id and not spec.select_all:
+            filtered = [s for s in subs if bool(getattr(s, "default", False)) == spec.select_default]
+            if filtered:
+                self._mark_best_subtitle_per_lang(filtered)
+                selected = [s for s in filtered if s.selected]
+                result.streams = selected
+                result.matched_ids = _collect_ids(selected)
+                result.select_all = len(selected) > 1
+                logger.info(f"StreamSelector subtitle: selected {len(selected)} stream(s) with default={spec.select_default}")
+                return result
+            logger.info(f"StreamSelector subtitle: no stream(s) with default={spec.select_default}")
             result.drop = True
             return result
 
@@ -702,8 +826,8 @@ class StreamSelector:
             if pool:
                 for s in pool:
                     s.selected = True
-                result.streams = pool
-                result.matched_ids = _collect_ids(pool)
+                result.streams = self._apply_default_filter(pool, spec)
+                result.matched_ids = _collect_ids(result.streams)
                 result.select_all = True
                 return result
             logger.info(f"StreamSelector subtitle: id={spec.id!r} — no match, relaxing")
@@ -711,7 +835,7 @@ class StreamSelector:
         if spec.select_all and not spec.langs:
             for s in subs:
                 s.selected = True
-            result.streams = subs
+            result.streams = self._apply_default_filter(subs, spec)
             result.select_all = True
             return result
 
@@ -753,10 +877,10 @@ class StreamSelector:
                     selected.append(pick)
 
             if selected:
-                result.streams = selected
-                result.matched_langs = _actual_langs(selected) or spec.langs
-                result.matched_ids = _collect_ids(selected)
-                result.select_all = len(selected) > 1
+                result.streams = self._apply_default_filter(selected, spec)
+                result.matched_langs = _actual_langs(result.streams) or spec.langs
+                result.matched_ids = _collect_ids(result.streams)
+                result.select_all = len(result.streams) > 1
                 return result
             
             logger.info(f"StreamSelector subtitle: lang={spec.langs!r} — no match, dropping")
@@ -765,7 +889,7 @@ class StreamSelector:
 
         for s in subs:
             s.selected = True
-        result.streams = subs
+        result.streams = self._apply_default_filter(subs, spec)
         result.select_all = True
         return result
 

@@ -410,7 +410,6 @@ class DashParser:
             
             if pssh_el is not None and pssh_el.text:
                 info.set_pssh(pssh_el.text.strip(), drm_type_hint=drm_hint)
-                logger.info(f"DashParser: PSSH extracted from ContentProtection | scheme={scheme[:40]} | drm_hint={drm_hint}")
             
             # PlayReady specific: check for <pro> element
             _MSPR_NS = "urn:microsoft:playready"
@@ -425,7 +424,6 @@ class DashParser:
                 kid = cp.get(attr)
                 if kid:
                     info.set_kid(kid)
-                    logger.info(f"DashParser: KID extracted | kid={kid[:32]}... from attr={attr}")
                     info.default_kid = info.kid
                     break
 

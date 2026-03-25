@@ -22,7 +22,13 @@ jobs:
         outputs:
             tag_name: ${{ steps.info.outputs.tag_name }}
             is_release: ${{ steps.info.outputs.is_release }}
+            changelog: ${{ steps.changelog.outputs.changelog }}
         steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
             - name: Check commit message for version
               id: info
               env:
@@ -39,6 +45,77 @@ jobs:
                       echo "is_release=false" >> $GITHUB_OUTPUT
                       echo "No version found. Building beta."
                   fi
+
+            - name: Generate changelog
+              id: changelog
+              run: |
+                  # Find the previous tag to compare from
+                  PREV_TAG=$(git tag --sort=-version:refname | head -1 || true)
+                  if [ -n "$PREV_TAG" ]; then
+                      COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s")
+                  else
+                      COMMITS=$(git log --pretty=format:"%s")
+                  fi
+
+                  # Capitalize: first letter upper, rest lower
+                  capitalize() { echo "$1" | sed 's/./\u&/' | tr '[:upper:]' '[:lower:]' | sed 's/^./\u&/'; }
+
+                  # Declare associative array for section content
+                  declare -A SECTION_CONTENT
+
+                  # Parse each commit
+                  while IFS= read -r line; do
+                      # Skip empty lines and RELEASE commits
+                      [ -z "$line" ] && continue
+                      echo "$line" | grep -qiE '^\[RELEASE\]' && continue
+
+                      # Extract tag: anything inside first [...]
+                      TAG=$(echo "$line" | grep -oE '^\[([A-Za-z0-9_/]+)\]' | tr -d '[]' | tr '[:lower:]' '[:upper:]' || true)
+                      [ -z "$TAG" ] && continue
+
+                      # Extract message: everything after [TAG]
+                      MSG=$(echo "$line" | sed 's/^\[[^]]*\][[:space:]]*//')
+                      # Remove PR numbers like (#123)
+                      MSG=$(echo "$MSG" | sed 's/[[:space:]]*([[:space:]]*#[0-9]*[[:space:]]*)//g')
+                      [ -z "$MSG" ] && continue
+
+                      # Capitalize tag: first letter upper, rest lower
+                      DISPLAY=$(capitalize "$TAG")
+
+                      # Append to section (newline-separated)
+                      if [ -z "${SECTION_CONTENT[$DISPLAY]+x}" ]; then
+                          SECTION_CONTENT["$DISPLAY"]="- $MSG"
+                      else
+                          # Deduplicate: only add if not already present
+                          if ! echo "${SECTION_CONTENT[$DISPLAY]}" | grep -qF "- $MSG"; then
+                              SECTION_CONTENT["$DISPLAY"]+=$'\n'"- $MSG"
+                          fi
+                      fi
+                  done <<< "$COMMITS"
+
+                  # Build the changelog string
+                  CHANGELOG=""
+                  for SECTION in "${!SECTION_CONTENT[@]}"; do
+                      if [ -n "${SECTION_CONTENT[$SECTION]}" ]; then
+                          CHANGELOG+="## $SECTION"$'\n'
+                          CHANGELOG+="${SECTION_CONTENT[$SECTION]}"$'\n'
+                          CHANGELOG+=$'\n'
+                      fi
+                  done
+
+                  # Add full changelog link if this is a release
+                  CURRENT_TAG="${{ steps.info.outputs.tag_name }}"
+                  REPO="${{ github.repository }}"
+                  if [ -n "$PREV_TAG" ] && [ "$CURRENT_TAG" != "beta" ]; then
+                      CHANGELOG+="**Full Changelog**: https://github.com/${REPO}/compare/${PREV_TAG}...${CURRENT_TAG}"
+                  fi
+
+                  # Write to GITHUB_OUTPUT (multiline safe)
+                  {
+                      echo "changelog<<CHANGELOG_EOF"
+                      echo "$CHANGELOG"
+                      echo "CHANGELOG_EOF"
+                  } >> $GITHUB_OUTPUT
 
     publish-pypi:
         needs: prepare
@@ -201,4 +278,5 @@ jobs:
                   allowUpdates: true
                   replacesArtifacts: true
                   artifacts: "dist-artifacts/*"
+                  body: ${{ needs.prepare.outputs.changelog }}
                   token: ${{ secrets.GITHUB_TOKEN }}
