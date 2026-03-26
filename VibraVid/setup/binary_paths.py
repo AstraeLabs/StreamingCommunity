@@ -5,10 +5,9 @@ import platform
 import logging
 from typing import Optional
 
-import httpx
 from rich.console import Console
 
-from VibraVid.utils.http_client import get_headers
+from VibraVid.utils.http_client import get_headers, create_client
 
 
 console = Console()
@@ -67,7 +66,7 @@ class BinaryPaths:
         try:
             url = f"{self.github_repo}/binary_paths.json"
             logger.info("Loading binary paths JSON from %s", url)
-            response = httpx.get(url, timeout=10, headers=get_headers())
+            response = create_client(headers=get_headers()).get(url)
             response.raise_for_status()
             self.paths_cache = response.json()
             logger.info("Loaded binary paths JSON (%d entries)", len(self.paths_cache))
@@ -125,7 +124,7 @@ class BinaryPaths:
                 os.makedirs(os.path.dirname(local_path), exist_ok=True)
                 
                 try:
-                    response = httpx.get(url, timeout=60, headers=get_headers())
+                    response = create_client(headers=get_headers()).get(url)
                     response.raise_for_status()
                     
                     with open(local_path, 'wb') as f:

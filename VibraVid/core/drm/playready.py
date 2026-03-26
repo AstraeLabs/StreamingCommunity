@@ -1,7 +1,6 @@
 # 29.01.26
 
 import json
-import time
 import base64
 import logging
 
@@ -12,14 +11,12 @@ from pyplayready.remote.remotecdm import RemoteCdm
 from pyplayready.system.pssh import PSSH
 
 from VibraVid.setup import get_info_prd
-from VibraVid.utils import config_manager
-from VibraVid.utils.http_client import create_client_curl
+from VibraVid.utils.http_client import create_client
 from VibraVid.source.utils.decrypt import KeysManager
 
 
 console = Console()
 logger = logging.getLogger(__name__)
-DELAY = config_manager.config.get("DRM", "delay")
 
 
 def get_playready_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str = None, cdm_remote_api: list[str] = None, headers: dict = None, key: str = None, license_data: dict = None):
@@ -81,36 +78,20 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
 
     try:
         for item in pssh_list:
-            console.print("[dim]Sleeping for delay...")
-            time.sleep(DELAY)
-
             pssh = item["pssh"]
             kid_info = str(item.get("kid", "N/A")).replace("-", "").lower().strip()
             type_info = item.get("type", "unknown")
             console.print(f"[red]{type_info} [cyan](PSSH: [yellow]{pssh[:30]}...[cyan] KID: [red]{kid_info})")
 
             # Parse PSSH
-            try:
-                pssh_obj = PSSH(pssh)
-            except Exception as e:
-                logger.error(f"Invalid PlayReady PSSH/PRO header for {kid_info}: {e}")
-                console.print(f"[red]Invalid PlayReady PSSH/PRO header: {e}")
-                continue
-
+            pssh_obj = PSSH(pssh)
             if not pssh_obj.wrm_headers:
                 logger.error(f"No WRM headers found in PSSH for {kid_info}")
                 console.print("[red]No WRM headers found in PSSH")
                 continue
 
             # Create license challenge
-            try:
-                console.print("[dim]Creating license challenge ...")
-                challenge = cdm.get_license_challenge(session_id, pssh_obj.wrm_headers[0])
-            except Exception as e:
-                logger.error(f"Error creating license challenge for {kid_info}: {e}")
-                console.print(f"[red]Error creating license challenge for pssh {pssh[:30]}...: {e}")
-                continue
-
+            challenge = cdm.get_license_challenge(session_id, pssh_obj.wrm_headers[0])
             challenge_bytes = (challenge if isinstance(challenge, bytes) else challenge.encode("utf-8"))
 
             # Build request body and headers
@@ -131,10 +112,9 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
                 continue
 
             logger.info(f"License challenge for {kid_info}: {challenge_bytes}, type: {type(challenge_bytes)}")
-
             try:
                 console.print("[dim]Requesting license ...")
-                response = create_client_curl(headers=req_headers).post(license_url, data=body)
+                response = create_client(headers=req_headers).post(license_url, data=body)
             except Exception as e:
                 logger.error(f"License request error for {kid_info}: {e}")
                 console.print(f"[red]License request error for pssh {pssh[:30]}...: {e}")
@@ -158,17 +138,10 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
                 except Exception as e:
                     console.print(f"[red]Failed to parse license response: {e}\nRaw: {response.text[:200]}")
                     continue
-
-            try:
-                console.print("[dim]Parsing license ...")
-                cdm.parse_license(session_id, license_payload)
-            except Exception as e:
-                logger.error(f"Error parsing license for {pssh[:30]}: {e}")
-                console.print(f"[red]Error parsing license for pssh {pssh[:30]}...: {e}")
-                continue
-
+            
             # Extract CONTENT keys
             try:
+                cdm.parse_license(session_id, license_payload)
                 for key_obj in cdm.get_keys(session_id):
                     kid = key_obj.key_id.hex.replace("-", "").lower().strip()
                     key_val = key_obj.key.hex().replace("-", "").strip()
@@ -195,7 +168,4 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
         return None
 
     finally:
-        try:
-            cdm.close(session_id)
-        except Exception:
-            pass
+        cdm.close(session_id)

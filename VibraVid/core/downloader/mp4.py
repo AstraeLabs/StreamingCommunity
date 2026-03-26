@@ -309,6 +309,7 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
             download_tracker.complete_download(download_id, success=True, path=abs_path)
 
         execute_hooks('post_run')
+        time.sleep(config_manager.config.get_int("DOWNLOAD", "delay_after_download", default=0))
         return path, interrupt_handler.kill_download
     
     else:

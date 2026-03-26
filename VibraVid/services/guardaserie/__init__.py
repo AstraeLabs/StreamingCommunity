@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import TVShowManager
-from VibraVid.utils.http_client import create_client_curl, get_userAgent
+from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
@@ -37,7 +37,7 @@ def title_search(query: str) -> int:
     console.print(f"[cyan]Search url: [yellow]{search_url}")
 
     try:
-        response = create_client_curl(headers={'user-agent': get_userAgent()}).get(search_url)
+        response = create_client(headers={'user-agent': get_userAgent()}).get(search_url)
         response.raise_for_status()
     except Exception as e:
         console.print(f"[red]Site: {site_constants.SITE_NAME}, request search error: {e}")

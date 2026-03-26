@@ -1,4 +1,5 @@
 # 25.03.26
+# ruff: noqa: E402
 
 from dataclasses import dataclass, field
 

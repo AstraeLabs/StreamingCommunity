@@ -2,7 +2,7 @@
 
 import logging
 
-from VibraVid.utils.http_client import create_client_curl
+from VibraVid.utils.http_client import create_client
 from VibraVid.services._base.object import SeasonManager, Episode, Season
 
 from .client import get_client
@@ -37,7 +37,7 @@ class GetSerieInfo:
                 'decorators': 'viewingHistory,badges,isFavorite,contentAction',
             }
             
-            response = create_client_curl(headers=self.client.headers, cookies=self.client.cookies).get(url, params=params)
+            response = create_client(headers=self.client.headers, cookies=self.client.cookies).get(url, params=params)
             response.raise_for_status()
             
             data = response.json()
@@ -113,7 +113,7 @@ class GetSerieInfo:
                     'decorators': 'viewingHistory,badges,isFavorite,contentAction',
                 }
                 
-                response = create_client_curl(headers=self.client.headers, cookies=self.client.cookies).get(coll_url, params=coll_params)
+                response = create_client(headers=self.client.headers, cookies=self.client.cookies).get(coll_url, params=coll_params)
                 response.raise_for_status()
                 
                 season_data = response.json()

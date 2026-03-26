@@ -8,11 +8,12 @@ from urllib.parse import urlparse, quote
 
 from bs4 import BeautifulSoup
 
-from VibraVid.utils.http_client import create_client_curl, get_userAgent, get_headers
+from VibraVid.utils.http_client import create_client, get_userAgent, get_headers
 from VibraVid.services._base.object import SeasonManager, Episode, Season
 
 
 logger = logging.getLogger(__name__)
+MIN_DURATION = 10
 
 
 class GetSerieInfo:
@@ -30,7 +31,7 @@ class GetSerieInfo:
         """
         self.headers = get_headers()
         self.url = url
-        self.client = create_client_curl()
+        self.client = create_client()
         self.seasons_manager = SeasonManager()
         self.serie_id = None
         self.public_id = None
@@ -218,7 +219,7 @@ class GetSerieInfo:
             episodes = []
             for entry in data.get('entries', []):
                 duration = int(entry.get('mediasetprogram$duration', 0) / 60) if entry.get('mediasetprogram$duration') else 0
-                if duration < 10:
+                if duration < MIN_DURATION:
                     continue
 
                 ep_num = entry.get('tvSeasonEpisodeNumber') or entry.get('mediasetprogram$episodeNumber')
@@ -262,7 +263,7 @@ class GetSerieInfo:
         rsc_headers = {
             'rsc': '1',
             'next-router-state-tree': router_state_tree,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': get_userAgent()
         }
 
         for attempt in range(3):
@@ -293,7 +294,7 @@ class GetSerieInfo:
                     
                     if ep:
                         duration = int(ep.get('duration', 0) / 60) if ep.get('duration') else 0
-                        if duration < 10:
+                        if duration < MIN_DURATION:
                             continue
 
                         episode = Episode(
@@ -336,7 +337,7 @@ class GetSerieInfo:
                 data = response.json()
                 for entry in data.get('entries', []):
                     duration = int(entry.get('mediasetprogram$duration', 0) / 60) if entry.get('mediasetprogram$duration') else 0
-                    if duration < 10:
+                    if duration < MIN_DURATION:
                         continue
                     
                     ep_num = entry.get('tvSeasonEpisodeNumber') or entry.get('mediasetprogram$episodeNumber', 0)

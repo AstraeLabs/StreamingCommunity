@@ -12,8 +12,8 @@ from VibraVid.utils.config import config_manager
 console = Console()
 logger = logging.getLogger(__name__)
 db_config = config_manager.config.get_dict("DRM", "vault")
-VAULT_URL = db_config.get("supa").get("url", "")
-TOKEN = db_config.get("supa").get("token", "")
+VAULT_URL = db_config.get("supa", {}).get("url", "")
+TOKEN = db_config.get("supa", {}).get("token", "")
 
 
 class ExternalSupaDBVault:

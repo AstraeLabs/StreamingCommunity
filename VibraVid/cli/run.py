@@ -19,12 +19,7 @@ from VibraVid.upload.version import __version__, __title__
 
 console = Console()
 msg = Prompt()
-COLOR_MAP = {
-    "anime": "red",
-    "film_serie": "yellow", 
-    "serie": "blue",
-    "film": "green"
-}
+COLOR_MAP = {"anime": "#E63946", "film_serie": "#FFD60A", "serie": "#3891C9", "film": "#06A77D"}
 CATEGORY_MAP = {1: "anime", 2: "Film_serie", 3: "serie", 4: "film"}
 CLOSE_CONSOLE = config_manager.config.get_bool('DEFAULT', 'close_console')
 
@@ -68,6 +63,7 @@ def setup_argument_parser(search_functions):
     parser.add_argument('--auto-first', action='store_true', help='Auto-download first result (use with --site and --search)')
     parser.add_argument('--season', type=str, default=None, help='Season selection (for series, e.g., "1" or "1-3" or "*")')
     parser.add_argument('--episode', type=str, default=None, help='Episode selection (for series, e.g., "1" or "1-5" or "*")')
+    parser.add_argument('--year', type=str, default=None, help='Year range filter (e.g., "1990-2015" or "2020")')
 
     parser.add_argument('-sv', '--video', type=str, help='Select video tracks.')
     parser.add_argument('-sa', '--audio', type=str, help='Select audio tracks.')
@@ -269,11 +265,10 @@ def main():
             return
 
         # Handle provider subcommands (pywidevine / pyplayready)
-        provider = getattr(args, 'provider', None)
-        if provider:
+        if args.provider in ('pywidevine', 'pyplayready'):
             action = getattr(args, 'action', None)
 
-            if provider == 'pywidevine':
+            if args.provider == 'pywidevine':
                 from VibraVid.cli.command.create_device import (create_widevine_device, export_wvd_device, test_device as wv_test, migrate_device)
 
                 if action == 'create-device':
@@ -285,7 +280,7 @@ def main():
                 if action == 'migrate':
                     return migrate_device(args.input, getattr(args, 'output', None))
 
-            if provider == 'pyplayready':
+            if args.provider == 'pyplayready':
                 from VibraVid.cli.command.create_device import (create_playready_device, export_prd_device, test_playready_device)
                 
                 if action == 'create-device':
@@ -328,12 +323,14 @@ def main():
 
         # Build selections dictionary from season and episode arguments
         selections = None
-        if args.season is not None or args.episode is not None:
+        if args.season is not None or args.episode is not None or args.year is not None:
             selections = {}
             if args.season is not None:
                 selections['season'] = args.season
             if args.episode is not None:
                 selections['episode'] = args.episode
+            if args.year is not None:
+                selections['year'] = args.year
 
         if getattr(args, 'global_search', False):
             call_global_search(args.search)

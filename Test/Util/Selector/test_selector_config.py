@@ -1,4 +1,5 @@
 # 25.03.26
+# ruff: noqa: E402
 
 import sys
 from pathlib import Path
@@ -27,7 +28,7 @@ def test_case(name, streams, video_filter, audio_filter, subtitle_filter, expect
     selector = StreamSelector(video_filter, audio_filter, subtitle_filter)
     sv, sa, ss = selector.apply(streams)
     
-    print(f"\nResult N3u8dl select arguments:")
+    print("\nResult N3u8dl select arguments:")
     print(f"  Video:    {sv!r}")
     print(f"  Audio:    {sa!r}")
     print(f"  Subtitle: {ss!r}")

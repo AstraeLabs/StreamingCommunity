@@ -81,13 +81,16 @@ class GetSerieInfo:
             
             # Add seasons to SeasonManager (sorted by season number)
             for season_num in sorted(seasons_dict.keys()):
-                s_data = seasons_dict[season_num]
-                self.seasons_manager.add(Season(
-                    id=s_data.get('id'),
-                    number=s_data.get('number'),
-                    name=s_data.get('name'),
-                    slug=s_data.get('slug')
-                ))
+                if season_num is not None:
+                    s_data = seasons_dict[season_num]
+                    self.seasons_manager.add(Season(
+                        id=s_data.get('id'),
+                        number=s_data.get('number'),
+                        name=s_data.get('name'),
+                        slug=s_data.get('slug')
+                    ))
+                else:
+                    logger.error(f"Episode with missing season number: {episode.get('id')}")
                 
             logger.info(f"Found {len(seasons_dict)} seasons")
 

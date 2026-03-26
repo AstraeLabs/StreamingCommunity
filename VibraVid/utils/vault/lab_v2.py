@@ -8,7 +8,7 @@ from rich.console import Console
 from urllib.parse import urlparse
 
 from VibraVid.utils.config import config_manager
-from VibraVid.utils.http_client import create_client_curl, get_headers
+from VibraVid.utils.http_client import create_client, get_headers
 
 
 console = Console()
@@ -41,7 +41,7 @@ def _api_call(method: str, params: dict) -> dict:
     payload = {"method": method, "params": params, "token": TOKEN}
     try:
         logger.info(f"Calling Lab API ({method}): {params}")
-        r = create_client_curl(headers=get_headers()).post(VAULT_URL, json=payload)
+        r = create_client(headers=get_headers()).post(VAULT_URL, json=payload)
         r.raise_for_status()
         data = r.json()
 

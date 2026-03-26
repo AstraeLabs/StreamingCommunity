@@ -17,6 +17,60 @@ available_colors = ['red', 'magenta', 'yellow', 'cyan', 'green', 'blue', 'white'
 column_to_hide = ['Slug', 'Sub_ita', 'First_air_date', 'Seasons_count', 'Url', 'Image', 'Path_id', 'Score']
 
 
+def _apply_year_filter(media_search_manager: EntriesManager, year_filter: str) -> int:
+    """
+    Filter media items by year range.
+    
+    Parameters:
+        media_search_manager: EntriesManager containing the media items
+        year_filter: Year filter string (e.g., "2010-2015" or "2020")
+    
+    Returns:
+        int: Number of items after filtering
+    """
+    if not year_filter or not media_search_manager.media_list:
+        return len(media_search_manager.media_list or [])
+    
+    try:
+        year_parts = year_filter.split('-')
+        if len(year_parts) == 1:
+            # Single year
+            min_year = max_year = int(year_parts[0].strip())
+
+        elif len(year_parts) == 2:
+            # Range (e.g., "2010-2015")
+            min_year = int(year_parts[0].strip())
+            max_year = int(year_parts[1].strip())
+        else:
+            logger.warning(f"Invalid year filter format: {year_filter}. Expected 'YYYY' or 'YYYY-YYYY'")
+            return len(media_search_manager.media_list or [])
+        
+        # Filter media items
+        filtered_items = []
+        skipped_count = 0
+        
+        for media in media_search_manager.media_list:
+            try:
+                media_year = int(str(media.year).split('-')[0].strip())
+                if min_year <= media_year <= max_year:
+                    filtered_items.append(media)
+                else:
+                    skipped_count += 1
+            except (ValueError, TypeError, AttributeError):
+                skipped_count += 1
+        
+        # Update the media list
+        media_search_manager.media_list = filtered_items
+        logger.info(f"Year filter applied: {year_filter}. Kept {len(filtered_items)} items, skipped {skipped_count}")
+        console.print(f"[cyan]Year filter applied ({year_filter}): [green]{len(filtered_items)}[/] items (skipped {skipped_count})")
+        return len(filtered_items)
+    
+    except Exception as e:
+        logger.error(f"Error applying year filter: {e}")
+        console.print(f"[yellow]Warning: Could not apply year filter: {e}")
+        return len(media_search_manager.media_list or [])
+
+
 def get_select_title(table_show_manager, media_search_manager): 
     """
     Display a selection of titles and prompt the user to choose one.
@@ -212,6 +266,12 @@ def base_search(title_search_func: Callable[[str], int], process_result_func: Ca
     # Sort results by fuzzy score
     logger.info(f"Sorting {len_database} results by fuzzy score for query: '{actual_search_query}'")
     media_search_manager.sort_by_fuzzy_score(actual_search_query)
+    
+    # Apply year filter if provided
+    if selections and 'year' in selections:
+        year_filter = selections.get('year')
+        logger.info(f"Applying year filter: {year_filter}")
+        len_database = _apply_year_filter(media_search_manager, year_filter)
     
     # Handle empty input
     if not actual_search_query:

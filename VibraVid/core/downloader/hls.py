@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 import logging
 from typing import Dict, List, Optional
 
@@ -49,16 +50,16 @@ class HLS_Downloader(BaseDownloader):
     ):
         """
         Parameters:
-        m3u8_url: M3U8 manifest URL to download.
-        headers: HTTP headers for requests (auth, user-agent, etc).
-        license_url: DRM license server URL for Widevine/PlayReady.
-        license_headers: HTTP headers for DRM license requests.
-        license_certificate: Widevine certificate (base64) for license challenge.
-        output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
-        drm_preference: DRM system preference: "widevine", "playready", or "auto".
-        decrypt_preference: Decryption tool: "bento4", "shaka".
-        key: Manual decryption key (hex format) if known.
-        cookies: HTTP cookies for authenticated requests.
+            - m3u8_url: M3U8 manifest URL to download.
+            - headers: HTTP headers for requests (auth, user-agent, etc).
+            - license_url: DRM license server URL for Widevine/PlayReady.
+            - license_headers: HTTP headers for DRM license requests.
+            - license_certificate: Widevine certificate (base64) for license challenge.
+            - output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
+            - drm_preference: DRM system preference: "widevine", "playready", or "auto".
+            - decrypt_preference: Decryption tool: "bento4", "shaka".
+            - key: Manual decryption key (hex format) if known.
+            - cookies: HTTP cookies for authenticated requests.
         """
         self.m3u8_url = str(m3u8_url).strip()
         self.headers = headers or get_headers()
@@ -288,4 +289,5 @@ class HLS_Downloader(BaseDownloader):
             return None, True
 
         self._finalize(final_file=final_file)
+        time.sleep(config_manager.config.get_int("DOWNLOAD", "delay_after_download", default=0))
         return self.output_path, False

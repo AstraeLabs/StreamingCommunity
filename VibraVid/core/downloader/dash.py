@@ -1,9 +1,8 @@
 # 05.01.26
 
-from __future__ import annotations
-
 import os
 import shutil
+import time
 import logging
 from typing import Dict, List, Optional
 
@@ -537,4 +536,5 @@ class DASH_Downloader(BaseDownloader):
             return None, True
 
         self._finalize(final_file=final_file)
+        time.sleep(config_manager.config.get_int("DOWNLOAD", "delay_after_download", default=0))
         return self.output_path, False

@@ -5,7 +5,7 @@ import urllib.parse
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils.http_client import create_client_curl, get_userAgent
+from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.utils import TVShowManager
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
@@ -25,7 +25,7 @@ def get_token(user_agent: str) -> dict:
     """
     Retrieve session cookies from the site.
     """
-    response = create_client_curl(headers={'user-agent': user_agent}).get(site_constants.FULL_URL)
+    response = create_client(headers={'user-agent': user_agent}).get(site_constants.FULL_URL)
     response.raise_for_status()
     all_cookies = {name: value for name, value in response.cookies.items()}
 
@@ -66,7 +66,7 @@ def title_search(query: str) -> int:
 
     # First call: /livesearch
     try:
-        response1 = create_client_curl(headers=headers).post(f'{site_constants.FULL_URL}/livesearch', cookies=cookies, data={'title': query})
+        response1 = create_client(headers=headers).post(f'{site_constants.FULL_URL}/livesearch', cookies=cookies, data={'title': query})
         response1.raise_for_status()
         process_results(response1.json().get('records', []), seen_titles, entries_manager)
 
@@ -87,7 +87,7 @@ def title_search(query: str) -> int:
             'dubbed': False,
             'season': False,
         }
-        response2 = create_client_curl(headers=headers).post(f'{site_constants.FULL_URL}/archivio/get-animes', cookies=cookies, json=json_data)
+        response2 = create_client(headers=headers).post(f'{site_constants.FULL_URL}/archivio/get-animes', cookies=cookies, json=json_data)
         response2.raise_for_status()
         process_results(response2.json().get('records', []), seen_titles, entries_manager)
 

@@ -15,6 +15,7 @@
         "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
     },
     "DOWNLOAD": {
+        "delay_after_download": 2,
         "skip_download": false,
         "thread_count": 8,
         "retry_count": 25,
@@ -52,7 +53,6 @@
         "post_download": []
     },
     "DRM": {
-        "delay": 2,
         "create_local_db": false,
         "vault": {
             "supa": {

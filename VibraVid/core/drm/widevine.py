@@ -1,6 +1,5 @@
 # 29.01.26
 
-import time
 import base64
 import logging
 
@@ -12,14 +11,12 @@ from pywidevine.remotecdm import RemoteCdm
 from pywidevine.pssh import PSSH
 
 from VibraVid.setup import get_info_wvd
-from VibraVid.utils import config_manager
-from VibraVid.utils.http_client import create_client_curl
+from VibraVid.utils.http_client import create_client
 from VibraVid.source.utils.decrypt import KeysManager
 
 
 console = Console()
 logger = logging.getLogger(__name__)
-DELAY = config_manager.config.get("DRM", "delay")
 
 
 def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str = None, cdm_remote_api: list[str] = None, headers: dict = None, key: str = None, license_certificate: str = None):
@@ -110,22 +107,13 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
 
     try:
         for i, item in enumerate(pssh_list):
-            console.print("[dim]Sleeping for delay...")
-            time.sleep(DELAY)
-
             pssh = item["pssh"]
             kid_info = str(item.get("kid", "N/A")).replace("-", "").lower().strip()
             type_info = item.get("type", "unknown")
             console.print(f"[red]{type_info} [cyan](PSSH: [yellow]{pssh[:30]}...[cyan] KID: [red]{kid_info})")
 
             # Create license challenge
-            try:
-                console.print("[dim]Creating license challenge...")
-                challenge = cdm.get_license_challenge(session_id, PSSH(pssh))
-            except Exception as e:
-                logger.error(f"Error creating challenge for {kid_info}: {e}")
-                console.print(f"[red]Error creating challenge for PSSH {pssh[:30]}...: {e}")
-                continue
+            challenge = cdm.get_license_challenge(session_id, PSSH(pssh))
 
             # Prepare headers (use original headers from fetch)
             req_headers = headers.copy() if headers else {}
@@ -140,7 +128,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
             # Make license request
             try:
                 console.print("[dim]Requesting license ...")
-                response = create_client_curl(headers=req_headers).post(license_url, data=challenge)
+                response = create_client(headers=req_headers).post(license_url, data=challenge)
             except Exception as e:
                 logger.error(f"License request error for {kid_info}: {e}")
                 console.print(f"[red]License request error for PSSH {pssh[:30]}...: {e}")
@@ -176,17 +164,9 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
                 console.print(f"[red]License data is empty for PSSH {pssh[:30]}...]")
                 continue
 
-            # Parse license
-            try:
-                console.print("[dim]Parsing license with CDM...")
-                cdm.parse_license(session_id, license_bytes)
-            except Exception as e:
-                logger.error(f"Error parsing license for PSSH {pssh[:30]}...: {e}")
-                console.print(f"[red]Error parsing license for PSSH {pssh[:30]}...: {e}")
-                continue
-
             # Extract CONTENT keys
             try:
+                cdm.parse_license(session_id, license_bytes)
                 for key_obj in cdm.get_keys(session_id):
                     if key_obj.type != "CONTENT":
                         continue
@@ -197,7 +177,6 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
                     if formatted_key not in all_content_keys:
                         all_content_keys.append(formatted_key)
                         extracted_kids.add(kid)
-
             except Exception as e:
                 console.print(f"[red]Error extracting keys for PSSH {pssh[:30]}...: {e}")
                 continue
@@ -216,7 +195,4 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
         return None
 
     finally:
-        try:
-            cdm.close(session_id)
-        except Exception:
-            pass
+        cdm.close(session_id)

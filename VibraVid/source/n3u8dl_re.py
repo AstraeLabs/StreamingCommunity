@@ -486,7 +486,7 @@ class MediaDownloader:
         result: Dict[str, Any] = {}
 
         if line_s.startswith("Vid"):
-            if not (_VID_RES_RE.search(line_s) or re.search(r"Vid\s+[\d.]+\s*[KMGT]?bps", line_s)):
+            if not (_VID_RES_RE.search(line_s) or re.search(r"Vid\s+[\d.]+\s*[KMGT]?bps", line_s) or "Vid main" in line_s or "Vid " in line_s):
                 return None
             result["_task_key"]  = self._video_task_key
             result["label"]      = f"[bold cyan]Vid[/bold cyan] {self._video_label}"
@@ -574,7 +574,14 @@ class MediaDownloader:
             result["speed"] = m.group(1)
 
         has_data = any(k in result for k in ("pct", "segments", "size", "speed", "final_size"))
-        return result if has_data else None
+        
+        # If it's a progress line (Vid/Aud/Sub) but no numeric data was found,
+        if has_data or any(k in result for k in ("_task_key", "track")):
+            if not has_data:
+                result["pct"] = 0.0
+            return result
+        
+        return None
 
     def _apply_selection(self) -> None:
         f = self.custom_filters or {}

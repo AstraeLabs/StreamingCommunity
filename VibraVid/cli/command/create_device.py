@@ -1,7 +1,6 @@
 # 29.07.25
 
 import sys
-import httpx
 from pathlib import Path
 from zlib import crc32
 
@@ -17,6 +16,8 @@ from pywidevine.device import Device as WV_Device, DeviceTypes as WV_DeviceTypes
 from pywidevine.cdm import Cdm as WV_Cdm
 from pywidevine.pssh import PSSH as WV_PSSH
 from unidecode import unidecode
+
+from VibraVid.utils.http_client import create_client
 
 
 console = Console()
@@ -196,11 +197,21 @@ def export_wvd_device(wvd_path: str, output_dir: str = "."):
         private_key_out = out / "private_key_exported.pem"
         client_id_out = out / "client_id_exported.bin"
 
+        if hasattr(device.private_key, 'export_key'):
+            private_key_bytes = device.private_key.export_key(format='PEM')
+        else:
+            private_key_bytes = device.private_key if isinstance(device.private_key, bytes) else b""
+
         with open(private_key_out, "wb") as f:
-            f.write(getattr(device, 'private_key', b""))
+            f.write(private_key_bytes)
+
+        if hasattr(device.client_id, 'SerializeToString'):
+            client_id_bytes = device.client_id.SerializeToString()
+        else:
+            client_id_bytes = device.client_id if isinstance(device.client_id, bytes) else b""
 
         with open(client_id_out, "wb") as f:
-            f.write(getattr(device, 'client_id', b""))
+            f.write(client_id_bytes)
 
         console.print(f"[green]Exported files to: {out}")
         return 0
@@ -238,7 +249,7 @@ def test_device(wvd_path: str, privacy_mode: bool = False):
     pssh = WV_PSSH(pssh_b64)
     challenge = cdm.get_license_challenge(session_id, pssh, privacy_mode=privacy_mode)
 
-    response = httpx.post(license_url, data=challenge)
+    response = create_client().post(license_url, data=challenge)
     response.raise_for_status()
 
     cdm.parse_license(session_id, response.content)
@@ -274,7 +285,7 @@ def test_playready_device(args):
     challenge = cdm.get_license_challenge(session_id, pssh.wrm_headers[0])
 
     headers = {"Content-Type": "text/xml; charset=utf-8"}
-    resp = httpx.post(license_url, data=challenge, headers=headers)
+    resp = create_client(headers=headers).post(license_url, data=challenge)
     resp.raise_for_status()
 
     cdm.parse_license(session_id, resp.text)

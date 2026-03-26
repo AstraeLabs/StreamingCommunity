@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from bs4 import BeautifulSoup
 from rich.console import Console
 
-from VibraVid.utils.http_client import create_client, get_userAgent, create_client_curl
+from VibraVid.utils.http_client import create_client, get_userAgent
 
 
 console = Console()
@@ -190,7 +190,7 @@ class VideoSourceAnime(VideoSource):
             str: Parsed script content
         """
         try:
-            response = create_client_curl(headers=self.headers).get(f"{self.url}/embed-url/{episode_id}")
+            response = create_client(headers=self.headers).get(f"{self.url}/embed-url/{episode_id}")
             response.raise_for_status()
 
             # Extract and clean embed URL

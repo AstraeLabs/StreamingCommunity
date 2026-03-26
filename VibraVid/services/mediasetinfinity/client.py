@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from rich.console import Console
 
 from VibraVid.utils import config_manager
-from VibraVid.utils.http_client import create_client, create_client_curl, get_headers, get_userAgent
+from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 
 
 console = Console()
@@ -89,7 +89,7 @@ class MediasetAPI:
         return response.json()['response']['beToken']
 
     def fetch_html(self):
-        response = create_client_curl(headers=self.headers).get("https://mediasetinfinity.mediaset.it/")
+        response = create_client(headers=self.headers).get("https://mediasetinfinity.mediaset.it/")
         response.raise_for_status()
         return response.text
 

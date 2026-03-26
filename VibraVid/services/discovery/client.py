@@ -4,7 +4,7 @@ import uuid
 from typing import Dict, Optional
 
 from VibraVid.utils import config_manager
-from VibraVid.utils.http_client import create_client_curl
+from VibraVid.utils.http_client import create_client, get_userAgent
 
 
 _discovery_client = None
@@ -51,7 +51,7 @@ class DiscoveryPlus:
     def _anonymous_authenticate(self):
         """Authenticate anonymously and get bearer token"""
         headers = {
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'user-agent': get_userAgent(),
             'x-device-info': f'dsc/4.4.1 (desktop/desktop; Windows/NT 10.0; {self.device_id})',
             'x-disco-client': 'WEB:UNKNOWN:dsc:4.4.1'
         }
@@ -62,10 +62,7 @@ class DiscoveryPlus:
         }
         
         try:
-            response = create_client_curl(headers=headers).get(
-                'https://eu1-prod-direct.discoveryplus.com/token', 
-                params=params
-            )
+            response = create_client(headers=headers).get('https://eu1-prod-direct.discoveryplus.com/token', params=params)
             response.raise_for_status()
             self.bearer_token = response.json()['data']['attributes']['token']
             
@@ -83,7 +80,7 @@ class DiscoveryPlus:
             url = f"{self.base_url}/token"
             params = {'realm': 'bolt', 'deviceId': self.device_id}
             
-            response = create_client_curl(headers=self.headers, cookies=self.cookies).get(url, params=params)
+            response = create_client(headers=self.headers, cookies=self.cookies).get(url, params=params)
             response.raise_for_status()
             
             data = response.json()
@@ -91,7 +88,7 @@ class DiscoveryPlus:
             
             # Get routing config
             url = f"{self.base_url}/session-context/headwaiter/v1/bootstrap"
-            response = create_client_curl(headers=self.headers, cookies=self.cookies).post(url)
+            response = create_client(headers=self.headers, cookies=self.cookies).post(url)
             response.raise_for_status()
             
             config = response.json()
@@ -126,7 +123,7 @@ class DiscoveryPlus:
         cookies = {'st': self.bearer_token} if self.bearer_token else {}
         
         headers = {
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'user-agent': get_userAgent(),
             'x-disco-client': 'WEB:UNKNOWN:dsc:4.4.1',
         }
         
@@ -165,7 +162,7 @@ class DiscoveryPlus:
             },
         }
         
-        response = create_client_curl().post(
+        response = create_client().post(
             'https://eu1-prod-direct.discoveryplus.com/playback/v3/videoPlaybackInfo',
             cookies=cookies,
             headers=headers,
@@ -262,7 +259,7 @@ class DiscoveryPlus:
             'userPreferences': {},
         }
         
-        response = create_client_curl(headers=headers, cookies=self.cookies).post(url, json=payload)
+        response = create_client(headers=headers, cookies=self.cookies).post(url, json=payload)
         response.raise_for_status()
         data = response.json()
         
@@ -292,14 +289,9 @@ class DiscoveryPlus:
             license_token: Optional DRM token for anonymous mode
         """
         if self.is_anonymous and license_token:
-            return {
-                'preauthorization': license_token,
-                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            }
+            return {'preauthorization': license_token, 'user-agent': get_userAgent()}
         else:
-            return {
-                'user-agent': self.headers['user-agent'],
-            }
+            return {'user-agent': self.headers['user-agent']}
 
 
 def get_client():

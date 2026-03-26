@@ -7,13 +7,13 @@ from io import BytesIO
 from zipfile import ZipFile
 from datetime import datetime
 
-import httpx
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.prompt import Prompt
 
 from VibraVid.upload.version import __author__, __title__
+from VibraVid.utils.http_client import create_client
 
 
 console = Console()
@@ -232,7 +232,7 @@ def download_and_extract_latest_commit():
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': f'{__title__}-updater'
         }
-        response = httpx.get(api_url, headers=headers,follow_redirects=True)
+        response = create_client(headers=headers).get(api_url)
 
         if response.status_code == 200:
             commit_info = response.json()[0]
@@ -242,7 +242,7 @@ def download_and_extract_latest_commit():
             zipball_url = f'https://github.com/{__author__}/{__title__}/archive/{commit_sha}.zip'
             console.log("[green]Downloading latest commit zip file...")
 
-            response = httpx.get(zipball_url, follow_redirects=True)
+            response = create_client().get(zipball_url)
             temp_path = os.path.join(os.path.dirname(os.getcwd()), 'temp_extracted')
 
             with ZipFile(BytesIO(response.content)) as zip_ref:
@@ -264,9 +264,6 @@ def download_and_extract_latest_commit():
             console.log("[cyan]Latest commit downloaded and extracted successfully.")
         else:
             console.log(f"[red]Failed to fetch commit information. Status code: {response.status_code}")
-
-    except httpx.RequestError as e:
-        console.print(f"[red]Request failed: {e}")
     except Exception as e:
         console.print(f"[red]An unexpected error occurred: {e}")
 

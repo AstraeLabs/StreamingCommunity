@@ -8,7 +8,7 @@ import logging
 from typing import Any, List, Dict
 
 
-import httpx
+from curl_cffi import requests
 from rich.console import Console
 
 
@@ -341,7 +341,7 @@ class ConfigManager:
     def _download_file(self, url: str, file_path: str, file_name: str) -> None:
         """Download a file from a URL."""
         try:
-            response = httpx.get(url, timeout=8.0, headers={'User-Agent': "Mozilla/5.0"})
+            response = requests.get(url, headers={'User-Agent': "Mozilla/5.0"})
             
             if response.status_code == 200:
                 with open(file_path, 'wb') as f:
@@ -369,7 +369,7 @@ class ConfigManager:
         headers = {"User-Agent": "Mozilla/5.0"}
         try:
             logger.info(f"Fetching site data from GitHub: {DOMAINS_DOWNLOAD_URL}")
-            response = httpx.get(DOMAINS_DOWNLOAD_URL, timeout=8.0, headers=headers)
+            response = requests.get(DOMAINS_DOWNLOAD_URL, headers=headers)
 
             if response.status_code == 200:
                 self._domains_data.clear()

@@ -5,7 +5,7 @@ import logging
 
 from bs4 import BeautifulSoup
 
-from VibraVid.utils.http_client import create_client_curl, get_headers
+from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.utils.js_beautifier import extract_setup, unpack
 
 
@@ -34,7 +34,7 @@ class VideoSource:
             - str: The response content if successful, None otherwise.
         """
         try:
-            response = create_client_curl(headers=self.headers).get(url)
+            response = create_client(headers=self.headers).get(url)
             if response.status_code >= 400:
                 logger.error(f"Request failed with status code: {response.status_code}, to url: {url}")
                 return None

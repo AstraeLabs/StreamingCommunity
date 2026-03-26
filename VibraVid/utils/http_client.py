@@ -4,11 +4,13 @@ from __future__ import annotations
 import os
 import json
 import logging
+import asyncio
+from contextlib import asynccontextmanager
+from typing import Dict, Optional, Union
 
-import httpx
 import ua_generator
 from curl_cffi import requests
-from typing import Dict, Optional, Union
+from curl_cffi.requests.impersonate import REAL_TARGET_MAP
 
 from VibraVid.utils import config_manager
 
@@ -53,76 +55,37 @@ def _default_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     return headers
 
 
+def get_available_browsers() -> Dict[str, str]:
+    """Get the latest available browser impersonate versions."""
+    browsers = dict(REAL_TARGET_MAP)
+    return browsers
+
+
+def get_browser_impersonate(browser: str = "chrome") -> str:
+    """Get the latest available browser impersonate version from curl_cffi."""
+    browser_versions = get_available_browsers()
+    return browser_versions.get(browser.lower())
+
+
 def create_client(*, 
     headers: Optional[Dict[str, str]] = None, cookies: Optional[Dict[str, str]] = None, timeout: Optional[Union[int, float]] = None,
-    proxies: Optional[Dict[str, str]] = None, http2: bool = False, follow_redirects: bool = True,
-) -> httpx.Client:
-    """Factory for a configured httpx.Client."""
-    proxy_value = proxies if proxies is not None else _get_proxies()
-    client_kwargs = dict(
-        headers=_default_headers(headers),
-        cookies=cookies,
-        timeout=timeout if timeout is not None else _get_timeout(),
-        follow_redirects=follow_redirects,
-        http2=http2,
-    )
-
-    if proxy_value:
-        # Try new-style 'proxies' kwarg first
-        try:
-            return httpx.Client(**client_kwargs, proxies=proxy_value)
-        except TypeError:
-            # Older httpx may require a single proxy URL via 'proxy'
-            single_proxy = None
-            if isinstance(proxy_value, dict):
-                single_proxy = proxy_value.get("https") or proxy_value.get("http")
-            elif isinstance(proxy_value, str):
-                single_proxy = proxy_value
-
-            # If we have a single proxy URL, try passing as 'proxy'
-            if single_proxy:
-                return httpx.Client(**client_kwargs, proxy=single_proxy)
-            raise
-    else:
-        return httpx.Client(**client_kwargs)
-
-
-def create_async_client(*, headers: Optional[Dict[str, str]] = None, cookies: Optional[Dict[str, str]] = None,
-    timeout: Optional[Union[int, float]] = None, verify: Optional[bool] = None, proxies: Optional[Dict[str, str]] = None,
-    http2: bool = False, follow_redirects: bool = True,
-) -> httpx.AsyncClient:
-    """Factory for a configured httpx.AsyncClient."""
-    proxy_value = proxies if proxies is not None else _get_proxies()
-    client_kwargs = dict(
-        headers=_default_headers(headers),
-        cookies=cookies,
-        timeout=timeout if timeout is not None else _get_timeout(),
-        follow_redirects=follow_redirects,
-        http2=http2,
-    )
-
-    if proxy_value:
-        try:
-            return httpx.AsyncClient(**client_kwargs, proxies=proxy_value)
-        except TypeError:
-            single_proxy = None
-            if isinstance(proxy_value, dict):
-                single_proxy = proxy_value.get("https") or proxy_value.get("http")
-            elif isinstance(proxy_value, str):
-                single_proxy = proxy_value
-
-            if single_proxy:
-                return httpx.AsyncClient(**client_kwargs, proxy=single_proxy)
-            raise
-    else:
-        return httpx.AsyncClient(**client_kwargs)
-
-
-def create_client_curl(*, headers: Optional[Dict[str, str]] = None, cookies: Optional[Dict[str, str]] = None,
-    timeout: Optional[Union[int, float]] = None, verify: Optional[bool] = None, proxies: Optional[Dict[str, str]] = None,
-    impersonate: str = "chrome136", allow_redirects: bool = True,
+    proxies: Optional[Dict[str, str]] = None, http2: bool = False, follow_redirects: bool = True, browser: str = "chrome",
 ):
-    """Factory for a configured curl_cffi session."""
+    """
+    Factory for a configured curl_cffi session.
+    
+    Args:
+        headers: Optional custom headers
+        cookies: Optional cookies to add
+        timeout: Request timeout in seconds
+        proxies: Optional proxy dict
+        http2: Whether to use HTTP/2
+        follow_redirects: Whether to follow redirects
+        browser: Browser to impersonate (auto-selects latest version) e.g., 'chrome' -> 'chrome142', 'firefox' -> 'firefox144'
+    
+    Returns:
+        Configured requests.Session() from curl_cffi
+    """
     session = requests.Session()
     session.headers.update(_default_headers(headers))
     if cookies:
@@ -131,10 +94,126 @@ def create_client_curl(*, headers: Optional[Dict[str, str]] = None, cookies: Opt
     proxy_value = proxies if proxies is not None else _get_proxies()
     if proxy_value:
         session.proxies = proxy_value
-    session.impersonate = impersonate
-    session.allow_redirects = allow_redirects
+    session.impersonate = get_browser_impersonate(browser)
+    session.allow_redirects = follow_redirects
     
     return session
+
+
+class AsyncStreamResponse:
+    """Wrapper for streaming responses in async context."""
+    def __init__(self, response):
+        self.response = response
+        self.headers = response.headers
+        self.status_code = response.status_code
+        
+    def raise_for_status(self):
+        """Raise exception for bad status codes."""
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+    
+    async def aiter_bytes(self, chunk_size: int = 8192):
+        """Iterate over response content in chunks asynchronously."""
+        for chunk in self.response.iter_content(chunk_size=chunk_size):
+            yield chunk
+            await asyncio.sleep(0)  # Yield control to event loop
+
+
+class AsyncClient:
+    """Async wrapper for curl_cffi client."""
+    def __init__(self, session):
+        self.session = session
+    
+    @asynccontextmanager
+    async def stream(self, method: str, url: str, **kwargs):
+        """Stream request wrapper for async context."""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, 
+            lambda: self.session.request(method, url, stream=True, **kwargs)
+        )
+        try:
+            yield AsyncStreamResponse(response)
+        finally:
+            response.close()
+    
+    async def get(self, url: str, **kwargs):
+        """Async GET request."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.session.get(url, **kwargs))
+    
+    async def post(self, url: str, **kwargs):
+        """Async POST request."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.session.post(url, **kwargs))
+    
+    async def put(self, url: str, **kwargs):
+        """Async PUT request."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.session.put(url, **kwargs))
+    
+    async def delete(self, url: str, **kwargs):
+        """Async DELETE request."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.session.delete(url, **kwargs))
+    
+    async def patch(self, url: str, **kwargs):
+        """Async PATCH request."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.session.patch(url, **kwargs))
+    
+    async def head(self, url: str, **kwargs):
+        """Async HEAD request."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.session.head(url, **kwargs))
+    
+    async def request(self, method: str, url: str, **kwargs):
+        """Async generic request."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.session.request(method, url, **kwargs))
+    
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.session.close()
+
+
+@asynccontextmanager
+async def create_async_client(*, 
+    headers: Optional[Dict[str, str]] = None, cookies: Optional[Dict[str, str]] = None, 
+    timeout: Optional[Union[int, float]] = None, verify: Optional[bool] = None, 
+    proxies: Optional[Dict[str, str]] = None, http2: bool = False, follow_redirects: bool = True,
+    browser: str = "chrome",
+):
+    """
+    Factory for an async-compatible curl_cffi session wrapper.
+    
+    Args:
+        headers: Optional custom headers
+        cookies: Optional cookies to add
+        timeout: Request timeout in seconds
+        verify: SSL verification
+        proxies: Optional proxy dict
+        http2: Whether to use HTTP/2
+        follow_redirects: Whether to follow redirects
+        browser: Browser to impersonate (auto-selects latest version)
+    
+    Returns:
+        AsyncClient context manager
+    """
+    session = create_client(
+        headers=headers, 
+        cookies=cookies, 
+        timeout=timeout, 
+        proxies=proxies, 
+        follow_redirects=follow_redirects,
+        browser=browser
+    )
+    try:
+        yield AsyncClient(session)
+    finally:
+        session.close()
 
 
 def get_userAgent() -> str:

@@ -3,14 +3,14 @@
 import os
 import sys
 import stat
+import json
 import importlib.metadata
 
-import httpx
 from rich.console import Console
 
 from .version import __version__ as source_code_version, __author__, __title__
 from VibraVid.utils import config_manager
-from VibraVid.utils.http_client import get_userAgent
+from VibraVid.utils.http_client import get_headers, create_client
 from VibraVid.setup import get_is_binary_installation
 from VibraVid.setup.binary_paths import binary_paths
 
@@ -26,12 +26,7 @@ timeout = config_manager.config.get_int("REQUESTS", "timeout")
 
 def fetch_github_releases():
     """Fetch releases data from GitHub API (sync)"""
-    response = httpx.get(
-        f"https://api.github.com/repos/{__author__}/{__title__}/releases",
-        headers={'user-agent': get_userAgent()},
-        timeout=timeout,
-        follow_redirects=True
-    )
+    response = create_client(headers=get_headers()).get(f"https://api.github.com/repos/{__author__}/{__title__}/releases")
     return response.json()
 
 
@@ -53,11 +48,11 @@ def get_execution_mode():
 def auto_update():
     """Automatically update the binary to latest version"""
     if not get_is_binary_installation():
-        console.print("[red]Auto-update works only for binary installations")
+        console.print("[#E63946]Auto-update works only for binary installations")
         return False
     
     try:
-        console.print("[cyan]Checking for updates...")
+        console.print("[#00BCD4]Checking for updates...")
         releases = fetch_github_releases()
         latest = releases[0]
         latest_version = latest.get('name', '').replace('v', '').replace('.', '')
@@ -71,9 +66,9 @@ def auto_update():
         
         # Version comparison
         if current_version == latest_version:
-            console.print(f"[green]Already on latest version: {current}")
+            console.print(f"[#06A77D]Already on latest version: {current}")
             return False
-        console.print(f"[yellow]Current: {current} → Latest: {latest.get('name')}")
+        console.print(f"[#FFD60A]Current: {current} → Latest: {latest.get('name')}")
         
         # Find appropriate asset
         system = binary_paths._detect_system()
@@ -85,13 +80,13 @@ def auto_update():
             if pattern in a['name'].lower():
                 asset = a
                 break
-        console.print(f"[cyan]Downloading {asset['name']}...")
+        console.print(f"[#00BCD4]Downloading {asset['name']}...")
         
         # Download
-        response = httpx.get(asset['browser_download_url'], headers={'user-agent': get_userAgent()}, timeout=300, follow_redirects=True)
+        response = create_client(headers=get_headers(), timeout=300, follow_redirects=True).get(asset['browser_download_url'])
         
         if response.status_code != 200:
-            console.print("[red]Download failed")
+            console.print("[#E63946]Download failed")
             return False
         
         # Save new executable
@@ -99,7 +94,7 @@ def auto_update():
         new_exe = current_exe + ".new"
         with open(new_exe, 'wb') as f:
             f.write(response.content)
-        console.print("[green]Download completed!")
+        console.print("[#06A77D]Download completed!")
         
         # Write update script
         if system == 'windows':
@@ -128,11 +123,11 @@ def auto_update():
             os.chmod(script, stat.S_IRWXU)
             os.system(f'nohup "{script}" &')
         
-        console.print("[cyan]Restarting...")
+        console.print("[#00BCD4]Restarting...")
         sys.exit(0)
         
     except Exception as e:
-        console.print(f"[red]Update failed: {e}")
+        console.print(f"[#E63946]Update failed: {e}")
         return False
 
 
@@ -142,15 +137,8 @@ def update():
         try:
             response_releases = fetch_github_releases()
         except Exception as e:
-            console.print(f"[red]Error accessing GitHub API: {e}")
+            console.print(f"[#E63946]Error accessing GitHub API: {e}")
             return
-
-        # Calculate total download count from all releases
-        total_download_count = sum(
-            asset['download_count']
-            for release in response_releases
-            for asset in release.get('assets', [])
-        )
 
         # Get latest version tag
         if response_releases:
@@ -159,7 +147,6 @@ def update():
             last_version = 'Unknown'
 
     else:
-        total_download_count = "-1"
         last_version = "Unknown"
 
     # Get the current version (installed version)
@@ -168,25 +155,34 @@ def update():
     except importlib.metadata.PackageNotFoundError:
         current_version = source_code_version
 
+    # Get country code
+    country_code = None
+    try:
+        CACHE_FILE = os.path.join(os.getcwd(), ".cache", "ip.json")
+        if os.path.exists(CACHE_FILE):
+            data_json = json.load(open(CACHE_FILE, "r"))
+            country_code = data_json.get("country_code")
+    except:
+        pass
+
     console.print(
-        f"\n[red]{__title__} has been downloaded: [yellow]{total_download_count}"
-        f"\n[yellow]{get_execution_mode()} [white]- [red]{binary_paths._detect_system()} [white]- [green]Current installed version: [yellow]{current_version} "
+        f"\n[#FFD60A]{get_execution_mode()} [white]- [#E63946]{binary_paths._detect_system()} [white]- [#06A77D]Version: [#FFD60A]{current_version} [white]- [#E63946]Country: [#FFD60A]{country_code if country_code else 'None'}"
         f"\n"
-        f"  [cyan]Help the repository grow today by leaving a [yellow]star [cyan]and [yellow]sharing "
-        f"[cyan]it with others online!\n"
-        f"      [magenta]If you'd like to support development and keep the program updated, consider leaving a "
-        f"[yellow]donation[magenta]. Thank you!"
+        f"  [#00BCD4]Help the repository grow today by leaving a [#FFD60A]star [#00BCD4]and [#FFD60A]sharing "
+        f"[#00BCD4]it with others online!\n"
+        f"      [#9D4EDD]If you'd like to support development and keep the program updated, consider leaving a "
+        f"[#FFD60A]donation[#9D4EDD]. Thank you!"
     )
 
     if str(current_version).lower().replace("v.", "").replace("v", "") != str(last_version).lower().replace("v.", "").replace("v", ""):
         if last_version == "Unknown" or last_version == "Beta Build":
             return
 
-        console.print(f"\n[red]New version available: [yellow]{last_version}")
+        console.print(f"\n[#E63946]New version available: [#FFD60A]{last_version}")
         
         # Ensure tag formatting for url in case it lacks a leading 'v'
         tag_url = last_version if last_version.startswith("v") else f"v{last_version}"
-        console.print(f"[green]Download it from: [yellow]https://github.com/AstraeLabs/VibraVid/releases/tag/{tag_url}")
+        console.print(f"[#06A77D]Download it from: [#FFD60A]https://github.com/AstraeLabs/VibraVid/releases/tag/{tag_url}")
         
         if get_execution_mode() == "installer":
-            console.print("[cyan]Run with [yellow]-UP [cyan]to auto-update")
+            console.print("[#00BCD4]Run with [#FFD60A]-UP [#00BCD4]to auto-update")

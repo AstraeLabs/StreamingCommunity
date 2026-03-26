@@ -144,8 +144,7 @@ def download_film(select_title: Entries) -> str:
     mpd_url, mpd_headers, mpd_list_sub, token, audio_locale = get_playback_session(client, main_id, None)
     license_headers = _build_license_headers(mpd_headers, main_id, mpd_url, token)
 
-    # Download
-    out_path, need_stop = DASH_Downloader(
+    return DASH_Downloader(
         mpd_url=mpd_url,
         mpd_headers=mpd_headers,
         license_url=CR_LICENSE_URL,
@@ -154,10 +153,6 @@ def download_film(select_title: Entries) -> str:
         mpd_audio_list=mpd_audio_list,
         output_path=os.path.join(movie_path, movie_name),
     ).start()
-
-    # Small delay to avoid rate limiting
-    time.sleep(15)
-    return out_path, need_stop
 
 
 def download_episode(obj_episode, index_season_selected, index_episode_selected, scrape_serie, main_guid=None):
@@ -218,8 +213,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     # License headers
     license_headers = _build_license_headers(mpd_headers, main_id, mpd_url, token)
 
-    # Download the episode
-    out_path, need_stop = DASH_Downloader(
+    return DASH_Downloader(
         mpd_url=mpd_url,
         mpd_headers=mpd_headers,
         license_url=CR_LICENSE_URL,
@@ -229,9 +223,6 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
         output_path=os.path.join(title_path, title_name)
     ).start()
 
-    # Small delay between episodes to avoid rate limiting
-    time.sleep(15)
-    return out_path, need_stop
 
 def download_series(select_season: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie = None) -> None:
     """

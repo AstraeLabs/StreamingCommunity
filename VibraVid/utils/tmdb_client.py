@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 from rich.console import Console
 
 from VibraVid.utils import config_manager
-from VibraVid.utils.http_client import create_client_curl, get_userAgent
+from VibraVid.utils.http_client import create_client, get_headers
 
 
 console = Console()
@@ -37,7 +37,7 @@ class TMDBClient:
         
         for attempt in range(retries + 1):
             try:
-                response = create_client_curl(headers={"User-Agent": get_userAgent()}).get(url, params=params)
+                response = create_client(headers=get_headers()).get(url, params=params)
                 response.raise_for_status()
                 return response.json()
             

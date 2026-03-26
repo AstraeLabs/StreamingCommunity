@@ -4,7 +4,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import TVShowManager
-from VibraVid.utils.http_client import create_client_curl, check_region_availability
+from VibraVid.utils.http_client import create_client, check_region_availability
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
@@ -49,7 +49,7 @@ def title_search(query: str) -> int:
     }
     
     try:
-        response = create_client_curl(headers=client.headers, cookies=client.cookies).get(url, params=params)
+        response = create_client(headers=client.headers, cookies=client.cookies).get(url, params=params)
         response.raise_for_status()
     except Exception as e:
         console.print(f"[red]Error during Discovery+ search request: {e}")

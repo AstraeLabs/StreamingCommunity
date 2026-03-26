@@ -8,7 +8,7 @@ import base64
 from typing import Tuple, List, Dict, Optional
 
 from VibraVid.utils import config_manager
-from VibraVid.utils.http_client import create_client_curl, get_userAgent
+from VibraVid.utils.http_client import create_client, get_userAgent
 
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class CrunchyrollClient:
             cached_ua = cache_data.get("user_agent") if isinstance(cache_data, dict) else None
             self.user_agent = cached_ua if isinstance(cached_ua, str) and cached_ua.strip() else get_userAgent()
         
-        self.session = create_client_curl(headers=self._get_headers(), cookies=self._get_cookies())
+        self.session = create_client(headers=self._get_headers(), cookies=self._get_cookies())
 
     @staticmethod
     def _resolve_api_base_url() -> str:

@@ -2,7 +2,7 @@
 
 import logging
 
-from VibraVid.utils.http_client import create_client_curl, get_headers
+from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.services._base.object import EpisodeManager, Episode
 
 
@@ -49,7 +49,7 @@ class ScrapeSerieAnime:
         """
         try:
             # Get initial episode count
-            response = create_client_curl(headers=self.headers).get(f"{self.url}/info_api/{self.media_id}/")
+            response = create_client(headers=self.headers).get(f"{self.url}/info_api/{self.media_id}/")
             response.raise_for_status()
             initial_count = response.json()["episodes_count"]
             
@@ -59,13 +59,12 @@ class ScrapeSerieAnime:
             # Fetch episodes in chunks
             while start_range <= initial_count:
                 end_range = min(start_range + 119, initial_count)
-
                 params={
                     "start_range": start_range,
                     "end_range": end_range
                 }
                 
-                response = create_client_curl(headers=self.headers).get(f"{self.url}/info_api/{self.media_id}/1", params=params)
+                response = create_client(headers=self.headers).get(f"{self.url}/info_api/{self.media_id}/1", params=params)
                 response.raise_for_status()
 
                 chunk_episodes = response.json().get("episodes", [])
