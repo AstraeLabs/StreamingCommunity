@@ -49,77 +49,69 @@ jobs:
             - name: Generate changelog
               id: changelog
               run: |
-                  # Find the previous tag to compare from
                   PREV_TAG=$(git tag --sort=-version:refname | head -1 || true)
                   if [ -n "$PREV_TAG" ]; then
-                      COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s")
+                      COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"%B%n--SEP--" 2>/dev/null || git log --pretty=format:"%B%n--SEP--")
                   else
-                      COMMITS=$(git log --pretty=format:"%s")
+                      COMMITS=$(git log --pretty=format:"%B%n--SEP--")
                   fi
 
-                  # Capitalize: first letter upper, rest lower
                   capitalize() { echo "$1" | sed 's/./\u&/' | tr '[:upper:]' '[:lower:]' | sed 's/^./\u&/'; }
 
-                  # Declare associative array for section content
                   declare -A SECTION_CONTENT
 
-                  # Parse each commit
-                  while IFS= read -r line; do
-                      # Skip empty lines and RELEASE commits
-                      [ -z "$line" ] && continue
-                      echo "$line" | grep -qiE '^\[RELEASE\]' && continue
+                  process_line() {
+                      local input="$1"
 
-                      # Extract all tags and create entries for each
-                      # Find all [TAG] patterns and extract the message after the last one
-                      TAGS=$(echo "$line" | grep -oE '\[[A-Za-z0-9_/]+\]' | tr -d '[]' | tr '[:lower:]' '[:upper:]')
-                      
-                      if [ -z "$TAGS" ]; then
-                          continue
-                      fi
+                      # Split on each [TAG] occurrence by inserting a newline before each
+                      local normalized
+                      normalized=$(echo "$input" | sed 's/\s*\(\[[A-Za-z0-9_/]*\]\)/\n\1/g')
 
-                      # Extract message: everything after the last [TAG]
-                      MSG=$(echo "$line" | sed 's/^\(\[[^]]*\][[:space:]]*\)*//')
-                      # Remove PR numbers like (#123)
-                      MSG=$(echo "$MSG" | sed 's/[[:space:]]*([[:space:]]*#[0-9]*[[:space:]]*)//g')
-                      [ -z "$MSG" ] && continue
+                      while IFS= read -r part; do
+                          [ -z "$part" ] && continue
 
-                      # Process each tag found in the commit
-                      while IFS= read -r TAG; do
+                          TAG=$(echo "$part" | grep -oE '^\[[A-Za-z0-9_/]+\]' | tr -d '[]' | tr '[:lower:]' '[:upper:]')
                           [ -z "$TAG" ] && continue
-                          
-                          # Capitalize tag: first letter upper, rest lower
-                          DISPLAY=$(capitalize "$TAG")
 
-                          # Append to section (newline-separated)
+                          # Skip RELEASE tags
+                          echo "$TAG" | grep -qiE '^RELEASE$' && continue
+
+                          MSG=$(echo "$part" | sed 's/^\[[^]]*\][[:space:]]*//')
+                          MSG=$(echo "$MSG" | sed 's/[[:space:]]*([[:space:]]*#[0-9]*[[:space:]]*)//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                          [ -z "$MSG" ] && continue
+
+                          DISPLAY=$(capitalize "$TAG")
                           if [ -z "${SECTION_CONTENT[$DISPLAY]+x}" ]; then
-                              SECTION_CONTENT["$DISPLAY"]="- $MSG"
+                              SECTION_CONTENT["$DISPLAY"]="* $MSG"
                           else
-                              # Deduplicate: only add if not already present
-                              if ! echo "${SECTION_CONTENT[$DISPLAY]}" | grep -qF "- $MSG"; then
-                                  SECTION_CONTENT["$DISPLAY"]+=$'\n'"- $MSG"
+                              if ! echo "${SECTION_CONTENT[$DISPLAY]}" | grep -qF "* $MSG"; then
+                                  SECTION_CONTENT["$DISPLAY"]+=$'\n'"* $MSG"
                               fi
                           fi
-                      done <<< "$TAGS"
+                      done <<< "$normalized"
+                  }
+
+                  while IFS= read -r line; do
+                      [ -z "$line" ] && continue
+                      [ "$line" = "--SEP--" ] && continue
+                      process_line "$line"
                   done <<< "$COMMITS"
 
-                  # Build the changelog string
                   CHANGELOG=""
-                  for SECTION in "${!SECTION_CONTENT[@]}"; do
+                  for SECTION in $(echo "${!SECTION_CONTENT[@]}" | tr ' ' '\n' | sort); do
                       if [ -n "${SECTION_CONTENT[$SECTION]}" ]; then
-                          CHANGELOG+="## $SECTION"$'\n'
+                          CHANGELOG+="### $SECTION"$'\n'
                           CHANGELOG+="${SECTION_CONTENT[$SECTION]}"$'\n'
                           CHANGELOG+=$'\n'
                       fi
                   done
 
-                  # Add full changelog link if this is a release
                   CURRENT_TAG="${{ steps.info.outputs.tag_name }}"
                   REPO="${{ github.repository }}"
                   if [ -n "$PREV_TAG" ] && [ "$CURRENT_TAG" != "beta" ]; then
                       CHANGELOG+="**Full Changelog**: https://github.com/${REPO}/compare/${PREV_TAG}...${CURRENT_TAG}"
                   fi
 
-                  # Write to GITHUB_OUTPUT (multiline safe)
                   {
                       echo "changelog<<CHANGELOG_EOF"
                       echo "$CHANGELOG"
