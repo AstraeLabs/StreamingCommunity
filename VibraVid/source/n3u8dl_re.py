@@ -73,7 +73,7 @@ def _resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
 
 CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
 THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
-RETRY_COUNT = config_manager.config.get_int("DOWNLOAD", "retry_count")
+RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")
 REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
 MAX_SPEED = config_manager.config.get("DOWNLOAD", "max_speed")
 USE_PROXY = config_manager.config.get_bool("REQUESTS", "use_proxy")

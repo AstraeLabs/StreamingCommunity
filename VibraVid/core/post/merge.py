@@ -177,7 +177,8 @@ def join_audios(video_path: str, audio_tracks: List[Dict[str, str]], out_path: s
         audio_path = audio_track.get('path')
         audio_lang = audio_track.get('name', 'unknown')
         _, diff, video_duration, audio_duration = check_duration_v_a(video_path, audio_path)
-        console.print(f"[yellow]    - [cyan]Audio lang [red]{audio_lang}, [cyan]Video duration: [red]{video_duration:.2f}s, [cyan]Audio duration: [red]{audio_duration:.2f}s, [cyan]Diff: [red]{diff:.2f}s")
+        diff_str = f"+{(video_duration - audio_duration):.2f}s" if (video_duration - audio_duration) >= 0 else f"{(video_duration - audio_duration):.2f}s"
+        console.print(f"[yellow]    - [cyan]Audio lang [red]{audio_lang}, [cyan]Video: [red]{video_duration:.2f}s, [cyan]Diff: [red]{diff_str}")
         
         # If any audio track has a significant duration difference, use -shortest
         if diff > limit_duration_diff:

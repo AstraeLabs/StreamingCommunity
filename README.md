@@ -179,7 +179,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 {
 	"DOWNLOAD": {
 		"thread_count": 12,
-		"retry_count": 40,
 		"concurrent_download": true,
 		"max_speed": "30MB",
 		"select_video": "1920",
@@ -194,7 +193,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 
 - **`skip_download`**: Skip the download step and process existing files (default: `false`)
 - **`thread_count`**: Number of parallel download threads (default: `12`)
-- **`retry_count`**: Maximum retry attempts for failed segments (default: `40`)
 - **`concurrent_download`**: Enable parallel download queue for films and series episodes (default: `true`). When `true`, downloads are queued and processed by a thread pool with a live Download Monitor table. When `false`, downloads run sequentially. When only one item is in the queue, it will download immediately regardless of this setting.
 - **`max_speed`**: Speed limit per stream (e.g., `"30MB"`, `"10MB"`)
 - **`cleanup_tmp_folder`**: Remove temporary files after download (default: `true`)

@@ -69,28 +69,37 @@ jobs:
                       [ -z "$line" ] && continue
                       echo "$line" | grep -qiE '^\[RELEASE\]' && continue
 
-                      # Extract tag: anything inside first [...]
-                      TAG=$(echo "$line" | grep -oE '^\[([A-Za-z0-9_/]+)\]' | tr -d '[]' | tr '[:lower:]' '[:upper:]' || true)
-                      [ -z "$TAG" ] && continue
+                      # Extract all tags and create entries for each
+                      # Find all [TAG] patterns and extract the message after the last one
+                      TAGS=$(echo "$line" | grep -oE '\[[A-Za-z0-9_/]+\]' | tr -d '[]' | tr '[:lower:]' '[:upper:]')
+                      
+                      if [ -z "$TAGS" ]; then
+                          continue
+                      fi
 
-                      # Extract message: everything after [TAG]
-                      MSG=$(echo "$line" | sed 's/^\[[^]]*\][[:space:]]*//')
+                      # Extract message: everything after the last [TAG]
+                      MSG=$(echo "$line" | sed 's/^\(\[[^]]*\][[:space:]]*\)*//')
                       # Remove PR numbers like (#123)
                       MSG=$(echo "$MSG" | sed 's/[[:space:]]*([[:space:]]*#[0-9]*[[:space:]]*)//g')
                       [ -z "$MSG" ] && continue
 
-                      # Capitalize tag: first letter upper, rest lower
-                      DISPLAY=$(capitalize "$TAG")
+                      # Process each tag found in the commit
+                      while IFS= read -r TAG; do
+                          [ -z "$TAG" ] && continue
+                          
+                          # Capitalize tag: first letter upper, rest lower
+                          DISPLAY=$(capitalize "$TAG")
 
-                      # Append to section (newline-separated)
-                      if [ -z "${SECTION_CONTENT[$DISPLAY]+x}" ]; then
-                          SECTION_CONTENT["$DISPLAY"]="- $MSG"
-                      else
-                          # Deduplicate: only add if not already present
-                          if ! echo "${SECTION_CONTENT[$DISPLAY]}" | grep -qF "- $MSG"; then
-                              SECTION_CONTENT["$DISPLAY"]+=$'\n'"- $MSG"
+                          # Append to section (newline-separated)
+                          if [ -z "${SECTION_CONTENT[$DISPLAY]+x}" ]; then
+                              SECTION_CONTENT["$DISPLAY"]="- $MSG"
+                          else
+                              # Deduplicate: only add if not already present
+                              if ! echo "${SECTION_CONTENT[$DISPLAY]}" | grep -qF "- $MSG"; then
+                                  SECTION_CONTENT["$DISPLAY"]+=$'\n'"- $MSG"
+                              fi
                           fi
-                      fi
+                      done <<< "$TAGS"
                   done <<< "$COMMITS"
 
                   # Build the changelog string

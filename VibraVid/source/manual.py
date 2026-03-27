@@ -1,11 +1,12 @@
 # 19.03.26
 
+import re
+import time
+import queue
 import asyncio
 import logging
 import platform
-import re
 import threading
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
@@ -17,7 +18,7 @@ from VibraVid.core.manifest.m3u8 import HLSParser
 from VibraVid.core.manifest.mpd import DashParser
 from VibraVid.core.manifest.stream import Stream
 from VibraVid.utils.tmdb_client import tmdb_client
-from VibraVid.utils.http_client import create_client, create_async_client, get_headers
+from VibraVid.utils.http_client import create_client, get_headers
 
 from VibraVid.source.style.tracker import download_tracker
 from VibraVid.source.style.bar_manager import DownloadBarManager
@@ -45,7 +46,7 @@ console = Console(force_terminal=True if platform.system().lower() != "windows" 
 logger  = logging.getLogger("manual")
 CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
 THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
-RETRY_COUNT = config_manager.config.get_int("DOWNLOAD", "retry_count")
+RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")
 REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
 USE_PROXY = config_manager.config.get_bool("REQUESTS", "use_proxy")
 PROXY_CFG = config_manager.config.get_dict("REQUESTS", "proxy")
@@ -200,108 +201,236 @@ def _fmt_speed(bps: float) -> str:
     return f"{bps / 1024:.0f}KBps"
 
 
-async def _download_segments_async(segments: List[Dict], out_dir: Path, headers: Dict, concurrency: int = 4, progress_cb=None, stop_check=None, retry: int = 3, timeout_s: int = 30, key_cache: Optional[Dict[str, bytes]] = None) -> List[Path]:
+def _download_segments_threaded(segments: List[Dict], out_dir: Path, headers: Dict, concurrency: int = 8, progress_cb=None,
+    stop_check=None, retry: int = 3, timeout_s: int = 30, key_cache: Optional[Dict[str, bytes]] = None,
+) -> List[Path]:
     """
-    Download *segments* concurrently into *out_dir*.
+    Queue-based threaded segment downloader.
+
+    Each worker thread owns its own curl_cffi session — no shared state, no asyncio/executor overhead, no ThreadPoolExecutor exhaustion.
     """
     if key_cache is None:
         key_cache = {}
 
-    sema = asyncio.Semaphore(concurrency)
+    total = len(segments)
+    if total == 0:
+        return []
+
+    logger.info(f"start — {total} segs, {concurrency} workers, timeout={timeout_s}s, retry={retry}")
+
+    work_q: queue.Queue = queue.Queue()
+    for seg in segments:
+        work_q.put(seg)
+
     results: Dict[int, Path] = {}
+    lock = threading.Lock()
+    key_lock = threading.Lock()
     done_count = 0
     total_bytes = 0
     t_start = time.monotonic()
-    total = len(segments)
-    lock = asyncio.Lock()
 
-    async def _fetch_key(client, key_url: str) -> bytes:
-        async with lock:
+    # Per-worker state table — watchdog reads this without holding any lock
+    # Values: "idle" | "connecting:N" | "reading:N" | "decrypting:N" | "writing:N" | "done"
+    worker_state: Dict[int, str] = {}
+    worker_seg:   Dict[int, int] = {}   # wid -> current segment number
+
+    # ---------- key helper -------------------------------------------------
+    def _fetch_key(client, key_url: str) -> bytes:
+        with key_lock:
             if key_url in key_cache:
                 return key_cache[key_url]
-        resp = await client.get(key_url)
+        resp = client.get(key_url, timeout=15)
         resp.raise_for_status()
         kdata = resp.content
-        async with lock:
-            key_cache[key_url] = kdata
-        return kdata
+        with key_lock:
+            key_cache.setdefault(key_url, kdata)
+        return key_cache[key_url]
 
-    async def _download_one(client, seg: Dict) -> None:
+    # ---------- watchdog ---------------------------------------------------
+    watchdog_stop = threading.Event()
+
+    def _watchdog() -> None:
+        """Log worker states every 3 s so stalls are immediately visible."""
+        while not watchdog_stop.wait(3.0):
+            elapsed = time.monotonic() - t_start
+            with lock:
+                dc = done_count
+                tb = total_bytes
+            q_size = work_q.qsize()
+            speed  = tb / max(elapsed, 0.001)
+            states = ", ".join(f"W{wid}={worker_state.get(wid, '?')}" for wid in sorted(worker_state))
+            logger.info(f"t={elapsed:.1f}s  done={dc}/{total}  queue={q_size}  speed={_fmt_speed(speed)}  [{states}]")
+
+            # Highlight any worker stuck on the same segment for >10 s
+            now = time.monotonic()
+            for wid, seg_num in list(worker_seg.items()):
+                state = worker_state.get(wid, "")
+                if state.startswith(("connecting", "reading")) and ":" in state:
+
+                    # state encodes start time as "phase:segnum:start_ts"
+                    parts = state.split(":")
+                    if len(parts) == 3:
+                        try:
+                            stuck_for = now - float(parts[2])
+                            if stuck_for > 10:
+                                logger.warning(f"W{wid} STUCK on seg {seg_num} in phase '{parts[0]}' for {stuck_for:.0f}s")
+                        except (ValueError, IndexError):
+                            pass
+
+    wd = threading.Thread(target=_watchdog, daemon=True, name="dl-watchdog")
+    wd.start()
+
+    # ---------- worker loop ------------------------------------------------
+    def _worker(wid: int) -> None:
         nonlocal done_count, total_bytes
-        num = seg["number"]
-        url = seg["url"]
-        enc = seg.get("enc", {})
-        seg_path = out_dir / f"seg_{num:08d}.bin"
 
-        # Resume: skip already downloaded segments
-        if seg_path.exists() and seg_path.stat().st_size > 0:
-            async with lock:
-                results[num]  = seg_path
-                done_count   += 1
-            return
+        worker_state[wid] = "idle"
+        logger.info(f"W{wid} started")
 
-        async with sema:
-            jitter = 0.05 * (num % max(concurrency, 1))
-            await asyncio.sleep(jitter)
-            
-            if stop_check and stop_check():
-                return
-            for attempt in range(retry):
+        # Each worker owns its own curl_cffi session — no handle contention
+        client = create_client(headers=headers, timeout=timeout_s)
+        try:
+            while True:
                 try:
-                    async with client.stream("GET", url) as resp:
-                        resp.raise_for_status()
-                        data = b""
-                        async for chunk in resp.aiter_bytes(65536):
-                            if stop_check and stop_check():
-                                return
-                            data += chunk
+                    seg = work_q.get_nowait()
+                except queue.Empty:
+                    logger.info(f"W{wid} queue empty — exiting")
+                    break
 
-                    method = enc.get("method", "NONE").upper()
-                    if method in ("AES-128", "AES-128-CBC"):
-                        key_url = enc.get("key_url")
-                        if key_url:
-                            key_data = await _fetch_key(client, key_url)
-                            data = _decrypt_aes128(data, key_data, enc.get("iv"), num)
-                        else:
-                            logger.error(f"AES-128 segment {num} — no key URI, writing raw")
+                if stop_check and stop_check():
+                    work_q.task_done()
+                    logger.info(f"W{wid} stop requested — draining queue")
+                    while True:
+                        try:
+                            work_q.get_nowait()
+                            work_q.task_done()
+                        except queue.Empty:
+                            break
+                    break
 
-                    seg_path.write_bytes(data)
-                    nb = len(data)
+                num = seg["number"]
+                url = seg["url"]
+                enc = seg.get("enc", {})
+                seg_path = out_dir / f"seg_{num:08d}.bin"
+                worker_seg[wid] = num
 
-                    async with lock:
+                # Resume: skip already-complete segments
+                if seg_path.exists() and seg_path.stat().st_size > 0:
+                    logger.info(f"W{wid} seg {num} already on disk — skip")
+                    with lock:
                         results[num]  = seg_path
                         done_count   += 1
-                        total_bytes  += nb
-                        elapsed = max(time.monotonic() - t_start, 0.001)
-                        speed   = total_bytes / elapsed
-                        if progress_cb:
-                            progress_cb(done_count, total, total_bytes, speed)
-                    break  # success
+                    work_q.task_done()
+                    continue
 
-                except asyncio.CancelledError:
-                    return
-                except Exception as exc:
-                    if attempt == retry - 1:
-                        logger.error(f"Segment {num} failed after {retry} tries: {exc}")
-                    else:
-                        is_503 = "503" in str(exc) or "Service Unavailable" in str(exc)
-                        if is_503:
-                            wait_time = min(3 * (2 ** attempt), 30)
-                            logger.error(f"Segment {num} got 503 CDN rate limit, waiting {wait_time}s before retry {attempt + 1}/{retry}")
+                for attempt in range(retry):
+                    if stop_check and stop_check():
+                        break
+                    t_seg = time.monotonic()
+                    try:
+                        # KEY FIX: plain blocking GET (no stream=True).
+                        # curl_cffi enforces `timeout` on the full body transfer,
+                        # so a stalled server is killed after timeout_s seconds.
+                        # stream=True only enforces it on the TCP connect, which
+                        # is why every worker froze after ~4 s on stalled reads.
+                        worker_state[wid] = f"connecting:{num}:{t_seg:.3f}"
+                        logger.info(f"W{wid} seg {num} attempt {attempt+1}/{retry} GET {url[:80]}")
+
+                        resp = client.get(url)
+                        resp.raise_for_status()
+                        data = resp.content
+
+                        elapsed_get = time.monotonic() - t_seg
+                        logger.info(f"W{wid} seg {num} downloaded {len(data)} bytes in {elapsed_get:.2f}s")
+
+                        # AES-128 decryption
+                        method = enc.get("method", "NONE").upper()
+                        if method in ("AES-128", "AES-128-CBC"):
+                            key_url = enc.get("key_url")
+                            if key_url:
+                                worker_state[wid] = f"decrypting:{num}:{time.monotonic():.3f}"
+                                key_data = _fetch_key(client, key_url)
+                                data = _decrypt_aes128(data, key_data, enc.get("iv"), num)
+                                logger.info(f"W{wid} seg {num} decrypted OK")
+                            else:
+                                logger.error(f"W{wid} seg {num}: AES-128 but no key URI — writing raw")
+
+                        worker_state[wid] = f"writing:{num}:{time.monotonic():.3f}"
+                        seg_path.write_bytes(data)
+                        nb = len(data)
+
+                        with lock:
+                            results[num]  = seg_path
+                            done_count   += 1
+                            total_bytes  += nb
+                            elapsed_total = max(time.monotonic() - t_start, 0.001)
+                            speed = total_bytes / elapsed_total
+                            if progress_cb:
+                                progress_cb(done_count, total, total_bytes, speed)
+
+                        worker_state[wid] = "idle"
+                        break  # success
+
+                    except Exception as exc:
+                        elapsed_fail = time.monotonic() - t_seg
+                        if attempt < retry - 1:
+                            is_503 = "503" in str(exc) or "Service Unavailable" in str(exc)
+                            wait   = min(3 * (2 ** attempt), 30) if is_503 else 0.5 * (2 ** attempt)
+                            logger.warning(f"W{wid} seg {num} attempt {attempt+1}/{retry} FAILED after {elapsed_fail:.2f}s ({type(exc).__name__}: {exc}) — retry in {wait:.1f}s")
+                            worker_state[wid] = f"retry_wait:{num}:{time.monotonic():.3f}"
+                            time.sleep(wait)
                         else:
-                            wait_time = 0.5 * (2 ** attempt)
-                            logger.info(f"Segment {num} error ({type(exc).__name__}), retry {attempt + 1}/{retry} after {wait_time}s")
-                        await asyncio.sleep(wait_time)
+                            logger.error(f"W{wid} seg {num} GAVE UP after {retry} attempts ({elapsed_fail:.2f}s last attempt) — {exc}")
+                            worker_state[wid] = "idle"
 
-    async with create_async_client(headers=headers) as client:
-        tasks = [asyncio.create_task(_download_one(client, seg)) for seg in segments]
-        try:
-            await asyncio.gather(*tasks)
-        except asyncio.CancelledError:
-            for t in tasks:
-                t.cancel()
-            raise
+                work_q.task_done()
 
+        finally:
+            worker_state[wid] = "done"
+            logger.info(f"W{wid} exiting")
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    # ---------- launch workers (gradual ramp-up for first 5s) ---------------
+    n_workers = min(concurrency, total)
+    logger.info(f"[DL] launching {n_workers} workers for {total} segments (ramp-up over 5s)")
+    workers = [
+        threading.Thread(target=_worker, args=(i,), daemon=True, name=f"dl-worker-{i}")
+        for i in range(n_workers)
+    ]
+    
+    # Ramp-up: launch workers gradually over 5 seconds to prevent 503 errors
+    # Each worker starts at an interval, allowing server to stabilize load
+    ramp_up_duration = 5.0
+    ramp_up_interval = ramp_up_duration / max(n_workers, 1)
+    
+    for idx, w in enumerate(workers):
+        if idx > 0:
+            time.sleep(ramp_up_interval)
+        w.start()
+        logger.info(f"[DL] W{idx} started (ramp-up: {idx + 1}/{n_workers})")
+
+    # Poll so KeyboardInterrupt / stop_check fires promptly
+    deadline = time.monotonic() + 7200.0
+    while True:
+        alive = [w for w in workers if w.is_alive()]
+        if not alive:
+            break
+        if stop_check and stop_check():
+            logger.info("[DL] stop_check fired in join loop — breaking")
+            break
+        if time.monotonic() >= deadline:
+            logger.error("[DL] hard 2-hour timeout reached")
+            break
+        for w in alive:
+            w.join(timeout=0.25)
+
+    watchdog_stop.set()
+
+    elapsed = time.monotonic() - t_start
+    logger.info(f"[DL] finished — {len(results)}/{total} segs  {_fmt_size(total_bytes)}  {elapsed:.1f}s  avg {_fmt_speed(total_bytes / max(elapsed, 0.001))}")
     return [results[n] for n in sorted(results)]
 
 
@@ -754,30 +883,12 @@ class MediaDownloader:
             logger.error(f"DASH binary merge produced empty file: {out_path}")
 
     def _run_dl(self, segs: List[Dict], out_dir: Path, headers: Dict, key_cache: Dict, progress_cb) -> List[Path]:
-        """Run the async downloader in its own event loop (called from a thread)."""
-        loop = asyncio.new_event_loop()
-        self._register_loop(loop)
+        """Download segments via queue-based thread pool (one session per worker)."""
         try:
-            asyncio.set_event_loop(loop)
-            return loop.run_until_complete(
-                _download_segments_async(
-                    segs,
-                    out_dir,
-                    headers,
-                    concurrency=THREAD_COUNT,
-                    progress_cb=progress_cb,
-                    stop_check=self._stop_check,
-                    retry=RETRY_COUNT or 5,
-                    timeout_s=REQUEST_TIMEOUT,
-                    key_cache=key_cache,
-                )
-            )
-        except (asyncio.CancelledError, RuntimeError):
+            return _download_segments_threaded(segs, out_dir, headers, concurrency=THREAD_COUNT, progress_cb=progress_cb, stop_check=self._stop_check, retry=RETRY_COUNT, timeout_s=REQUEST_TIMEOUT, key_cache=key_cache)
+        except Exception as exc:
+            logger.error(f"_run_dl failed: {exc}", exc_info=True)
             return []
-        
-        finally:
-            self._unregister_loop(loop)
-            loop.close()
 
     def _build_headers(self) -> Dict:
         h = dict(self.headers)

@@ -162,7 +162,7 @@ def update():
         if os.path.exists(CACHE_FILE):
             data_json = json.load(open(CACHE_FILE, "r"))
             country_code = data_json.get("country_code")
-    except:
+    except Exception:
         pass
 
     console.print(
