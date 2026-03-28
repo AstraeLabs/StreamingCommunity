@@ -25,6 +25,7 @@ from VibraVid.source.style.bar_manager import DownloadBarManager
 from VibraVid.source.utils.selector import StreamSelector, N3u8dlFormatter
 from VibraVid.source.style.ui import build_table
 from VibraVid.source.utils.language import resolve_locale, LANGUAGE_MAP
+from VibraVid.source.utils.stream_selector_ui import InteractiveStreamSelector
 from VibraVid.core.downloader.subtitle import download_external_tracks_with_progress, build_ext_track_label, is_valid_format, ext_from_url
 from VibraVid.source.utils.codec import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
 from VibraVid.source.utils.decrypt import Decryptor, KeysManager
@@ -44,6 +45,7 @@ except ImportError:
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
 logger  = logging.getLogger("manual")
+auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select", default=True)
 CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
 THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
 RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")
@@ -526,7 +528,13 @@ class MediaDownloader:
             self.manifest_type = "HLS"
 
         self.streams = [s for s in parser.parse_streams() if s.type != "image"]
-        self._apply_selection()
+        
+        # Check if auto_select is enabled
+        if auto_select:
+            self._apply_selection()
+        else:
+            selector = InteractiveStreamSelector(self.streams, window_size=15)
+            selector.run()
 
         for ext in self.external_subtitles:
             lang     = ext.get("language", "")

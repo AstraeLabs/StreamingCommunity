@@ -178,6 +178,7 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 ```json
 {
 	"DOWNLOAD": {
+		"auto_select": true,
 		"thread_count": 12,
 		"concurrent_download": true,
 		"max_speed": "30MB",
@@ -191,6 +192,7 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 
 #### Performance Settings
 
+- **`auto_select`**: Automatically select streams based on filters (default: `true`). When `false`, enables interactive stream selection mode where user can manually choose video/audio/subtitle tracks before download.
 - **`skip_download`**: Skip the download step and process existing files (default: `false`)
 - **`thread_count`**: Number of parallel download threads (default: `12`)
 - **`concurrent_download`**: Enable parallel download queue for films and series episodes (default: `true`). When `true`, downloads are queued and processed by a thread pool with a live Download Monitor table. When `false`, downloads run sequentially. When only one item is in the queue, it will download immediately regardless of this setting.

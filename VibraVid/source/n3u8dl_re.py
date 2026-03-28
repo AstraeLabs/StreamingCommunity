@@ -26,6 +26,7 @@ from VibraVid.source.style.bar_manager import DownloadBarManager
 from VibraVid.source.utils.selector import StreamSelector, N3u8dlFormatter
 from VibraVid.source.style.ui import build_table
 from VibraVid.source.utils.language import resolve_locale, LANGUAGE_MAP
+from VibraVid.source.utils.stream_selector_ui import InteractiveStreamSelector
 from VibraVid.core.downloader.subtitle import download_external_tracks_with_progress, build_ext_track_label, is_valid_format, ext_from_url
 from VibraVid.source.utils.codec import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
 from VibraVid.source.utils.decrypt import Decryptor, KeysManager
@@ -33,6 +34,23 @@ from VibraVid.source.utils.decrypt import Decryptor, KeysManager
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
 logger  = logging.getLogger("n3u8dl_re")
+auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select", default=True)
+CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
+THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
+RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")
+REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
+MAX_SPEED = config_manager.config.get("DOWNLOAD", "max_speed")
+USE_PROXY = config_manager.config.get_bool("REQUESTS", "use_proxy")
+PROXY_CFG = config_manager.config.get_dict("REQUESTS", "proxy")
+
+_PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)%")
+_SPEED_RE = re.compile(r"(\d+(?:\.\d+)?(?:MB|KB|GB|B)ps)")
+_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?(?:MB|GB|KB|B))/(\d+(?:\.\d+)?(?:MB|GB|KB|B))")
+_SEG_RE = re.compile(r"(\d+)/(\d+)")
+_VID_RES_RE = re.compile(r"Vid\s+(\d+x\d+)")
+_AUD_PROG_RE = re.compile(r"Aud\s+(.+?)\s*\|\s*([\w-]+)(?:\s{3,}|\s*-{5,}|$)")
+_SUB_PROG_RE = re.compile(r"Sub\s+([\w-]+)\s*\|\s*(.+?)(?:\s{3,}|\s*-{5,}|$)")
+_SUBFIN_RE = re.compile(r"(\d+\.?\d*(?:B|KB|MB|GB))\s+-\s+00:00:00")
 
 
 def _resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
@@ -70,24 +88,6 @@ def _resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
         if mime in content_type:
             return url, ext
     return url, ext_from_url(url, "")
-
-CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
-THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
-RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")
-REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
-MAX_SPEED = config_manager.config.get("DOWNLOAD", "max_speed")
-USE_PROXY = config_manager.config.get_bool("REQUESTS", "use_proxy")
-PROXY_CFG = config_manager.config.get_dict("REQUESTS", "proxy")
-
-
-_PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)%")
-_SPEED_RE = re.compile(r"(\d+(?:\.\d+)?(?:MB|KB|GB|B)ps)")
-_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?(?:MB|GB|KB|B))/(\d+(?:\.\d+)?(?:MB|GB|KB|B))")
-_SEG_RE = re.compile(r"(\d+)/(\d+)")
-_VID_RES_RE = re.compile(r"Vid\s+(\d+x\d+)")
-_AUD_PROG_RE = re.compile(r"Aud\s+(.+?)\s*\|\s*([\w-]+)(?:\s{3,}|\s*-{5,}|$)")
-_SUB_PROG_RE = re.compile(r"Sub\s+([\w-]+)\s*\|\s*(.+?)(?:\s{3,}|\s*-{5,}|$)")
-_SUBFIN_RE = re.compile(r"(\d+\.?\d*(?:B|KB|MB|GB))\s+-\s+00:00:00")
 
 
 def _lang_variants(normalized_lang: str) -> Set[str]:
@@ -175,7 +175,13 @@ class MediaDownloader:
             self.manifest_type = "HLS"
 
         self.streams = [s for s in parser.parse_streams() if s.type != "image"]
-        self._apply_selection()
+        
+        # Check if auto_select is enabled
+        if auto_select:
+            self._apply_selection()
+        else:
+            selector = InteractiveStreamSelector(self.streams, window_size=15)
+            selector.run()
 
         for ext in self.external_subtitles:
             lang = ext.get("language", "")
