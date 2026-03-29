@@ -101,9 +101,8 @@ def get_playback_url(content_id: str, bearer_token: str) -> Tuple[str, Optional[
             'h265_1080p',
         ],
         'video_resources[]': [
-            'hlsv6_widevine_nonclearlead',
-            'hlsv6_playready_psshv0',
-            'hlsv6',
+            'dash',
+            'dash_widevine'
         ]
     }
 

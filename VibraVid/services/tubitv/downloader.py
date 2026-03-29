@@ -12,7 +12,7 @@ from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_movie_path, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
-from VibraVid.core.downloader import HLS_Downloader
+from VibraVid.core.downloader import DASH_Downloader
 
 from .client import get_bearer_token, get_playback_url
 from .scrapper import GetSerieInfo
@@ -64,7 +64,7 @@ def download_film(select_title: Entries) -> Tuple[str, bool]:
     movie_path = os.path.join(site_constants.MOVIE_FOLDER, *path_components) if path_components else site_constants.MOVIE_FOLDER
     movie_name = f"{filename}.{extension_output}"
 
-    return HLS_Downloader(m3u8_url=master_playlist, output_path=os.path.join(movie_path, movie_name), license_url=license_url, headers=custom_headers).start()
+    return DASH_Downloader(mpd_url=master_playlist, mpd_headers=custom_headers, output_path=os.path.join(movie_path, movie_name), license_url=license_url).start()
 
 
 def download_episode(obj_episode, index_season_selected, index_episode_selected, scrape_serie, bearer_token):
@@ -87,12 +87,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
         return None, True
 
     # Download the episode
-    return HLS_Downloader(
-        m3u8_url=master_playlist,
-        license_url=license_url,
-        output_path=os.path.join(episode_path, episode_name),
-        headers=custom_headers
-    ).start()
+    return DASH_Downloader(mpd_url=master_playlist, mpd_headers=custom_headers, output_path=os.path.join(episode_path, episode_name), license_url=license_url).start()
 
 
 def download_series(select_season: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie = None) -> None:
