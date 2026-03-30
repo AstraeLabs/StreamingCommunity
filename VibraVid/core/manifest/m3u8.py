@@ -353,9 +353,11 @@ class HLSParser:
                             kid = k.get("id")
                             
                             if "widevine" in sys:
-                                if pssh: info.set_pssh(pssh, "WV")
+                                if pssh: 
+                                    info.set_pssh(pssh, "WV")
                             elif "playready" in sys:
-                                if pssh: info.set_pssh(pssh, "PR")
+                                if pssh: 
+                                    info.set_pssh(pssh, "PR")
                             elif "streamingkeydelivery" in sys or "fairplay" in sys:
                                 info.method = "SAMPLE-AES"
                                 uri = k.get("uri")

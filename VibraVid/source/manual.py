@@ -848,7 +848,6 @@ class MediaDownloader:
             logger.error(f"{protocol.upper()} binary merge produced empty file: {out_path}")
 
     def _download_hls_stream(self, stream: Stream, bar_manager: DownloadBarManager) -> None:
-        task_key     = self._stream_task_key(stream)
         playlist_url = stream.playlist_url
         if not playlist_url:
             logger.error(f"HLS stream has no playlist_url: {stream}")
