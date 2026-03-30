@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, start_message
+from VibraVid.utils.http_client import get_userAgent
 from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
@@ -40,7 +41,12 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     
     output_path, _ = HLS_Downloader(
         m3u8_url=master_playlist, 
-        output_path=os.path.join(episode_path, episode_name)
+        output_path=os.path.join(episode_path, episode_name),
+        headers={
+            'User-Agent': get_userAgent(),
+            'Origin': 'https://supervideo.cc',
+            'Referer': 'https://supervideo.cc/',
+        }
     ).start()
 
     if output_path is None:

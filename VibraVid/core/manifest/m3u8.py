@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import json
 import base64
 import binascii
 import logging
@@ -102,6 +103,7 @@ class HLSParser:
 
         master_drm = self._parse_drm_tags(self.raw_content)
         streams: List[Stream] = []
+        seen_ids: set = set()  # Track seen stream IDs to avoid duplicates (different CDN pathways)
         lines = self.raw_content.splitlines()
         i = 0
 
@@ -130,13 +132,20 @@ class HLSParser:
                 if typ == "AUDIO":
                     s = self._parse_media_tag(line, "audio", master_drm)
                     if s:
-                        streams.append(s)
-                        logger.info(f"HLS add | {s}")
+                        # Skip duplicates: same STABLE-RENDITION-ID for different CDN pathways
+                        if s.id not in seen_ids:
+                            seen_ids.add(s.id)
+                            streams.append(s)
+                            logger.info(f"HLS add | {s}")
+
                 elif typ == "SUBTITLES":
                     s = self._parse_media_tag(line, "subtitle", master_drm)
                     if s:
-                        streams.append(s)
-                        logger.info(f"HLS add |{s}")
+                        if s.id not in seen_ids:
+                            seen_ids.add(s.id)
+                            streams.append(s)
+                            logger.info(f"HLS add | {s}")
+
                 elif typ == "CLOSED-CAPTIONS":
                     s = self._parse_media_tag(line, "subtitle", master_drm)
                     if s:
@@ -148,8 +157,10 @@ class HLSParser:
                             s.name = f"{s.name} [CC]"
                         elif not s.name:
                             s.name = "[CC]"
-                        streams.append(s)
-                        logger.info(f"HLS add | {s}")
+                        if s.id not in seen_ids:
+                            seen_ids.add(s.id)
+                            streams.append(s)
+                            logger.info(f"HLS add | {s}")
 
             i += 1
 
@@ -157,6 +168,20 @@ class HLSParser:
             streams = self._variant_fallback(streams, master_drm)
 
         return streams
+
+    def parse_variant(self, variant_url: str) -> DRMInfo:
+        """Fetch and parse a variant playlist to find additional DRM info."""
+        try:
+            hdrs = dict(self.headers)
+            hdrs.setdefault("User-Agent", get_headers().get("User-Agent", ""))
+            with create_client(headers=hdrs, timeout=timeout, follow_redirects=True) as c:
+                r = c.get(variant_url)
+                r.raise_for_status()
+                variant_content = r.text
+                return self._parse_drm_tags(variant_content)
+        except Exception as exc:
+            logger.error(f"HLSParser: parse_variant failed for {variant_url}: {exc}")
+            return DRMInfo()
 
     def _parse_stream_inf(self, line: str) -> Stream:
         s = Stream(type="video", format="hls")
@@ -299,57 +324,61 @@ class HLSParser:
         if aes_m:
             info.method = aes_m.group(1)
 
-        fp_skd = re.search(r'#EXT-X-(?:SESSION-)?KEY:.*?URI="(skd://[^"]+)"', content, re.IGNORECASE)
-        if fp_skd:
-            info.drm_type = "FP"
-            info.method = "cbcs"
-            return info
-
-        key_re = re.compile(r'#EXT-X-(?:SESSION-)?KEY:(.*?)URI="(data:[^"]+)"', re.IGNORECASE | re.DOTALL)
-        seen: set = set()
-
+        key_re = re.compile(r'#EXT-X-(?:SESSION-)?KEY:(.*?)URI="([^"]+)"', re.IGNORECASE | re.DOTALL)
+        
         for attrs, full_uri in key_re.findall(content):
             try:
-                b64 = full_uri.split(",", 1)[-1].split(";")[0].split('"')[0].strip()
-                is_wv = "edef8ba9" in attrs.lower() or "edef8ba9" in full_uri.lower() or "widevine" in attrs.lower()
-                is_pr = "9a04f079" in attrs.lower() or "9a04f079" in full_uri.lower() or "playready" in attrs.lower() or "com.microsoft" in attrs.lower()
-                is_fp = "94ce86fb" in attrs.lower() or "94ce86fb" in full_uri.lower() or "fairplay" in attrs.lower() or "com.apple" in attrs.lower()
-                try:
-                    decoded = base64.b64decode(b64)
-                except binascii.Error:
-                    b64c = re.sub(r"[^A-Za-z0-9+/=]", "", b64)
-                    decoded = base64.b64decode(b64c)
-                if b64 in seen:
-                    continue
-                seen.add(b64)
-                if is_fp:
-                    info.set_pssh(b64)
-                    info.drm_type = "FP"
-                    return info
-                try:
-                    from pywidevine.pssh import PSSH
-                    PSSH(decoded)
-                    info.set_pssh(b64)
-                    info.drm_type = "WV"
-                    return info
-                except Exception:
-                    pass
-                if is_wv:
-                    info.set_pssh(b64)
-                    info.drm_type = "WV"
-                    return info
-                try:
-                    from pyplayready.system.pssh import PSSH as PR_PSSH
-                    PR_PSSH(decoded)
-                    info.set_pssh(b64)
-                    info.drm_type = "PR"
-                    return info
-                except Exception:
-                    pass
-                if is_pr:
-                    info.set_pssh(b64)
-                    info.drm_type = "PR"
-                    return info
+                if full_uri.startswith("data:"):
+                    b64 = full_uri.split(",", 1)[-1].strip()
+                    b64 = b64.split(";")[0].split('"')[0].strip()
+                    
+                    try:
+                        decoded = base64.b64decode(b64)
+                    except binascii.Error:
+                        b64c = re.sub(r"[^A-Za-z0-9+/=]", "", b64)
+                        while len(b64c) % 4 != 0:
+                            b64c += "="
+                        decoded = base64.b64decode(b64c)
+
+                    # Check if it's JSON (Apple style)
+                    try:
+                        js = json.loads(decoded)
+                        key_list = []
+                        if isinstance(js, list):
+                            key_list = js
+
+                        for k in key_list:
+                            sys = (k.get("system") or k.get("keyformat") or "").lower()
+                            pssh = k.get("pssh")
+                            kid = k.get("id")
+                            
+                            if "widevine" in sys:
+                                if pssh: info.set_pssh(pssh, "WV")
+                            elif "playready" in sys:
+                                if pssh: info.set_pssh(pssh, "PR")
+                            elif "streamingkeydelivery" in sys or "fairplay" in sys:
+                                info.method = "SAMPLE-AES"
+                                uri = k.get("uri")
+                                if uri:
+                                    info.set_pssh(uri, "FP")
+                            
+                            if kid and not info.kid:
+                                info.kid = kid
+                    except (json.JSONDecodeError, TypeError, AttributeError):
+                        is_wv = "edef8ba9" in attrs.lower() or "edef8ba9" in full_uri.lower() or "widevine" in attrs.lower()
+                        is_pr = "9a04f079" in attrs.lower() or "9a04f079" in full_uri.lower() or "playready" in attrs.lower() or "com.microsoft" in attrs.lower()
+                        
+                        if is_wv:
+                            info.set_pssh(b64, "WV")
+                        elif is_pr:
+                            info.set_pssh(b64, "PR")
+                        else:
+                            info.set_pssh(b64)
+
+                elif full_uri.startswith("skd:"):
+                    info.method = "SAMPLE-AES"
+                    info.set_pssh(full_uri, "FP")
+
             except Exception as exc:
                 logger.error(f"HLSParser DRM probe error: {exc}")
 
@@ -360,12 +389,18 @@ class HLSParser:
         if not self.raw_content:
             return result
         info = self._parse_drm_tags(self.raw_content)
-        if info.drm_type == "WV" and info.pssh:
-            result["widevine"].append({"pssh": info.pssh, "type": "Widevine"})
-        elif info.drm_type == "PR" and info.pssh:
-            result["playready"].append({"pssh": info.pssh, "type": "PlayReady"})
-        elif info.drm_type == "FP" and info.pssh:
-            result["fairplay"].append({"pssh": info.pssh, "type": "FairPlay"})
+        pssh_wv = info.get_pssh_for("WV")
+        if pssh_wv:
+            result["widevine"].append({"pssh": pssh_wv, "type": "Widevine", "kid": info.kid})
+    
+        pssh_pr = info.get_pssh_for("PR")
+        if pssh_pr:
+            result["playready"].append({"pssh": pssh_pr, "type": "PlayReady", "kid": info.kid})
+
+        pssh_fp = info.get_pssh_for("FP")
+        if pssh_fp:
+            result["fairplay"].append({"uri": pssh_fp, "type": "FairPlay", "kid": info.kid})
+            
         return result
 
     @staticmethod

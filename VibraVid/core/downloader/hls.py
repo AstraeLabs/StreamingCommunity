@@ -101,14 +101,32 @@ class HLS_Downloader(BaseDownloader):
             {
               'WV': [{'pssh': '...', 'kid': '...', 'type': 'Widevine'}, ...],
               'PR': [{'pssh': '...', 'kid': '...', 'type': 'PlayReady'}, ...],
+              'FP': [{'uri': '...', 'kid': '...', 'type': 'FairPlay'}, ...],
             }
         """
-        result: Dict[str, List[Dict]] = {"WV": [], "PR": []}
-        seen: Dict[str, set] = {"WV": set(), "PR": set()}
+        result: Dict[str, List[Dict]] = {"WV": [], "PR": [], "FP": []}
+        seen: Dict[str, set] = {"WV": set(), "PR": set(), "FP": set()}
 
         for s in streams:
+            if not getattr(s, "selected", False):
+                continue
+            
             drm = getattr(s, "drm", None)
-            if not (getattr(s, "selected", False) and drm and drm.is_encrypted()):
+            
+            # Sub-parse variant if no DRM found yet and variant URL exists
+            if not (drm and drm.is_encrypted()) and s.playlist_url:
+                try:
+                    from VibraVid.core.manifest.m3u8 import HLSParser
+                    parser = HLSParser(self.m3u8_url, self.headers)
+                    variant_drm = parser.parse_variant(s.playlist_url)
+                    if variant_drm and variant_drm.is_encrypted():
+                        s.drm = variant_drm
+                        drm = variant_drm
+                        logger.info(f"Found DRM info in variant playlist: {s.playlist_url}")
+                except Exception as exc:
+                    logger.error(f"Failed to sub-parse variant {s.playlist_url} for DRM: {exc}")
+
+            if not (drm and drm.is_encrypted()):
                 continue
 
             for dt in drm.get_all_drm_types():  # 'WV', 'PR', 'FP', 'UNK'
@@ -123,13 +141,13 @@ class HLS_Downloader(BaseDownloader):
                     or getattr(drm, "default_kid", None)
                     or "N/A"
                 )
-                result[dt].append(
-                    {
-                        "pssh": pssh,
-                        "kid": kid,
-                        "type": "Widevine" if dt == "WV" else "PlayReady",
-                    }
-                )
+                
+                entry = {
+                    "pssh" if dt != "FP" else "uri": pssh,
+                    "kid": kid,
+                    "type": "Widevine" if dt == "WV" else ("PlayReady" if dt == "PR" else "FairPlay"),
+                }
+                result[dt].append(entry)
 
         return result
 
@@ -138,7 +156,7 @@ class HLS_Downloader(BaseDownloader):
         Fallback: run M3U8Parser on the saved raw manifest to find PSSH data.
         Imported lazily — if the parser is unavailable the method returns {} gracefully.
         """
-        result: Dict[str, List[Dict]] = {"WV": [], "PR": []}
+        result: Dict[str, List[Dict]] = {"WV": [], "PR": [], "FP": []}
         try:
             from VibraVid.core.manifest.m3u8 import HLSParser as M3U8Parser
 
@@ -148,24 +166,14 @@ class HLS_Downloader(BaseDownloader):
                     content = f.read()
 
             parser = M3U8Parser(self.m3u8_url, self.headers, content=content)
-            drm_info = (parser.get_drm_info())  # → {'widevine': [...], 'playready': [...]}
+            drm_info = (parser.get_drm_info())  # → {'widevine': [...], 'playready': [...], 'fairplay': [...]}
 
             for entry in drm_info.get("widevine", []):
-                result["WV"].append(
-                    {
-                        "pssh": entry["pssh"],
-                        "kid": "N/A",
-                        "type": "Widevine",
-                    }
-                )
+                result["WV"].append({"pssh": entry["pssh"], "kid": entry.get("kid", "N/A"), "type": "Widevine"})
             for entry in drm_info.get("playready", []):
-                result["PR"].append(
-                    {
-                        "pssh": entry["pssh"],
-                        "kid": "N/A",
-                        "type": "PlayReady",
-                    }
-                )
+                result["PR"].append({"pssh": entry["pssh"], "kid": entry.get("kid", "N/A"), "type": "PlayReady"})
+            for entry in drm_info.get("fairplay", []):
+                result["FP"].append({"uri": entry["uri"], "kid": entry.get("kid", "N/A"), "type": "FairPlay"})
         except Exception as exc:
             logger.error(f"_collect_drm_from_m3u8 error: {exc}")
 

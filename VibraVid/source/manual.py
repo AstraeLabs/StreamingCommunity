@@ -192,15 +192,33 @@ def _binary_merge(paths: List[Path], output_path: Path) -> None:
 
 
 def _fmt_size(nb: int) -> str:
-    if nb >= 1_048_576:
+    """Format bytes into human-readable size with proper units (B, KB, MB, GB)."""
+    if nb >= 1_073_741_824:  # >= 1 GB
+        return f"{nb / 1_073_741_824:.2f}GB"
+    if nb >= 1_048_576:  # >= 1 MB
         return f"{nb / 1_048_576:.1f}MB"
-    return f"{nb / 1024:.0f}KB"
+    if nb >= 1_024:  # >= 1 KB
+        return f"{nb / 1024:.0f}KB"
+    return f"{nb}B"
 
 
 def _fmt_speed(bps: float) -> str:
-    if bps >= 1_048_576:
-        return f"{bps / 1_048_576:.2f}MBps"
-    return f"{bps / 1024:.0f}KBps"
+    """Format bytes per second into human-readable speed (B/s, KB/s, MB/s, GB/s)."""
+    if bps == 0:
+        return "---"
+    if bps >= 1_048_576:  # >= 1 MB/s
+        return f"{bps / 1_048_576:.2f}MB/s"
+    if bps >= 1_024:  # >= 1 KB/s
+        return f"{bps / 1024:.0f}KB/s"
+    return f"{bps:.0f}B/s"
+
+
+def _estimate_total_size(completed: int, done_segs: int, total_segs: int) -> int:
+    """Estimate total download size based on completed bytes and segment progress."""
+    if done_segs <= 0 or total_segs <= 0:
+        return completed
+    avg_seg_size = completed / done_segs
+    return int(avg_seg_size * total_segs)
 
 
 def _download_segments_threaded(segments: List[Dict], out_dir: Path, headers: Dict, concurrency: int = 8, progress_cb=None,
@@ -230,6 +248,7 @@ def _download_segments_threaded(segments: List[Dict], out_dir: Path, headers: Di
     done_count = 0
     total_bytes = 0
     t_start = time.monotonic()
+    last_progress_cb_time = t_start  # Throttle progress callbacks to 100ms
 
     # Per-worker state table — watchdog reads this without holding any lock
     # Values: "idle" | "connecting:N" | "reading:N" | "decrypting:N" | "writing:N" | "done"
@@ -362,13 +381,18 @@ def _download_segments_threaded(segments: List[Dict], out_dir: Path, headers: Di
                         nb = len(data)
 
                         with lock:
+                            nonlocal last_progress_cb_time
                             results[num]  = seg_path
                             done_count   += 1
                             total_bytes  += nb
                             elapsed_total = max(time.monotonic() - t_start, 0.001)
                             speed = total_bytes / elapsed_total
-                            if progress_cb:
+                            
+                            # Throttle progress callbacks to 100ms to reduce UI redraw overhead
+                            now = time.monotonic()
+                            if progress_cb and (now - last_progress_cb_time) >= 0.1:
                                 progress_cb(done_count, total, total_bytes, speed)
+                                last_progress_cb_time = now
 
                         worker_state[wid] = "idle"
                         break  # success
@@ -430,6 +454,13 @@ def _download_segments_threaded(segments: List[Dict], out_dir: Path, headers: Di
             w.join(timeout=0.25)
 
     watchdog_stop.set()
+
+    # Final progress callback to ensure last update is displayed (bypass throttle)
+    with lock:
+        elapsed = time.monotonic() - t_start
+        speed = total_bytes / max(elapsed, 0.001)
+        if progress_cb:
+            progress_cb(done_count, total, total_bytes, speed)
 
     elapsed = time.monotonic() - t_start
     logger.info(f"[DL] finished — {len(results)}/{total} segs  {_fmt_size(total_bytes)}  {elapsed:.1f}s  avg {_fmt_speed(total_bytes / max(elapsed, 0.001))}")
@@ -767,6 +798,55 @@ class MediaDownloader:
         else:
             self._download_dash_stream(stream, bar_manager)
 
+    def _download_stream_generic(self, dl_segs: List[Dict], stream: Stream, protocol: str, default_ext: str, bar_manager: DownloadBarManager) -> None:
+        """
+        Generic download handler for HLS and DASH streams.
+        
+        Parameters:
+            dl_segs: List of segment dicts with 'url', 'number', 'enc'
+            stream: Stream object
+            protocol: 'hls' or 'dash'
+            default_ext: Default file extension if detection fails
+            bar_manager: Progress bar manager
+        """
+        task_key = self._stream_task_key(stream)
+        total = len(dl_segs)
+        stream_dir = self._make_stream_dir(stream, protocol)
+        all_headers = self._build_headers()
+        key_cache: Dict[str, bytes] = {}
+
+        def _progress(done: int, total_: int, total_bytes: int, speed_bps: float) -> None:
+            pct = int((done / total_) * 100) if total_ else 0
+            estimated_total = _estimate_total_size(total_bytes, done, total_) if done > 0 else total_bytes
+            size_display = f"{_fmt_size(total_bytes)}/{_fmt_size(estimated_total)}" if done < total_ else f"{_fmt_size(total_bytes)}/{_fmt_size(total_bytes)}"
+            bar_manager.handle_progress_line(
+                {
+                    "_task_key": task_key,
+                    "pct":       pct,
+                    "segments":  f"{done}/{total_}",
+                    "size":      size_display,
+                    "speed":     _fmt_speed(speed_bps),
+                }
+            )
+
+        paths = self._run_dl(dl_segs, stream_dir, all_headers, key_cache, _progress)
+        if self._stop_check() or not paths:
+            return
+
+        sample_url = dl_segs[0]["url"] if dl_segs else ""
+        ext = _detect_seg_ext(sample_url, default=default_ext)
+        if ext == "m4s":
+            ext = "mp4"
+
+        out_path = self.output_dir / self._out_filename(stream, ext)
+        _binary_merge(paths, out_path)
+
+        if out_path.exists():
+            logger.info(f"{protocol.upper()} merged {len(paths):>4} segs -> {out_path.name}  ({out_path.stat().st_size // 1024} KB)")
+            _progress(total, total, out_path.stat().st_size, 0.0)
+        else:
+            logger.error(f"{protocol.upper()} binary merge produced empty file: {out_path}")
+
     def _download_hls_stream(self, stream: Stream, bar_manager: DownloadBarManager) -> None:
         task_key     = self._stream_task_key(stream)
         playlist_url = stream.playlist_url
@@ -804,46 +884,9 @@ class MediaDownloader:
                 }
             )
 
-        total = len(dl_segs)
-        stream_dir = self._make_stream_dir(stream, "hls")
-        key_cache: Dict[str, bytes] = {}
-
-        def _progress(done: int, total_: int, total_bytes: int, speed_bps: float) -> None:
-            pct = int((done / total_) * 100) if total_ else 0
-            bar_manager.handle_progress_line(
-                {
-                    "_task_key": task_key,
-                    "pct":       pct,
-                    "segments":  f"{done}/{total_}",
-                    "size":      _fmt_size(total_bytes),
-                    "speed":     _fmt_speed(speed_bps),
-                }
-            )
-
-        paths = self._run_dl(dl_segs, stream_dir, all_headers, key_cache, _progress)
-        if self._stop_check() or not paths:
-            return
-
-        sample_url = init_url or (media_segs[0]["url"] if media_segs else "")
-        ext = _detect_seg_ext(sample_url, default="ts")
-        if ext == "m4s":
-            ext = "mp4"
-
-        out_path = self.output_dir / self._out_filename(stream, ext)
-        _binary_merge(paths, out_path)
-
-        if out_path.exists():
-            logger.info(
-                f"HLS merged {len(paths):>4} segs -> {out_path.name}"
-                f"  ({out_path.stat().st_size // 1024} KB)"
-            )
-            _progress(total, total, out_path.stat().st_size, 0.0)
-        else:
-            logger.error(f"HLS binary merge produced empty file: {out_path}")
+        self._download_stream_generic(dl_segs, stream, "hls", "ts", bar_manager)
 
     def _download_dash_stream(self, stream: Stream, bar_manager: DownloadBarManager) -> None:
-        task_key = self._stream_task_key(stream)
-
         if not stream.segments:
             logger.error(f"DASH stream has no segments: {stream}")
             return
@@ -853,42 +896,7 @@ class MediaDownloader:
             for idx, seg in enumerate(stream.segments)
         ]
 
-        total       = len(dl_segs)
-        stream_dir  = self._make_stream_dir(stream, "dash")
-        all_headers = self._build_headers()
-
-        def _progress(done: int, total_: int, total_bytes: int, speed_bps: float) -> None:
-            pct = int((done / total_) * 100) if total_ else 0
-            bar_manager.handle_progress_line(
-                {
-                    "_task_key": task_key,
-                    "pct":       pct,
-                    "segments":  f"{done}/{total_}",
-                    "size":      _fmt_size(total_bytes),
-                    "speed":     _fmt_speed(speed_bps),
-                }
-            )
-
-        paths = self._run_dl(dl_segs, stream_dir, all_headers, {}, _progress)
-        if self._stop_check() or not paths:
-            return
-
-        sample_url = stream.segments[0].url if stream.segments else ""
-        ext = _detect_seg_ext(sample_url, default="mp4")
-        if ext in ("m4s", "ts"):
-            ext = "mp4"
-
-        out_path = self.output_dir / self._out_filename(stream, ext)
-        _binary_merge(paths, out_path)
-
-        if out_path.exists():
-            logger.info(
-                f"DASH merged {len(paths):>4} segs -> {out_path.name}"
-                f"  ({out_path.stat().st_size // 1024} KB)"
-            )
-            _progress(total, total, out_path.stat().st_size, 0.0)
-        else:
-            logger.error(f"DASH binary merge produced empty file: {out_path}")
+        self._download_stream_generic(dl_segs, stream, "dash", "mp4", bar_manager)
 
     def _run_dl(self, segs: List[Dict], out_dir: Path, headers: Dict, key_cache: Dict, progress_cb) -> List[Path]:
         """Download segments via queue-based thread pool (one session per worker)."""

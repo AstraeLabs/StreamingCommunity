@@ -270,6 +270,51 @@ def get_short_codec(stream_type: str, codec_str: str) -> str:
     """Return human-readable codec name given a stream type and codec string."""
     if not codec_str:
         return ""
+    
+    # Check if it's a composite codec string (contains comma)
+    if ',' in codec_str:
+        codec_parts = [part.strip() for part in codec_str.split(',')]
+        
+        # Convert each codec based on its detected type
+        converted: list[str] = []
+        seen_set: set[str] = set()
+        
+        for part in codec_parts:
+            detected_type = detect_stream_type(part)
+            
+            # Choose the appropriate codec map
+            if detected_type == "video":
+                codec_map = VIDEO_CODEC_MAP
+            elif detected_type == "audio":
+                codec_map = AUDIO_CODEC_MAP
+            elif detected_type == "subtitle":
+                codec_map = SUBTITLE_CODEC_MAP
+            else:
+                # Fallback: try the requested type
+                t = stream_type.lower()
+                if t == "video":
+                    codec_map = VIDEO_CODEC_MAP
+                elif t == "audio":
+                    codec_map = AUDIO_CODEC_MAP
+                elif t in ("subtitle", "text"):
+                    codec_map = SUBTITLE_CODEC_MAP
+                else:
+                    codec_map = VIDEO_CODEC_MAP
+            
+            # Translate the codec
+            translated = _lookup(codec_map, part)
+            
+            # Avoid duplicates (e.g., multiple "H.265" entries)
+            if translated and translated not in seen_set:
+                converted.append(translated)
+                seen_set.add(translated)
+        
+        # If all conversions succeeded, return joined result
+        if converted:
+            return ", ".join(converted)
+        return codec_str
+    
+    # Single codec - use original logic
     t = stream_type.lower()
     if t == "video":
         return _lookup(VIDEO_CODEC_MAP, codec_str)
