@@ -4,6 +4,7 @@ import os
 import sys
 import stat
 import json
+import logging
 import importlib.metadata
 
 from rich.console import Console
@@ -21,6 +22,7 @@ if get_is_binary_installation():
 else:
     base_path = os.path.dirname(__file__)
 console = Console()
+logger = logging.getLogger(__name__)
 auto_update_check = config_manager.config.get_bool("DEFAULT", "auto_update_check")
 timeout = config_manager.config.get_int("REQUESTS", "timeout")
 
@@ -158,13 +160,14 @@ def update():
     # Get country code
     country_code = None
     try:
-        CACHE_FILE = os.path.join(os.getcwd(), ".cache", "ip.json")
+        CACHE_FILE = os.path.join(config_manager.base_path, ".cache", "ip.json")
         if os.path.exists(CACHE_FILE):
             data_json = json.load(open(CACHE_FILE, "r"))
             country_code = data_json.get("country_code")
     except Exception:
         pass
-
+    
+    logger.info(f"Execution mode: {get_execution_mode()}, System: {binary_paths._detect_system()}, Version: {current_version}, Latest: {last_version}, Country: {country_code}")
     console.print(
         f"\n[#FFD60A]{get_execution_mode()} [white]- [#E63946]{binary_paths._detect_system()} [white]- [#06A77D]Version: [#FFD60A]{current_version} [white]- [#E63946]Country: [#FFD60A]{country_code if country_code else 'None'}"
         f"\n"

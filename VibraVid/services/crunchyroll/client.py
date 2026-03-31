@@ -52,8 +52,7 @@ class CrunchyrollClient:
     @staticmethod
     def _resolve_token_cache_path() -> str:
         """Resolve absolute path for token cache file - always enabled."""
-        base_dir = os.getcwd()
-        path = os.path.join(base_dir, ".cache", "crunchyroll_token.json")
+        path = os.path.join(config_manager.base_path, ".cache", "crunchyroll_token.json")
         return path
 
     @staticmethod

@@ -13,7 +13,7 @@ tubi_email = config_manager.login.get('tubi', 'email')
 tubi_password = config_manager.login.get('tubi', 'password')
 
 _cached_token = None
-CACHE_FILE = os.path.join(os.getcwd(), ".cache", "tubi_token.json")
+CACHE_FILE = os.path.join(config_manager.base_path, ".cache", "tubi_token.json")
 
 
 def generate_device_id():

@@ -1,5 +1,6 @@
 # 29.01.24
 
+import os
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -13,8 +14,9 @@ def setup_logger(name=None):
     """
     global _log_file
     
-    # 1. Prepare directories
-    cache_dir = Path(".cache")
+    # 1. Prepare directories - use app installation path, not current working directory
+    app_base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    cache_dir = Path(os.path.join(app_base_path, ".cache"))
     log_dir = cache_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 

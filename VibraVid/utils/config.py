@@ -173,12 +173,26 @@ def save_config_compact(data, f):
 class ConfigManager:
     def __init__(self) -> None:
         """Initialize the ConfigManager with caching."""
-        
         self.base_path = None
+        
+        # Strategy 1: PyInstaller binary
         if getattr(sys, 'frozen', False):
-            self.base_path = os.path.dirname(sys.executable)  # PyInstaller
+            self.base_path = os.path.dirname(sys.executable)
+            logger.info("Running in PyInstaller binary mode, base path set: " + self.base_path)
         else:
-            self.base_path = os.getcwd()
+            # Strategy 2: Try to find Conf in source directory (development mode)
+            package_base = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+            package_conf = os.path.join(package_base, 'Conf')
+            logger.info(f"Checking for Conf directory in package base: {package_conf}")
+            
+            if os.path.exists(package_conf):
+                self.base_path = package_base
+                logger.info("Found Conf directory in package base, base path set: " + self.base_path)
+            else:
+                # Strategy 3: pip install without -e: use current working directory
+                # This allows users to place Conf in their working directory
+                self.base_path = os.getcwd()
+                logger.info("Conf directory not found in package, using current working directory as base path: " + self.base_path)
             
         # Initialize conf directory path
         self.conf_path = os.path.join(self.base_path, 'Conf')

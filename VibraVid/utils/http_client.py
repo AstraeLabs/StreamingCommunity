@@ -1,6 +1,6 @@
 # 09.08.25
 
-
+import os
 import logging
 import asyncio
 from contextlib import asynccontextmanager
@@ -223,28 +223,9 @@ def get_headers() -> dict:
     return ua.headers.get()
 
 
-def get_local_ip():
-    """Get the local IP address of the machine without making external requests."""
-    try:
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        # doesn't even have to be reachable
-        s.connect(('8.8.8.8', 1))
-        local_ip = s.getsockname()[0]
-        s.close()
-        return local_ip
-    
-    except Exception:
-        try:
-            import socket
-            return socket.gethostbyname(socket.gethostname())
-        except Exception:
-            return '127.0.0.1'
-
-
 def get_my_location():
-    local_ip = get_local_ip()
+    cache_dir = os.path.join(config_manager.base_path, ".cache")
+    cache_file = os.path.join(cache_dir, "ip.json")
     
     try:
         url = 'http://ip-api.com/json/?fields=status,country,countryCode,city,query'
@@ -252,14 +233,25 @@ def get_my_location():
         data = response.json()
         
         if data.get('status') == 'success':
-            location = {'country': data['country'], 'country_code': data['countryCode'], 'city': data['city'], 'ip': data['query'], 'local_ip': local_ip}
+            location = {'country': data['country'], 'country_code': data['countryCode'], 'city': data['city'], 'ip': data['query']}
+            
+            # Save to cache
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    import json
+                    json.dump(location, f, indent=4)
+                logger.info(f"Location data cached to {cache_file}")
+            except Exception as e:
+                logger.warning(f"Could not cache location data: {e}")
+                
             return location
         
-        # Fallback to local IP if API fails
-        return {'status': 'fail', 'country_code': 'XX', 'ip': local_ip, 'local_ip': local_ip}
+        # Fallback if API fails
+        return {'status': 'fail', 'country_code': 'XX', 'ip': '0.0.0.0'}
     
     except Exception as e:
-        return {'status': 'fail', 'country_code': 'XX', 'ip': local_ip, 'local_ip': local_ip, 'error': str(e)}
+        return {'status': 'fail', 'country_code': 'XX', 'ip': '0.0.0.0', 'error': str(e)}
 
 
 def check_region_availability(allowed_regions: list, site_name: str) -> bool:
@@ -267,13 +259,18 @@ def check_region_availability(allowed_regions: list, site_name: str) -> bool:
         logger.info(f"Checking region availability for {site_name}...")
         location = get_my_location()
         if location.get('status') == 'fail' or 'error' in location:
+            logger.warning(f"Region check skipped or failed for {site_name}: {location.get('error', 'Unknown error')}")
             return True
             
         current_country = location.get('country_code')
+        logger.info(f"Current detected region: {current_country}")
+        
         if current_country and current_country not in allowed_regions:
             print(f"Site: {site_name} is not available in your region ({current_country}).")
             logger.error(f"Site: {site_name}, unavailable outside {', '.join(allowed_regions)}.")
             return False
+        
+        logger.info(f"Region check passed for {site_name} ({current_country})")
         
     except Exception as e:
         logger.error(f"Region check failed: {e}")
