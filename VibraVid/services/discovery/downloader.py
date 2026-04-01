@@ -23,30 +23,30 @@ extension_output = config_manager.config.get("PROCESS", "extension")
 
 def download_episode(obj_episode, index_season_selected, index_episode_selected, scrape_serie):
     """
-    Downloads a specific episode from the specified season.
+    Downloads a specific episode using the authenticated playback info.
     """
     start_message()
     client = get_client()
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
-    
+
     # Define output path
-    path_components, filename = map_episode_path(scrape_serie.series_name, getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
+    path_components, filename = map_episode_path(scrape_serie.series_name,getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
     episode_path = os_manager.get_sanitize_path(os.path.join(site_constants.SERIES_FOLDER, *path_components))
     episode_name = f"{filename}.{extension_output}"
-    
-    # Get playback information using the new client
+
+    # Get playback info
     playback_info = client.get_playback_info(obj_episode.id)
-    license_headers = client.generate_license_headers(playback_info['license_token']) if playback_info.get('license_token') else {}
-    
+
     return DASH_Downloader(
         mpd_url=playback_info['manifest'],
         license_url=playback_info['license'],
-        license_headers=license_headers,
+        license_headers=playback_info.get('license_headers', {}),
         output_path=os.path.join(episode_path, episode_name),
-        drm_preference="widevine" if "widevine" in playback_info['license'].lower() else "playready"
+        drm_preference="playready"
     ).start()
 
-def download_series(select_season: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie = None) -> None:
+
+def download_series(select_season: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie=None) -> None:
     """
     Handle downloading a complete series
     
@@ -61,13 +61,12 @@ def download_series(select_season: Entries, season_selection: str = None, episod
         scrape_serie = GetSerieInfo(select_season.id)
         scrape_serie.getNumberSeason()
     seasons_count = len(scrape_serie.seasons_manager)
-    
+
     def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
         """Callback to handle episode downloads for a specific season"""
-        
         def download_video_callback(obj_episode, season_idx, episode_idx):
             return download_episode(obj_episode, season_idx, episode_idx, scrape_serie)
-        
+
         process_episode_download(
             index_season_selected=season_number,
             scrape_serie=scrape_serie,

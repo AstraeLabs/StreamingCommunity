@@ -221,6 +221,17 @@ def _estimate_total_size(completed: int, done_segs: int, total_segs: int) -> int
     return int(avg_seg_size * total_segs)
 
 
+def _split_http_ranges(total_size: int, chunk_size: int) -> List[Tuple[int, int]]:
+    """Split a content-length into inclusive byte ranges."""
+    ranges: List[Tuple[int, int]] = []
+    start = 0
+    while start < total_size:
+        end = min(start + chunk_size - 1, total_size - 1)
+        ranges.append((start, end))
+        start = end + 1
+    return ranges
+
+
 def _download_segments_threaded(segments: List[Dict], out_dir: Path, headers: Dict, concurrency: int = 8, progress_cb=None,
     stop_check=None, retry: int = 3, timeout_s: int = 30, key_cache: Optional[Dict[str, bytes]] = None,
 ) -> List[Path]:
@@ -355,9 +366,9 @@ def _download_segments_threaded(segments: List[Dict], out_dir: Path, headers: Di
                         # stream=True only enforces it on the TCP connect, which
                         # is why every worker froze after ~4 s on stalled reads.
                         worker_state[wid] = f"connecting:{num}:{t_seg:.3f}"
-                        logger.info(f"W{wid} seg {num} attempt {attempt+1}/{retry} GET {url[:80]}")
-
-                        resp = client.get(url)
+                        logger.info(f"W{wid} seg {num} attempt {attempt+1}/{retry} GET: {url}")
+                        req_headers = seg.get("headers") or None
+                        resp = client.get(url, headers=req_headers)
                         resp.raise_for_status()
                         data = resp.content
 
@@ -890,12 +901,62 @@ class MediaDownloader:
             logger.error(f"DASH stream has no segments: {stream}")
             return
 
-        dl_segs: List[Dict] = [
-            {"url": seg.url, "number": idx, "enc": {"method": "NONE"}}
-            for idx, seg in enumerate(stream.segments)
-        ]
+        all_headers = self._build_headers()
+        chunk_size = 8 * 1024 * 1024
+        chunk_size = max(chunk_size, 1 * 1024 * 1024)
+
+        media_segments = [s for s in stream.segments if s.seg_type == "media"]
+        is_single_file_media = len(media_segments) == 1
+
+        dl_segs: List[Dict] = []
+        next_num = 0
+        for seg in stream.segments:
+            # For single-file DASH (SegmentBase), split media file in byte ranges so
+            # progress/ETA updates while downloading instead of jumping from 0/1 to done.
+            if is_single_file_media and seg.seg_type == "media":
+                ranged = self._build_dash_ranged_segments(seg.url, all_headers, chunk_size)
+                if ranged:
+                    for part in ranged:
+                        part["number"] = next_num
+                        dl_segs.append(part)
+                        next_num += 1
+                    continue
+
+            dl_segs.append({"url": seg.url, "number": next_num, "enc": {"method": "NONE"}})
+            next_num += 1
 
         self._download_stream_generic(dl_segs, stream, "dash", "mp4", bar_manager)
+
+    def _build_dash_ranged_segments(self, media_url: str, headers: Dict, chunk_size: int) -> List[Dict]:
+        """Return synthetic DASH chunk segments using HTTP Range, when supported."""
+        try:
+            with create_client(headers=headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
+                r = c.head(media_url)
+                r.raise_for_status()
+
+            content_len = int((r.headers.get("content-length") or "0").strip() or "0")
+            accept_ranges = (r.headers.get("accept-ranges") or "").lower()
+
+            if content_len <= chunk_size or "bytes" not in accept_ranges:
+                return []
+
+            ranges = _split_http_ranges(content_len, chunk_size)
+            logger.info(
+                f"DASH range-split | url={media_url} | size={content_len} | chunk={chunk_size} | parts={len(ranges)}"
+            )
+
+            return [
+                {
+                    "url": media_url,
+                    "number": 0,
+                    "enc": {"method": "NONE"},
+                    "headers": {"Range": f"bytes={start}-{end}"},
+                }
+                for start, end in ranges
+            ]
+        except Exception as exc:
+            logger.info(f"DASH range-split skipped for {media_url}: {exc}")
+            return []
 
     def _run_dl(self, segs: List[Dict], out_dir: Path, headers: Dict, key_cache: Dict, progress_cb) -> List[Path]:
         """Download segments via queue-based thread pool (one session per worker)."""

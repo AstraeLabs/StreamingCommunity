@@ -117,6 +117,16 @@ def _is_ad_period(period_url: str, period_element) -> bool:
     return False
 
 
+def _is_file_url(url: str) -> bool:
+    """Best-effort detection for URLs that point to a file instead of a directory."""
+    try:
+        path = (urlparse(url).path or "").rstrip("/")
+        tail = path.rsplit("/", 1)[-1]
+        return bool(tail and "." in tail)
+    except Exception:
+        return False
+
+
 
 class DashParser:
     """
@@ -222,7 +232,7 @@ class DashParser:
                         logger.info(f"DASH stream skipped (advertisement) | id={rep_id!r} period={period_idx} url={rep_base_url}")
                         continue
                     
-                    s = self._parse_representation(rep, adapt, stype, adapt_drm, global_duration or period_duration, period_start, rep_base_url)
+                    s = self._parse_representation(rep, adapt, stype, adapt_drm, global_duration or period_duration, period_start, adapt_base_url)
                     if s is None:
                         continue
 
@@ -241,6 +251,7 @@ class DashParser:
         rep_id = rep.get("id", "")
         bandwidth = int(rep.get("bandwidth", 0))
         avg_bw = int(rep.get("averageBandwidth", 0)) or int(adapt.get("averageBandwidth", 0))
+        rep_base_url = self._resolve_element_base_url(rep, base_url)
 
         s = Stream(type=stype, id=rep_id, format="dash")
         s.bitrate = bandwidth
@@ -284,13 +295,18 @@ class DashParser:
         tmpl = rep.find("mpd:SegmentTemplate", _NS) or adapt.find("mpd:SegmentTemplate", _NS)
         seg_list = rep.find("mpd:SegmentList", _NS) or adapt.find("mpd:SegmentList", _NS)
         if tmpl is not None:
-            self._apply_segment_template(tmpl, rep_id, s, period_start, base_url)
+            self._apply_segment_template(tmpl, rep_id, s, period_start, rep_base_url)
         elif seg_list is not None:
-            self._apply_segment_list(seg_list, s, base_url)
+            self._apply_segment_list(seg_list, s, rep_base_url)
         else:
             rep_base = rep.find("mpd:BaseURL", _NS)
             if rep_base is not None and rep_base.text:
-                s.add_segment(Segment(urljoin(base_url, rep_base.text.strip()), 0, "media"))
+                rep_rel = rep_base.text.strip()
+                if rep_base_url.rstrip("/").endswith(rep_rel):
+                    media_url = rep_base_url.rstrip("/")
+                else:
+                    media_url = urljoin(rep_base_url, rep_rel)
+                s.add_segment(Segment(media_url, 0, "media"))
 
         return s
 
@@ -463,7 +479,9 @@ class DashParser:
         base_el = element.find("mpd:BaseURL", _NS)
         if base_el is not None and base_el.text and base_el.text.strip():
             resolved = urljoin(parent_base, base_el.text.strip())
-            return resolved if resolved.endswith("/") else resolved + "/"
+            if resolved.endswith("/") or not _is_file_url(resolved):
+                return resolved if resolved.endswith("/") else resolved + "/"
+            return resolved
         return parent_base
 
     

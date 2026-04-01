@@ -67,7 +67,7 @@ def get_browser_impersonate(browser: str = "chrome") -> str:
 
 def create_client(*, 
     headers: Optional[Dict[str, str]] = None, cookies: Optional[Dict[str, str]] = None, timeout: Optional[Union[int, float]] = None,
-    proxies: Optional[Dict[str, str]] = None, http2: bool = False, follow_redirects: bool = True, browser: str = "chrome",
+    proxies: Optional[Dict[str, str]] = None, http2: bool = False, follow_redirects: bool = True, browser: Optional[str] = "chrome",
 ):
     """
     Factory for a configured curl_cffi session.
@@ -79,7 +79,7 @@ def create_client(*,
         proxies: Optional proxy dict
         http2: Whether to use HTTP/2
         follow_redirects: Whether to follow redirects
-        browser: Browser to impersonate (auto-selects latest version) e.g., 'chrome' -> 'chrome142', 'firefox' -> 'firefox144'
+        browser: Browser to impersonate (auto-selects latest version) e.g., 'chrome' -> 'chrome142'. If None, no impersonation.
     
     Returns:
         Configured requests.Session() from curl_cffi
@@ -88,11 +88,16 @@ def create_client(*,
     session.headers.update(_default_headers(headers))
     if cookies:
         session.cookies.update(cookies)
+        
     session.timeout = timeout if timeout is not None else _get_timeout()
     proxy_value = proxies if proxies is not None else _get_proxies()
+
     if proxy_value:
         session.proxies = proxy_value
-    session.impersonate = get_browser_impersonate(browser)
+    
+    if browser:
+        session.impersonate = get_browser_impersonate(browser)
+
     session.allow_redirects = follow_redirects
     
     return session

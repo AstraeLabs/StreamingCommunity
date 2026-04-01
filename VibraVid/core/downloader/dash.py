@@ -83,8 +83,19 @@ def _filter_subtitles(sub_list: list, filter_str: str) -> list:
         lang_resolved = (s.get("language_resolved") or "").strip().lower()
         lang = (s.get("language") or "").strip().lower()
         
+        # Check exact match first
         if lang_resolved in wanted_locales or lang in wanted_locales:
             filtered.append(s)
+            continue
+        
+        # Check prefix match (e.g., 'it' matches 'it-it', 'ita' matches 'it-any')
+        for token in wanted_locales:
+            if lang_resolved.startswith(token + "-") or lang_resolved == token:
+                filtered.append(s)
+                break
+            if lang.startswith(token + "-") or lang == token:
+                filtered.append(s)
+                break
 
     return filtered
 
@@ -442,10 +453,10 @@ class DASH_Downloader(BaseDownloader):
                 console.print(f"[dim]Adding {len(filtered_subs)} external subtitle(s) (filtered from {len(self.mpd_sub_list)}).")
                 self.media_downloader.external_subtitles = filtered_subs
             else:
-                console.print(f"[dim]No subtitles matched filter '{SUBTITLE_FILTER}'.")
+                console.print(f"[dim]No subtitles matched filter '{SUBTITLE_FILTER}' in {len(self.mpd_sub_list)}.")
 
         if self.mpd_audio_list and AUDIO_FILTER != "false":
-            console.print(f"[dim]Adding {len(self.mpd_audio_list)} external audio(s).")
+            console.print(f"[dim]Adding {len(self.mpd_audio_list)} external audio(s) (filtered from {len(self.mpd_audio_list)}).")
 
         # ── Parse ─────────────────────────────────────────────────────────────
         if self.download_id:

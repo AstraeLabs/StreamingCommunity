@@ -382,7 +382,7 @@ class ConfigManager:
         headers = {"User-Agent": "Mozilla/5.0"}
         try:
             logger.info(f"Fetching site data from GitHub: {DOMAINS_DOWNLOAD_URL}")
-            response = requests.get(DOMAINS_DOWNLOAD_URL, headers=headers)
+            response = requests.get(DOMAINS_DOWNLOAD_URL, headers=headers, timeout=4)
 
             if response.status_code == 200:
                 self._domains_data.clear()

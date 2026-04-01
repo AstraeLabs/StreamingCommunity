@@ -268,19 +268,19 @@ class N3u8dlFormatter(BaseFormatter):
 
     @staticmethod
     def _bw_range(stream) -> Optional[str]:
-        """Return 'bwMin=N:bwMax=N+5' from stream.bitrate (kbps), or None."""
+        """Return 'bwMin=N-10:bwMax=N+10' from stream.bitrate (kbps), or None."""
         bw = _bitrate(stream)
         if not bw:
             return None
         kbps = bw // 1000
-        return f"bwMin={kbps}:bwMax={kbps + 5}"
+        return f"bwMin={kbps - 10}:bwMax={kbps + 10}"
 
     @staticmethod
     def _stream_codecs(stream) -> Optional[str]:
         """Return raw codecs string from stream, or None.
         For video streams, extract only the first codec (video codec, not audio).
         """
-        c = _codecs(stream)
+        c = (getattr(stream, "codecs", "") or "").strip()
         if not c:
             return None
         # For video streams, extract only the video codec (first element before comma)

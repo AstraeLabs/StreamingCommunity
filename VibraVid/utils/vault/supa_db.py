@@ -20,6 +20,7 @@ class ExternalSupaDBVault:
     def __init__(self):
         self.base_url = f"{VAULT_URL}/functions/v1"
         self.headers = {"Content-Type": "application/json"}
+        self.session = create_client(headers=self.headers, http2=True)
 
     def _clean_license_url(self, license_url: str) -> str:
         """Extract base URL from license URL (remove query parameters and fragments)"""
@@ -32,7 +33,7 @@ class ExternalSupaDBVault:
         url = f"{self.base_url}/{endpoint}"
         try:
             logger.info("Post to Supabase endpoint '%s' with payload: %s", endpoint, payload)
-            response = create_client(headers=self.headers).post(url, json=payload)
+            response = self.session.post(url, json=payload)
             response.raise_for_status()
             return response.json()
         except Exception as e:
