@@ -41,17 +41,9 @@ class ExternalSupaDBVault:
             logger.error(f"Supabase request error ({endpoint}): {e}")
             return None
 
-    # --------- SET
     def set_keys(self, keys_list: List[str], drm_type: str, license_url: str, pssh: str, kid_to_label: Optional[dict] = None) -> int:
         """
         Add multiple keys to the vault in a single bulk request.
-
-        Args:
-            keys_list: List of "kid:key" strings
-            drm_type: 'widevine' or 'playready'
-            license_url: Full license URL (will be cleaned server-side)
-            pssh: PSSH string
-            kid_to_label: Optional dict mapping normalised KID → human label
 
         Returns:
             int: Number of keys successfully added
@@ -97,7 +89,6 @@ class ExternalSupaDBVault:
         added = result.get("added", 0)
         return added
 
-    # --------- GET
     def get_keys_by_pssh(self, license_url: str, pssh: str, drm_type: str) -> List[str]:
         """
         Retrieve all keys for a given license URL and PSSH (single request).
@@ -172,4 +163,4 @@ class ExternalSupaDBVault:
 
 
 is_supa_external_db_valid = not (VAULT_URL == "")
-obj_externalSupaDbVault = ExternalSupaDBVault() if is_supa_external_db_valid else None
+supa_vault = ExternalSupaDBVault() if is_supa_external_db_valid else None

@@ -15,7 +15,6 @@ from VibraVid.setup import get_wvd_path, get_prd_path
 from VibraVid.source.style.tracker import download_tracker, context_tracker
 from VibraVid.source.utils.media_players import MediaPlayers
 
-from VibraVid.source.n3u8dl_re import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
 
 from .base import BaseDownloader
@@ -29,6 +28,22 @@ SKIP_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "skip_download")
 _WV = "widevine"
 _PR = "playready"
 
+_DOWNLOADER_N3U8DL = "n3u8dl"
+_DOWNLOADER_MANUAL = "manual"
+_VALID_DOWNLOADERS = (_DOWNLOADER_N3U8DL, _DOWNLOADER_MANUAL)
+DOWNLOAD_PREFERENCE = config_manager.config.get("DOWNLOAD", "preference", default=_DOWNLOADER_N3U8DL)
+
+def _load_media_downloader(preference: str):
+    """Lazily import and return the MediaDownloader class matching *preference*."""
+    if preference == _DOWNLOADER_N3U8DL:
+        from VibraVid.source.n3u8dl_re import MediaDownloader
+        return MediaDownloader
+    elif preference == _DOWNLOADER_MANUAL:
+        from VibraVid.source.manual import MediaDownloader
+        return MediaDownloader
+    else:
+        raise ValueError(f"Unknown downloader_preference {preference!r}. Valid values: {_VALID_DOWNLOADERS}")
+
 
 class HLS_Downloader(BaseDownloader):
     """
@@ -39,7 +54,7 @@ class HLS_Downloader(BaseDownloader):
     1. ``parse_stream()``   — fetch manifest → auto-select → show table
     2. DRM extraction       — read DRMInfo from selected Stream objects (fallback: M3U8Parser scan of the saved raw .m3u8)
     3. Key fetch            — DRMManager → Widevine or PlayReady
-    4. ``start_download()`` — run n3u8dl, decrypt, build status dict
+    4. ``start_download()`` — run n3u8dl / manual, decrypt, build status dict
     5. ``_merge_files()``   — FFmpeg mux
     6. ``_finalize()``      — move, summary, NFO, tracker, cleanup
     """
@@ -67,10 +82,14 @@ class HLS_Downloader(BaseDownloader):
         self.license_headers = license_headers or self.headers
         self.license_certificate = license_certificate
 
-        self.drm_preference = (drm_preference.lower())
+        self.drm_preference = drm_preference.lower()
         self.decrypt_preference = decrypt_preference.lower()
+        self.downloader_preference = DOWNLOAD_PREFERENCE.lower()
         self.key = key
         self.cookies = cookies or {}
+
+        if self.downloader_preference not in _VALID_DOWNLOADERS:
+            raise ValueError(f"Invalid downloader_preference {self.downloader_preference!r}. Valid values: {_VALID_DOWNLOADERS}")
 
         if not output_path:
             output_path = f"download.{EXTENSION_OUTPUT}"
@@ -218,6 +237,10 @@ class HLS_Downloader(BaseDownloader):
             return self.output_path, False
 
         os_manager.create_path(self.output_dir)
+
+        # ── Downloader selection ──────────────────────────────────────────────
+        MediaDownloader = _load_media_downloader(self.downloader_preference)
+        logger.info(f"Using downloader backend: {self.downloader_preference!r}")
 
         self.media_downloader = MediaDownloader(
             url=self.m3u8_url,

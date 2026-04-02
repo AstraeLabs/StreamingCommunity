@@ -71,7 +71,6 @@ class LabDBVault:
                 return resolved
         return kid.replace("-", "").strip().lower()
 
-    # --------- SET
     def set_key(self, kid: str, key: str, drm_type: str, license_url: str, pssh: str = None, label: str = None) -> bool:
         """
         Store a single DRM key in the lab vault.
@@ -90,7 +89,6 @@ class LabDBVault:
         """
         pass
 
-    # --------- GET
     def get_keys_by_pssh(self, license_url: str, pssh: str, drm_type: str) -> List[str]:
         """
         Retrieve all keys for a given license URL and PSSH.
@@ -149,4 +147,4 @@ class LabDBVault:
 
 
 is_lab_db_valid = bool(VAULT_URL and TOKEN)
-obj_labDbVault = LabDBVault() if is_lab_db_valid else None
+lab_vault = LabDBVault() if is_lab_db_valid else None

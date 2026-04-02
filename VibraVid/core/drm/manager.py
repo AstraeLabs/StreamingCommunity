@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from rich.console import Console
 
-from VibraVid.utils.vault import obj_localDbValut, obj_externalSupaDbVault, obj_labDbVault
+from VibraVid.utils.vault import local_vault, supa_vault, lab_vault, claudio_vault
 from VibraVid.source.utils.decrypt import KeysManager
 
 from .playready import get_playready_keys
@@ -19,16 +19,20 @@ logger = logging.getLogger(__name__)
 
 
 class DRMManager:
+    _VAULT_REGISTRY = [
+        ("local",   local_vault),
+        ("claudio", claudio_vault),
+        ("lab",     lab_vault),
+        ("supa",    supa_vault),
+    ]
+
     def __init__(self, widevine_device_path: str = None, playready_device_path: str = None, widevine_remote_cdm_api: list[str] = None, playready_remote_cdm_api: list[str] = None,):
         """Initialize DRM Manager with CDM paths and database connections."""
         self.widevine_device_path = widevine_device_path
         self.playready_device_path = playready_device_path
         self.widevine_remote_cdm_api = widevine_remote_cdm_api
         self.playready_remote_cdm_api = playready_remote_cdm_api
-
-        self.is_local_db_connected = obj_localDbValut is not None
-        self.is_supa_db_connected = obj_externalSupaDbVault is not None
-        self.is_lab_db_connected = obj_labDbVault is not None
+        self._vaults: list[tuple[str, object]] = [(name, obj) for name, obj in self._VAULT_REGISTRY if obj is not None]
 
     def _clean_license_url(self, license_url: str) -> str:
         """Strip query params / fragments from a license URL."""
@@ -37,189 +41,149 @@ class DRMManager:
         parsed = urlparse(license_url)
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
 
-    def _lookup_keys(self, db_obj, base_url: str, kids: list, drm_type: str, pssh: str = None) -> list:
-        """Lookup keys in database, optionally passing PSSH and base_url for proper context."""
-        return list(db_obj.get_keys_by_kids(base_url, kids, drm_type, pssh) or [])
-
     def _missing_kids(self, all_kids: list[str], found_keys: list[str]) -> list[str]:
-        """Return list of KIDs that are in all_kids but not in found_keys."""
+        """Return list of KIDs that are in all_kids but not yet covered by found_keys."""
         found = {k.split(":")[0].strip().lower() for k in found_keys}
         return [kid for kid in all_kids if kid not in found]
 
-    def _store_keys(self, keys_list: list[str], drm_type: str, base_license_url: str, pssh_val: str, kid_to_label: Optional[dict] = None, source: str = None) -> None:
-        """Store keys in connected databases."""
-        if self.is_local_db_connected and base_license_url and pssh_val:
-            if source != "local":
-                logger.info(f"Storing {len(keys_list)} {drm_type} key(s) to local database")
-                console.print(f"Storing {len(keys_list)} key(s) to local database...")
-                obj_localDbValut.set_keys(keys_list, drm_type, base_license_url, pssh_val)
-
-        if self.is_supa_db_connected and base_license_url and pssh_val and source != "supa":
-            logger.info(f"Storing {len(keys_list)} {drm_type} key(s) to Supabase database (source: {source})")
-            try:
-                obj_externalSupaDbVault.set_keys(keys_list, drm_type, base_license_url, pssh_val, kid_to_label)
-            except Exception as e:
-                logger.error(f"Failed to sync to Supabase (will continue): {e}")
-                console.print(f"[yellow]Warning: Could not sync to Supabase: {e}")
-
     def _db_lookup(self, all_kids: list[str], base_license_url: str, drm_type: str, pssh_val: str = None) -> tuple[list[str], str]:
-        """Lookup keys in connected databases, returning list of found keys."""
+        """Query vaults in priority order, stopping as soon as all KIDs are covered."""
         found_keys: list[str] = []
         source = None
-        
-        if not all_kids or not base_license_url:
+
+        if not all_kids or not base_license_url or not self._vaults:
             return found_keys, source
 
-        if self.is_local_db_connected:
-            logger.info(f"Querying local DB for {len(all_kids)} {drm_type} KID(s) | PSSH={pssh_val}" if pssh_val else f"Querying local DB for {len(all_kids)} {drm_type} KID(s)")
-            local_keys = self._lookup_keys(obj_localDbValut, base_license_url, all_kids, drm_type, pssh_val)
-            if local_keys:
-                found_keys.extend(local_keys)
-                source = "local"
-
-        if self.is_lab_db_connected:
+        for name, vdb in self._vaults:
             missing = self._missing_kids(all_kids, found_keys)
-            if missing:
-                logger.info(f"Querying Lab DB for {len(missing)} {drm_type} KID(s) | PSSH={pssh_val}" if pssh_val else f"Querying Lab DB for {len(missing)} {drm_type} KID(s)")
-                lab_keys = self._lookup_keys(obj_labDbVault, base_license_url, missing, drm_type, pssh_val)
-                if lab_keys:
-                    found_keys.extend(lab_keys)
-                    source = "lab"
+            if not missing:
+                break
 
-        if self.is_supa_db_connected:
-            missing = self._missing_kids(all_kids, found_keys)
-            if missing:
-                logger.info(f"Querying Supabase for {len(missing)} {drm_type} KID(s) | PSSH={pssh_val}" if pssh_val else f"Querying Supabase for {len(missing)} {drm_type} KID(s)")
-                supa_keys = self._lookup_keys(obj_externalSupaDbVault, base_license_url, missing, drm_type, pssh_val)
-                if supa_keys:
-                    found_keys.extend(supa_keys)
-                    source = "supa"
+            logger.info(f"Querying {name} DB for {len(missing)} {drm_type} KID(s) | PSSH={pssh_val}" if pssh_val else f"Querying {name} DB for {len(missing)} {drm_type} KID(s)")
+            keys = list(vdb.get_keys_by_kids(base_license_url, missing, drm_type, pssh_val) or [])
+            if keys:
+                found_keys.extend(keys)
+                source = name
 
         return found_keys, source
+
+    def _store_keys(self, keys_list: list[str], drm_type: str, base_license_url: str, pssh_val: str, kid_to_label: Optional[dict] = None, source: str = None) -> None:
+        """Store keys in all connected vaults, skipping the one they were sourced from."""
+        if not base_license_url or not pssh_val:
+            return
+
+        for name, vdb in self._vaults:
+            if name == source:
+                continue  # avoid writing back to the vault we just read from
+
+            logger.info(f"Storing {len(keys_list)} {drm_type} key(s) to {name} database")
+            try:
+                # local vault does not accept kid_to_label — call with base signature
+                if name == "local":
+                    vdb.set_keys(keys_list, drm_type, base_license_url, pssh_val)
+                else:
+                    vdb.set_keys(keys_list, drm_type, base_license_url, pssh_val, kid_to_label)
+            except Exception as e:
+                logger.error(f"Failed to sync to {name} (will continue): {e}")
+                console.print(f"[yellow]Warning: Could not sync to {name}: {e}")
+
+    def _resolve_keys(self, pssh_list: list[dict], license_url: str, drm_type: str, cdm_fn, cdm_kwargs: dict, key: str = None) -> KeysManager:
+        """
+        Shared key resolution logic for both Widevine and PlayReady.
+        Step 1: vault lookup. Step 2: CDM extraction as fallback.
+        """
+
+        # Manual key override — bypass all vault/CDM logic
+        if key:
+            manual_keys = []
+            for entry in key.split("|"):
+                parts = entry.split(":")
+                if len(parts) == 2:
+                    kid_val = parts[0].replace("-", "").strip()
+                    key_val = parts[1].replace("-", "").strip()
+                    if not manual_keys:
+                        console.print("[cyan]Using Manual Key.")
+                    console.print(f"    - [red]{kid_val}[white]:[green]{key_val[:-1]}* [cyan]| [red]Manual")
+                    manual_keys.append(f"{kid_val}:{key_val}")
+            if manual_keys:
+                return KeysManager(manual_keys)
+
+        base_license_url = self._clean_license_url(license_url)
+        all_kids = [
+            item["kid"].replace("-", "").strip().lower()
+            for item in pssh_list
+            if item.get("kid") and item["kid"] != "N/A"
+        ]
+
+        pssh_val = next((i.get("pssh") for i in pssh_list if i.get("pssh")), None)
+        kid_to_label = {
+            i["kid"].replace("-", "").strip().lower(): i["label"]
+            for i in pssh_list
+            if i.get("kid") and i["kid"] != "N/A" and i.get("label")
+        } or None
+
+        # Step 1: vault lookup
+        if self._vaults and base_license_url and all_kids:
+            logger.info(f"Looking up {len(all_kids)} {drm_type} KID(s) across {len(self._vaults)} vault(s)")
+            found_keys, source = self._db_lookup(all_kids, base_license_url, drm_type, pssh_val)
+            unique_keys = list(set(found_keys))
+            if unique_keys:
+                self._store_keys(unique_keys, drm_type, base_license_url, pssh_val, kid_to_label, source=source)
+            if set(all_kids).issubset({k.split(":")[0].strip().lower() for k in unique_keys}):
+                logger.info(f"{drm_type} keys found in vault(s): {len(unique_keys)} key(s)")
+                return KeysManager(unique_keys)
+
+        # Step 2: CDM extraction
+        try:
+            keys = cdm_fn(pssh_list, license_url, **cdm_kwargs)
+            if keys:
+                logger.info(f"{drm_type} CDM extraction successful: {len(keys.get_keys_list())} key(s)")
+                self._store_keys(keys.get_keys_list(), drm_type, base_license_url, pssh_val, kid_to_label, source=None)
+                return keys
+
+            logger.error(f"{drm_type} CDM extraction returned no keys")
+            console.print("[yellow]CDM extraction returned no keys")
+            sys.exit(0)
+
+        except Exception as e:
+            logger.error(f"{drm_type} CDM error: {e}")
+            console.print(f"[red]CDM error: {e}")
+
+        logger.error(f"All {drm_type} extraction methods failed")
+        console.print(f"\n[red]All extraction methods failed for {drm_type}")
+        sys.exit(0)
+        return None
 
     def get_wv_keys(self, pssh_list: list[dict], license_url: str, license_certificate: str = None, headers: dict = None, key: str = None):
         """
         Get Widevine keys.
         """
-        if key:
-            manual_keys = []
-            for entry in key.split("|"):
-                parts = entry.split(":")
-                if len(parts) == 2:
-                    kid_val = parts[0].replace("-", "").strip()
-                    key_val = parts[1].replace("-", "").strip()
-                    if not manual_keys:
-                        console.print("[cyan]Using Manual Key.")
-                    console.print(f"    - [red]{kid_val}[white]:[green]{key_val[:-1]}* [cyan]| [red]Manual")
-                    manual_keys.append(f"{kid_val}:{key_val}")
-            if manual_keys:
-                return KeysManager(manual_keys)
-
-        base_license_url = self._clean_license_url(license_url)
-        all_kids = [
-            item["kid"].replace("-", "").strip().lower()
-            for item in pssh_list
-            if item.get("kid") and item["kid"] != "N/A"
-        ]
-
-        pssh_val = next((i.get("pssh") for i in pssh_list if i.get("pssh")), None)
-        kid_to_label = {
-            i["kid"].replace("-", "").strip().lower(): i["label"]
-            for i in pssh_list
-            if i.get("kid") and i["kid"] != "N/A" and i.get("label")
-        } or None
-
-        # Step 1: vault lookup
-        if ((self.is_local_db_connected or self.is_supa_db_connected or self.is_lab_db_connected) and base_license_url and all_kids):
-            logger.info(f"Looking up {len(all_kids)} Widevine KID(s) across available vaults")
-            found_keys, source = self._db_lookup(all_kids, base_license_url, "widevine", pssh_val)
-            unique_keys = list(set(found_keys))
-            if unique_keys:
-                self._store_keys(unique_keys, "widevine", base_license_url, pssh_val, kid_to_label, source=source)
-            if set(all_kids).issubset({k.split(":")[0].strip().lower() for k in unique_keys}):
-                logger.info(f"Widevine keys found in vault(s): {len(unique_keys)} key(s)")
-                return KeysManager(unique_keys)
-
-        # Step 2: CDM extraction
-        try:
-            keys = get_widevine_keys(pssh_list, license_url, self.widevine_device_path, self.widevine_remote_cdm_api, headers, key, license_certificate)
-            if keys:
-                logger.info(f"Widevine CDM extraction successful: {len(keys.get_keys_list())} key(s)")
-                self._store_keys(keys.get_keys_list(),"widevine",base_license_url, pssh_val, kid_to_label, source=None)
-                return keys
-
-            logger.error("Widevine CDM extraction returned no keys")
-            console.print("[yellow]CDM extraction returned no keys")
-            sys.exit(0)
-
-        except Exception as e:
-            logger.error(f"Widevine CDM error: {e}")
-            console.print(f"[red]CDM error: {e}")
-
-        logger.error("All Widevine extraction methods failed")
-        console.print("\n[red]All extraction methods failed for Widevine")
-        sys.exit(0)
-        return None
+        return self._resolve_keys(
+            pssh_list, license_url, "widevine",
+            cdm_fn=get_widevine_keys,
+            cdm_kwargs=dict(
+                cdm_device_path=self.widevine_device_path,
+                cdm_remote_api=self.widevine_remote_cdm_api,
+                headers=headers,
+                key=key,
+                license_certificate=license_certificate,
+            ),
+            key=key,
+        )
 
     def get_pr_keys(self, pssh_list: list[dict], license_url: str, headers: dict = None, key: str = None, license_data: dict = None):
         """
         Get PlayReady keys.
         """
-        if key:
-            manual_keys = []
-            for entry in key.split("|"):
-                parts = entry.split(":")
-                if len(parts) == 2:
-                    kid_val = parts[0].replace("-", "").strip()
-                    key_val = parts[1].replace("-", "").strip()
-                    if not manual_keys:
-                        console.print("[cyan]Using Manual Key.")
-                    console.print(f"    - [red]{kid_val}[white]:[green]{key_val[:-1]}* [cyan]| [red]Manual")
-                    manual_keys.append(f"{kid_val}:{key_val}")
-            if manual_keys:
-                return KeysManager(manual_keys)
-
-        base_license_url = self._clean_license_url(license_url)
-        all_kids = [
-            item["kid"].replace("-", "").strip().lower()
-            for item in pssh_list
-            if item.get("kid") and item["kid"] != "N/A"
-        ]
-
-        pssh_val = next((i.get("pssh") for i in pssh_list if i.get("pssh")), None)
-        kid_to_label = {
-            i["kid"].replace("-", "").strip().lower(): i["label"]
-            for i in pssh_list
-            if i.get("kid") and i["kid"] != "N/A" and i.get("label")
-        } or None
-
-        # Step 1: vault lookup
-        if ((self.is_local_db_connected or self.is_supa_db_connected or self.is_lab_db_connected) and base_license_url and all_kids):
-            logger.info(f"Looking up {len(all_kids)} PlayReady KID(s) across available vaults")
-            found_keys, source = self._db_lookup(all_kids, base_license_url, "playready", pssh_val)
-            unique_keys = list(set(found_keys))
-            if unique_keys:
-                self._store_keys(unique_keys, "playready", base_license_url, pssh_val, kid_to_label, source=source)
-            if set(all_kids).issubset({k.split(":")[0].strip().lower() for k in unique_keys}):
-                logger.info(f"PlayReady keys found in vault(s): {len(unique_keys)} key(s)")
-                return KeysManager(unique_keys)
-
-        # Step 2: CDM extraction
-        try:
-            keys = get_playready_keys(pssh_list, license_url, self.playready_device_path, self.playready_remote_cdm_api, headers, key, license_data=license_data)
-            if keys:
-                logger.info(f"PlayReady CDM extraction successful: {len(keys.get_keys_list())} key(s)")
-                self._store_keys(keys.get_keys_list(), "playready", base_license_url, pssh_val, kid_to_label, source=None)
-                return keys
-
-            logger.error("PlayReady CDM extraction returned no keys")
-            console.print("[yellow]CDM extraction returned no keys")
-            sys.exit(0)
-
-        except Exception as e:
-            logger.error(f"PlayReady CDM error: {e}")
-            console.print(f"[red]CDM error: {e}")
-
-        logger.error("All PlayReady extraction methods failed")
-        console.print("\n[red]All extraction methods failed for PlayReady")
-        return None
+        return self._resolve_keys(
+            pssh_list, license_url, "playready",
+            cdm_fn=get_playready_keys,
+            cdm_kwargs=dict(
+                cdm_device_path=self.playready_device_path,
+                cdm_remote_api=self.playready_remote_cdm_api,
+                headers=headers,
+                key=key,
+                license_data=license_data,
+            ),
+            key=key,
+        )

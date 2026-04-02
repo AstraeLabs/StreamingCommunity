@@ -21,7 +21,6 @@ except Exception:
         logging.warning("PyCryptodome not found, HLS segment decryption will not work. Install with 'pip install pycryptodome' for AES-128-CBC support.")
 
 from VibraVid.setup import (get_bento4_decrypt_path, get_mp4dump_path, get_shaka_packager_path)
-from VibraVid.utils.vault import obj_externalSupaDbVault
 
 
 console = Console()
@@ -87,7 +86,6 @@ class Decryptor:
         self.shaka_packager_path = get_shaka_packager_path()
         self.license_url  = license_url
         self.drm_type     = drm_type
-        self.is_supa_db_connected = obj_externalSupaDbVault is not None
 
     def detect_encryption(self, file_path):
         """Detect encryption scheme. Returns (mode, kid, pssh_b64) or (None,None,None)."""

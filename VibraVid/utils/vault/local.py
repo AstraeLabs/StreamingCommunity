@@ -80,8 +80,7 @@ class LocalDBVault:
         parsed = urlparse(license_url)
         base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         return base_url.rstrip("/")
-
-    # --------- SET
+    
     def set_key(self, kid: str, key: str, drm_type: str, license_url: str, pssh: str = None, label: str = None) -> bool:
         """Add a single DRM key to the database"""
         kid = kid.replace("-", "").strip().lower()
@@ -187,7 +186,6 @@ class LocalDBVault:
 
         return added_count
 
-    # --------- GET
     def get_keys_by_pssh(self, license_url: str, pssh: str, drm_type: str) -> List[str]:
         """
         Retrieve all keys for a given license URL, PSSH, and DRM type.
@@ -349,10 +347,10 @@ class LocalDBVault:
 if SQLITE3_AVAILABLE:
     try:
         if CREATE_DB_ON_STARTUP:
-            obj_localDbValut = LocalDBVault(os.path.join(binary_paths.get_binary_directory(), "drm_keys.db"))
+            local_vault = LocalDBVault(os.path.join(binary_paths.get_binary_directory(), "drm_keys.db"))
         else:
-            obj_localDbValut = None
+            local_vault = None
     except Exception:
-        obj_localDbValut = None
+        local_vault = None
 else:
-    obj_localDbValut = None
+    local_vault = None

@@ -31,6 +31,23 @@ SUBTITLE_FILTER = config_manager.config.get("DOWNLOAD", "select_subtitle")
 _WV = "widevine"
 _PR = "playready"
 
+_DOWNLOADER_N3U8DL = "n3u8dl"
+_DOWNLOADER_MANUAL = "manual"
+_VALID_DOWNLOADERS = (_DOWNLOADER_N3U8DL, _DOWNLOADER_MANUAL)
+DOWNLOAD_PREFERENCE = config_manager.config.get("DOWNLOAD", "preference", default=_DOWNLOADER_N3U8DL)
+
+def _load_media_downloader(preference: str):
+    """Lazily import and return the MediaDownloader class matching *preference*."""
+    if preference == _DOWNLOADER_N3U8DL:
+        from VibraVid.source.n3u8dl_re import MediaDownloader
+        return MediaDownloader
+    elif preference == _DOWNLOADER_MANUAL:
+        from VibraVid.source.manual import MediaDownloader
+        return MediaDownloader
+    else:
+        raise ValueError(f"Unknown downloader_preference {preference!r}. Valid values: {_VALID_DOWNLOADERS}")
+
+
 
 def _stream_drm_label(s) -> str:
     """Build a human-readable track label for DRM reporting."""
@@ -82,12 +99,12 @@ def _filter_subtitles(sub_list: list, filter_str: str) -> list:
     for s in sub_list:
         lang_resolved = (s.get("language_resolved") or "").strip().lower()
         lang = (s.get("language") or "").strip().lower()
-        
+
         # Check exact match first
         if lang_resolved in wanted_locales or lang in wanted_locales:
             filtered.append(s)
             continue
-        
+
         # Check prefix match (e.g., 'it' matches 'it-it', 'ita' matches 'it-any')
         for token in wanted_locales:
             if lang_resolved.startswith(token + "-") or lang_resolved == token:
@@ -109,7 +126,7 @@ class DASH_Downloader(BaseDownloader):
     1. ``parse_stream()``   — fetch MPD → auto-select → show table
     2. DRM extraction       — collect PSSH from selected Stream.drm objects
     3. Key fetch            — DRMManager → Widevine or PlayReady
-    4. ``start_download()`` — run n3u8dl, decrypt, build status dict
+    4. ``start_download()`` — run n3u8dl / manual, decrypt, build status dict
     5. Extra audio MPDs     — each gets its own MediaDownloader + key fetch
     6. ``_merge_files()``   — FFmpeg mux
     7. ``_finalize()``      — move, summary, NFO, tracker, cleanup
@@ -129,7 +146,7 @@ class DASH_Downloader(BaseDownloader):
             - license_certificate: Widevine certificate (base64) for license challenge.
             - license_data: PlayReady license data for SOAP envelope.
             - output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
-            - drm_preference: DRM system preference: "widevine", "playready".
+            - drm_preference: DRM system to use: "widevine" or "playready".
             - decrypt_preference: Decryption tool: "bento4", "shaka".
             - key: Manual decryption key (hex format) if known.
             - cookies: HTTP cookies for authenticated requests.
@@ -144,11 +161,24 @@ class DASH_Downloader(BaseDownloader):
         self.license_certificate = license_certificate
         self.license_data = license_data
 
-        self.drm_preference = drm_preference.lower()
+        pref = drm_preference.lower()
+        if pref not in (_WV, _PR):
+            raise ValueError(f"drm_preference must be 'widevine' or 'playready', got: {drm_preference!r}")
+        self.drm_preference = pref
+
         self.decrypt_preference = decrypt_preference.lower()
+        self.downloader_preference = DOWNLOAD_PREFERENCE.lower()
         self.key = key
         self.cookies = cookies or {}
-        self.drm_manager = DRMManager(get_wvd_path(), get_prd_path(), config_manager.config.get_dict("DRM", "widevine"), config_manager.config.get_dict("DRM", "playready"))
+        self.drm_manager = DRMManager(
+            get_wvd_path(),
+            get_prd_path(),
+            config_manager.config.get_dict("DRM", "widevine"),
+            config_manager.config.get_dict("DRM", "playready"),
+        )
+
+        if self.downloader_preference not in _VALID_DOWNLOADERS:
+            raise ValueError(f"Invalid downloader_preference {self.downloader_preference!r}. Valid values: {_VALID_DOWNLOADERS}")
 
         self.download_id = context_tracker.download_id
         self.site_name = context_tracker.site_name
@@ -194,7 +224,7 @@ class DASH_Downloader(BaseDownloader):
             drm = getattr(s, "drm", None)
             is_encrypted = drm and drm.is_encrypted()
             is_selected = getattr(s, "selected", False)
-            
+
             # If check_selected=True, require selected=True AND encrypted
             # If check_selected=False, just require encrypted (for fallback from MPD)
             if check_selected:
@@ -216,7 +246,7 @@ class DASH_Downloader(BaseDownloader):
                     continue
 
                 seen[dt].add(pssh)
-                kid = (getattr(drm, "kid", None) or getattr(drm, "default_kid", None) or "N/A")
+                kid = getattr(drm, "kid", None) or getattr(drm, "default_kid", None) or "N/A"
                 logger.info(f"  → PSSH added for {dt}: KID={kid}")
                 result[dt].append(
                     {
@@ -245,10 +275,10 @@ class DASH_Downloader(BaseDownloader):
 
             streams = parser.parse_streams()
             logger.info(f"_collect_drm_from_mpd: Re-parsed MPD returned {len(streams)} streams")
-            
+
             # Fallback collection: don't check selected status (streams are freshly parsed)
             result = self._collect_drm_from_streams(streams, check_selected=False)
-            
+
             wv_count = len(result.get("WV", []))
             pr_count = len(result.get("PR", []))
             logger.info(f"_collect_drm_from_mpd: Collected {wv_count} WV PSSH + {pr_count} PR PSSH")
@@ -258,27 +288,41 @@ class DASH_Downloader(BaseDownloader):
 
         return result
 
+    def _warn_drm_mismatch(self, drm_psshs: Dict[str, List[Dict]]) -> None:
+        """
+        Print a warning if the manifest contains only the DRM type that is NOT
+        the requested drm_preference (and nothing for the preferred type).
+        """
+        has_wv = bool(drm_psshs.get("WV"))
+        has_pr = bool(drm_psshs.get("PR"))
+
+        if self.drm_preference == _WV and not has_wv and has_pr:
+            console.print("[yellow]drm_preference='widevine' but the manifest contains only PlayReady PSSH/KID")
+            logger.warning("DRM mismatch: preference=widevine but only PlayReady PSSH found.")
+
+        elif self.drm_preference == _PR and not has_pr and has_wv:
+            console.print("[yellow]drm_preference='playready' but the manifest contains only Widevine PSSH/KID")
+            logger.warning("DRM mismatch: preference=playready but only Widevine PSSH found.")
+
     def _fetch_keys(self, drm_psshs: Dict[str, List[Dict]]) -> List[str]:
-        """Dispatch key fetch to DRMManager."""
-        pref = self.drm_preference  # 'widevine' | 'playready' | 'auto'
+        """Dispatch key fetch to DRMManager using the configured drm_preference."""
+        pref = self.drm_preference  # 'widevine' | 'playready'
         keys = None
 
-        if pref in (_WV, "auto") and drm_psshs.get("WV"):
-            try:
-                keys = self.drm_manager.get_wv_keys(drm_psshs["WV"], self.license_url, self.license_certificate, self.license_headers, self.key)
-            except Exception as exc:
-                logger.error(f"Widevine key fetch failed: {exc}")
+        if pref == _WV and drm_psshs.get("WV"):
+            keys = self.drm_manager.get_wv_keys(drm_psshs["WV"], self.license_url, self.license_certificate, self.license_headers, self.key)
+           
 
-        if not keys and pref in (_PR, "auto") and drm_psshs.get("PR"):
-            try:
-                keys = self.drm_manager.get_pr_keys(drm_psshs["PR"], self.license_url, self.license_headers, self.key, self.license_data)
-            except Exception as exc:
-                logger.error(f"PlayReady key fetch failed: {exc}")
+        elif pref == _PR and drm_psshs.get("PR"):
+            keys = self.drm_manager.get_pr_keys(drm_psshs["PR"], self.license_url, self.license_headers, self.key, self.license_data)
+           
 
+        # Final fallback: use a manually provided key
         if not keys and self.key:
             keys = [self.key] if isinstance(self.key, str) else list(self.key)
 
         return keys or []
+
     def _fetch_keys_for_audio_mpd(self, audio_url: str, audio_headers: dict, raw_mpd_path: Optional[str], streams: list, license_url: Optional[str] = None, license_hdrs: Optional[dict] = None) -> List[str]:
         """Fetch DRM keys for an extra-audio MPD. Primary: Stream.drm; fallback: DashParser."""
         drm_psshs = self._collect_drm_from_streams(streams)
@@ -305,17 +349,21 @@ class DASH_Downloader(BaseDownloader):
         if not drm_psshs["WV"] and not drm_psshs["PR"]:
             return []
 
+        self._warn_drm_mismatch(drm_psshs)
         eff_url = license_url or self.license_url
         eff_hdrs = license_hdrs or self.license_headers
         pref = self.drm_preference
 
         keys = None
-        if pref in (_WV, "auto") and drm_psshs.get("WV"):
+        if pref == _WV and drm_psshs.get("WV"):
             keys = self.drm_manager.get_wv_keys(drm_psshs["WV"], eff_url, self.license_certificate, eff_hdrs, self.key)
-        if not keys and pref in (_PR, "auto") and drm_psshs.get("PR"):
+        elif pref == _PR and drm_psshs.get("PR"):
             keys = self.drm_manager.get_pr_keys(drm_psshs["PR"], eff_url, eff_hdrs, self.key, self.license_data)
         return keys or []
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Extra audio tracks
+    # ──────────────────────────────────────────────────────────────────────────
     def _download_extra_audios(self) -> tuple[List[Dict], List[Dict]]:
         """Download extra audio tracks from separate MPD URLs."""
         external_audios: List[Dict] = []
@@ -385,9 +433,9 @@ class DASH_Downloader(BaseDownloader):
                         try:
                             shutil.move(fpath, final_path)
                             external_audios.append({
-                                    "file": os.path.basename(final_path),
-                                    "language": audio_language,
-                                    "path": final_path
+                                "file": os.path.basename(final_path),
+                                "language": audio_language,
+                                "path": final_path,
                             })
                         except Exception as e:
                             console.print(f"[yellow]Could not move audio {audio_language}: {e}")
@@ -396,7 +444,7 @@ class DASH_Downloader(BaseDownloader):
                     fpath = sf.get("path")
                     if fpath and os.path.exists(fpath):
                         ext = os.path.splitext(fpath)[1]
-                        sub_lang = (sf.get("language") or sf.get("name") or audio_language)
+                        sub_lang = sf.get("language") or sf.get("name") or audio_language
                         final_sub = os.path.join(self.output_dir, f"{self.filename_base}.{sub_lang}{ext}")
                         try:
                             shutil.move(fpath, final_sub)
@@ -417,6 +465,9 @@ class DASH_Downloader(BaseDownloader):
 
         return external_audios, external_subtitles
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Main entry point
+    # ──────────────────────────────────────────────────────────────────────────
     def start(self) -> tuple[Optional[str], bool]:
         """
         Execute the full DASH download pipeline.
@@ -433,6 +484,10 @@ class DASH_Downloader(BaseDownloader):
             self.media_players.create()
         except Exception:
             pass
+
+        # ── Downloader selection ──────────────────────────────────────────────
+        MediaDownloader = _load_media_downloader(self.downloader_preference)
+        logger.info(f"Using downloader backend: {self.downloader_preference!r}")
 
         self.media_downloader = MediaDownloader(
             url=self.mpd_url,
@@ -477,6 +532,8 @@ class DASH_Downloader(BaseDownloader):
             is_protected = bool(drm_psshs.get("WV") or drm_psshs.get("PR"))
 
         if is_protected:
+            self._warn_drm_mismatch(drm_psshs)
+
             if not self.license_url and not self.key:
                 msg = "DRM detected but missing both license_url and key."
                 console.print(f"[yellow]{msg}")

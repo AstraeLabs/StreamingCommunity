@@ -16,6 +16,7 @@
     },
     "DOWNLOAD": {
         "auto_select": true,
+        "preference": "n3u8dl",
         "delay_after_download": 1,
         "skip_download": false,
         "thread_count": 12,
