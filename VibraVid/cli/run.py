@@ -75,48 +75,6 @@ def setup_argument_parser(search_functions):
     parser.add_argument('-UP', '--update', action='store_true', help='Auto-update to latest version (binary only)')
     parser.add_argument('--dep', action='store_true', help='Show all dependency paths (config, services, binaries)')
     parser.add_argument('--version', action='version', version=f'{__title__} {__version__}')
-    
-    # Provider subcommands for DRM helpers
-    provider_subparsers = parser.add_subparsers(dest='provider', help='DRM provider commands')
-
-    # PlayReady commands
-    pr_parser = provider_subparsers.add_parser('pyplayready', help='PlayReady helper commands')
-    pr_sub = pr_parser.add_subparsers(dest='action', help='pyplayready actions')
-
-    pr_create = pr_sub.add_parser('create-device', help='Create a PlayReady device file')
-    pr_create.add_argument('-c', '--cert', required=True, help='Group certificate file (e.g., bgroupcert.dat)')
-    pr_create.add_argument('-k', '--key', required=True, help='Private key file (e.g., zgpriv.dat)')
-    pr_create.add_argument('-o', '--output', required=True, help='Output device file path (device.prd)')
-
-    pr_export = pr_sub.add_parser('export-device', help='Export bgroupcert/zgpriv from a .prd')
-    pr_export.add_argument('device', help='Path to .prd file')
-    pr_export.add_argument('-d', '--output-dir', default='.', help='Output directory')
-
-    pr_test = pr_sub.add_parser('test', help='Test a .prd against a license server using a PSSH')
-    pr_test.add_argument('-D', '--device', required=True, help='Path to .prd device file')
-
-    # Widevine commands
-    wv_parser = provider_subparsers.add_parser('pywidevine', help='Widevine helper commands')
-    wv_sub = wv_parser.add_subparsers(dest='action', help='pywidevine actions')
-
-    wv_create = wv_sub.add_parser('create-device', help='Create a Widevine device file')
-    wv_create.add_argument('private_key', help='Private key PEM file (e.g., private_key.pem)')
-    wv_create.add_argument('client_id', help='Client ID binary file (e.g., client_id.bin)')
-    wv_create.add_argument('-o', '--output', required=True, help='Output device file path (device.wvd)')
-    wv_create.add_argument('-t', '--security-level', choices=['L1', 'L3'], default='L1', help='Security level (L1 or L3)')
-
-    wv_export = wv_sub.add_parser('export-device', help='Export private key and client id from a .wvd')
-    wv_export.add_argument('device', help='Path to .wvd file')
-    wv_export.add_argument('-d', '--output-dir', default='.', help='Output directory')
-
-    wv_test = wv_sub.add_parser('test', help='Test a .wvd device (demo)')
-    wv_test.add_argument('device', help='Path to .wvd device file')
-    wv_test.add_argument('--privacy', action='store_true', help='Enable privacy mode for Widevine test')
-
-    wv_migrate = wv_sub.add_parser('migrate', help='Migrate a .wvd device to latest format')
-    wv_migrate.add_argument('input', help='Input .wvd path')
-    wv_migrate.add_argument('-o', '--output', required=False, help='Output path (default: input.v2.wvd)')
-
     return parser
 
 
@@ -264,32 +222,6 @@ def main():
             show_dependencies(search_functions)
             return
 
-        # Handle provider subcommands (pywidevine / pyplayready)
-        if args.provider in ('pywidevine', 'pyplayready'):
-            action = getattr(args, 'action', None)
-
-            if args.provider == 'pywidevine':
-                from VibraVid.cli.command.create_device import (create_widevine_device, export_wvd_device, test_device as wv_test, migrate_device)
-
-                if action == 'create-device':
-                    return create_widevine_device(args)
-                if action == 'export-device':
-                    return export_wvd_device(args.device, getattr(args, 'output_dir', '.'))
-                if action == 'test':
-                    return wv_test(args.device, getattr(args, 'privacy', False))
-                if action == 'migrate':
-                    return migrate_device(args.input, getattr(args, 'output', None))
-
-            if args.provider == 'pyplayready':
-                from VibraVid.cli.command.create_device import (create_playready_device, export_prd_device, test_playready_device)
-                
-                if action == 'create-device':
-                    return create_playready_device(args)
-                if action == 'export-device':
-                    return export_prd_device(args.device, getattr(args, 'output_dir', '.'))
-                if action == 'test':
-                    return test_playready_device(args)
-        
         # Initialize
         setup_logger()
         _initialize_paths()
@@ -300,7 +232,6 @@ def main():
         except Exception as e:
             console.log(f"[red]Error loading github: {str(e)}")
 
-        
         # Handle auto-update
         if args.update:
             console.print("\n[cyan]  AUTO-UPDATE MODE")

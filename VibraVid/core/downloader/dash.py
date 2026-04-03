@@ -604,5 +604,5 @@ class DASH_Downloader(BaseDownloader):
             return None, True
 
         self._finalize(final_file=final_file)
-        time.sleep(config_manager.config.get_int("DOWNLOAD", "delay_after_download", default=0))
+        time.sleep(config_manager.config.get_int("DOWNLOAD", "delay_after_download"))
         return self.output_path, False

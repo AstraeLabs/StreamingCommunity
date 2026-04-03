@@ -24,7 +24,6 @@ def start_message(clean: bool=True):
 
     if CLEAN and clean: 
         os.system("cls" if platform.system() == 'Windows' else "clear")
-        # console.clear() DA NON USARE CHE DIO CANE CREA PROBLEMI
-    
+        
     if SHOW:
         console.print(f"[#7C3AED]{msg}")

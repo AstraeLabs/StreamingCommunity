@@ -272,7 +272,7 @@ class CrunchyrollClient:
         merged_headers = {**self._get_headers(), **headers}
         kwargs['headers'] = merged_headers
         kwargs.setdefault('cookies', self._get_cookies())
-        kwargs.setdefault('timeout', config_manager.config.get_int('REQUESTS', 'timeout', default=30))
+        kwargs.setdefault('timeout', config_manager.config.get_int('REQUESTS', 'timeout'))
         
         response = self.session.request(method, url, **kwargs)
         

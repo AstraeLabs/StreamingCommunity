@@ -16,6 +16,7 @@ _⚡ **Quick Start:** `pip install VibraVid && VibraVid`_
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Login](.github/doc/login.md)
+- [Service](.github/doc/add_service.md)
 - [Downloaders](#downloaders)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
@@ -34,14 +35,38 @@ _⚡ **Quick Start:** `pip install VibraVid && VibraVid`_
 ```bash
 git clone https://github.com/AstraeLabs/VibraVid.git
 cd VibraVid
-pip install -r requirements.txt
-python manual.py
 ```
 
-### Update
+#### PyPI
 
 ```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run
+python manual.py
+
+# Update
 python update.py
+
+# Sync dependencies
+pip install -r requirements.txt --upgrade
+```
+
+#### Uv
+
+```bash
+# Install dependencies
+uv sync
+
+# Run
+uv run manual.py
+
+# Update
+uv run update.py
+
+# Sync dependencies
+uv sync --upgrade
 ```
 
 ### Additional Documentation
@@ -54,6 +79,11 @@ python update.py
 
 ```bash
 # If installed via PyPI
+pip install VibraVid
+VibraVid
+
+# If installed via uv
+uv tool install VibraVid
 VibraVid
 
 # If cloned manually
@@ -127,6 +157,7 @@ Results in:
 - `%(language)`: Audio languages
 - `%(video_codec)`: Video codec
 - `%(audio_codec)`: Audio codec
+
 ---
 
 #### Episode Format Configuration
@@ -212,39 +243,43 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
 
 | Format | Description |
 |--------|-------------|
-| `"best"` | Best available resolution
-| `"worst"` | Worst available resolution
-| `"1080"` | Exact height (fallback to worst if not found)
-| `"1080,H265"` | Height + codec constraint
-| `"1080|best"` | Height with fallback to best
-| `"1080|best,H265"` | Height + codec with fallback to best
-| `"false"` | Skip video (download)
+| `"best"` | Best available resolution |
+| `"worst"` | Worst available resolution |
+| `"1080"` | Exact height (fallback to worst if not found) |
+| `"1080,H265"` | Height + codec constraint |
+| `"1080\|best"` | Height with fallback to best |
+| `"1080\|best,H265"` | Height + codec with fallback to best |
+| `"false"` | Skip video (download) |
 
 **Audio Filter Syntax (`select_audio`):**
 
 | Format | Description | Behavior if not found |
 |--------|-------------|-----------------------|
-| `"best"` | Best available bitrate per language | Selects best across all languages
-| `"worst"` | Worst available bitrate per language | Selects worst across all languages
+| `"best"` | Best available bitrate per language | Selects best across all languages |
+| `"worst"` | Worst available bitrate per language | Selects worst across all languages |
 | `"all"` | All audio tracks | Downloads all |
 | `"default"` | Only streams marked as default | DROP if no default stream exists |
 | `"non-default"` | Only streams NOT marked as default | DROP if no non-default streams exist |
 | `"ita"` | Find Italian audio | **DROP** (no download) |
-| `"ita"` + other language tokens | Find specified languages (pipe-separated) | **DROP** if none found |
+| `"ita\|it"` | Find specified languages (pipe-separated) | **DROP** if none found |
 | `"ita,MP4A"` | Find Italian + MP4A codec | **DROP** if combination not found |
+| `"ita\|best"` | Language with fallback to best if not found | Fallback to best available |
+| `"ita\|best,AAC"` | Language + codec with fallback to best | Fallback to best available |
 | `"false"` | Skip audio | Does not download |
 
 **Subtitle Filter Syntax (`select_subtitle`):**
 
 | Format | Description |
 |--------|-------------|
-| `"all"` | All subtitles
-| `"default"` | Only streams marked as default
-| `"non-default"` | Only streams NOT marked as default
-| `"ita|eng"` | Language tokens (pipe-separated)
-| `"ita_forced"` | Language with flag (forced/cc/sdh)
-| `"ita_forced|eng_cc"` | Multiple languages with flags
-| `"false"` | Skip subtitles
+| `"all"` | All subtitles |
+| `"default"` | Only streams marked as default |
+| `"non-default"` | Only streams NOT marked as default |
+| `"ita\|eng"` | Language tokens (pipe-separated) |
+| `"ita_forced"` | Language with flag (forced/cc/sdh) |
+| `"ita_forced\|eng_cc"` | Multiple languages with flags |
+| `"false"` | Skip subtitles |
+
+> **Native passthrough syntax** (`res=...:codecs=...:for=...` and `id=...:for=...`) is passed directly to N_m3u8DL-RE without further processing and is available for all three track types. Use it when you need precise control over manifest-level stream selection.
 
 ### Processing Settings
 
@@ -267,12 +302,12 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
 ```
 
 - **`generate_nfo`**: Generate .nfo metadata file alongside the video (default: `false`)
-- **`use_gpu`**: Enable hardware acceleration (default: `false`)
+- **`use_gpu`**: Enable hardware acceleration (default: `false`). When enabled, the GPU type is detected automatically at runtime: `cuda` for NVIDIA, `qsv` for Intel, `vaapi` for AMD. No manual configuration is needed.
 - **`param_video`**: FFmpeg video encoding parameters
     - Example: `["-c:v", "libx265", "-crf", "28", "-preset", "medium"]` (H.265/HEVC encoding)
 - **`param_audio`**: FFmpeg audio encoding parameters
     - Example: `["-c:a", "libopus", "-b:a", "128k"]` (Opus audio at 128kbps)
-- **`param_final`**: Final FFmpeg parameters (default: `["-c", "copy"]` for stream copy)
+- **`param_final`**: Final FFmpeg parameters (default: `["-c", "copy"]` for stream copy). When set, it takes full precedence over `param_video` and `param_audio`.
 - **`audio_order`**: List of strings to order audio tracks (e.g., `["ita", "eng"]`)
 - **`subtitle_order`**: List of strings to order subtitle tracks (e.g., `["ita", "eng"]`)
 - **`merge_audio`**: Merge all audio tracks into a single output file (default: `true`)
@@ -316,7 +351,8 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
 		"close_console": true,
 		"show_message": false,
 		"fetch_domain_online": true,
-		"auto_update_check": true
+		"auto_update_check": true,
+		"imp_service": ["default"]
 	}
 }
 ```
@@ -325,6 +361,11 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
 - **`show_message`**: Display debug messages (default: `false`)
 - **`fetch_domain_online`**: Automatically fetch latest domains from GitHub (default: `true`)
 - **`auto_update_check`**: Check for new VibraVid updates automatically at startup (default: `true`). If enabled, notifies you when a new version is available.
+- **`imp_service`**: List of service source paths to load site modules from (default: `["default"]`). The `"default"` entry loads all built-in sites bundled with VibraVid. You can add absolute paths to external directories containing custom site modules — each directory must follow the standard module structure (a folder with `__init__.py` defining `indice` and `_useFor`). Modules from custom paths take precedence over built-in ones if they share the same name.
+
+  ```json
+  "imp_service": ["default", "/home/user/my_custom_sites"]
+  ```
 
 ---
 
@@ -345,6 +386,83 @@ python manual.py --site streamingcommunity --search "interstellar" --auto-first
 # Use site by index
 python manual.py --site 0 --search "interstellar"
 ```
+
+### Series Selection
+
+Use `--season` and `--episode` to bypass interactive prompts when downloading series:
+
+```bash
+# Download a specific episode
+python manual.py --site streamingcommunity --search "breaking bad" --season 1 --episode 3
+
+# Download a range of episodes
+python manual.py --site streamingcommunity --search "breaking bad" --season 1 --episode "1-5"
+
+# Download all episodes of a season
+python manual.py --site streamingcommunity --search "breaking bad" --season 1 --episode "*"
+
+# Download all episodes of all seasons
+python manual.py --site streamingcommunity --search "breaking bad" --season "*"
+
+# Download multiple seasons
+python manual.py --site streamingcommunity --search "breaking bad" --season "1-3"
+```
+
+### Year Filter
+
+Use `--year` to narrow search results to a specific release year or range:
+
+```bash
+# Exact year
+python manual.py --site streamingcommunity --search "dune" --year 2021
+
+# Year range
+python manual.py --site streamingcommunity --search "batman" --year "1990-2015"
+```
+
+### Stream Track Overrides
+
+Override the default audio/video/subtitle selection from config for a single run:
+
+```bash
+# Select a different video resolution
+python manual.py --site streamingcommunity --search "interstellar" -sv 1080
+
+# Select audio language
+python manual.py --site streamingcommunity --search "interstellar" -sa "eng"
+
+# Select subtitles
+python manual.py --site streamingcommunity --search "interstellar" -ss "eng"
+```
+
+### Console Behaviour Override
+
+Override the `close_console` config value for a single run without editing `config.json`:
+
+```bash
+# Keep console open after download (loop mode)
+python manual.py --close-console false
+
+# Close console after download
+python manual.py --site streamingcommunity --search "interstellar" --close-console true
+```
+
+### Proxy
+
+```bash
+# Enable proxy for this run (uses proxy settings from config.json)
+python manual.py --site streamingcommunity --search "interstellar" --use_proxy
+```
+
+### Show Dependency Paths
+
+Display all resolved paths for config files, loaded services, external binaries (FFmpeg, N_m3u8DL-RE, Shaka Packager, Bento4) and DRM device files:
+
+```bash
+python manual.py --dep
+```
+
+---
 
 ## Global Search
 
@@ -458,6 +576,36 @@ Hooks are automatically executed before the main flow (`pre_run`), after each co
 
 ---
 
+### Source Code Update (`update.py`)
+
+When running from a manual clone, `update.py` downloads and applies the latest commit from GitHub. It includes safety checks to avoid accidental deletion of user data.
+
+```bash
+# Interactive update (prompts for confirmation)
+python update.py
+
+# Skip the first confirmation prompt (still requires typing the confirmation phrase)
+python update.py -y
+
+# Cancel automatically without prompting
+python update.py -n
+
+# Preview what would be deleted without actually deleting anything
+python update.py --dry-run
+
+# Combine: skip first prompt and run in dry-run mode
+python update.py -y --dry-run
+```
+
+The following folders and files are **always preserved** during an update and never deleted:
+
+- Folders: `Video`, `Conf`, `.git`
+- Files: `update.py`
+
+To preserve additional items, edit the `KEEP_FOLDERS` and `KEEP_FILES` sets at the top of `update.py`.
+
+---
+
 ## Docker
 
 ### Recommended: Docker Compose (Production Ready)
@@ -561,6 +709,9 @@ docker run -d --name vibravid -p 8000:8000 `
 ---
 
 <div align="center">
+
 **Made with ❤️ for streaming lovers**
-*If you find this project useful, consider starring it! ⭐**
+
+*If you find this project useful, consider starring it! ⭐*
+
 </div>

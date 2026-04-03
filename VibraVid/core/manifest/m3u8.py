@@ -18,7 +18,7 @@ from VibraVid.source.utils.language import resolve_locale
 
 
 logger = logging.getLogger(__name__)
-timeout = config_manager.config.get_int("REQUESTS", "timeout", default=30)
+timeout = config_manager.config.get_int("REQUESTS", "timeout")
 
 _CC_NAME_RE = re.compile(r"\[CC\]|(?<!\w)CC(?!\w)|closed[- _]captions?|SDH", re.IGNORECASE)
 _SDH_NAME_RE = re.compile(r"\[SDH\]|(?<!\w)SDH(?!\w)|hearing[- _]impaired|HI(?!\w)", re.IGNORECASE)

@@ -159,7 +159,7 @@ class DashParser:
                 self._injected = None
 
         try:
-            timeout = config_manager.config.get_int("REQUESTS", "timeout", default=30)
+            timeout = config_manager.config.get_int("REQUESTS", "timeout")
             hdrs = dict(self.headers)
             hdrs.setdefault("User-Agent", get_headers().get("User-Agent", ""))
             with create_client(headers=hdrs, timeout=timeout, follow_redirects=True) as c:

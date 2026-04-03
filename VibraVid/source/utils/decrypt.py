@@ -2,23 +2,16 @@
 
 import os
 import re
+import time
 import struct
 import json
 import subprocess
 import shutil
 import logging
+import threading
+from io import StringIO
 
 from rich.console import Console
-
-try:
-    from Cryptodome.Cipher import AES
-    from Cryptodome.Util.Padding import unpad
-except Exception:
-    try:
-        from Crypto.Cipher import AES
-        from Crypto.Util.Padding import unpad
-    except Exception:
-        logging.warning("PyCryptodome not found, HLS segment decryption will not work. Install with 'pip install pycryptodome' for AES-128-CBC support.")
 
 from VibraVid.setup import (get_bento4_decrypt_path, get_mp4dump_path, get_shaka_packager_path)
 
@@ -33,6 +26,89 @@ _SCHEME_TO_MODE = {
     "cbcs": "cbc",
     "cbc1": "cbc",
 }
+
+
+def _render_bar(percent: int, length: int = 10) -> str:
+    """Return a Rich-markup progress bar like [dim][[/dim][green]========[/green][dim]--] 81%[/dim]"""
+    filled = int((percent / 100) * length)
+    bar = (
+        "[dim][[/dim]"
+        + f"[green]{'=' * filled}[/green]"
+        + f"[dim]{'-' * (length - filled)}[/dim]"
+        + "[dim]][/dim]"
+    )
+    return f"{bar} [dim]{percent:3d}%[/dim]"
+
+def _render_markup(text: str) -> str:
+    """Renderizza il markup Rich in una stringa con ANSI codes."""
+    buf = StringIO()
+    temp_console = Console(file=buf, force_terminal=True)
+    temp_console.print(text, end="")
+    return buf.getvalue()
+
+def _run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: str) -> bool:
+    """Run *cmd* via Popen, monitor the size of *output_path*"""
+    file_size = os.path.getsize(encrypted_path) if os.path.isfile(encrypted_path) else 0
+    progress_percent = 0
+    stop_monitor = threading.Event()
+
+    def _monitor():
+        nonlocal progress_percent
+        while not stop_monitor.is_set():
+            if os.path.exists(output_path) and file_size > 0:
+                current_size = os.path.getsize(output_path)
+                progress_percent = min(int((current_size / file_size) * 100), 99)
+            time.sleep(0.15)
+
+    monitor_thread = threading.Thread(target=_monitor, daemon=True)
+    monitor_thread.start()
+
+    stderr_lines = []
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        # Collect stderr in background so it doesn't block
+        def _read_stderr():
+            for line in process.stderr:
+                stderr_lines.append(line)
+
+        stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+        stderr_thread.start()
+
+        # Refresh bar while process runs — \r keeps it on the same line
+        while process.poll() is None:
+            output = _render_markup(f"{label} {_render_bar(progress_percent)}")
+            console.file.write(f"\r{output}")
+            console.file.flush()
+            time.sleep(0.1)
+
+        process.wait()
+        stderr_thread.join(timeout=2)
+
+    except Exception as e:
+        stop_monitor.set()
+        console.print()  # newline after bar
+        logger.error(f"Process execution failed: {e}")
+        return False
+    finally:
+        stop_monitor.set()
+
+    # Final bar — 100 % on success, actual value on failure
+    final_pct = 100 if process.returncode == 0 else progress_percent
+    output = _render_markup(f"{label} {_render_bar(final_pct)}")
+    console.file.write(f"\r{output}\n")
+    console.file.flush()
+
+    if process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+        return True
+
+    stderr_text = "".join(stderr_lines).strip()
+    return False, stderr_text  # caller will handle error printing
 
 
 class KeysManager:
@@ -196,23 +272,16 @@ class Decryptor:
         # ── KID (tenc box) ────────────────────────────────────────────────────
         m = re.search(r'\[tenc\].*?default_KID\s*=\s*\[([0-9a-f\s]+)\]', text_norm, re.IGNORECASE | re.DOTALL)
         if m:
-            info["kid"] = m.group(1).replace(" ", "").lower()
+            info["kid"] = self._clean_kid(m.group(1))
             info["encrypted"] = True
-            logger.info(f"[text] KID from tenc={info['kid']}")
+            logger.info(f"[text] KID={info['kid']}")
 
-        # ── sinf / saio / saiz presence ───────────────────────────────────────
-        for marker in ("[sinf]", "[saio]", "[saiz]", "[enca]", "[encv]", "[encs]", "[enct]"):
-            if marker in text_norm.lower():
+        # ── sinf / saio / saiz ────────────────────────────────────────────────
+        for tag in (r'\[sinf\]', r'\[saio\]', r'\[saiz\]'):
+            if re.search(tag, text_norm, re.IGNORECASE):
                 info["encrypted"] = True
-                logger.info(f"[text] Found encryption box: {marker}")
+                logger.info(f"[text] Found {tag}")
                 break
-
-        # ── UUID sample-encryption box (e.g. [A2394F525A9B-...]) ─────────────
-        # These are present in the out.txt — signals per-sample encryption
-        uuid_enc = re.search(r'\[A2394F52', text_norm, re.IGNORECASE)
-        if uuid_enc:
-            info["encrypted"] = True
-            logger.info("[text] Found UUID sample-encryption box → encrypted")
 
         return info
 
@@ -220,25 +289,29 @@ class Decryptor:
         info = {"encrypted": False, "scheme": None, "kid": None, "pssh_boxes": []}
         try:
             with open(file_path, "rb") as f:
-                data = f.read(1 * 1024 * 1024)  # 1 MB header
+                data = f.read(min(os.path.getsize(file_path), 2 * 1024 * 1024))
 
-            # ── Search for 'tenc' → KID at offset +12..+28 ───────────────────
-            tenc = b'\x74\x65\x6e\x63'
-            idx = data.find(tenc)
-            if idx != -1 and idx + 28 <= len(data):
-                kid_bytes = data[idx + 12: idx + 28]
-                info["kid"] = kid_bytes.hex().lower()
-                info["encrypted"] = True
-                logger.info(f"[binary] KID from tenc: {info['kid']}")
+            # ── Look for encryption scheme markers ────────────────────────────
+            for scheme_marker in (b"cenc", b"cens", b"cbcs", b"cbc1"):
+                if scheme_marker in data:
+                    info["scheme"] = scheme_marker.decode()
+                    info["encrypted"] = True
+                    logger.info(f"[binary] scheme from marker: {info['scheme']}")
+                    break
 
-            # ── Search for 'schm' → scheme at offset +8..+12 ─────────────────
+            # ── schm box ──────────────────────────────────────────────────────
             schm = b'\x73\x63\x68\x6d'
             idx = data.find(schm)
             if idx != -1 and idx + 12 <= len(data):
-                scheme_bytes = data[idx + 8: idx + 12]
-                info["scheme"] = scheme_bytes.decode("latin-1", errors="ignore").lower().strip()
-                info["encrypted"] = True
-                logger.info(f"[binary] scheme from schm: {info['scheme']}")
+                raw_scheme = data[idx + 8: idx + 12]
+                try:
+                    scheme_str = raw_scheme.decode("ascii").lower()
+                    if scheme_str in _SCHEME_TO_MODE:
+                        info["scheme"] = scheme_str
+                        info["encrypted"] = True
+                        logger.info(f"[binary] scheme from schm: {info['scheme']}")
+                except Exception:
+                    pass
 
             # ── Search for 'pssh' boxes ───────────────────────────────────────
             pssh = b'\x70\x73\x73\x68'
@@ -347,13 +420,14 @@ class Decryptor:
                 logger.info("No KID detected — proceeding with provided keys.")
 
             scheme_display = encryption_mode.upper() if encryption_mode else "UNKNOWN"
-            console.print(f"[dim]Decrypting [cyan]{os.path.basename(encrypted_path)}[/cyan] ({scheme_display}) with {self.preference}...")
+            fname = os.path.basename(encrypted_path)
+            label = f"[dim]Decrypting [cyan]{fname}[/cyan] ({scheme_display}) with {self.preference}"
 
             success = False
             if self.preference == "shaka" and self.shaka_packager_path:
-                success = self._decrypt_shaka(encrypted_path, keys, output_path, stream_type)
+                success = self._decrypt_shaka(encrypted_path, keys, output_path, stream_type, label)
             else:
-                success = self._decrypt_bento4(encrypted_path, keys, output_path)
+                success = self._decrypt_bento4(encrypted_path, keys, output_path, label)
 
             if success:
                 logger.info(f"Decryption successful: {os.path.basename(output_path)}")
@@ -373,7 +447,7 @@ class Decryptor:
             console.print(f"[red]Decryption error: {e}.")
             return False
 
-    def _decrypt_bento4(self, encrypted_path, keys, output_path):
+    def _decrypt_bento4(self, encrypted_path, keys, output_path, label):
         cmd = [self.mp4decrypt_path]
         for k in keys:
             if ":" in k:
@@ -384,14 +458,17 @@ class Decryptor:
         cmd.extend([encrypted_path, output_path])
 
         logger.info(f"Bento4 cmd: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+        result = _run_with_progress(cmd, label, encrypted_path, output_path)
+
+        if result is True:
             return True
-        console.print(f"[red]Bento4 failed: {result.stderr.strip()}")
-        logger.error(f"Bento4 failed: {result.stderr.strip()}")
+
+        _, stderr_text = result if isinstance(result, tuple) else (False, "")
+        console.print(f"[red]Bento4 failed: {stderr_text}")
+        logger.error(f"Bento4 failed: {stderr_text}")
         return False
 
-    def _decrypt_shaka(self, encrypted_path, keys, output_path, stream_type):
+    def _decrypt_shaka(self, encrypted_path, keys, output_path, stream_type, label):
         keys_arg = []
         for k in keys:
             if ":" in k:
@@ -406,37 +483,26 @@ class Decryptor:
                 c.extend(["--keys", ",".join(keys_arg)])
             return c
 
+        # First attempt: with stream type
         stream_spec = f"input='{encrypted_path}',stream={stream_type},output='{output_path}'"
         cmd = _build_cmd(stream_spec)
         logger.info(f"Shaka cmd: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+
+        result = _run_with_progress(cmd, label, encrypted_path, output_path)
+        if result is True:
             return True
 
         # Retry without stream type
         logger.error("Shaka failed with stream type — retrying without it.")
         stream_spec_plain = f"input='{encrypted_path}',output='{output_path}'"
         cmd_retry = _build_cmd(stream_spec_plain)
-        result_retry = subprocess.run(cmd_retry, capture_output=True, text=True, timeout=300)
-        if result_retry.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+        logger.info(f"Shaka retry cmd: {' '.join(cmd_retry)}")
+        result_retry = _run_with_progress(cmd_retry, label, encrypted_path, output_path)
+
+        if result_retry is True:
             return True
 
-        console.print(f"[red]Shaka failed: {result.stderr.strip()}")
-        logger.error(f"Shaka failed: {result.stderr.strip()}")
+        _, stderr_text = result if isinstance(result, tuple) else (False, "")
+        console.print(f"[red]Shaka failed: {stderr_text}")
+        logger.error(f"Shaka failed: {stderr_text}")
         return False
-
-    def decrypt_hls_segment(self, encrypted_path, key_data, iv, output_path):
-        """Decrypt an HLS segment using AES-128-CBC. Returns True on success."""
-        logger.info(f"Decrypting HLS segment: {os.path.basename(encrypted_path)}")
-        try:
-            with open(encrypted_path, "rb") as f:
-                encrypted_data = f.read()
-            iv_bytes = bytes.fromhex(iv)
-            cipher = AES.new(key_data, AES.MODE_CBC, iv_bytes)
-            decrypted_data = unpad(cipher.decrypt(encrypted_data), AES.block_size)
-            with open(output_path, "wb") as f:
-                f.write(decrypted_data)
-            return True
-        except Exception as e:
-            logger.exception(f"HLS segment decryption error: {e}")
-            return False

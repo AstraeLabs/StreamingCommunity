@@ -34,7 +34,7 @@ from VibraVid.source.utils.decrypt import Decryptor, KeysManager
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
 logger  = logging.getLogger("n3u8dl_re")
-auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select", default=True)
+auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select")
 CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
 THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
 RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")

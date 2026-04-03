@@ -173,7 +173,7 @@ def update():
         f"\n"
         f"  [#00BCD4]Help the repository grow today by leaving a [#FFD60A]star [#00BCD4]and [#FFD60A]sharing "
         f"[#00BCD4]it with others online!\n"
-        f"      [#9D4EDD]If you'd like to support development and keep the program updated, consider leaving a "
+        f"      [#9D4EDD]If you'd like to [#FFD60A]support[#9D4EDD] development and keep the program updated, consider leaving a "
         f"[#FFD60A]donation[#9D4EDD]. Thank you!"
     )
 
@@ -181,11 +181,8 @@ def update():
         if last_version == "Unknown" or last_version == "Beta Build":
             return
 
-        console.print(f"\n[#E63946]New version available: [#FFD60A]{last_version}")
-        
-        # Ensure tag formatting for url in case it lacks a leading 'v'
         tag_url = last_version if last_version.startswith("v") else f"v{last_version}"
-        console.print(f"[#06A77D]Download it from: [#FFD60A]https://github.com/AstraeLabs/VibraVid/releases/tag/{tag_url}")
+        console.print(f"\n[#E63946]New version available: [#FFD60A]{last_version} | [#FFD60A]https://github.com/AstraeLabs/VibraVid/releases/tag/{tag_url}")
         
         if get_execution_mode() == "installer":
             console.print("[#00BCD4]Run with [#FFD60A]-UP [#00BCD4]to auto-update")

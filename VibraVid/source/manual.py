@@ -35,17 +35,12 @@ try:
     from Cryptodome.Util.Padding import unpad as _unpad
     _HAS_AES = True
 except ImportError:
-    try:
-        from Crypto.Cipher import AES as _AES
-        from Crypto.Util.Padding import unpad as _unpad
-        _HAS_AES = True
-    except ImportError:
-        _HAS_AES = False
+    _HAS_AES = False
 
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
 logger  = logging.getLogger("manual")
-auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select", default=True)
+auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select")
 CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
 THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
 RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")

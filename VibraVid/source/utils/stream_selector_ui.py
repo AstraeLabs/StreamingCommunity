@@ -22,17 +22,23 @@ class InteractiveStreamSelector:
             streams: List of Stream objects to select from
             window_size: Number of rows to display at once (for pagination)
         """
-        self.streams = streams
+        def _sort_key(s):
+            is_ext = getattr(s, "is_external", False) or getattr(s, "id", "") == "EXT"
+            stype = getattr(s, "type", "")
+            order = {"video": 0, "audio": 1, "subtitle": 2}.get(stype, 3)
+            bitrate = getattr(s, "bitrate", 0) or 0
+            return (order, int(is_ext), -bitrate)
+
+        self.streams = sorted(streams, key=_sort_key)
         self.window_size = max(5, window_size)
         self.selected: Set[int] = set()
         self.cursor = 0
-        self.total = len(streams)
-        
-        # Mark any pre-selected streams
-        for idx, s in enumerate(streams):
+        self.total = len(self.streams)
+
+        for idx, s in enumerate(self.streams):
             if getattr(s, 'selected', False):
                 self.selected.add(idx)
-    
+                
     def run(self) -> Set[int]:
         """
         Run interactive selection loop.
