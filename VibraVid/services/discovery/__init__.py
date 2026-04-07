@@ -1,19 +1,18 @@
-# 22.12.25
+# 26.11.25
 
 from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import TVShowManager
-from VibraVid.utils.http_client import create_client, check_region_availability
+from VibraVid.utils.http_client import create_client, get_userAgent, check_region_availability
 from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
 from .downloader import download_series
-from .client import get_client
 
 
-indice = 11
-_useFor = "Film_Serie"
+indice = 12
+_useFor = "Serie"
 _region = ["IT"]
 msg = Prompt()
 console = Console()
@@ -23,99 +22,54 @@ table_show_manager = TVShowManager()
 
 def title_search(query: str) -> int:
     """
-    Search for titles on Discovery+
-    
+    Search for titles based on a search query.
+      
     Parameters:
-        query (str): Search query
-        
+        - query (str): The query to search for.
+
     Returns:
-        int: Number of results found
+        int: The number of titles found.
     """
     entries_manager.clear()
     table_show_manager.clear()
 
     if not check_region_availability(_region, site_constants.SITE_NAME):
         return 0
-
-    client = get_client()
-    url = f"{client.base_url}/cms/routes/search/result"
-    console.print(f"[cyan]Searching on Discovery+ for: [yellow]{query}")
-
-    params = {
-        'include': 'default',
-        'decorators': 'viewingHistory,isFavorite,playbackAllowed,contentAction,badges',
-        'contentFilter[query]': query,
-        'page[items.number]': '1',
-        'page[items.size]': '20',
-    }
+    search_url = f"https://public.aurora.enhanced.live/site/search/page/?include=default&filter[environment]=discoverychannelit&v=2&q={query}&page[number]=1&page[size]=20"
+    console.print(f"[cyan]Search url: [yellow]{search_url}")
 
     try:
-        response = create_client(headers=client.headers, cookies=client.cookies).get(url, params=params)
+        response = create_client(headers={'user-agent': get_userAgent()}).get(search_url)
         response.raise_for_status()
+
     except Exception as e:
-        console.print(f"[red]Error during Discovery+ search request: {e}")
+        console.print(f"[red]Site: {site_constants.SITE_NAME}, request search error: {e}")
         return 0
 
-    # Parse response
-    data = response.json()
+    # Collect json data
+    try:
+        data = response.json().get('data')
+    except Exception as e:
+        console.log(f"Error parsing JSON response: {e}")
+        return 0
 
-    # Build image mapping
-    image_map = {}
-    for element in data.get('included', []):
-        if element.get('type') == 'image':
-            attributes = element.get('attributes', {})
-            if attributes.get('kind') in ['poster', 'poster_with_logo', 'default']:
-                image_map[element.get('id')] = attributes.get('src')
-
-    for element in data.get('included', []):
-        if element.get('type') == 'show':
-            attrs = element.get('attributes', {})
-            image_url = None
-            relationships = element.get('relationships', {})
-            images_data = relationships.get('images', {}).get('data', [])
-            for img in images_data:
-                img_id = img.get('id')
-                if img_id in image_map:
-                    image_url = image_map[img_id]
-                    break
-
-            year = None
-            premiere_date = attrs.get('premiereDate', '')
-            if premiere_date:
-                year = premiere_date.split('-')[0] if '-' in premiere_date else None
-
+    for dict_title in data:
+        try:
+            # Skip non-showpage entries
+            if dict_title.get('type') != 'showpage':
+                continue
+            
             entries_manager.add(Entries(
-                id=attrs.get('alternateId'),
-                name=attrs.get('name'),
+                name=dict_title.get('title'),
                 type='tv',
-                image=image_url,
-                year=year
+                year=dict_title.get('dateLastModified').split('-')[0],
+                image=dict_title.get('image').get('url'),
+                url=f'https://public.aurora.enhanced.live/site/page/{str(dict_title.get("slug")).lower().replace(" ", "-")}/?include=default&filter[environment]=discoverychannelit&v=2&parent_slug={dict_title.get("parentSlug")}',
             ))
-
-        elif element.get('type') == 'video':
-            attrs = element.get('attributes', {})
-            image_url = None
-            relationships = element.get('relationships', {})
-            images_data = relationships.get('images', {}).get('data', [])
-            for img in images_data:
-                img_id = img.get('id')
-                if img_id in image_map:
-                    image_url = image_map[img_id]
-                    break
-
-            year = None
-            air_date = attrs.get('airDate', '')
-            if air_date:
-                year = air_date[:4] if len(air_date) >= 4 else None
-
-            entries_manager.add(Entries(
-                id=element.get('id'),
-                name=attrs.get('name'),
-                type='movie',
-                image=image_url,
-                year=year
-            ))
-
+            
+        except Exception as e:
+            print(f"Error parsing a film entry: {e}")
+	
     return len(entries_manager)
 
 def process_search_result(select_title, selections=None, scrape_serie=None):

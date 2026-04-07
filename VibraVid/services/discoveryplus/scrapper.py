@@ -67,7 +67,6 @@ class GetSerieInfo:
             season_params = [opt.get('parameter') for opt in season_filter.get('options', [])]
 
             all_episodes = []
-            # For each season, fetch the collection
             for season_param in season_params:
                 coll_url = f"{self.client.base_url}/cms/collections/{content_id}?{season_param}&{show_params}"
                 coll_params = {

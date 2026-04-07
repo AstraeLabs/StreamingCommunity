@@ -18,7 +18,7 @@ _PREFERRED_ORDER = [
     'primevideo', 
     'mediasetinfinity', 
     'raiplay',
-    'discovery', 
+    'discoveryplus', 
     'dmax', 
     'nove', 
     'realtime',

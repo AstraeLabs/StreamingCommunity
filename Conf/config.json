@@ -55,6 +55,7 @@
     },
     "DRM": {
         "create_local_db": false,
+        "use_cdm": true,
         "vault": {
             "supa": {
                 "url": "https://crqczuxpqjmrjvdvqvlx.supabase.co",

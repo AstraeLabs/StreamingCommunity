@@ -11,7 +11,7 @@ from VibraVid.services._base.site_search_manager import base_process_search_resu
 from .downloader import download_series
 
 
-indice = 12
+indice = 13
 _useFor = "Serie"
 _region = ["IT"]
 msg = Prompt()

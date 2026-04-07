@@ -64,25 +64,34 @@ def process_season_selection(scrape_serie: Any, seasons_count: int, season_selec
     seasons_list = scrape_serie.seasons_manager.seasons
     available_numbers = [s.number for s in seasons_list]
     
-    # Determine the maximum "index" or "number" to allow in manage_selection
-    max_count = len(seasons_list) if is_manual_input else (max(available_numbers) if available_numbers else seasons_count)
-    list_selection = manage_selection(index_season_selected, max_count)
-    
     # Map the selection to actual season numbers
     list_season_select = []
-    available_numbers = [s.number for s in seasons_list]
     
-    for val in list_selection:
+    if season_selection is None:
+        # Interactive mode - use manage_selection with indices (1-based)
+        max_count = len(seasons_list)
+        list_selection = manage_selection(index_season_selected, max_count)
         
-        # First check if it's a valid index (1-based)
-        if 1 <= val <= len(seasons_list):
-            list_season_select.append(seasons_list[val-1].number)
-
-        # If not a valid index, check if it's a valid season number
-        elif val in available_numbers:
-            list_season_select.append(val)
-        else:
-            console.print(f"[yellow]Warning: Selection {val} is neither a valid index nor a valid season number.")
+        for val in list_selection:
+            # manage_selection() returns indices (1-based)
+            if 1 <= val <= len(seasons_list):
+                list_season_select.append(seasons_list[val-1].number)
+            elif val in available_numbers:
+                list_season_select.append(val)
+            else:
+                console.print(f"[yellow]Warning: Selection {val} is neither a valid index nor a valid season number.")
+    else:
+        # Pre-selected mode (from GUI/CLI) - treat as season numbers directly
+        for val in index_season_selected.split(','):
+            val = val.strip()
+            try:
+                season_num = int(val)
+                if season_num in available_numbers:
+                    list_season_select.append(season_num)
+                else:
+                    console.print(f"[yellow]Warning: Season {season_num} is not available. Available: {available_numbers}")
+            except ValueError:
+                console.print(f"[yellow]Warning: '{val}' is not a valid season number.")
 
     if not list_season_select:
         console.print(f"[red]No valid seasons selected. Available indices: 1-{len(seasons_list)}, Available numbers: {available_numbers}")

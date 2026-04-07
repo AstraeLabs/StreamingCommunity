@@ -197,6 +197,7 @@ class HLSParser:
         m = re.search(r"AVERAGE-BANDWIDTH=(\d+)", line)
         if m:
             s.avg_bitrate = int(m.group(1))
+            s.bitrate = s.avg_bitrate           # Override if AVERAGE-BANDWIDTH is present, as it's more accurate
 
         m = re.search(r"RESOLUTION=(\d+)x(\d+)", line)
         if m:

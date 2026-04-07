@@ -1,12 +1,13 @@
 # 29.01.26
 
-import logging
 import sys
+import logging
 from typing import Optional
 from urllib.parse import urlparse
 
 from rich.console import Console
 
+from VibraVid.utils import config_manager
 from VibraVid.utils.vault import local_vault, supa_vault, lab_vault, claudio_vault
 from VibraVid.source.utils.decrypt import KeysManager
 
@@ -16,6 +17,7 @@ from .widevine import get_widevine_keys
 
 console = Console()
 logger = logging.getLogger(__name__)
+USE_CDM = config_manager.config.get_bool("DRM", "use_cdm", default=True)
 
 
 class DRMManager:
@@ -134,25 +136,28 @@ class DRMManager:
                 return KeysManager(unique_keys)
 
         # Step 2: CDM extraction
-        try:
-            keys = cdm_fn(pssh_list, license_url, **cdm_kwargs)
-            if keys:
-                logger.info(f"{drm_type} CDM extraction successful: {len(keys.get_keys_list())} key(s)")
-                self._store_keys(keys.get_keys_list(), drm_type, base_license_url, pssh_val, kid_to_label, source=None)
-                return keys
+        if USE_CDM:
+            try:
+                keys = cdm_fn(pssh_list, license_url, **cdm_kwargs)
+                if keys:
+                    logger.info(f"{drm_type} CDM extraction successful: {len(keys.get_keys_list())} key(s)")
+                    self._store_keys(keys.get_keys_list(), drm_type, base_license_url, pssh_val, kid_to_label, source=None)
+                    return keys
 
-            logger.error(f"{drm_type} CDM extraction returned no keys")
-            console.print("[yellow]CDM extraction returned no keys")
+                logger.error(f"{drm_type} CDM extraction returned no keys")
+                console.print("[yellow]CDM extraction returned no keys")
+                sys.exit(0)
+
+            except Exception as e:
+                logger.error(f"{drm_type} CDM error: {e}")
+                console.print(f"[red]CDM error: {e}")
+
+            logger.error(f"All {drm_type} extraction methods failed")
+            console.print(f"\n[red]All extraction methods failed for {drm_type}")
             sys.exit(0)
-
-        except Exception as e:
-            logger.error(f"{drm_type} CDM error: {e}")
-            console.print(f"[red]CDM error: {e}")
-
-        logger.error(f"All {drm_type} extraction methods failed")
-        console.print(f"\n[red]All extraction methods failed for {drm_type}")
-        sys.exit(0)
-        return None
+            return None
+        else:
+            console.print(f"[yellow]CDM extraction disabled by config.")
 
     def get_wv_keys(self, pssh_list: list[dict], license_url: str, license_certificate: str = None, headers: dict = None, key: str = None):
         """
