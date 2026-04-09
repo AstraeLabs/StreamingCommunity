@@ -122,7 +122,7 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
 
             if response.status_code != 200:
                 logger.error(f"License error for {kid_info}: HTTP {response.status_code}")
-                console.print(f"[red]License error for pssh {pssh[:30]}...: {response.status_code}\nResponse: {response.text[:200]}\nUrl: {license_url}\nHeaders: {req_headers}")
+                console.print(f"[red]License error for pssh {pssh[15]}...: {response.status_code}\nResponse: {response.text[:100]}\nUrl: {license_url}\n")
                 continue
 
             # Parse license response

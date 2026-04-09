@@ -136,7 +136,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
 
             if response.status_code != 200:
                 logger.error(f"License error for {kid_info}: HTTP {response.status_code}")
-                console.print(f"[red]License error for PSSH {pssh[:30]}...: {response.status_code}\nResponse: {response.content.decode('latin-1')[:200]}\nUrl: {license_url}\nHeaders: {req_headers}")
+                console.print(f"[red]License error for PSSH {pssh[:15]}...: {response.status_code}\nResponse: {response.content.decode('latin-1')[:100]}\nUrl: {license_url}\n")
                 continue
 
             # Parse license response
