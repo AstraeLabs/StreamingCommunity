@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "VibraVid"
-dynamic = ["version"]
+version = "1.1.4"
 description = "Download content from streaming platforms"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -37,6 +37,3 @@ packages = ["VibraVid"]
 
 [tool.setuptools.package-data]
 VibraVid = ["**/*.txt", "**/*.json", "**/*.yaml", "**/*.yml", "**/*.cfg"]
-
-[tool.setuptools.dynamic]
-version = {attr = "VibraVid.upload.version.__version__"}

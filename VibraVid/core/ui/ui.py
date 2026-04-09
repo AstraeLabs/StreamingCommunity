@@ -8,7 +8,7 @@ from rich import box
 from rich.table import Table
 from rich.text import Text
 
-from VibraVid.source.utils.codec import get_channel_label
+from VibraVid.core.utils.codec import get_channel_label
 from VibraVid.core.manifest.stream import Stream as _Stream
 
 

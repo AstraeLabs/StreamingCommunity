@@ -308,6 +308,38 @@ class ContextTracker:
         self.local.is_parallel_cli = value
 
     @property
+    def title(self):
+        return getattr(self.local, 'title', None)
+
+    @title.setter
+    def title(self, value):
+        self.local.title = value
+
+    @property
+    def season(self):
+        return getattr(self.local, 'season', 0)
+
+    @season.setter
+    def season(self, value):
+        self.local.season = value
+
+    @property
+    def episode(self):
+        return getattr(self.local, 'episode', 0)
+
+    @episode.setter
+    def episode(self, value):
+        self.local.episode = value
+
+    @property
+    def episode_name(self):
+        return getattr(self.local, 'episode_name', None)
+
+    @episode_name.setter
+    def episode_name(self, value):
+        self.local.episode_name = value
+
+    @property
     def should_print(self) -> bool:
         """Returns False when console output should be suppressed (parallel CLI or GUI)."""
         return not self.is_gui and not self.is_parallel_cli

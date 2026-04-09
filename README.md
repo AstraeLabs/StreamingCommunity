@@ -286,7 +286,6 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
 ```json
 {
 	"PROCESS": {
-		"generate_nfo": false,
 		"use_gpu": false,
 		"param_video": ["-c:v", "libx265", "-crf", "28", "-preset", "medium"],
 		"param_audio": ["-c:a", "libopus", "-b:a", "128k"],
@@ -301,7 +300,6 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
 }
 ```
 
-- **`generate_nfo`**: Generate .nfo metadata file alongside the video (default: `false`)
 - **`use_gpu`**: Enable hardware acceleration (default: `false`). When enabled, the GPU type is detected automatically at runtime: `cuda` for NVIDIA, `qsv` for Intel, `vaapi` for AMD. No manual configuration is needed.
 - **`param_video`**: FFmpeg video encoding parameters
     - Example: `["-c:v", "libx265", "-crf", "28", "-preset", "medium"]` (H.265/HEVC encoding)

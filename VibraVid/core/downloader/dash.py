@@ -11,10 +11,10 @@ from rich.console import Console
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.http_client import get_headers
 from VibraVid.setup import get_wvd_path, get_prd_path
-from VibraVid.source.style.tracker import download_tracker, context_tracker
-from VibraVid.source.utils.media_players import MediaPlayers
+from VibraVid.core.ui.tracker import download_tracker, context_tracker
+from VibraVid.core.utils.media_players import MediaPlayers
 
-from VibraVid.source.n3u8dl_re import MediaDownloader
+from VibraVid.core.source.n3u8dl_re import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.manifest.mpd import DashParser
 
@@ -39,10 +39,10 @@ DOWNLOAD_PREFERENCE = config_manager.config.get("DOWNLOAD", "preference", defaul
 def _load_media_downloader(preference: str):
     """Lazily import and return the MediaDownloader class matching *preference*."""
     if preference == _DOWNLOADER_N3U8DL:
-        from VibraVid.source.n3u8dl_re import MediaDownloader
+        from VibraVid.core.source.n3u8dl_re import MediaDownloader
         return MediaDownloader
     elif preference == _DOWNLOADER_MANUAL:
-        from VibraVid.source.manual import MediaDownloader
+        from VibraVid.core.source.manual import MediaDownloader
         return MediaDownloader
     else:
         raise ValueError(f"Unknown downloader_preference {preference!r}. Valid values: {_VALID_DOWNLOADERS}")
@@ -147,7 +147,7 @@ class DASH_Downloader(BaseDownloader):
             - license_data: PlayReady license data for SOAP envelope.
             - output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
             - drm_preference: DRM system to use: "widevine" or "playready".
-            - decrypt_preference: Decryption tool: "bento4", "shaka".
+            - decrypt_preference: Decryption tool: "bento4", "shaka", "ffmpeg".
             - key: Manual decryption key (hex format) if known.
             - cookies: HTTP cookies for authenticated requests.
         """
@@ -533,15 +533,8 @@ class DASH_Downloader(BaseDownloader):
 
         if is_protected:
             self._warn_drm_mismatch(drm_psshs)
-
             if not self.license_url and not self.key:
-                msg = "DRM detected but missing both license_url and key."
-                console.print(f"[yellow]{msg}")
-                self.error = msg
-                if self.download_id:
-                    download_tracker.complete_download(self.download_id, success=False, error=self.error)
-                return None, True
-
+                logger.error("Content is DRM-protected but no license_url or manual key provided")
             if self.download_id:
                 download_tracker.update_status(self.download_id, "Fetching keys ...")
 
@@ -554,6 +547,7 @@ class DASH_Downloader(BaseDownloader):
                 return None, True
 
         # ── Download ──────────────────────────────────────────────────────────
+        self._log_tracks_json(streams, self.decryption_keys, self.mpd_url)
         if SKIP_DOWNLOAD:
             console.print("[yellow]Skipping download as per configuration.")
             return self.output_path, False

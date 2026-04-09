@@ -1,7 +1,9 @@
 # 10.12.23
 
+import os
 import sys
 import argparse
+from pathlib import Path
 from typing import Callable
 
 from rich.console import Console
@@ -14,6 +16,7 @@ from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
 from VibraVid.upload import git_update, binary_update
 from VibraVid.setup.system import _initialize_paths
 from VibraVid.setup.system import (get_ffmpeg_path, get_ffprobe_path, get_bento4_decrypt_path, get_mp4dump_path, get_wvd_path, get_prd_path,  get_n_m3u8dl_re_path, get_shaka_packager_path)
+from VibraVid.setup.binary_paths import binary_paths
 from VibraVid.upload.version import __version__, __title__
 
 
@@ -166,13 +169,19 @@ def get_user_site_selection(args, choice_labels):
     return msg.ask(prompt_message, choices=choice_keys, default="0", show_choices=False, show_default=False)
 
 
+def get_logs_directory() -> str:
+    """Get the logs directory path."""
+    app_base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    logs_dir = Path(os.path.join(app_base_path, ".cache", "logs"))
+    return str(logs_dir)
+
+
 def show_dependencies(search_functions):
     """Show all dependency paths: config files, services, and external binaries."""
-    console.print("\n[cyan]╔════════════════════════════════════════════════════════════╗")
-    console.print("[cyan]║[yellow]  DEPENDENCY PATHS[cyan]                                          ║")
-    console.print("[cyan]╚════════════════════════════════════════════════════════════╝")
     console.print(f"  [yellow]Config:[/] [white]{config_manager.config_file_path}[/]")
     console.print(f"  [yellow]Login:[/]  [white]{config_manager.login_file_path}[/]")
+    console.print(f"  [yellow]Logs:[/]   [white]{get_logs_directory()}[/]")
+    console.print(f"  [yellow]Binary:[/] [white]{binary_paths.get_binary_directory()}[/]")
     console.print()
     
     console.print("[bold cyan]Available Services:")
@@ -202,7 +211,7 @@ def show_dependencies(search_functions):
         console.print(f"  {status} [yellow]{dep_name}:[/] [white]{path_display}[/]")
     console.print()
     
-    console.print("[bold cyan]◆ DRM Device Files:[/]")
+    console.print("[bold cyan]DRM Device Files:[/]")
     drm_devices = {
         "Widevine (.wvd)": get_wvd_path(),
         "PlayReady (.prd)": get_prd_path(),

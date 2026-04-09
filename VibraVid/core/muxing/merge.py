@@ -9,7 +9,7 @@ from rich.console import Console
 
 from VibraVid.utils import config_manager
 from VibraVid.setup import binary_paths, get_ffmpeg_path
-from VibraVid.source.style.tracker import context_tracker
+from VibraVid.core.ui.tracker import context_tracker
 
 from .helper.video import detect_ts_timestamp_issues, convert_ts_to_mp4, resolve_compatible_extension
 from .helper.audio import check_duration_v_a, has_audio, get_video_duration
@@ -141,6 +141,12 @@ def join_video(video_path: str, out_path: str):
         gpu_type_hwaccel = detect_gpu_device_type()
         console.print(f'[yellow]FFMPEG [cyan]Detected GPU for video join: [red]{gpu_type_hwaccel}')
         ffmpeg_cmd.extend(['-hwaccel', gpu_type_hwaccel])
+
+    # Detect timestamp issues and add regeneration flag
+    has_ts_issues = detect_ts_timestamp_issues(video_path)
+    if has_ts_issues:
+        logger.info("[join_video] Detected timestamp issues, adding -fflags +genpts")
+        ffmpeg_cmd.extend(['-fflags', '+genpts+igndts+discardcorrupt', '-avoid_negative_ts', 'make_zero'])
 
     if video_path.lower().endswith('.ts'):
         ffmpeg_cmd.extend(['-f', 'mpegts'])

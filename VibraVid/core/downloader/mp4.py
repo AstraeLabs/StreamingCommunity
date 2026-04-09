@@ -14,15 +14,13 @@ from rich.progress import Progress, TextColumn
 from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.utils import config_manager, os_manager, internet_manager
 from VibraVid.cli.run import execute_hooks
-from VibraVid.source.style.progress_bar import CustomBarColumn
-from VibraVid.core.post.helper.nfo import create_nfo
-from VibraVid.source.style.tracker import  download_tracker, context_tracker
+from VibraVid.core.ui.progress_bar import CustomBarColumn
+from VibraVid.core.ui.tracker import  download_tracker, context_tracker
 
 
 msg = Prompt()
 console = Console()
 logger = logging.getLogger(__name__)
-CREATE_NFO_FILES = config_manager.config.get_bool('PROCESS', 'generate_nfo')
 SKIP_DOWNLOAD = config_manager.config.get_bool('DOWNLOAD', 'skip_download')
 
 
@@ -300,9 +298,6 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
     if os.path.exists(path):
         if incomplete_error or (total and os.path.getsize(path) < total):
             console.print("[yellow]Warning: download was incomplete (partial file saved).")
-
-        if CREATE_NFO_FILES:
-            create_nfo(path)
 
         if download_id:
             abs_path = os.path.abspath(path)

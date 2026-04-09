@@ -5,15 +5,16 @@ import re
 import time
 import struct
 import json
-import subprocess
 import shutil
+import subprocess
 import logging
 import threading
 from io import StringIO
+from typing import Optional
 
 from rich.console import Console
 
-from VibraVid.setup import (get_bento4_decrypt_path, get_mp4dump_path, get_shaka_packager_path)
+from VibraVid.setup import get_bento4_decrypt_path, get_mp4dump_path, get_shaka_packager_path, get_ffmpeg_path
 
 
 console = Console()
@@ -27,7 +28,6 @@ _SCHEME_TO_MODE = {
     "cbc1": "cbc",
 }
 
-
 def _render_bar(percent: int, length: int = 10) -> str:
     """Return a Rich-markup progress bar like [dim][[/dim][green]========[/green][dim]--] 81%[/dim]"""
     filled = int((percent / 100) * length)
@@ -39,15 +39,27 @@ def _render_bar(percent: int, length: int = 10) -> str:
     )
     return f"{bar} [dim]{percent:3d}%[/dim]"
 
+
 def _render_markup(text: str) -> str:
-    """Renderizza il markup Rich in una stringa con ANSI codes."""
+    """Render Rich markup into a string with ANSI codes."""
     buf = StringIO()
     temp_console = Console(file=buf, force_terminal=True)
     temp_console.print(text, end="")
     return buf.getvalue()
 
-def _run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: str) -> bool:
-    """Run *cmd* via Popen, monitor the size of *output_path*"""
+
+def _run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: str) -> tuple:
+    """
+    Run *cmd* via Popen, monitor the size of *output_path* relative to
+    *encrypted_path* and print an inline progress bar using Rich markup.
+
+    The label should already contain the full description, e.g.:
+        "Decrypting movie.mp4 using shaka method ctr"
+
+    Returns:
+        True          on success (returncode 0 and output > 1000 bytes)
+        (False, msg)  on failure — caller decides how to handle
+    """
     file_size = os.path.getsize(encrypted_path) if os.path.isfile(encrypted_path) else 0
     progress_percent = 0
     stop_monitor = threading.Event()
@@ -94,7 +106,7 @@ def _run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: 
         stop_monitor.set()
         console.print()  # newline after bar
         logger.error(f"Process execution failed: {e}")
-        return False
+        return False, str(e)
     finally:
         stop_monitor.set()
 
@@ -104,22 +116,47 @@ def _run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: 
     console.file.write(f"\r{output}\n")
     console.file.flush()
 
+    # Let the OS flush the output file to disk
+    time.sleep(0.3)
+
     if process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
         return True
 
     stderr_text = "".join(stderr_lines).strip()
-    return False, stderr_text  # caller will handle error printing
+    logger.error(f"Decryption process failed (rc={process.returncode}): {stderr_text}")
+    return False, stderr_text
 
+
+def _run_without_progress(cmd: list, output_path: str) -> tuple:
+    """
+    Run *cmd* via subprocess.run (no interactive progress).
+    Returns (True, "") on success, (False, stderr) on failure.
+    Used for Shaka non-live decryption where file-size monitoring is unreliable.
+    """
+    try:
+        process = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            return True, ""
+        return False, process.stderr if process.stderr else "Unknown error"
+    except Exception as e:
+        logger.error(f"Process execution failed: {e}")
+        return False, str(e)
 
 class KeysManager:
     def __init__(self, keys=None):
         self._keys = []
         if keys:
             self.add_keys(keys)
-    
+
     def add_keys(self, keys):
         if isinstance(keys, str):
             for k in keys.split('|'):
+                k = k.strip()
                 if ':' in k:
                     kid, key = k.split(':', 1)
                     self._keys.append((kid.strip(), key.strip()))
@@ -127,47 +164,47 @@ class KeysManager:
         elif isinstance(keys, list):
             for k in keys:
                 if isinstance(k, str):
+                    k = k.strip()
                     if ':' in k:
                         kid, key = k.split(':', 1)
                         self._keys.append((kid.strip(), key.strip()))
-
                 elif isinstance(k, dict):
                     kid = k.get('kid', '')
                     key = k.get('key', '')
                     if kid and key:
                         self._keys.append((kid.strip(), key.strip()))
-    
+
     def get_keys_list(self):
         return [f"{kid}:{key}" for kid, key in self._keys]
-    
+
     def __len__(self):
         return len(self._keys)
-    
+
     def __iter__(self):
         return iter(self._keys)
-    
+
     def __getitem__(self, index):
         return self._keys[index]
-    
+
     def __bool__(self):
         return len(self._keys) > 0
 
 
 class Decryptor:
     def __init__(self, preference: str = "bento4", license_url: str = None, drm_type: str = None):
-        logger.info(f"Initializing Decryptor with preference: {preference}, license_url: {license_url}, drm_type: {drm_type}")
+        logger.info(f"Initializing Decryptor preference={preference!r} license_url={license_url!r} drm_type={drm_type!r}")
         self.preference = preference.lower()
-        self.mp4decrypt_path = get_bento4_decrypt_path()
-        self.mp4dump_path    = get_mp4dump_path()
+        self.mp4decrypt_path     = get_bento4_decrypt_path()
+        self.mp4dump_path        = get_mp4dump_path()
         self.shaka_packager_path = get_shaka_packager_path()
-        self.license_url  = license_url
-        self.drm_type     = drm_type
+        self.ffmpeg_path         = get_ffmpeg_path()
+        self.license_url = license_url
+        self.drm_type    = drm_type
 
     def detect_encryption(self, file_path):
-        """Detect encryption scheme. Returns (mode, kid, pssh_b64) or (None,None,None)."""
+        """Detect encryption scheme. Returns (mode, kid, pssh_b64) or (None, None, None)."""
         logger.info(f"Detecting encryption: {os.path.basename(file_path)}")
 
-        # 1. Try JSON output first (works on most files)
         result = self._run_mp4dump(file_path, fmt="json")
         if result:
             info = self._parse_json_dump(result)
@@ -175,7 +212,6 @@ class Decryptor:
                 logger.info(f"JSON parse OK → scheme={info['scheme']} kid={info['kid']}")
                 return self._finalize(info)
 
-        # 2. Fallback: text output (handles m4a / fragmented streams that break JSON)
         result = self._run_mp4dump(file_path, fmt="text")
         if result:
             info = self._parse_text_dump(result)
@@ -183,7 +219,6 @@ class Decryptor:
                 logger.info(f"Text parse OK → scheme={info['scheme']} kid={info['kid']}")
                 return self._finalize(info)
 
-        # 3. Last resort: read raw bytes
         info = self._parse_binary(file_path)
         if info["encrypted"]:
             logger.info(f"Binary parse OK → scheme={info['scheme']} kid={info['kid']}")
@@ -198,11 +233,9 @@ class Decryptor:
             logger.info(f"mp4dump cmd: {' '.join(cmd)}")
             r = subprocess.run(cmd, capture_output=True, timeout=15)
             raw = r.stdout
-
             for enc in ("utf-8", "utf-16", "utf-16-le", "latin-1"):
                 try:
-                    text = raw.decode(enc)
-                    text = text.lstrip("\ufeff")
+                    text = raw.decode(enc).lstrip("\ufeff")
                     return text if text.strip() else None
                 except (UnicodeDecodeError, ValueError):
                     continue
@@ -225,19 +258,16 @@ class Decryptor:
         saiz_boxes = self._find_boxes_by_name(data, "saiz")
         trex_boxes = self._find_boxes_by_name(data, "trex")
 
-        # KID
         for box in tenc_boxes + trex_boxes:
             if "default_KID" in box:
                 info["kid"] = self._clean_kid(box["default_KID"])
                 break
 
-        # Scheme
         for schm in schm_boxes:
             if "scheme_type" in schm:
                 info["scheme"] = schm["scheme_type"].lower()
                 break
 
-        # Encrypted flag
         if pssh_boxes or tenc_boxes or sinf_boxes or saio_boxes or saiz_boxes:
             info["encrypted"] = True
 
@@ -247,36 +277,34 @@ class Decryptor:
     def _parse_text_dump(self, text):
         info = {"encrypted": False, "scheme": None, "kid": None, "pssh_boxes": []}
 
-        # Normalise: collapse inter-character spaces that mp4dump inserts
         def _norm(line):
             return re.sub(r'(?<!\S)((?:\S )+\S)(?!\S)', lambda m: m.group(0).replace(' ', ''), line)
 
         lines = [_norm(sline) for sline in text.splitlines()]
         text_norm = "\n".join(lines)
 
-        # ── PSSH boxes ────────────────────────────────────────────────────────
-        pssh_blocks = re.findall(r'\[pssh\].*?system_id\s*=\s*\[([0-9a-f\s]+)\].*?data_size\s*=\s*(\d+)', text_norm, re.IGNORECASE | re.DOTALL)
+        pssh_blocks = re.findall(
+            r'\[pssh\].*?system_id\s*=\s*\[([0-9a-f\s]+)\].*?data_size\s*=\s*(\d+)',
+            text_norm, re.IGNORECASE | re.DOTALL
+        )
         for sid_raw, dsize in pssh_blocks:
             sid = sid_raw.replace(" ", "").lower()
             info["pssh_boxes"].append({"system_id": sid, "data_size": int(dsize)})
             info["encrypted"] = True
             logger.info(f"[text] PSSH system_id={sid} data_size={dsize}")
 
-        # ── scheme_type (schm box) ─────────────────────────────────────────────
         m = re.search(r'scheme_type\s*=\s*["\']?(\w+)["\']?', text_norm, re.IGNORECASE)
         if m:
             info["scheme"] = m.group(1).lower()
             info["encrypted"] = True
             logger.info(f"[text] scheme_type={info['scheme']}")
 
-        # ── KID (tenc box) ────────────────────────────────────────────────────
         m = re.search(r'\[tenc\].*?default_KID\s*=\s*\[([0-9a-f\s]+)\]', text_norm, re.IGNORECASE | re.DOTALL)
         if m:
             info["kid"] = self._clean_kid(m.group(1))
             info["encrypted"] = True
             logger.info(f"[text] KID={info['kid']}")
 
-        # ── sinf / saio / saiz ────────────────────────────────────────────────
         for tag in (r'\[sinf\]', r'\[saio\]', r'\[saiz\]'):
             if re.search(tag, text_norm, re.IGNORECASE):
                 info["encrypted"] = True
@@ -291,7 +319,6 @@ class Decryptor:
             with open(file_path, "rb") as f:
                 data = f.read(min(os.path.getsize(file_path), 2 * 1024 * 1024))
 
-            # ── Look for encryption scheme markers ────────────────────────────
             for scheme_marker in (b"cenc", b"cens", b"cbcs", b"cbc1"):
                 if scheme_marker in data:
                     info["scheme"] = scheme_marker.decode()
@@ -299,7 +326,6 @@ class Decryptor:
                     logger.info(f"[binary] scheme from marker: {info['scheme']}")
                     break
 
-            # ── schm box ──────────────────────────────────────────────────────
             schm = b'\x73\x63\x68\x6d'
             idx = data.find(schm)
             if idx != -1 and idx + 12 <= len(data):
@@ -313,15 +339,12 @@ class Decryptor:
                 except Exception:
                     pass
 
-            # ── Search for 'pssh' boxes ───────────────────────────────────────
             pssh = b'\x70\x73\x73\x68'
             search_start = 0
             while True:
                 idx = data.find(pssh, search_start)
                 if idx == -1:
                     break
-
-                # box layout: [4B size][4B "pssh"][4B version+flags][16B system_id][4B data_size][data]
                 if idx + 28 <= len(data):
                     system_id = data[idx + 8: idx + 24].hex().lower()
                     data_size = struct.unpack_from(">I", data, idx + 24)[0] if idx + 28 <= len(data) else 0
@@ -329,7 +352,6 @@ class Decryptor:
                     info["encrypted"] = True
                     logger.info(f"[binary] PSSH system_id={system_id} data_size={data_size}")
 
-                    # Extract KID from Widevine PSSH data bytes [2..18] if KID not yet found
                     if system_id == _WIDEVINE_SYSTEM_ID and not info["kid"]:
                         pssh_data_start = idx + 28
                         if pssh_data_start + 18 <= len(data):
@@ -388,9 +410,49 @@ class Decryptor:
                     results.extend(self._find_boxes_by_name(v, name))
         return results
 
+    @staticmethod
+    def _normalize_keys(keys) -> list:
+        """
+        Accept keys in any of these forms and return a list of (kid, key_hex) tuples:
+          - KeysManager instance
+          - list of "kid:key" strings
+          - single "kid:key" string
+          - list of (kid, key) tuples
+        """
+        if isinstance(keys, KeysManager):
+            raw = keys.get_keys_list()
+        elif isinstance(keys, str):
+            raw = [k.strip() for k in keys.split("|") if k.strip()]
+        elif isinstance(keys, list):
+            raw = keys
+        else:
+            raw = []
+
+        normalized = []
+        for k in raw:
+            if isinstance(k, (tuple, list)) and len(k) == 2:
+                normalized.append((str(k[0]).lower(), str(k[1]).lower()))
+            elif isinstance(k, str):
+                # handle pipe-separated pairs inside a single list element
+                for pair in k.split("|"):
+                    pair = pair.strip()
+                    if ":" in pair:
+                        kid_v, key_v = pair.split(":", 1)
+                        normalized.append((kid_v.strip().lower(), key_v.strip().lower()))
+                    elif pair:
+                        normalized.append(("1", pair.lower()))
+        return normalized
+
     def decrypt(self, encrypted_path, keys, output_path, stream_type: str = "video"):
-        """Decrypt a file using the preferred method. Returns True on success."""
-        logger.info(f"Starting decryption: {os.path.basename(encrypted_path)} keys={keys} stream={stream_type}")
+        """
+        Non-live decrypt entry point (v1 interface).
+        Detects encryption, validates KID, calls the right tool.
+        Returns True on success, False on failure.
+
+        Display format:
+            Decrypting {filename} using {tool} method {mode} [progress bar]
+        """
+        logger.info(f"decrypt(): {os.path.basename(encrypted_path)} stream={stream_type} keys={keys}")
         try:
             encryption_mode, kid, pssh = self.detect_encryption(encrypted_path)
 
@@ -403,37 +465,38 @@ class Decryptor:
                     logger.error("Encryption not detected but keys provided — forcing decryption attempt.")
                     encryption_mode = "unknown"
 
-            if isinstance(keys, str):
-                keys = [keys]
+            normalized = self._normalize_keys(keys)
 
             # KID / key validation (warn only, let tool decide)
             if kid:
-                key_kids = []
-                for k in keys:
-                    if ":" in k:
-                        key_kids.append(k.split(":", 1)[0].lower())
-                    else:
-                        key_kids.append(k.lower())
+                key_kids = [pair[0] for pair in normalized]
                 if key_kids and kid.lower() not in key_kids:
-                    logger.error(f"Detected KID ({kid}) not in provided key KIDs ({key_kids}) — proceeding anyway.")
+                    if kid.lower() == "0" * len(kid):
+                        logger.info(f"Fixed-key encryption (KID all-zeros) — using provided key KIDs ({key_kids})")
+                    else:
+                        logger.warning(f"Detected KID ({kid}) not in provided key KIDs ({key_kids}) — proceeding anyway.")
             else:
                 logger.info("No KID detected — proceeding with provided keys.")
 
-            scheme_display = encryption_mode.upper() if encryption_mode else "UNKNOWN"
-            fname = os.path.basename(encrypted_path)
-            label = f"[dim]Decrypting [cyan]{fname}[/cyan] ({scheme_display}) with {self.preference}"
+            is_fixed_key = bool(kid and kid.lower() == "0" * len(kid))
+            fname  = os.path.basename(encrypted_path)
+            method_display = (encryption_mode or "unknown").upper()
+            label  = (f"[dim]Decrypting [cyan]{fname}[/cyan] using [yellow]{self.preference}[/yellow] method [magenta]{method_display}[/magenta][/dim]")
 
             success = False
             if self.preference == "shaka" and self.shaka_packager_path:
-                success = self._decrypt_shaka(encrypted_path, keys, output_path, stream_type, label)
+                success = self._decrypt_shaka_nonlive(
+                    encrypted_path, normalized, output_path, stream_type, label, is_fixed_key
+                )
             else:
-                success = self._decrypt_bento4(encrypted_path, keys, output_path, label)
+                success = self._decrypt_bento4_nonlive(
+                    encrypted_path, normalized, output_path, label, is_fixed_key
+                )
 
             if success:
                 logger.info(f"Decryption successful: {os.path.basename(output_path)}")
                 return True
 
-            # Forced decryption on undetected file → fallback copy
             if encryption_mode == "unknown":
                 logger.error("Forced decryption failed — file was likely clear-text. Copying.")
                 shutil.copy(encrypted_path, output_path)
@@ -447,14 +510,24 @@ class Decryptor:
             console.print(f"[red]Decryption error: {e}.")
             return False
 
-    def _decrypt_bento4(self, encrypted_path, keys, output_path, label):
+    def _decrypt_bento4_nonlive(self, encrypted_path, normalized_keys, output_path, label, is_fixed_key=False):
+        """
+        Non-live Bento4 decrypt using the full merged file.
+        normalized_keys is a list of (kid, key_hex) tuples.
+        Shows:  Decrypting {fname} using bento4 method {mode} [====------] 65%
+        """
         cmd = [self.mp4decrypt_path]
-        for k in keys:
-            if ":" in k:
-                kid_val, key_val = k.split(":", 1)
-                cmd.extend(["--key", f"{kid_val.lower()}:{key_val.lower()}"])
-            else:
-                cmd.extend(["--key", k.lower()])
+
+        if is_fixed_key and normalized_keys:
+            # All keys map to the all-zeros KID that the tenc box advertises
+            _, key_val = normalized_keys[0]
+            flat = [("00000000000000000000000000000000", key_val)]
+            logger.info("Fixed-key encryption: using zero-KID for all keys")
+        else:
+            flat = normalized_keys
+
+        for kid_v, key_v in flat:
+            cmd.extend(["--key", f"{kid_v.lower()}:{key_v.lower()}"])
         cmd.extend([encrypted_path, output_path])
 
         logger.info(f"Bento4 cmd: {' '.join(cmd)}")
@@ -468,41 +541,161 @@ class Decryptor:
         logger.error(f"Bento4 failed: {stderr_text}")
         return False
 
-    def _decrypt_shaka(self, encrypted_path, keys, output_path, stream_type, label):
+    def _decrypt_shaka_nonlive(self, encrypted_path, normalized_keys, output_path, stream_type, label, is_fixed_key=False):
+        """
+        Non-live Shaka decrypt using the full merged file.
+        Shows:  Decrypting {fname} using shaka method {mode} [====------] 65%
+        """
+        if is_fixed_key and len(normalized_keys) > 1:
+            logger.info(f"Fixed-key encryption: using only first key ({normalized_keys[0]})")
+            normalized_keys = normalized_keys[:1]
+
         keys_arg = []
-        for k in keys:
-            if ":" in k:
-                kid_val, key_val = k.split(":", 1)
-                keys_arg.append(f"key_id={kid_val.lower()}:key={key_val.lower()}")
-            else:
-                keys_arg.append(f"key={k.lower()}")
+        for kid_v, key_v in normalized_keys:
+            actual_kid = "00000000000000000000000000000000" if is_fixed_key else kid_v
+            keys_arg.append(f"key_id={actual_kid.lower()}:key={key_v.lower()}")
 
-        def _build_cmd(stream_spec):
-            c = [self.shaka_packager_path, stream_spec, "--enable_fixed_key_decryption"]
-            if keys_arg:
-                c.extend(["--keys", ",".join(keys_arg)])
-            return c
+        # Shaka needs a recognised output extension
+        shaka_output = output_path
+        if not output_path.lower().endswith(('.mp4', '.m4v', '.mpd')):
+            shaka_output = output_path + '.tmp.mp4'
+            logger.info(f"Using temporary output for Shaka: {shaka_output}")
 
-        # First attempt: with stream type
-        stream_spec = f"input='{encrypted_path}',stream={stream_type},output='{output_path}'"
-        cmd = _build_cmd(stream_spec)
+        stream_spec = f"input={encrypted_path},stream={stream_type},output={shaka_output}"
+        cmd = [
+            self.shaka_packager_path,
+            stream_spec,
+            "--enable_fixed_key_decryption",
+            "--keys", ",".join(keys_arg),
+        ]
         logger.info(f"Shaka cmd: {' '.join(cmd)}")
 
-        result = _run_with_progress(cmd, label, encrypted_path, output_path)
-        if result is True:
+        # Shaka does not grow its output linearly → use without-progress variant
+        # but still print the label so the user sees it
+        console.print(f"{label} [dim](running...)[/dim]")
+        success, stderr_msg = _run_without_progress(cmd, shaka_output)
+
+        if success:
+            if shaka_output != output_path and os.path.exists(shaka_output):
+                shutil.move(shaka_output, output_path)
+            console.print(f"{label} {_render_markup(_render_bar(100))}")
             return True
 
-        # Retry without stream type
-        logger.error("Shaka failed with stream type — retrying without it.")
-        stream_spec_plain = f"input='{encrypted_path}',output='{output_path}'"
-        cmd_retry = _build_cmd(stream_spec_plain)
-        logger.info(f"Shaka retry cmd: {' '.join(cmd_retry)}")
-        result_retry = _run_with_progress(cmd_retry, label, encrypted_path, output_path)
-
-        if result_retry is True:
-            return True
-
-        _, stderr_text = result if isinstance(result, tuple) else (False, "")
-        console.print(f"[red]Shaka failed: {stderr_text}")
-        logger.error(f"Shaka failed: {stderr_text}")
+        console.print(f"[red]Shaka failed: {stderr_msg}[/red]")
+        logger.error(f"Shaka failed: {stderr_msg}")
         return False
+
+    def decrypt_file(self, encrypted_path: str, decrypted_path: str, keys, label: str) -> tuple:
+        """
+        Non-live decrypt called by _decrypt_check() in manual.py.
+        *keys* may be a KeysManager, a list of "kid:key" strings, or a single string.
+        *label* is the stream type string ("video" / "audio") used only for logging.
+
+        Display format (same as decrypt()):
+            Decrypting {filename} using {tool} method {mode} [progress bar]
+
+        Returns (True, None) on success or (False, error_message) on failure.
+        """
+        if not keys:
+            return False, "No decryption keys provided."
+
+        normalized = self._normalize_keys(keys)
+        if not normalized:
+            return False, "Could not parse any keys."
+
+        # Detect encryption to get mode/kid for the progress label
+        encryption_mode, kid, _pssh = self.detect_encryption(encrypted_path)
+
+        is_fixed_key = bool(kid and kid.lower() == "0" * len(kid))
+        method_display = (encryption_mode or "unknown").upper()
+        fname = os.path.basename(encrypted_path)
+        rich_label = (f"[dim]Decrypting [cyan]{fname}[/cyan] using [yellow]{self.preference}[/yellow] method [magenta]{method_display}[/magenta][/dim]")
+        logger.info(f"decrypt_file(): {fname} → {os.path.basename(decrypted_path)} stream={label} preference={self.preference} method={method_display}")
+
+        if self.preference == "shaka" and self.shaka_packager_path:
+            # Treat label as stream_type hint (video/audio)
+            stream_type = label if label in ("video", "audio") else "video"
+            ok = self._decrypt_shaka_nonlive(
+                encrypted_path, normalized, decrypted_path,
+                stream_type, rich_label, is_fixed_key
+            )
+        else:
+            ok = self._decrypt_bento4_nonlive(
+                encrypted_path, normalized, decrypted_path,
+                rich_label, is_fixed_key
+            )
+
+        if ok:
+            return True, None
+        return False, f"{self.preference} decryption failed for {fname}"
+
+    def decrypt_segment_live(self, encrypted_path: str, decrypted_path: str, raw_key: str, init_path: Optional[str] = None) -> tuple:
+        """
+        Decrypt a single MP4 segment (fragment) during download (live mode).
+        raw_key is the bare hex key string (no KID prefix).
+        Returns (success: bool, message: str, decrypted_bytes: bytes | None).
+        """
+        engine = self.preference
+
+        try:
+            if engine == "ffmpeg" and self.ffmpeg_path:
+                # FFmpeg needs init + fragment concatenated
+                temp_concat = encrypted_path + ".concat"
+                with open(temp_concat, "wb") as f_out:
+                    if init_path and os.path.exists(init_path):
+                        with open(init_path, "rb") as f_init:
+                            f_out.write(f_init.read())
+                    with open(encrypted_path, "rb") as f_seg:
+                        f_out.write(f_seg.read())
+
+                cmd = [
+                    self.ffmpeg_path, "-loglevel", "error", "-nostdin",
+                    "-decryption_key", raw_key,
+                    "-i", temp_concat, "-c", "copy", "-f", "mp4", "-y", decrypted_path,
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if os.path.exists(temp_concat):
+                    os.remove(temp_concat)
+
+            elif engine == "shaka" and self.shaka_packager_path:
+                seg_spec = (
+                    f"in={encrypted_path},stream=video,"
+                    f"init_segment={init_path},output={decrypted_path}"
+                    if init_path
+                    else f"in={encrypted_path},stream=video,output={decrypted_path}"
+                )
+                cmd = [
+                    self.shaka_packager_path,
+                    seg_spec,
+                    "--enable_raw_key_decryption",
+                    "--keys", f"key_id=1:{raw_key}",
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+
+                # Shaka sometimes refuses single fragments → fallback to bento4
+                if result.returncode != 0 and self.mp4decrypt_path:
+                    engine = "bento4 (fallback)"
+                    cmd = [self.mp4decrypt_path, "--key", f"1:{raw_key}"]
+                    if init_path and os.path.exists(init_path):
+                        cmd.extend(["--fragments-info", init_path])
+                    cmd.extend([encrypted_path, decrypted_path])
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+
+            else:
+                # Default: bento4 / mp4decrypt
+                engine = "bento4"
+                cmd = [self.mp4decrypt_path, "--key", f"1:{raw_key}"]
+                if init_path and os.path.exists(init_path):
+                    cmd.extend(["--fragments-info", init_path])
+                cmd.extend([encrypted_path, decrypted_path])
+                result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode == 0 and os.path.exists(decrypted_path):
+                with open(decrypted_path, "rb") as f:
+                    data = f.read()
+                return True, f"{engine} segment decrypted", data
+            else:
+                return False, f"Error {engine}: {result.stderr}", None
+
+        except Exception as e:
+            return False, f"Exception {engine}: {str(e)}", None

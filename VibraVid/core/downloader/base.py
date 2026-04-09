@@ -1,8 +1,7 @@
 ﻿# 2.03.26
 
-from __future__ import annotations
-
 import os
+import json
 import shutil
 import logging
 from typing import Dict, List, Optional
@@ -10,10 +9,9 @@ from typing import Dict, List, Optional
 from rich.console import Console
 
 from VibraVid.utils import config_manager
-from VibraVid.core.post import join_video, join_audios, join_subtitles
-from VibraVid.core.post.helper.video import get_media_metadata
-from VibraVid.source.style.tracker import download_tracker
-from VibraVid.core.post.helper.nfo import create_nfo
+from VibraVid.core.ui.tracker import download_tracker
+from VibraVid.core.muxing import join_video, join_audios, join_subtitles
+from VibraVid.core.muxing.helper.video import get_media_metadata
 from VibraVid.cli.run import execute_hooks
 
 
@@ -23,9 +21,9 @@ logger = logging.getLogger(__name__)
 EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 MERGE_SUBTITLES = config_manager.config.get_bool("PROCESS", "merge_subtitle")
 MERGE_AUDIO = config_manager.config.get_bool("PROCESS", "merge_audio")
-CREATE_NFO_FILES = config_manager.config.get_bool("PROCESS", "generate_nfo")
 CLEANUP_TMP = config_manager.config.get_bool("DOWNLOAD", "cleanup_tmp_folder")
 SKIP_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "skip_download")
+DEBUG_TRACK_JSON = config_manager.config.get_bool("DEFAULT", "debug_track_json", default=False)
 
 
 class BaseDownloader:
@@ -42,6 +40,59 @@ class BaseDownloader:
         self.copied_audios = list staging audios for deferred copy
         self.audio_only = True when there is no video track
     """
+
+    def _build_tracks_json(self, streams: list, keys: list, manifest_url: str) -> dict:
+        """Build a JSON-serializable dict of selected tracks only. """
+        videos = []
+        audios: Dict[str, list] = {}
+        subtitles: Dict[str, str] = {}
+
+        for s in streams:
+            if not getattr(s, "selected", False):
+                continue
+            stype = getattr(s, "type", "") or ""
+
+            if stype == "video":
+                videos.append({
+                    "manifest_url": manifest_url,
+                    "quality": getattr(s, "resolution", None),
+                    "bitrate": getattr(s, "bitrate", None),
+                })
+
+            elif stype == "audio":
+                lang = (getattr(s, "language", None) or "und").strip()
+                entry = {
+                    "manifest_url": manifest_url,
+                    "codec": getattr(s, "codecs", None),
+                    "channels": getattr(s, "channels", None),
+                    "bitrate": getattr(s, "bitrate", None),
+                    "url": getattr(s, "playlist_url", None) or getattr(s, "url", None),
+                }
+                audios.setdefault(lang, []).append(entry)
+
+            elif stype == "subtitle":
+                lang = getattr(s, "language", None) or "und"
+                name = getattr(s, "name", None) or lang
+                label = f"{lang} - {name}" if name and name != lang else lang
+                url = getattr(s, "playlist_url", None) or getattr(s, "url", None)
+                subtitles[label] = url
+
+        return {"videos": videos, "audios": audios, "subtitles": subtitles, "keys": list(keys) if keys else []}
+
+    def _log_tracks_json(self, streams: list, keys: list, manifest_url: str) -> None:
+        """Emit a TRACKS_JSON logger.info"""
+        from VibraVid.core.ui.tracker import context_tracker
+        tracks = self._build_tracks_json(streams, keys, manifest_url)
+        payload = {
+            "name": context_tracker.title or self.filename_base,
+            "type": (context_tracker.media_type or "UNKNOWN").upper(),
+            "season": context_tracker.season  or 0,
+            "episode": context_tracker.episode or 0,
+            "episode_name": context_tracker.episode_name,
+            "tracks": tracks,
+        }
+        if DEBUG_TRACK_JSON:
+            logger.info("TRACKS_JSON\n" + json.dumps(payload, indent=4, ensure_ascii=False))
 
     def _no_media_downloaded(self, status: dict) -> bool:
         """Return True when the download produced absolutely nothing."""
@@ -296,9 +347,6 @@ class BaseDownloader:
 
         self._move_copied_subtitles()
         self._move_copied_audios()
-
-        if CREATE_NFO_FILES:
-            create_nfo(self.output_path)
 
         if self.download_id:
             download_tracker.complete_download(self.download_id, success=True, path=os.path.abspath(self.output_path))

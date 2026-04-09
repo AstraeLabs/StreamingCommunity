@@ -7,8 +7,8 @@ from typing import Any, Dict, Optional
 from rich.console import Console
 from rich.progress import Progress, TextColumn
 
-from VibraVid.source.style.tracker import download_tracker, context_tracker
-from VibraVid.source.style.progress_bar import (CustomBarColumn, ColoredSegmentColumn, CompactTimeColumn, CompactTimeRemainingColumn, SizeColumn)
+from VibraVid.core.ui.tracker import download_tracker, context_tracker
+from VibraVid.core.ui.progress_bar import (CustomBarColumn, ColoredSegmentColumn, CompactTimeColumn, CompactTimeRemainingColumn, SizeColumn)
 
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)

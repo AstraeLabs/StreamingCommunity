@@ -14,7 +14,7 @@ from urllib.parse import urljoin, urlparse
 from VibraVid.core.manifest.stream import DRMInfo, Stream
 from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.utils import config_manager
-from VibraVid.source.utils.language import resolve_locale
+from VibraVid.core.utils.language import resolve_locale
 
 
 logger = logging.getLogger(__name__)
@@ -166,6 +166,10 @@ class HLSParser:
 
         if not any(s.type == "video" for s in streams):
             streams = self._variant_fallback(streams, master_drm)
+
+        for stream in streams:
+            # HLS uses true segments (EXTINF), so live decryption is always possible
+            stream.supports_live_decryption = True
 
         return streams
 

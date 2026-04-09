@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.services._base.tv_display_manager import manage_selection, validate_selection, display_episodes_list, display_seasons_list
-from VibraVid.source.style.tracker import download_tracker, context_tracker
+from VibraVid.core.ui.tracker import download_tracker, context_tracker
 
 
 console = Console()

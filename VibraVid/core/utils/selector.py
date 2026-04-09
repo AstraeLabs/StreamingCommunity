@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from VibraVid.source.utils.codec import get_codec_token
+from VibraVid.core.utils.codec import get_codec_token
 
 
 logger = logging.getLogger(__name__)

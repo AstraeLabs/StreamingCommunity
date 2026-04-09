@@ -12,7 +12,7 @@ from VibraVid.utils import config_manager, os_manager, start_message
 from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_movie_path, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
-from VibraVid.source.utils.language import resolve_locale
+from VibraVid.core.utils.language import resolve_locale
 
 from VibraVid.core.downloader import DASH_Downloader
 

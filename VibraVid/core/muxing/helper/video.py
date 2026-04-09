@@ -7,7 +7,7 @@ import subprocess
 from rich.console import Console
 
 from VibraVid.setup import get_ffprobe_path, get_ffmpeg_path
-from VibraVid.source.utils.codec import get_short_codec
+from VibraVid.core.utils.codec import get_short_codec
 
 
 console = Console()

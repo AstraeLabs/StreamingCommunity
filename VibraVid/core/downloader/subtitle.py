@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from VibraVid.utils.http_client import create_async_client
-from VibraVid.source.utils.language import resolve_locale
+from VibraVid.core.utils.language import resolve_locale
 
 
 logger = logging.getLogger("SubtitleDownloader")

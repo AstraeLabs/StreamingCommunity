@@ -1,5 +1,6 @@
 {
     "DEFAULT": {
+        "debug_track_json": false,
         "close_console": true,
         "show_message": true,
         "fetch_domain_online": true,
@@ -28,7 +29,6 @@
         "cleanup_tmp_folder": true
     },
     "PROCESS": {
-        "generate_nfo": false,
         "use_gpu": false,
         "param_video": ["-c:v","libx265","-crf","28","-preset","medium"],
         "param_audio": ["-c:a","libopus","-b:a","128k"],
@@ -40,8 +40,8 @@
         "extension": "mkv"
     },
     "REQUESTS": {
-        "timeout": 30,
-        "max_retry": 20,
+        "timeout": 10,
+        "max_retry": 5,
         "use_proxy": false,
         "proxy": {
             "http": "http://localhost:8888",
@@ -54,7 +54,6 @@
         "post_download": []
     },
     "DRM": {
-        "create_local_db": false,
         "use_cdm": true,
         "vault": {
             "supa": {

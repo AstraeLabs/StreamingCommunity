@@ -10,7 +10,7 @@ sys.path.insert(0, str(workspace_root))
 
 
 from mock_streams import create_video_streams_example1, create_video_streams_example2, create_audio_streams_example1, create_audio_streams_example2, create_audio_streams_example3, create_audio_streams_with_default, create_subtitle_streams_with_default
-from VibraVid.source.utils.selector import StreamSelector
+from VibraVid.core.utils.selector import StreamSelector
 
 
 def test_case(name, streams, video_filter, audio_filter, subtitle_filter, expected_behavior):

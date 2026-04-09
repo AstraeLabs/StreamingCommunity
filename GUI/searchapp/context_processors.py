@@ -1,7 +1,7 @@
 # 06.06.25
 
 from VibraVid.upload.version import __version__
-from VibraVid.source.style.tracker import  DownloadTracker
+from VibraVid.core.ui.tracker import  DownloadTracker
 
 
 def version_context(request):

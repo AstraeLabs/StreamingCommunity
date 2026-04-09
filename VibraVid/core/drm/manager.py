@@ -8,8 +8,8 @@ from urllib.parse import urlparse
 from rich.console import Console
 
 from VibraVid.utils import config_manager
-from VibraVid.utils.vault import local_vault, supa_vault, lab_vault, claudio_vault
-from VibraVid.source.utils.decrypt import KeysManager
+from VibraVid.utils.vault import supa_vault, lab_vault, claudio_vault
+from VibraVid.core.utils.decrypt import KeysManager
 
 from .playready import get_playready_keys
 from .widevine import get_widevine_keys
@@ -22,7 +22,6 @@ USE_CDM = config_manager.config.get_bool("DRM", "use_cdm", default=True)
 
 class DRMManager:
     _VAULT_REGISTRY = [
-        ("local",   local_vault),
         ("claudio", claudio_vault),
         ("lab",     lab_vault),
         ("supa",    supa_vault),
@@ -69,11 +68,8 @@ class DRMManager:
 
         return found_keys, source
 
-    def _store_keys(self, keys_list: list[str], drm_type: str, base_license_url: str, pssh_val: str, kid_to_label: Optional[dict] = None, source: str = None) -> None:
+    def _store_keys(self, keys_list: list[str], drm_type: str = "manual", base_license_url: str = "generic", pssh_val: str = None, kid_to_label: Optional[dict] = None, source: str = None) -> None:
         """Store keys in all connected vaults, skipping the one they were sourced from."""
-        if not base_license_url or not pssh_val:
-            return
-
         for name, vdb in self._vaults:
             if name == source:
                 continue  # avoid writing back to the vault we just read from
@@ -92,22 +88,26 @@ class DRMManager:
     def _resolve_keys(self, pssh_list: list[dict], license_url: str, drm_type: str, cdm_fn, cdm_kwargs: dict, key: str = None) -> KeysManager:
         """
         Shared key resolution logic for both Widevine and PlayReady.
-        Step 1: vault lookup. Step 2: CDM extraction as fallback.
+        Step 1: Manual key override. Step 2: vault lookup (by license_url or generic). Step 3: CDM extraction as fallback.
         """
-
-        # Manual key override — bypass all vault/CDM logic
         if key:
             manual_keys = []
             for entry in key.split("|"):
                 parts = entry.split(":")
                 if len(parts) == 2:
+                    logger.info(f"Using manual {drm_type} key override for KID {parts[0].strip()}")
                     kid_val = parts[0].replace("-", "").strip()
                     key_val = parts[1].replace("-", "").strip()
-                    if not manual_keys:
-                        console.print("[cyan]Using Manual Key.")
-                    console.print(f"    - [red]{kid_val}[white]:[green]{key_val[:-1]}* [cyan]| [red]Manual")
                     manual_keys.append(f"{kid_val}:{key_val}")
             if manual_keys:
+                base_license_url = self._clean_license_url(license_url) or "generic"
+                pssh_val = next((i.get("pssh") for i in pssh_list if i.get("pssh")), None)
+                kid_to_label = {
+                    i["kid"].replace("-", "").strip().lower(): i["label"]
+                    for i in pssh_list
+                    if i.get("kid") and i["kid"] != "N/A" and i.get("label")
+                } or None
+                self._store_keys(manual_keys, drm_type, base_license_url, pssh_val, kid_to_label, source=None)
                 return KeysManager(manual_keys)
 
         base_license_url = self._clean_license_url(license_url)
@@ -124,7 +124,7 @@ class DRMManager:
             if i.get("kid") and i["kid"] != "N/A" and i.get("label")
         } or None
 
-        # Step 1: vault lookup
+        # Step 1: vault lookup with license_url
         if self._vaults and base_license_url and all_kids:
             logger.info(f"Looking up {len(all_kids)} {drm_type} KID(s) across {len(self._vaults)} vault(s)")
             found_keys, source = self._db_lookup(all_kids, base_license_url, drm_type, pssh_val)
@@ -135,7 +135,18 @@ class DRMManager:
                 logger.info(f"{drm_type} keys found in vault(s): {len(unique_keys)} key(s)")
                 return KeysManager(unique_keys)
 
-        # Step 2: CDM extraction
+        # Step 2: If no license_url but DRM detected → try generic lookup in database
+        if not license_url and all_kids and self._vaults:
+            logger.warning(f"DRM detected but missing license_url. Searching database for {len(all_kids)} {drm_type} KID(s) using 'generic' lookup")
+            found_keys, source = self._db_lookup(all_kids, "generic", drm_type, pssh_val)
+            unique_keys = list(set(found_keys))
+            if unique_keys and set(all_kids).issubset({k.split(":")[0].strip().lower() for k in unique_keys}):
+                logger.info(f"{drm_type} keys found in vault(s) via generic lookup: {len(unique_keys)} key(s)")
+                return KeysManager(unique_keys)
+            elif unique_keys:
+                logger.warning(f"Found {len(unique_keys)} {drm_type} key(s) but not all KIDs covered. Partial match: {unique_keys}")
+
+        # Step 3: CDM extraction
         if USE_CDM:
             try:
                 keys = cdm_fn(pssh_list, license_url, **cdm_kwargs)
@@ -157,7 +168,7 @@ class DRMManager:
             sys.exit(0)
             return None
         else:
-            console.print(f"[yellow]CDM extraction disabled by config.")
+            console.print("[yellow]CDM extraction disabled by config.")
 
     def get_wv_keys(self, pssh_list: list[dict], license_url: str, license_certificate: str = None, headers: dict = None, key: str = None):
         """

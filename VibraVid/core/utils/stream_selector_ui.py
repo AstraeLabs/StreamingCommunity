@@ -6,7 +6,7 @@ from typing import Set
 from rich.console import Console
 
 from VibraVid.utils.keyboard import get_key
-from VibraVid.source.style.ui import build_table
+from VibraVid.core.ui.ui import build_table
 
 
 logger = logging.getLogger(__name__)

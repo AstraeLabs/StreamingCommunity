@@ -172,6 +172,7 @@ class Segment:
     seg_type: str = "media"
     size: int = 0
     downloaded: bool = False
+    byte_range: str = ""  # e.g. "12132-31195" for byte-range requests
 
     def __repr__(self) -> str:
         return f"Segment({self.number}, {self.seg_type})"
@@ -232,6 +233,7 @@ class Stream:
     duration: float = 0.0
     format: str = ""
     is_external: bool = False
+    supports_live_decryption: bool = True  # Default True, parsers will set False when needed
 
     def add_segment(self, seg: Segment) -> None:
         self.segments.append(seg)
@@ -280,15 +282,15 @@ class Stream:
         return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
     def get_short_codec(self) -> str:
-        from VibraVid.source.utils.codec import get_short_codec as _gsc
+        from VibraVid.core.utils.codec import get_short_codec as _gsc
         return _gsc(self.type, self.codecs)
 
     def get_channel_label(self) -> str:
-        from VibraVid.source.utils.codec import get_channel_label as _gcl
+        from VibraVid.core.utils.codec import get_channel_label as _gcl
         return _gcl(self.channels) if self.channels else ""
 
     def get_language_name(self) -> str:
-        from VibraVid.source.utils.codec import get_language_name as _gln
+        from VibraVid.core.utils.codec import get_language_name as _gln
         return _gln(self.language)
 
     def get_hdr_display(self) -> str:

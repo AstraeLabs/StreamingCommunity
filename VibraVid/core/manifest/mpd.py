@@ -13,8 +13,8 @@ from urllib.parse import urljoin, urlparse
 from VibraVid.core.manifest.stream import DRMInfo, Segment, Stream
 from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.utils import config_manager
-from VibraVid.source.utils.language import resolve_locale
-from VibraVid.source.utils.codec import (DV_CODEC_PREFIXES, detect_stream_type)
+from VibraVid.core.utils.language import resolve_locale
+from VibraVid.core.utils.codec import (DV_CODEC_PREFIXES, detect_stream_type)
 
 
 logger = logging.getLogger(__name__)
@@ -140,6 +140,7 @@ class DashParser:
         self.raw_content: Optional[str] = content
         self._root: Optional[ET.Element] = None
         self._base_url = self._calc_base_url(mpd_url)
+        self._uses_range_split: bool = False
 
     @staticmethod
     def _calc_base_url(url: str) -> str:
@@ -189,6 +190,9 @@ class DashParser:
 
         all_periods = self._root.findall("mpd:Period", _NS)
         global_seen_keys: set = set()
+
+        # Reset range-split tracking
+        self._uses_range_split = False
 
         for period_idx, period in enumerate(all_periods):
             period_base_url = self._resolve_element_base_url(period, self._base_url)
@@ -245,6 +249,10 @@ class DashParser:
                     streams.append(s)
                     logger.info(f"DASH add | {s}")
 
+        # After parsing all streams, log if range-split was detected anywhere
+        if self._uses_range_split:
+            logger.info("DASH manifest uses range-split (SegmentBase with byte ranges). Live decryption is disabled for all streams in this manifest.")
+            
         return streams
 
     def _parse_representation(self, rep, adapt, stype, adapt_drm, global_dur, period_start, base_url):
@@ -294,11 +302,44 @@ class DashParser:
         # Segments: SegmentTemplate > SegmentList > BaseURL single-file
         tmpl = rep.find("mpd:SegmentTemplate", _NS) or adapt.find("mpd:SegmentTemplate", _NS)
         seg_list = rep.find("mpd:SegmentList", _NS) or adapt.find("mpd:SegmentList", _NS)
+        seg_base = rep.find("mpd:SegmentBase", _NS) or adapt.find("mpd:SegmentBase", _NS)
+        
         if tmpl is not None:
             self._apply_segment_template(tmpl, rep_id, s, period_start, rep_base_url)
+            s.supports_live_decryption = True  # True segments available
         elif seg_list is not None:
             self._apply_segment_list(seg_list, s, rep_base_url)
+            s.supports_live_decryption = True  # True segments available
+        elif seg_base is not None:
+            # SegmentBase: may be range-split (byte ranges) or simple single-file
+            # Live decryption NOT suitable for range-split files (no true segments)
+            s.supports_live_decryption = False
+            self._uses_range_split = True
+            
+            index_range = seg_base.get("indexRange", "")
+            media_range = seg_base.find("mpd:Initialization", _NS)
+            media_range = media_range.get("range", "") if media_range is not None else ""
+            
+            if index_range or media_range:
+                logger.info(f"DASH range-split detected for stream {rep_id!r}: indexRange={index_range!r}, mediaRange={media_range!r}. Live decryption disabled.")
+            
+            # Get the media URL
+            rep_base = rep.find("mpd:BaseURL", _NS)
+            if rep_base is not None and rep_base.text:
+                rep_rel = rep_base.text.strip()
+                if rep_base_url.rstrip("/").endswith(rep_rel):
+                    media_url = rep_base_url.rstrip("/")
+                else:
+                    media_url = urljoin(rep_base_url, rep_rel)
+            else:
+                media_url = rep_base_url.rstrip("/")
+            
+            # Add ONLY the media segment (no explicit byte_range)
+            # The downloader will detect single-file media and call _build_dash_ranged_segments()
+            # which will split it into chunks automatically
+            s.add_segment(Segment(media_url, 0, "media"))
         else:
+            # No segmentation info - single file
             rep_base = rep.find("mpd:BaseURL", _NS)
             if rep_base is not None and rep_base.text:
                 rep_rel = rep_base.text.strip()
@@ -307,6 +348,12 @@ class DashParser:
                 else:
                     media_url = urljoin(rep_base_url, rep_rel)
                 s.add_segment(Segment(media_url, 0, "media"))
+            else:
+                s.add_segment(Segment(rep_base_url.rstrip("/"), 0, "media"))
+            
+            # Single file without ranges might still work with live decryption if we split it
+            # But safer to mark as False unless we know it's segmented
+            s.supports_live_decryption = False
 
         return s
 
@@ -531,13 +578,26 @@ class DashParser:
     def _apply_segment_list(self, seg_list, stream, base_url):
         init_el = seg_list.find("mpd:Initialization", _NS)
         if init_el is not None:
+            # Try sourceURL first (URL-based init), then range (byte-range init)
             src = init_el.get("sourceURL", "")
             if src:
                 stream.add_segment(Segment(urljoin(base_url, src), 0, "init"))
+            else:
+                # Byte-range format: range attribute points to bytes in the base file
+                init_range = init_el.get("range", "")
+                if init_range:
+                    stream.add_segment(Segment(base_url.rstrip("/"), 0, "init", byte_range=init_range))
+        
         for idx, seg_el in enumerate(seg_list.findall("mpd:SegmentURL", _NS), start=1):
+            # Try media first (URL-based segment), then mediaRange (byte-range segment)
             media_url = seg_el.get("media", "")
             if media_url:
                 stream.add_segment(Segment(urljoin(base_url, media_url), idx, "media"))
+            else:
+                # Byte-range format: mediaRange points to bytes in the base file
+                media_range = seg_el.get("mediaRange", "")
+                if media_range:
+                    stream.add_segment(Segment(base_url.rstrip("/"), idx, "media", byte_range=media_range))
 
     @staticmethod
     def _parse_iso_duration(s: str) -> float:

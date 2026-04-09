@@ -12,8 +12,8 @@ from rich.console import Console
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.http_client import get_headers
 from VibraVid.setup import get_wvd_path, get_prd_path
-from VibraVid.source.style.tracker import download_tracker, context_tracker
-from VibraVid.source.utils.media_players import MediaPlayers
+from VibraVid.core.ui.tracker import download_tracker, context_tracker
+from VibraVid.core.utils.media_players import MediaPlayers
 
 from VibraVid.core.drm.manager import DRMManager
 
@@ -36,10 +36,10 @@ DOWNLOAD_PREFERENCE = config_manager.config.get("DOWNLOAD", "preference", defaul
 def _load_media_downloader(preference: str):
     """Lazily import and return the MediaDownloader class matching *preference*."""
     if preference == _DOWNLOADER_N3U8DL:
-        from VibraVid.source.n3u8dl_re import MediaDownloader
+        from VibraVid.core.source.n3u8dl_re import MediaDownloader
         return MediaDownloader
     elif preference == _DOWNLOADER_MANUAL:
-        from VibraVid.source.manual import MediaDownloader
+        from VibraVid.core.source.manual import MediaDownloader
         return MediaDownloader
     else:
         raise ValueError(f"Unknown downloader_preference {preference!r}. Valid values: {_VALID_DOWNLOADERS}")
@@ -72,7 +72,7 @@ class HLS_Downloader(BaseDownloader):
             - license_certificate: Widevine certificate (base64) for license challenge.
             - output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
             - drm_preference: DRM system preference: "widevine", "playready", or "auto".
-            - decrypt_preference: Decryption tool: "bento4", "shaka".
+            - decrypt_preference: Decryption tool: "bento4", "shaka", "ffmpeg".
             - key: Manual decryption key (hex format) if known.
             - cookies: HTTP cookies for authenticated requests.
         """
@@ -81,7 +81,6 @@ class HLS_Downloader(BaseDownloader):
         self.license_url = str(license_url).strip() if license_url else None
         self.license_headers = license_headers or self.headers
         self.license_certificate = license_certificate
-
         self.drm_preference = drm_preference.lower()
         self.decrypt_preference = decrypt_preference.lower()
         self.downloader_preference = DOWNLOAD_PREFERENCE.lower()
@@ -276,8 +275,11 @@ class HLS_Downloader(BaseDownloader):
                 self.media_downloader.set_key(keys)
             elif drm_psshs.get("WV") or drm_psshs.get("PR"):
                 console.print("[red]Warning: DRM detected but no decryption keys found")
+        else:
+            keys = []
 
         # ── Download ──────────────────────────────────────────────────────────
+        self._log_tracks_json(streams, keys, self.m3u8_url)
         if SKIP_DOWNLOAD:
             console.print("[yellow]Skipping download as per configuration.")
             return self.output_path, False
