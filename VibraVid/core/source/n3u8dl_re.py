@@ -20,7 +20,7 @@ from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.core.ui.bar_manager import DownloadBarManager
 from VibraVid.core.utils.language import resolve_locale
 from VibraVid.core.downloader.subtitle import download_external_tracks_with_progress
-from VibraVid.core.utils.decrypt import Decryptor, KeysManager
+from VibraVid.core.utils.decrypt_engine import Decryptor, KeysManager
 from .base import BaseMediaDownloader
 
 
@@ -47,7 +47,7 @@ _SUBFIN_RE  = re.compile(r"(\d+\.?\d*(?:B|KB|MB|GB))\s+-\s+00:00:00")
 class MediaDownloader(BaseMediaDownloader):
     def __init__(
         self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None,
-        decrypt_preference: str = "shaka", download_id: Optional[str] = None, site_name: Optional[str] = None,
+        download_id: Optional[str] = None, site_name: Optional[str] = None, max_segments: Optional[int] = None
     ) -> None:
         super().__init__(
             url=url,
@@ -56,10 +56,10 @@ class MediaDownloader(BaseMediaDownloader):
             headers=headers,
             key=key,
             cookies=cookies,
-            decrypt_preference=decrypt_preference,
             download_id=download_id,
             site_name=site_name,
         )
+        self.max_segments = max_segments    # !!!! NOT USE
 
     def set_key(self, key: Any) -> None:
         key_type  = type(key).__name__
@@ -160,24 +160,17 @@ class MediaDownloader(BaseMediaDownloader):
 
         self.status = self._build_status(ext_subs, ext_auds)
 
-        logger.info(
-            f"Post-decrypt check: key={bool(self.key)}, "
-            f"actual_live_decryption={self.actual_live_decryption}, "
-            f"decrypt_preference={self.decrypt_preference}"
-        )
-        if self.key and not (self.actual_live_decryption and self.decrypt_preference in ("ffmpeg", "bento4")):
+        logger.info(f"Post-decrypt check: key={bool(self.key)}, actual_live_decryption={self.actual_live_decryption}")
+        if self.key and not (self.actual_live_decryption):
             logger.info("Post-decrypt check: WILL decrypt files now")
             self._decrypt_check(self.status)
         else:
             reason = []
             if not self.key:
                 reason.append("no key")
-            if self.actual_live_decryption and self.decrypt_preference in ("ffmpeg", "bento4"):
+            if self.actual_live_decryption:
                 reason.append("live decryption with ffmpeg/bento4")
-            logger.info(
-                f"Post-decrypt check: SKIPPING decryption. "
-                f"Reason(s): {', '.join(reason) if reason else 'unknown'}"
-            )
+            logger.info("Post-decrypt check: SKIPPING decryption. ")
 
         return self.status
 
@@ -233,7 +226,6 @@ class MediaDownloader(BaseMediaDownloader):
             download_tracker.update_status(self.download_id, "Decrypting ...")
 
         decryptor = Decryptor(
-            preference=self.decrypt_preference,
             license_url=self.license_url,
             drm_type=self.drm_type,
         )

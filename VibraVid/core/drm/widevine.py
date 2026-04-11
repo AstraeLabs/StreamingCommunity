@@ -12,14 +12,14 @@ from pywidevine.pssh import PSSH
 
 from VibraVid.setup import get_info_wvd
 from VibraVid.utils.http_client import create_client
-from VibraVid.core.utils.decrypt import KeysManager
+from VibraVid.core.utils.decrypt_engine import KeysManager
 
 
 console = Console()
 logger = logging.getLogger(__name__)
 
 
-def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str = None, cdm_remote_api: list[str] = None, headers: dict = None, key: str = None, license_certificate: str = None):
+def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str = None, cdm_remote_api: list[str] = None, headers: dict = None, key: str = None, license_certificate: str = None, prefer_remote_cdm: bool = True):
     """
     Extract Widevine CONTENT keys (KID/KEY) from a license.
 
@@ -31,6 +31,7 @@ def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: 
         - headers (dict): Optional HTTP headers for the license request (from fetch).
         - key (str): Optional raw license data to bypass HTTP request.
         - license_certificate (str): Optional base64-encoded SignedMessage for CDM Privacy Mode. If None or empty, set_service_certificate is not called.
+        - prefer_remote_cdm (bool): Prefer remote CDM over local. If True and remote config missing, raises error instead of fallback.
 
     Returns:
         list: List of strings "KID:KEY" (only CONTENT keys) or None if error.
@@ -43,6 +44,21 @@ def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: 
         return None
 
     # Check if we have either local or remote CDM
+    cdm_remote_api = cdm_remote_api if cdm_remote_api else None
+    if prefer_remote_cdm and cdm_remote_api is None:
+        logger.error("Widevine: prefer_remote_cdm=true but no remote CDM config found")
+        console.print("[red]Error: prefer_remote_cdm=true but no remote CDM config found. Database lookup will continue.")
+        
+        # Return None here to skip CDM extraction but allow database lookup in manager._resolve_keys
+        return None
+    
+    if not prefer_remote_cdm and cdm_device_path is None:
+        logger.error("Widevine: prefer_remote_cdm=false but no local CDM device found")
+        console.print("[red]Error: prefer_remote_cdm=false but no local CDM device found. Database lookup will continue.")
+        
+        # Return None here to skip CDM extraction but allow database lookup in manager._resolve_keys
+        return None
+    
     if cdm_device_path is None and cdm_remote_api is None:
         logger.error("Must provide either cdm_device_path or cdm_remote_api")
         console.print("[red]Error: Must provide either cdm_device_path or cdm_remote_api.")
@@ -127,7 +143,6 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
 
             # Make license request
             try:
-                console.print("[dim]Requesting license ...")
                 response = create_client(headers=req_headers).post(license_url, data=challenge)
             except Exception as e:
                 logger.error(f"License request error for {kid_info}: {e}")

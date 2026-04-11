@@ -19,8 +19,8 @@ from VibraVid.utils.http_client import create_client
 console = Console()
 local_path = os.path.join(".")
 PROJECT_MARKER_FILE = "update.py"
-KEEP_FOLDERS = {"Video", "Conf", ".git"}        # ADD MORE FOLDERS HERE IF NEEDED
-KEEP_FILES = {"update.py"}                      # ADD MORE FILES HERE IF NEEDED
+KEEP_FOLDERS = {"Video", "Conf", ".cache", ".git"}          # ADD MORE FOLDERS HERE IF NEEDED
+KEEP_FILES = {"update.py"}                                  # ADD MORE FILES HERE IF NEEDED
 
 
 def verify_project_directory(directory: str) -> bool:

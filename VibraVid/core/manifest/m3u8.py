@@ -168,8 +168,24 @@ class HLSParser:
             streams = self._variant_fallback(streams, master_drm)
 
         for stream in streams:
-            # HLS uses true segments (EXTINF), so live decryption is always possible
-            stream.supports_live_decryption = True
+            # Populate stream.encryption_method from DRMInfo if not already set
+            if not stream.encryption_method and stream.drm and stream.drm.method:
+                stream.encryption_method = stream.drm.method
+            
+            # Determine if stream supports live per-segment decryption
+            # SAMPLE-AES/CBCS HLS segments only have 'moof' box, not 'moov'
+            # Therefore they cannot be decrypted individually - must merge first
+            enc_method = (stream.encryption_method or '').lower() if stream.encryption_method else ''
+            
+            if enc_method in ('sample-aes', 'sample_aes', 'cbcs', 'cbc1', 'cens'):
+                # SAMPLE-AES/CBCS: Live per-segment decryption not viable
+                # Must merge all segments first, then post-decrypt complete MP4 with Shaka
+                stream.supports_live_decryption = False
+                logger.info(f"Stream {stream.id}: SAMPLE-AES detected - Using post-merge decryption")
+            else:
+                # CENC, Widevine, or unencrypted: Can support live decryption
+                stream.supports_live_decryption = True
+                logger.info(f"Stream {stream.id}: No SAMPLE-AES - Can use live decryption")
 
         return streams
 
@@ -345,6 +361,9 @@ class HLSParser:
                             b64c += "="
                         decoded = base64.b64decode(b64c)
 
+                    # Canonical base64 to avoid padding issues downstream.
+                    b64 = base64.b64encode(decoded).decode("ascii")
+
                     # Check if it's JSON (Apple style)
                     try:
                         js = json.loads(decoded)
@@ -371,7 +390,7 @@ class HLSParser:
                             
                             if kid and not info.kid:
                                 info.kid = kid
-                    except (json.JSONDecodeError, TypeError, AttributeError):
+                    except (json.JSONDecodeError, TypeError, AttributeError, UnicodeDecodeError, ValueError):
                         is_wv = "edef8ba9" in attrs.lower() or "edef8ba9" in full_uri.lower() or "widevine" in attrs.lower()
                         is_pr = "9a04f079" in attrs.lower() or "9a04f079" in full_uri.lower() or "playready" in attrs.lower() or "com.microsoft" in attrs.lower()
                         

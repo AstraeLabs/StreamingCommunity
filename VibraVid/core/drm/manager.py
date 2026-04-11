@@ -9,7 +9,7 @@ from rich.console import Console
 
 from VibraVid.utils import config_manager
 from VibraVid.utils.vault import supa_vault, lab_vault, claudio_vault
-from VibraVid.core.utils.decrypt import KeysManager
+from VibraVid.core.utils.decrypt_engine import KeysManager
 
 from .playready import get_playready_keys
 from .widevine import get_widevine_keys
@@ -17,7 +17,7 @@ from .widevine import get_widevine_keys
 
 console = Console()
 logger = logging.getLogger(__name__)
-USE_CDM = config_manager.config.get_bool("DRM", "use_cdm", default=True)
+USE_CDM = config_manager.config.get_bool("DRM", "use_cdm")
 
 
 class DRMManager:
@@ -27,12 +27,13 @@ class DRMManager:
         ("supa",    supa_vault),
     ]
 
-    def __init__(self, widevine_device_path: str = None, playready_device_path: str = None, widevine_remote_cdm_api: list[str] = None, playready_remote_cdm_api: list[str] = None,):
+    def __init__(self, widevine_device_path: str = None, playready_device_path: str = None, widevine_remote_cdm_api: list[str] = None, playready_remote_cdm_api: list[str] = None, prefer_remote_cdm: bool = True):
         """Initialize DRM Manager with CDM paths and database connections."""
         self.widevine_device_path = widevine_device_path
         self.playready_device_path = playready_device_path
         self.widevine_remote_cdm_api = widevine_remote_cdm_api
         self.playready_remote_cdm_api = playready_remote_cdm_api
+        self.prefer_remote_cdm = prefer_remote_cdm
         self._vaults: list[tuple[str, object]] = [(name, obj) for name, obj in self._VAULT_REGISTRY if obj is not None]
 
     def _clean_license_url(self, license_url: str) -> str:
@@ -183,6 +184,7 @@ class DRMManager:
                 headers=headers,
                 key=key,
                 license_certificate=license_certificate,
+                prefer_remote_cdm=self.prefer_remote_cdm,
             ),
             key=key,
         )
@@ -200,6 +202,7 @@ class DRMManager:
                 headers=headers,
                 key=key,
                 license_data=license_data,
+                prefer_remote_cdm=self.prefer_remote_cdm,
             ),
             key=key,
         )

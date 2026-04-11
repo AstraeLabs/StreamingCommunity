@@ -365,6 +365,75 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
   "imp_service": ["default", "/home/user/my_custom_sites"]
   ```
 
+### DRM Configuration
+
+```json
+{
+	"DRM": {
+		"use_cdm": true,
+		"prefer_remote_cdm": true,
+		"vault": {
+			"supa": {
+				"url": "https://crqczuxpqjmrjvdvqvlx.supabase.co",
+				"token": ""
+			}
+		}
+	}
+}
+```
+
+- **`use_cdm`**: Enable/disable CDM-based key extraction (default: `true`). When disabled, only database lookups are attempted.
+- **`prefer_remote_cdm`**: Prefer remote CDM services over local devices (default: `true`). When `true`, remote CDM API credentials are used; when `false`, local CDM device files are prioritized.
+
+#### Adding Remote CDM Services
+
+When remote CDM services are back online, add the following to your `config.json`:
+
+**Widevine Remote CDM:**
+
+```json
+"widevine": {
+	"device_type": "ANDROID",
+	"system_id": 22590,
+	"security_level": 3,
+	"host": "https://cdrm-project.com/remotecdm/widevine",
+	"secret": "CDRM",
+	"device_name": "public"
+}
+```
+
+- **`device_type`**: Device model (`"ANDROID"`, `"CHROME"`)
+- **`system_id`**: Widevine system ID (default: `22590` for Android)
+- **`security_level`**: Security level (1-3, where 3 = L3)
+- **`host`**: Remote CDM server URL
+- **`secret`**: Authentication secret for the remote CDM service
+- **`device_name`**: Device identifier registered on the remote CDM service
+
+**PlayReady Remote CDM:**
+
+```json
+"playready": {
+	"device_name": "public",
+	"security_level": 3000,
+	"host": "https://cdrm-project.com/remotecdm/playready",
+	"secret": "CDRM"
+}
+```
+
+- **`device_name`**: Device identifier registered on the remote CDM service
+- **`security_level`**: Security level (e.g., `3000` for SL3000)
+- **`host`**: Remote CDM server URL
+- **`secret`**: Authentication secret for the remote CDM service
+
+#### Using Local CDM Devices
+
+To use local CDM device files instead of remote services, place them in the project root and ensure they're discoverable by the system:
+
+- **Widevine**: `.wvd` device file (from pywidevine)
+- **PlayReady**: `.prd` device file (from pyplayready)
+
+When local devices are found, they will be automatically used if `prefer_remote_cdm` is set to `false`.
+
 ---
 
 ## Usage Examples

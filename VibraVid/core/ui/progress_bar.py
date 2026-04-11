@@ -7,7 +7,7 @@ from VibraVid.utils import internet_manager
 
 
 class CustomBarColumn(ProgressColumn):
-    def __init__(self, bar_width=40, complete_char="█", incomplete_char="░", complete_style="bright_magenta", incomplete_style="dim white",):
+    def __init__(self, bar_width=40, complete_char="-", incomplete_char="-", complete_style="bright_magenta", incomplete_style="dim white"):
         super().__init__()
         self.bar_width = bar_width
         self.complete_char = complete_char
@@ -25,8 +25,9 @@ class CustomBarColumn(ProgressColumn):
         text = Text()
         if bar_width > 0:
             text.append(self.complete_char * bar_width, style=self.complete_style)
+            text.append(">", style=self.complete_style)
         if bar_width < self.bar_width:
-            text.append(self.incomplete_char * (self.bar_width - bar_width), style=self.incomplete_style)
+            text.append(self.incomplete_char * (self.bar_width - bar_width - 1), style=self.incomplete_style)
 
         return text
 

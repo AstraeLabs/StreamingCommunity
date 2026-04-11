@@ -29,6 +29,17 @@ class DRMInfo:
 
     def set_pssh(self, pssh_base64: str, drm_type_hint: str = None) -> None:
         detected: Optional[str] = None
+
+        # FairPlay SKD URI is not a base64 PSSH box; keep it as opaque value.
+        if isinstance(pssh_base64, str) and pssh_base64.lower().startswith("skd:"):
+            detected = (drm_type_hint or "FP").upper()
+            self._pssh_by_type[detected] = pssh_base64
+            if detected not in self._drm_types:
+                self._drm_types.append(detected)
+            self.pssh = pssh_base64
+            self.drm_type = detected
+            return
+
         try:
             from pywidevine.pssh import PSSH as WV_PSSH
             from uuid import UUID as _UUID

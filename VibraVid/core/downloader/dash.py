@@ -133,7 +133,8 @@ class DASH_Downloader(BaseDownloader):
     """
     def __init__(self, mpd_url: Optional[str] = None, mpd_headers: Optional[Dict[str, str]] = None, mpd_sub_list: Optional[list] = None, mpd_audio_list: Optional[list] = None,
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None, license_data: Optional[str] = None,
-        output_path: Optional[str] = None, drm_preference: str = "widevine", decrypt_preference: str = "bento4", key: Optional[str] = None, cookies: Optional[Dict[str, str]] = None,
+        output_path: Optional[str] = None, drm_preference: str = "widevine", key: Optional[str] = None, cookies: Optional[Dict[str, str]] = None,
+        max_segments: Optional[int] = None,
     ):
         """
         Parameters:
@@ -147,9 +148,9 @@ class DASH_Downloader(BaseDownloader):
             - license_data: PlayReady license data for SOAP envelope.
             - output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
             - drm_preference: DRM system to use: "widevine" or "playready".
-            - decrypt_preference: Decryption tool: "bento4", "shaka", "ffmpeg".
             - key: Manual decryption key (hex format) if known.
             - cookies: HTTP cookies for authenticated requests.
+            - max_segments: Maximum number of segments to download (for testing). Default: None (all).
         """
         self.mpd_url = str(mpd_url).strip() if mpd_url else None
         self.mpd_headers = mpd_headers or get_headers()
@@ -166,15 +167,16 @@ class DASH_Downloader(BaseDownloader):
             raise ValueError(f"drm_preference must be 'widevine' or 'playready', got: {drm_preference!r}")
         self.drm_preference = pref
 
-        self.decrypt_preference = decrypt_preference.lower()
         self.downloader_preference = DOWNLOAD_PREFERENCE.lower()
         self.key = key
         self.cookies = cookies or {}
+        self.max_segments = max_segments
         self.drm_manager = DRMManager(
             get_wvd_path(),
             get_prd_path(),
-            config_manager.config.get_dict("DRM", "widevine"),
-            config_manager.config.get_dict("DRM", "playready"),
+            config_manager.config.get_dict("DRM", "widevine", default={}),
+            config_manager.config.get_dict("DRM", "playready", default={}),
+            config_manager.config.get_bool("DRM", "prefer_remote_cdm"),
         )
 
         if self.downloader_preference not in _VALID_DOWNLOADERS:
@@ -390,9 +392,9 @@ class DASH_Downloader(BaseDownloader):
                     filename=self.filename_base,
                     headers=audio_headers,
                     cookies=self.cookies,
-                    decrypt_preference=self.decrypt_preference,
                     download_id=None,
                     site_name=self.site_name,
+                    max_segments=self.max_segments,
                 )
                 audio_dl.custom_filters = {
                     "video": "false",
@@ -495,9 +497,9 @@ class DASH_Downloader(BaseDownloader):
             filename=self.filename_base,
             headers=self.mpd_headers,
             cookies=self.cookies,
-            decrypt_preference=self.decrypt_preference,
             download_id=self.download_id,
             site_name=self.site_name,
+            max_segments=self.max_segments,
         )
         self.media_downloader.license_url = self.license_url
         self.media_downloader.drm_type = self.drm_preference

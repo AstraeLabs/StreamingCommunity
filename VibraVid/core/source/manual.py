@@ -18,7 +18,8 @@ from VibraVid.utils.http_client import create_client
 from VibraVid.utils.http_fallback_requests import patch_curl_cffi_with_requests_fallback
 from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.core.ui.bar_manager import DownloadBarManager
-from VibraVid.core.utils.decrypt import Decryptor, KeysManager
+from VibraVid.core.utils.decrypt_engine import Decryptor, KeysManager
+from VibraVid.core.muxing.helper.video import binary_merge_segments
 from .base import BaseMediaDownloader
 patch_curl_cffi_with_requests_fallback()
 
@@ -66,6 +67,7 @@ def _parse_hls_variant_playlist(content: str, base_url: str) -> Tuple[List[Dict]
     current_enc: Dict    = {"method": "NONE", "key_url": None, "iv": None}
     init_url: Optional[str] = None
     seg_num = 0
+    map_count = 0
 
     lines = content.splitlines()
     i = 0
@@ -83,6 +85,11 @@ def _parse_hls_variant_playlist(content: str, base_url: str) -> Tuple[List[Dict]
             }
 
         elif line.startswith("#EXT-X-MAP:"):
+            map_count += 1
+            # N_m3u8DL-RE behavior for this workflow: stop when a second MAP appears
+            # to avoid mixing init/segments from different timeline blocks.
+            if map_count > 1:
+                break
             uri_m = re.search(r'URI="([^"]+)"', line)
             if uri_m:
                 init_url = urljoin(base_url, uri_m.group(1))
@@ -120,42 +127,6 @@ def _decrypt_aes128(data: bytes, key_data: bytes, iv_hex: Optional[str], seg_num
         return _unpad(cipher.decrypt(data), _AES.block_size)
     except Exception:
         return cipher.decrypt(data)
-
-
-def _binary_merge(paths: List[Path], output_path: Path) -> None:
-    """
-    Simple binary concatenation of segment files into *output_path*.
-
-    Order: seg_00000000 (init, if present) FIRST, then seg_00000001,
-    seg_00000002 … in ascending order — identical to the v1 behaviour.
-
-    This is intentionally NOT using FFmpeg concat so that the raw muxed stream
-    is preserved exactly as downloaded.
-    """
-    def _seg_num(p: Path) -> int:
-        try:
-            name = p.stem
-            if name.startswith("seg_"):
-                return int(name[4:])
-        except (ValueError, IndexError):
-            pass
-        return 999_999_999
-
-    valid = [(p, _seg_num(p)) for p in paths if p.exists() and p.stat().st_size > 0]
-    valid.sort(key=lambda x: x[1])
-
-    logger.info(f"[_binary_merge] {len(valid)} segments → {output_path.name}")
-    total_written = 0
-    with open(output_path, "wb") as out_f:
-        for p, num in valid:
-            chunk = p.read_bytes()
-            out_f.write(chunk)
-            total_written += len(chunk)
-
-    if output_path.exists() and output_path.stat().st_size > 0:
-        logger.info(f"[_binary_merge] ✓ {output_path.name} ({_fmt_size(total_written)})")
-    else:
-        logger.error(f"[_binary_merge] output is empty or missing: {output_path}")
 
 
 def _fmt_size(nb: int) -> str:
@@ -197,7 +168,7 @@ def _split_http_ranges(total_size: int, chunk_size: int) -> List[Tuple[int, int]
 def _download_segments_threaded(
     segments: List[Dict], out_dir: Path, headers: Dict, concurrency: int = 8, progress_cb=None,
     stop_check=None, retry: int = 3, timeout_s: int = 30,
-    key_cache: Optional[Dict[str, bytes]] = None, decrypt_preference: str = "bento4", key: Optional[Any] = None, live_decryption: bool = False,
+    key_cache: Optional[Dict[str, bytes]] = None, key: Optional[Any] = None, live_decryption: bool = False,
 ) -> List[Path]:
     """
     Queue-based threaded segment downloader.
@@ -368,12 +339,19 @@ def _download_segments_threaded(
                                 logger.info(f"W{wid} seg {num} (init) stored {len(data)} bytes, signalling init_ready")
                             else:
                                 try:
-                                    raw_key = (
-                                        str(key[0]).split(":")[-1].rstrip("|").strip()
-                                        if isinstance(key, list)
-                                        else str(key).split(":")[-1].rstrip("|").strip()
-                                    )
+                                    key_str = (str(key[0]).strip() if isinstance(key, list) else str(key).strip())
+
+                                    # Extract first key pair from pipe-separated list
+                                    first_key_pair = key_str.split("|")[0]
+                                    key_parts = first_key_pair.split(":")
+                                    if len(key_parts) >= 2:
+                                        raw_kid = key_parts[0]
+                                        raw_key = key_parts[1]
+                                    else:
+                                        raw_kid = "00000000000000000000000000000000"
+                                        raw_key = key_parts[0]
                                 except Exception:
+                                    raw_kid = "00000000000000000000000000000000"
                                     raw_key = str(key)
 
                                 worker_state[wid] = f"decrypting_live:{num}:{time.monotonic():.3f}"
@@ -390,11 +368,12 @@ def _download_segments_threaded(
                                     if _idata:
                                         init_tmp.write_bytes(_idata)
 
-                                decryptor_live = Decryptor(preference=decrypt_preference)
+                                decryptor_live = Decryptor()
                                 success, msg, dec_data = decryptor_live.decrypt_segment_live(
                                     encrypted_path=str(enc_tmp),
                                     decrypted_path=str(dec_tmp),
                                     raw_key=raw_key,
+                                    raw_kid=raw_kid,
                                     init_path=str(init_tmp) if init_tmp.exists() else None,
                                 )
 
@@ -510,7 +489,7 @@ def _join_interruptible(threads: List[threading.Thread], stop_event: threading.E
 class MediaDownloader(BaseMediaDownloader):
     def __init__(self, 
         url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None,
-        decrypt_preference: str = "shaka", download_id: Optional[str] = None, site_name: Optional[str] = None,
+        download_id: Optional[str] = None, site_name: Optional[str] = None, max_segments: Optional[int] = None,
     ) -> None:
         super().__init__(
             url=url,
@@ -519,11 +498,11 @@ class MediaDownloader(BaseMediaDownloader):
             headers=headers,
             key=key,
             cookies=cookies,
-            decrypt_preference=decrypt_preference,
             download_id=download_id,
             site_name=site_name,
         )
         self.manual_concurrency = 8
+        self.max_segments = max_segments
 
         # Cancellation
         self._stop_event: threading.Event = threading.Event()
@@ -544,24 +523,23 @@ class MediaDownloader(BaseMediaDownloader):
         self._prepare_labels()
 
         # Determine optimal live decryption mode
+        # Live decryption only if ALL streams support it (e.g., CENC/Widevine)
+        # For SAMPLE-AES/CBCS: Must use post-merge decryption
         selected_media = [
             s for s in self.streams
             if s.selected and not s.is_external and s.type in ("video", "audio")
         ]
         all_support_live = all(s.supports_live_decryption for s in selected_media) if selected_media else False
-        any_unsupported  = any(not s.supports_live_decryption for s in selected_media)
-
+        
         if all_support_live and selected_media:
             self._session_live_decrypt = True
             logger.info("All selected streams support live decryption - using in-flight decryption.")
-        elif any_unsupported:
-            self._session_live_decrypt = False
-            logger.warning(
-                "Some or all selected streams do NOT support live decryption "
-                "(range-split manifest). Using post-download decryption."
-            )
         else:
             self._session_live_decrypt = False
+            if selected_media and not all_support_live:
+                logger.info("SAMPLE-AES/CBCS detected - using post-merge decryption with Shaka Packager.")
+            else:
+                logger.info("Using post-download decryption.")
 
         ext_result: Dict[str, Any] = {"ext_subs": [], "ext_auds": []}
 
@@ -678,7 +656,6 @@ class MediaDownloader(BaseMediaDownloader):
             download_tracker.update_status(self.download_id, "Decrypting ...")
 
         decryptor = Decryptor(
-            preference=self.decrypt_preference,
             license_url=self.license_url,
             drm_type=self.drm_type,
         )
@@ -784,7 +761,7 @@ class MediaDownloader(BaseMediaDownloader):
             ext = "mp4"
 
         out_path = self.output_dir / self._out_filename(stream, ext)
-        _binary_merge(paths, out_path)
+        binary_merge_segments(paths, out_path, merge_logger=logger)
 
         if out_path.exists() and out_path.stat().st_size > 0:
             logger.info(
@@ -829,6 +806,16 @@ class MediaDownloader(BaseMediaDownloader):
                     "enc":    seg["enc"],
             })
 
+        # Apply max_segments limit if specified
+        if self.max_segments is not None and self.max_segments > 0:
+            
+            # Keep init segment + first max_segments media segments
+            if init_url:
+                dl_segs = dl_segs[:1 + self.max_segments]
+            else:
+                dl_segs = dl_segs[:self.max_segments]
+            logger.info(f"Limiting HLS download to {len(dl_segs)} segments (max_segments={self.max_segments})")
+
         self._download_stream_generic(dl_segs, stream, "hls", "ts", bar_manager, live_decryption=live_decryption)
 
     def _download_dash_stream(self, stream, bar_manager: DownloadBarManager, live_decryption: bool = False) -> None:
@@ -870,6 +857,11 @@ class MediaDownloader(BaseMediaDownloader):
             else:
                 dl_segs.append({"url": seg.url, "number": next_num, "enc": {"method": "NONE"}})
                 next_num += 1
+
+        # Apply max_segments limit if specified
+        if self.max_segments is not None and self.max_segments > 0:
+            dl_segs = dl_segs[:self.max_segments]
+            logger.info(f"Limiting DASH download to {len(dl_segs)} segments (max_segments={self.max_segments})")
 
         self._download_stream_generic(dl_segs, stream, "dash", "mp4", bar_manager, live_decryption=live_decryption)
 
@@ -917,7 +909,6 @@ class MediaDownloader(BaseMediaDownloader):
                 retry=RETRY_COUNT,
                 timeout_s=REQUEST_TIMEOUT,
                 key_cache=key_cache,
-                decrypt_preference=self.decrypt_preference,
                 key=self.key,
                 live_decryption=live_decryption,
             )

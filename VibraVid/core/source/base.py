@@ -24,11 +24,11 @@ from VibraVid.core.utils.language import resolve_locale, LANGUAGE_MAP
 from VibraVid.core.utils.stream_selector_ui import InteractiveStreamSelector
 from VibraVid.core.downloader.subtitle import build_ext_track_label, is_valid_format, ext_from_url
 from VibraVid.core.utils.codec import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
-from VibraVid.core.utils.decrypt import KeysManager
+from VibraVid.core.utils.decrypt_engine import KeysManager
 
 
 logger = logging.getLogger(__name__)
-auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select", default=True)
+auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select")
 
 
 def resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
@@ -84,14 +84,13 @@ def lang_variants(normalized_lang: str) -> Set[str]:
 
 
 class BaseMediaDownloader:
-    def __init__(self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None, decrypt_preference: str = "shaka", download_id: Optional[str] = None, site_name: Optional[str] = None) -> None:
+    def __init__(self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None) -> None:
         self.url = url
         self.output_dir = Path(output_dir)
         self.filename = filename
         self.headers = headers or {}
         self.key = key
         self.cookies = cookies or {}
-        self.decrypt_preference = decrypt_preference.strip().lower()
         self.download_id = download_id
         self.site_name = site_name
 

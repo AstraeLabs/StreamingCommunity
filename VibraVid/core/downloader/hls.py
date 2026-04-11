@@ -60,8 +60,8 @@ class HLS_Downloader(BaseDownloader):
     """
     def __init__(self, m3u8_url: str, headers: Optional[Dict[str, str]] = None,
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None,
-        output_path: Optional[str] = None, drm_preference: str = "widevine", decrypt_preference: str = "bento4", key: Optional[str] = None,
-        cookies: Optional[Dict[str, str]] = None,
+        output_path: Optional[str] = None, drm_preference: str = "widevine", key: Optional[str] = None,
+        cookies: Optional[Dict[str, str]] = None, max_segments: Optional[int] = None,
     ):
         """
         Parameters:
@@ -72,9 +72,9 @@ class HLS_Downloader(BaseDownloader):
             - license_certificate: Widevine certificate (base64) for license challenge.
             - output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
             - drm_preference: DRM system preference: "widevine", "playready", or "auto".
-            - decrypt_preference: Decryption tool: "bento4", "shaka", "ffmpeg".
             - key: Manual decryption key (hex format) if known.
             - cookies: HTTP cookies for authenticated requests.
+            - max_segments: Maximum number of segments to download (for testing). Default: None (all).
         """
         self.m3u8_url = str(m3u8_url).strip()
         self.headers = headers or get_headers()
@@ -82,10 +82,10 @@ class HLS_Downloader(BaseDownloader):
         self.license_headers = license_headers or self.headers
         self.license_certificate = license_certificate
         self.drm_preference = drm_preference.lower()
-        self.decrypt_preference = decrypt_preference.lower()
         self.downloader_preference = DOWNLOAD_PREFERENCE.lower()
         self.key = key
         self.cookies = cookies or {}
+        self.max_segments = max_segments
 
         if self.downloader_preference not in _VALID_DOWNLOADERS:
             raise ValueError(f"Invalid downloader_preference {self.downloader_preference!r}. Valid values: {_VALID_DOWNLOADERS}")
@@ -204,7 +204,13 @@ class HLS_Downloader(BaseDownloader):
         All DRM type comparisons use plain string literals ('widevine',
         'playready', 'auto') — never DRMSystem / DRMInfo class attributes.
         """
-        drm_manager = DRMManager(get_wvd_path(), get_prd_path(), config_manager.config.get_dict("DRM", "widevine"), config_manager.config.get_dict("DRM", "playready"))
+        drm_manager = DRMManager(
+            get_wvd_path(),
+            get_prd_path(),
+            config_manager.config.get_dict("DRM", "widevine", default={}),
+            config_manager.config.get_dict("DRM", "playready", default={}),
+            config_manager.config.get_bool("DRM", "prefer_remote_cdm"),
+        )
         pref = self.drm_preference  # 'widevine' | 'playready' | 'auto'
         keys = None
 
@@ -247,9 +253,9 @@ class HLS_Downloader(BaseDownloader):
             filename=self.filename_base,
             headers=self.headers,
             cookies=self.cookies,
-            decrypt_preference=self.decrypt_preference,
             download_id=self.download_id,
             site_name=self.site_name,
+            max_segments=self.max_segments,
         )
 
         if self.download_id:

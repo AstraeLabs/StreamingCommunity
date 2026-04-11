@@ -27,11 +27,7 @@ class DownloadBarManager:
                 TextColumn("[purple]{task.description}", justify="left"),
                 CustomBarColumn(bar_width=40),
                 ColoredSegmentColumn(),
-                TextColumn("[dim][[/dim]"),
-                CompactTimeColumn(),
-                TextColumn("[dim]<[/dim]"),
-                CompactTimeRemainingColumn(),
-                TextColumn("[dim]][/dim]"),
+                TextColumn("[dim][[/dim]"), CompactTimeColumn(), ("[dim]<[/dim]"), CompactTimeRemainingColumn(), TextColumn("[dim]][/dim]"),
                 SizeColumn(),
                 TextColumn("[dim]@[/dim]"),
                 TextColumn("[red]{task.fields[speed]}[/red]", justify="right"),
@@ -54,9 +50,11 @@ class DownloadBarManager:
         if self.progress:
             for task_key, task_label in prebuilt_tasks:
                 if task_key not in self.tasks:
+                    # If task_label already contains Rich markup (starts with [), use it as-is otherwise wrap it with [cyan] for consistency
+                    final_label = task_label if task_label.startswith("[") else f"[cyan]{task_label}[/cyan]"
+                    initial_segment = "0/100" if task_key.startswith("decrypt_") else "0/0"
                     self.tasks[task_key] = self.progress.add_task(
-                        f"[cyan]{task_label}",
-                        total=100, segment="0/0", speed="0Bps", size="0B/0B",
+                        final_label, total=100, segment=initial_segment, speed="0Bps", size="0B/0B"
                     )
                     
     def add_external_track_task(self, label: str, track_key: str):
