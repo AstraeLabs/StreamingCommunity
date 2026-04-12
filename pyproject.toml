@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "VibraVid"
-version = "1.1.5"
+version = "1.1.6"
 description = "Download content from streaming platforms"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -36,4 +36,11 @@ Homepage = "https://github.com/AstraeLabs/VibraVid"
 packages = ["VibraVid"]
 
 [tool.setuptools.package-data]
-VibraVid = ["**/*.txt", "**/*.json", "**/*.yaml", "**/*.yml", "**/*.cfg"]
+VibraVid = [
+    "**/*.txt", 
+    "**/*.json",
+    "**/*.yaml", 
+    "**/*.yml", 
+    "**/*.cfg",
+    "**/*.py"
+]

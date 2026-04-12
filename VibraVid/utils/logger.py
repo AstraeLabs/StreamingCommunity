@@ -1,24 +1,31 @@
 # 29.01.24
 
 import os
+import sys
 import logging
 from datetime import datetime
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
+from VibraVid.utils import config_manager
+
 _log_file = None
+
+
 
 def setup_logger(name=None):
     """
-    Configures a logger that writes to a timestamped file in the .cache directory.
+    Configures a logger that writes to a timestamped file in the .cache/logs directory.
     """
     global _log_file
+    app_base_path = config_manager.base_path
     
-    # 1. Prepare directories - use app installation path, not current working directory
-    app_base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     cache_dir = Path(os.path.join(app_base_path, ".cache"))
     log_dir = cache_dir / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"Warning: Could not create log directory {log_dir}: {e}", file=sys.stderr)
 
     # 2. Create/Get filename with timestamp (shared across all calls in same session)
     if _log_file is None:
@@ -40,19 +47,23 @@ def setup_logger(name=None):
     root_logger.setLevel(logging.INFO)
     
     if not root_logger.handlers:
-        file_handler = RotatingFileHandler(
-            _log_file, 
-            maxBytes=10*1024*1024, # 10MB
-            backupCount=5,
-            encoding='utf-8'
-        )
-        file_handler.setFormatter(log_format)
-        file_handler.setLevel(logging.INFO)
-        root_logger.addHandler(file_handler)
-        
-        # Capture warnings from the 'warnings' module
-        logging.captureWarnings(True)
-        root_logger.info(f"--- Logging initialized: {_log_file} ---")
+        try:
+            file_handler = RotatingFileHandler(
+                str(_log_file),  # Ensure path is string
+                maxBytes=10*1024*1024, # 10MB
+                backupCount=5,
+                encoding='utf-8'
+            )
+            file_handler.setFormatter(log_format)
+            file_handler.setLevel(logging.INFO)
+            root_logger.addHandler(file_handler)
+            
+            # Capture warnings from the 'warnings' module
+            logging.captureWarnings(True)
+            root_logger.info(f"--- Logging initialized: {_log_file} ---")
+        except Exception as e:
+            print(f"Error: Could not create file handler for {_log_file}: {e}", file=sys.stderr)
+            raise
 
     return logger
 

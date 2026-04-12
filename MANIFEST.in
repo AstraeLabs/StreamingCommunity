@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include requirements.txt
+recursive-include VibraVid *.py
+recursive-include VibraVid *.json
+recursive-include VibraVid *.yaml
+recursive-include VibraVid *.yml
+recursive-include VibraVid *.txt
+recursive-include VibraVid *.cfg

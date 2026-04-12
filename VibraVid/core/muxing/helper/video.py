@@ -72,7 +72,6 @@ def _segment_number(path: Path) -> int:
 def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: logging.Logger | None = None) -> None:
     """Merge downloaded segments using direct raw binary concatenation."""
     log = merge_logger or logger
-
     valid = [(p, _segment_number(p)) for p in paths if p.exists() and p.stat().st_size > 0]
     valid.sort(key=lambda item: item[1])
     if not valid:
@@ -114,12 +113,14 @@ def get_stream_codecs(file_path: str) -> list[dict]:
 
     if result.returncode != 0:
         console.print(f"[red]ffprobe error while reading codecs: {result.stderr.strip()}")
+        logger.error(f"ffprobe error while reading codecs for file {file_path}: {result.stderr.strip()}")
         return []
 
     try:
         info = json.loads(result.stdout)
         return [{'codec_name': s.get('codec_name', '').lower(), 'codec_type': s.get('codec_type', '').lower()} for s in info.get('streams', []) if s.get('codec_name')]
     except json.JSONDecodeError:
+        logger.error(f"JSON decode error while parsing ffprobe output for file {file_path}: {result.stdout.strip()}")
         return []
 
 
@@ -139,6 +140,7 @@ def resolve_compatible_extension(file_path: str, desired_ext: str) -> str:
 
     if not streams:
         console.print(f"[yellow]    Warning: Could not read streams from {os.path.basename(file_path)}, keeping desired extension '{desired_ext}'")
+        logger.warning(f"Could not read streams from {file_path}, keeping desired extension '{desired_ext}'")
         return desired_ext
 
     incompatible_codecs = []
@@ -158,6 +160,7 @@ def resolve_compatible_extension(file_path: str, desired_ext: str) -> str:
 
     # Report what's incompatible
     for codec_type, codec, allowed in incompatible_codecs:
+        logger.warning(f"Codec {codec} ({codec_type}) is not compatible with .{desired_ext}. Allowed containers: {', '.join(sorted(allowed))}")
         console.print(f"[yellow]    WARN [cyan]Codec [red]{codec} [cyan]({codec_type}) [cyan]is not compatible with [red].{desired_ext}[cyan]. Allowed containers: [red]{', '.join(sorted(allowed))}")
 
     # Pick the best compatible container in preferred order
@@ -165,6 +168,7 @@ def resolve_compatible_extension(file_path: str, desired_ext: str) -> str:
         if preferred in compatible_containers:
             return preferred
     
+    logger.warning(f"No fully compatible container found for file {file_path} with codecs {[s['codec_name'] for s in streams]}. Falling back to .mp4")
     console.print("[yellow]    WARN Could not find a fully compatible container, falling back to mp4")
     return 'mp4'
 
@@ -183,7 +187,8 @@ def detect_ts_timestamp_issues(file_path):
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     
     if result.returncode != 0 or 'pts_time' not in result.stdout:
-        return True  # Assume issues if probe fails or no pts_time
+        logger.error(f"ffprobe error while checking timestamps for file {file_path}: {result.stderr.strip()}")
+        return True
     
     # Parse JSON and check for packets without pts
     try:
@@ -193,6 +198,7 @@ def detect_ts_timestamp_issues(file_path):
             if packet.get('pts') is None or packet.get('pts') == 'N/A':
                 return True
     except json.JSONDecodeError:
+        logger.error(f"JSON decode error while parsing ffprobe output for timestamp check on file {file_path}: {result.stdout.strip()}")
         return True
     
     return False
@@ -219,6 +225,10 @@ def convert_ts_to_mp4(input_path, output_path):
     ]
     
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+    if result.returncode != 0:
+        logger.error(f"convert_ts_to_mp4 failed: {result.stderr}")
+
     return result.returncode == 0
 
 def get_media_metadata(file_path: str) -> dict:
@@ -233,6 +243,7 @@ def get_media_metadata(file_path: str) -> dict:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode != 0:
+            logger.error(f"ffprobe error while extracting metadata for file {file_path}: {result.stderr.strip()}")
             return {"quality": "", "language": "", "video_codec": "", "audio_codec": ""}
             
         info = json.loads(result.stdout)

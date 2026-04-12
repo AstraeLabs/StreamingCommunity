@@ -23,16 +23,24 @@ def read_requirements():
 
 
 def get_version():
+    """Get version from VibraVid/upload/version.py"""
+    version_file_path = os.path.join(os.path.dirname(__file__), "VibraVid", "upload", "version.py")
     try:
-        import pkg_resources
-        return pkg_resources.get_distribution('VibraVid').version
-    except Exception:
-        version_file_path = os.path.join(os.path.dirname(__file__), "VibraVid", "upload", "version.py")
         with open(version_file_path, "r", encoding="utf-8") as f:
             version_match = re.search(r"^__version__\s*=\s*['\"]([^'\"]*)['\"]$", f.read(), re.M)
         if version_match:
             return version_match.group(1)
-        raise RuntimeError("Unable to find version string in VibraVid/upload/version.py.")
+    except FileNotFoundError:
+        pass
+    
+    # Fallback for installed package
+    try:
+        import pkg_resources
+        return pkg_resources.get_distribution('VibraVid').version
+    except Exception:
+        pass
+    
+    raise RuntimeError("Unable to find version string in VibraVid/upload/version.py.")
 
 
 def get_package_data_files(directory):
