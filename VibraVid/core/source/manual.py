@@ -2,26 +2,29 @@
 
 import re
 import time
-import queue
 import asyncio
 import logging
-import platform
+import queue
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
-from rich.console import Console
-
 from VibraVid.utils import config_manager
-from VibraVid.utils.http_client import create_client
-from VibraVid.utils.http_fallback_requests import patch_curl_cffi_with_requests_fallback
+from VibraVid.utils.http_client import create_client, get_proxy_url
 from VibraVid.core.ui.tracker import download_tracker
-from VibraVid.core.ui.bar_manager import DownloadBarManager
+from VibraVid.core.ui.bar_manager import DownloadBarManager, console
 from VibraVid.core.utils.decrypt_engine import Decryptor, KeysManager
 from VibraVid.core.muxing.helper.video import binary_merge_segments
+from VibraVid.core.source.c_bridge import run_download_plan
+from VibraVid.core.source.download_utils import (
+    normalize_path_key,
+    format_size as _fmt_size,
+    format_speed as _fmt_speed,
+    estimate_total_size as _estimate_total_size,
+)
+
 from .base import BaseMediaDownloader
-patch_curl_cffi_with_requests_fallback()
 
 try:
     from Cryptodome.Cipher import AES as _AES
@@ -30,16 +33,40 @@ try:
 except ImportError:
     _HAS_AES = False
 
-
-console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
-logger  = logging.getLogger("manual")
+logger = logging.getLogger("manual")
 CONCURRENT_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
-THREAD_COUNT  = config_manager.config.get_int("DOWNLOAD", "thread_count")
-RETRY_COUNT   = config_manager.config.get_int("REQUESTS", "max_retry")
+THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
+RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")
 REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
-USE_PROXY  = config_manager.config.get_bool("REQUESTS", "use_proxy")
-PROXY_CFG  = config_manager.config.get_dict("REQUESTS", "proxy")
+USE_PROXY = config_manager.config.get_bool("REQUESTS", "use_proxy")
+PROXY_CFG = config_manager.config.get_dict("REQUESTS", "proxy")
 
+
+class _SilentDownloadBarManager(DownloadBarManager):
+    def __init__(self, download_id: Optional[str] = None):
+        # Do NOT call super().__init__() here because DownloadBarManager sets up
+        # Rich Live/Progress objects we deliberately want to skip.
+        self.download_id = download_id
+        self.progress = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
+
+    def add_prebuilt_tasks(self, prebuilt_tasks):           
+        return None
+    def add_external_track_tasks(self, *args, **kwargs):   
+        return None
+    def add_external_track_task(self, label, track_key):   
+        return None
+    def get_task_id(self, task_key):                       
+        return None
+    def handle_progress_line(self, parsed):                
+        return None
+    def finish_all_tasks(self):                            
+        return None
 
 def _hls_base_url(playlist_url: str) -> str:
     p = urlparse(playlist_url)
@@ -61,10 +88,27 @@ def _safe(s: str, maxlen: int = 32) -> str:
     return (cleaned or "x")[:maxlen]
 
 
+def _describe_key_for_log(value: Any) -> str:
+    if value is None:
+        return "none"
+    if isinstance(value, KeysManager):
+        try:
+            return f"KeysManager(len={len(value.get_keys_list())})"
+        except Exception:
+            return "KeysManager"
+    if isinstance(value, str):
+        return f"str(len={len(value)})"
+    if isinstance(value, (bytes, bytearray)):
+        return f"{type(value).__name__}(len={len(value)})"
+    if isinstance(value, (list, tuple, set)):
+        return f"{type(value).__name__}(len={len(value)})"
+    return type(value).__name__
+
+
 def _parse_hls_variant_playlist(content: str, base_url: str) -> Tuple[List[Dict], Optional[str]]:
     """Parse an HLS *variant* (media) playlist."""
     segments: List[Dict] = []
-    current_enc: Dict    = {"method": "NONE", "key_url": None, "iv": None}
+    current_enc: Dict = {"method": "NONE", "key_url": None, "iv": None}
     init_url: Optional[str] = None
     seg_num = 0
     map_count = 0
@@ -76,18 +120,17 @@ def _parse_hls_variant_playlist(content: str, base_url: str) -> Tuple[List[Dict]
 
         if line.startswith("#EXT-X-KEY:"):
             method_m = re.search(r"METHOD=([^,\s\"]+)", line)
-            uri_m    = re.search(r'URI="([^"]+)"', line)
-            iv_m     = re.search(r"IV=0x([0-9a-fA-F]+)", line, re.I)
+            uri_m = re.search(r'URI="([^"]+)"', line)
+            iv_m = re.search(r"IV=0x([0-9a-fA-F]+)", line, re.I)
             current_enc = {
-                "method":  (method_m.group(1).upper() if method_m else "NONE"),
+                "method": (method_m.group(1).upper() if method_m else "NONE"),
                 "key_url": (urljoin(base_url, uri_m.group(1)) if uri_m else None),
-                "iv":      (iv_m.group(1).lower().zfill(32) if iv_m else None),
+                "iv": (iv_m.group(1).lower().zfill(32) if iv_m else None),
             }
 
         elif line.startswith("#EXT-X-MAP:"):
             map_count += 1
-            # N_m3u8DL-RE behavior for this workflow: stop when a second MAP appears
-            # to avoid mixing init/segments from different timeline blocks.
+            # Legacy HLS behavior: stop when a second MAP appears to avoid mixing init/segments from different timeline blocks.
             if map_count > 1:
                 break
             uri_m = re.search(r'URI="([^"]+)"', line)
@@ -103,9 +146,9 @@ def _parse_hls_variant_playlist(content: str, base_url: str) -> Tuple[List[Dict]
                 if seg_url and not seg_url.startswith("#"):
                     segments.append(
                         {
-                            "url":    urljoin(base_url, seg_url),
+                            "url": urljoin(base_url, seg_url),
                             "number": seg_num,
-                            "enc":    dict(current_enc),
+                            "enc": dict(current_enc),
                         }
                     )
                     seg_num += 1
@@ -129,32 +172,6 @@ def _decrypt_aes128(data: bytes, key_data: bytes, iv_hex: Optional[str], seg_num
         return cipher.decrypt(data)
 
 
-def _fmt_size(nb: int) -> str:
-    if nb >= 1_073_741_824:
-        return f"{nb / 1_073_741_824:.2f}GB"
-    if nb >= 1_048_576:
-        return f"{nb / 1_048_576:.1f}MB"
-    if nb >= 1_024:
-        return f"{nb / 1024:.0f}KB"
-    return f"{nb}B"
-
-
-def _fmt_speed(bps: float) -> str:
-    if bps == 0:
-        return "---"
-    if bps >= 1_048_576:
-        return f"{bps / 1_048_576:.2f}MB/s"
-    if bps >= 1_024:
-        return f"{bps / 1024:.0f}KB/s"
-    return f"{bps:.0f}B/s"
-
-
-def _estimate_total_size(completed: int, done_segs: int, total_segs: int) -> int:
-    if done_segs <= 0 or total_segs <= 0:
-        return completed
-    return int((completed / done_segs) * total_segs)
-
-
 def _split_http_ranges(total_size: int, chunk_size: int) -> List[Tuple[int, int]]:
     ranges: List[Tuple[int, int]] = []
     start = 0
@@ -165,315 +182,12 @@ def _split_http_ranges(total_size: int, chunk_size: int) -> List[Tuple[int, int]
     return ranges
 
 
-def _download_segments_threaded(
-    segments: List[Dict], out_dir: Path, headers: Dict, concurrency: int = 8, progress_cb=None,
-    stop_check=None, retry: int = 3, timeout_s: int = 30,
-    key_cache: Optional[Dict[str, bytes]] = None, key: Optional[Any] = None, live_decryption: bool = False,
-) -> List[Path]:
-    """
-    Queue-based threaded segment downloader.
-
-    Each worker thread owns its own curl_cffi session.
-
-    NON-LIVE mode (live_decryption=False, default):
-        • AES-128 (#EXT-X-KEY) segments are decrypted in-process.
-        • CENC / Widevine segments are written RAW — post-download decryption
-          via Bento4 / Shaka is handled by _decrypt_check().
-
-    LIVE mode (live_decryption=True):
-        • AES-128 segments are still decrypted in-process (unchanged).
-        • CENC segments are decrypted per-fragment using
-          Decryptor.decrypt_segment_live().
-        • The merged file will already be clear-text; _decrypt_check() skips it.
-    """
-    if key_cache is None:
-        key_cache = {}
-
-    total = len(segments)
-    if total == 0:
-        return []
-
-    logger.info(
-        f"[DL] start — {total} segs, {concurrency} workers, "
-        f"timeout={timeout_s}s, retry={retry}, live_decrypt={live_decryption}"
-    )
-
-    work_q: queue.Queue = queue.Queue()
-    for seg in segments:
-        work_q.put(seg)
-
-    results: Dict[int, Path] = {}
-    lock     = threading.Lock()
-    key_lock = threading.Lock()
-    done_count  = 0
-    total_bytes = 0
-    t_start     = time.monotonic()
-    last_progress_cb_time = t_start
-
-    worker_state: Dict[int, str] = {}
-    worker_seg:   Dict[int, int] = {}
-
-    # For live-decrypt: workers that need the init segment wait on this event
-    init_ready       = threading.Event()
-    global_init_data = None  # type: Optional[bytes]
-
-    if segments and segments[0].get("number") == 0 and segments[0].get("enc", {}).get("method") == "NONE":
-        pass  # Will be signalled after worker 0 downloads it
-    else:
-        init_ready.set()  # No init segment → nothing to wait for
-
-    # ---------- AES-128 key fetch -------------------------------------------
-    def _fetch_key(client, key_url: str) -> bytes:
-        with key_lock:
-            if key_url in key_cache:
-                return key_cache[key_url]
-        resp = client.get(key_url, timeout=15)
-        resp.raise_for_status()
-        kdata = resp.content
-        with key_lock:
-            key_cache.setdefault(key_url, kdata)
-        return key_cache[key_url]
-
-    # ---------- watchdog ----------------------------------------------------
-    watchdog_stop = threading.Event()
-
-    def _watchdog() -> None:
-        while not watchdog_stop.wait(3.0):
-            elapsed = time.monotonic() - t_start
-            with lock:
-                dc = done_count
-                tb = total_bytes
-            q_size = work_q.qsize()
-            speed  = tb / max(elapsed, 0.001)
-            states = ", ".join(f"W{wid}={worker_state.get(wid, '?')}" for wid in sorted(worker_state))
-            logger.info(f"t={elapsed:.1f}s  done={dc}/{total}  queue={q_size}  speed={_fmt_speed(speed)}  [{states}]")
-            now = time.monotonic()
-            for wid, seg_num in list(worker_seg.items()):
-                state = worker_state.get(wid, "")
-                if state.startswith(("connecting", "reading")) and ":" in state:
-                    parts = state.split(":")
-                    if len(parts) == 3:
-                        try:
-                            stuck_for = now - float(parts[2])
-                            if stuck_for > 10:
-                                logger.warning(f"W{wid} STUCK on seg {seg_num} in phase '{parts[0]}' for {stuck_for:.0f}s")
-                        except (ValueError, IndexError):
-                            pass
-
-    wd = threading.Thread(target=_watchdog, daemon=True, name="dl-watchdog")
-    wd.start()
-
-    # ---------- worker loop -------------------------------------------------
-    def _worker(wid: int) -> None:
-        nonlocal done_count, total_bytes, global_init_data, last_progress_cb_time
-
-        worker_state[wid] = "idle"
-        logger.info(f"W{wid} started")
-
-        client = create_client(headers=headers, timeout=timeout_s)
-        try:
-            while True:
-                try:
-                    seg = work_q.get_nowait()
-                except queue.Empty:
-                    logger.info(f"W{wid} queue empty — exiting")
-                    break
-
-                if stop_check and stop_check():
-                    work_q.task_done()
-                    logger.info(f"W{wid} stop requested — draining queue")
-                    while True:
-                        try:
-                            work_q.get_nowait()
-                            work_q.task_done()
-                        except queue.Empty:
-                            break
-                    break
-
-                num      = seg["number"]
-                url      = seg["url"]
-                enc      = seg.get("enc", {})
-                seg_path = out_dir / f"seg_{num:08d}.bin"
-                worker_seg[wid] = num
-
-                # Resume: skip already-complete segments
-                if seg_path.exists() and seg_path.stat().st_size > 0:
-                    with lock:
-                        results[num]  = seg_path
-                        done_count   += 1
-                    work_q.task_done()
-                    continue
-
-                for attempt in range(retry):
-                    if stop_check and stop_check():
-                        break
-                    t_seg = time.monotonic()
-                    try:
-                        worker_state[wid] = f"connecting:{num}:{t_seg:.3f}"
-                        logger.info(f"W{wid} seg {num} attempt {attempt+1}/{retry} GET: {url}")
-                        req_headers = seg.get("headers") or None
-                        resp = client.get(url, headers=req_headers)
-                        resp.raise_for_status()
-                        data = resp.content
-                        elapsed_get = time.monotonic() - t_seg
-                        logger.info(f"W{wid} seg {num} downloaded {len(data)} bytes in {elapsed_get:.2f}s")
-
-                        # ── AES-128 (#EXT-X-KEY) — always in-process ──────────────
-                        method = enc.get("method", "NONE").upper()
-                        if method in ("AES-128", "AES-128-CBC"):
-                            key_url = enc.get("key_url")
-                            if key_url:
-                                worker_state[wid] = f"decrypting:{num}:{time.monotonic():.3f}"
-                                key_data = _fetch_key(client, key_url)
-                                data = _decrypt_aes128(data, key_data, enc.get("iv"), num)
-                                logger.info(f"W{wid} seg {num} AES-128 decrypted OK")
-                            else:
-                                logger.error(f"W{wid} seg {num}: AES-128 but no key URI — writing raw")
-
-                        # ── LIVE per-segment CENC decrypt ─────────────────────────
-                        elif live_decryption and key:
-                            if num == 0 and enc.get("method", "NONE") == "NONE":
-                                with lock:
-                                    global_init_data = data
-                                init_ready.set()
-                                logger.info(f"W{wid} seg {num} (init) stored {len(data)} bytes, signalling init_ready")
-                            else:
-                                try:
-                                    key_str = (str(key[0]).strip() if isinstance(key, list) else str(key).strip())
-
-                                    # Extract first key pair from pipe-separated list
-                                    first_key_pair = key_str.split("|")[0]
-                                    key_parts = first_key_pair.split(":")
-                                    if len(key_parts) >= 2:
-                                        raw_kid = key_parts[0]
-                                        raw_key = key_parts[1]
-                                    else:
-                                        raw_kid = "00000000000000000000000000000000"
-                                        raw_key = key_parts[0]
-                                except Exception:
-                                    raw_kid = "00000000000000000000000000000000"
-                                    raw_key = str(key)
-
-                                worker_state[wid] = f"decrypting_live:{num}:{time.monotonic():.3f}"
-
-                                init_ready.wait(timeout=timeout_s * 2)
-                                enc_tmp  = seg_path.with_suffix(".enc.m4s")
-                                dec_tmp  = seg_path.with_suffix(".dec.m4s")
-                                init_tmp = out_dir / "init_seg.mp4"
-                                enc_tmp.write_bytes(data)
-
-                                if not init_tmp.exists():
-                                    with lock:
-                                        _idata = global_init_data
-                                    if _idata:
-                                        init_tmp.write_bytes(_idata)
-
-                                decryptor_live = Decryptor()
-                                success, msg, dec_data = decryptor_live.decrypt_segment_live(
-                                    encrypted_path=str(enc_tmp),
-                                    decrypted_path=str(dec_tmp),
-                                    raw_key=raw_key,
-                                    raw_kid=raw_kid,
-                                    init_path=str(init_tmp) if init_tmp.exists() else None,
-                                )
-
-                                enc_tmp.unlink(missing_ok=True)
-                                dec_tmp.unlink(missing_ok=True)
-
-                                if success and dec_data:
-                                    data = dec_data
-                                    logger.info(f"W{wid} seg {num} live decrypt OK, {len(data)} bytes")
-                                else:
-                                    logger.error(f"W{wid} seg {num} live decrypt FAILED: {msg} — writing raw encrypted data")
-
-                        # ── Write to disk ─────────────────────────────────────────
-                        worker_state[wid] = f"writing:{num}:{time.monotonic():.3f}"
-                        seg_path.write_bytes(data)
-                        logger.info(f"W{wid} seg {num} wrote {len(data)} bytes to {seg_path.name}")
-                        nb = len(data)
-
-                        with lock:
-                            results[num]   = seg_path
-                            done_count    += 1
-                            total_bytes   += nb
-                            elapsed_total  = max(time.monotonic() - t_start, 0.001)
-                            speed          = total_bytes / elapsed_total
-                            if progress_cb:
-                                progress_cb(done_count, total, total_bytes, speed)
-
-                        worker_state[wid] = "idle"
-                        break  # success — next segment
-
-                    except Exception as exc:
-                        elapsed_fail = time.monotonic() - t_seg
-                        if attempt < retry - 1:
-                            is_503 = "503" in str(exc) or "Service Unavailable" in str(exc)
-                            wait   = min(3 * (2 ** attempt), 30) if is_503 else 0.5 * (2 ** attempt)
-                            logger.warning(
-                                f"W{wid} seg {num} attempt {attempt+1}/{retry} FAILED "
-                                f"after {elapsed_fail:.2f}s ({type(exc).__name__}: {exc}) — retry in {wait:.1f}s"
-                            )
-                            worker_state[wid] = f"retry_wait:{num}:{time.monotonic():.3f}"
-                            time.sleep(wait)
-                        else:
-                            logger.error(f"W{wid} seg {num} GAVE UP after {retry} attempts ({elapsed_fail:.2f}s last) — {exc}")
-                            worker_state[wid] = "idle"
-
-                work_q.task_done()
-
-        finally:
-            worker_state[wid] = "done"
-            logger.info(f"W{wid} exiting")
-            try:
-                client.close()
-            except Exception:
-                pass
-
-    # ---------- launch workers (gradual ramp-up to avoid 503) ---------------
-    n_workers = min(concurrency, total)
-    logger.info(f"[DL] launching {n_workers} workers (ramp-up over 5s)")
-    workers = [
-        threading.Thread(target=_worker, args=(i,), daemon=True, name=f"dl-worker-{i}")
-        for i in range(n_workers)
-    ]
-    ramp_interval = 5.0 / max(n_workers, 1)
-    for idx, w in enumerate(workers):
-        if idx > 0:
-            time.sleep(ramp_interval)
-        w.start()
-        logger.info(f"[DL] W{idx} started (ramp-up {idx+1}/{n_workers})")
-
-    deadline = time.monotonic() + 7200.0
-    while True:
-        alive = [w for w in workers if w.is_alive()]
-        if not alive:
-            break
-        if stop_check and stop_check():
-            logger.info("[DL] stop_check fired in join loop — breaking")
-            break
-        if time.monotonic() >= deadline:
-            logger.error("[DL] hard 2-hour timeout reached")
-            break
-        for w in alive:
-            w.join(timeout=0.25)
-
-    watchdog_stop.set()
-
-    with lock:
-        elapsed = time.monotonic() - t_start
-        speed   = total_bytes / max(elapsed, 0.001)
-        if progress_cb:
-            progress_cb(done_count, total, total_bytes, speed)
-
-    elapsed = time.monotonic() - t_start
-    logger.info(
-        f"[DL] finished — {len(results)}/{total} segs  {_fmt_size(total_bytes)}  "
-        f"{elapsed:.1f}s  avg {_fmt_speed(total_bytes / max(elapsed, 0.001))}"
-    )
-    return [results[n] for n in sorted(results)]
-
-
-def _join_interruptible(threads: List[threading.Thread], stop_event: threading.Event, poll: float = 0.25, hard_timeout: float = 7200.0) -> None:
+def _join_interruptible(
+    threads: List[threading.Thread],
+    stop_event: threading.Event,
+    poll: float = 0.25,
+    hard_timeout: float = 7200.0,
+) -> None:
     """Join *threads* in a tight polling loop so KeyboardInterrupt is always deliverable."""
     deadline = time.monotonic() + hard_timeout
     while True:
@@ -487,9 +201,17 @@ def _join_interruptible(threads: List[threading.Thread], stop_event: threading.E
 
 
 class MediaDownloader(BaseMediaDownloader):
-    def __init__(self, 
-        url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None,
-        download_id: Optional[str] = None, site_name: Optional[str] = None, max_segments: Optional[int] = None,
+    def __init__(
+        self,
+        url: str,
+        output_dir: str,
+        filename: str,
+        headers: Optional[Dict] = None,
+        key: Optional[Any] = None,
+        cookies: Optional[Dict] = None,
+        download_id: Optional[str] = None,
+        site_name: Optional[str] = None,
+        max_segments: Optional[int] = None,
     ) -> None:
         super().__init__(
             url=url,
@@ -501,7 +223,6 @@ class MediaDownloader(BaseMediaDownloader):
             download_id=download_id,
             site_name=site_name,
         )
-        self.manual_concurrency = 8
         self.max_segments = max_segments
 
         # Cancellation
@@ -512,50 +233,62 @@ class MediaDownloader(BaseMediaDownloader):
         # Live decryption tracking
         self._session_live_decrypt: bool = False
 
-    def start_download(self) -> Dict[str, Any]:
+    def start_download(self, show_progress: bool = True) -> Dict[str, Any]:
         """Download all selected streams, decrypt if needed, return status dict."""
         if self.download_id:
             download_tracker.update_status(self.download_id, "Downloading ...")
 
-        # Promote HLS embedded subtitles to external list (shared helper)
         self._promote_hls_subtitles_to_external()
-
         self._prepare_labels()
 
-        # Determine optimal live decryption mode
-        # Live decryption only if ALL streams support it (e.g., CENC/Widevine)
-        # For SAMPLE-AES/CBCS: Must use post-merge decryption
         selected_media = [
             s for s in self.streams
             if s.selected and not s.is_external and s.type in ("video", "audio")
         ]
-        all_support_live = all(s.supports_live_decryption for s in selected_media) if selected_media else False
-        
+        all_support_live = (
+            all(s.supports_live_decryption for s in selected_media)
+            if selected_media
+            else False
+        )
+
         if all_support_live and selected_media:
             self._session_live_decrypt = True
-            logger.info("All selected streams support live decryption - using in-flight decryption.")
+            logger.info("All selected streams support live decryption — using in-flight decryption.")
         else:
             self._session_live_decrypt = False
             if selected_media and not all_support_live:
-                logger.info("SAMPLE-AES/CBCS detected - using post-merge decryption with Shaka Packager.")
+                logger.info("SAMPLE-AES/CBCS detected — using post-merge decryption with Shaka Packager.")
+                no_keys = (
+                    self.key is None
+                    or (isinstance(self.key, KeysManager) and not self.key.get_keys_list())
+                    or (isinstance(self.key, str) and not self.key.strip())
+                    or (isinstance(self.key, (list, tuple)) and not self.key)
+                )
+                if no_keys:
+                    console.print("[red]Warning:[/red] SAMPLE-AES/CBCS streams detected but no keys provided for decryption.")
+                    logger.error("No keys provided for post-download decryption — merged file will remain encrypted.")
             else:
                 logger.info("Using post-download decryption.")
 
         ext_result: Dict[str, Any] = {"ext_subs": [], "ext_auds": []}
 
         try:
-            with DownloadBarManager(self.download_id) as bar_manager:
+            bar_manager_ctx = (
+                DownloadBarManager(self.download_id)
+                if show_progress
+                else _SilentDownloadBarManager(self.download_id)
+            )
+            with bar_manager_ctx as bar_manager:
                 bar_manager.add_prebuilt_tasks(self._get_prebuilt_tasks())
                 self._register_external_track_tasks(bar_manager)
 
-                # External tracks thread
                 ext_loop = asyncio.new_event_loop()
                 self._register_loop(ext_loop)
 
                 def _run_externals() -> None:
                     asyncio.set_event_loop(ext_loop)
                     try:
-                        from VibraVid.core.downloader.subtitle import download_external_tracks_with_progress
+                        from VibraVid.core.source.subtitle import download_external_tracks_with_progress
                         subs, auds = ext_loop.run_until_complete(
                             download_external_tracks_with_progress(
                                 self.headers,
@@ -564,6 +297,7 @@ class MediaDownloader(BaseMediaDownloader):
                                 self.output_dir,
                                 self.filename,
                                 bar_manager,
+                                stop_check=self._stop_check,  # Pass stop_check to allow interruption
                             )
                         )
                         ext_result["ext_subs"] = subs
@@ -577,17 +311,13 @@ class MediaDownloader(BaseMediaDownloader):
                 ext_thread = threading.Thread(target=_run_externals, daemon=True)
                 ext_thread.start()
 
-                # Media stream threads (video + audio)
                 media_threads: List[threading.Thread] = []
                 for stream in selected_media:
                     def _run_stream(s=stream) -> None:
                         try:
                             self._download_stream(s, bar_manager)
                         except Exception as exc:
-                            logger.error(
-                                f"Stream download error ({s.type}/{s.language}): {exc}",
-                                exc_info=True,
-                            )
+                            logger.error(f"Stream download error ({s.type}/{s.language}): {exc}", exc_info=True)
 
                     t = threading.Thread(target=_run_stream, daemon=True)
                     media_threads.append(t)
@@ -611,9 +341,6 @@ class MediaDownloader(BaseMediaDownloader):
             return {"error": "cancelled"}
 
         self.status = self._build_status(ext_subs, ext_auds)
-
-        if self.key:
-            self._decrypt_check(self.status, live_decryption_used=self._session_live_decrypt)
 
         return self.status
 
@@ -641,60 +368,6 @@ class MediaDownloader(BaseMediaDownloader):
             self.download_id and download_tracker.is_stopped(self.download_id)
         )
 
-    def _decrypt_check(self, status: Dict[str, Any], live_decryption_used: bool = False) -> None:
-        """
-        Post-download decryption for live_decryption_used=False (default).
-
-        If live_decryption_used=True the segments were already decrypted
-        in-flight by _download_segments_threaded(), so we skip re-decryption.
-        """
-        if live_decryption_used and self.key:
-            logger.info("_decrypt_check: segments were already decrypted during download, skipping.")
-            return
-
-        if self.download_id:
-            download_tracker.update_status(self.download_id, "Decrypting ...")
-
-        decryptor = Decryptor(
-            license_url=self.license_url,
-            drm_type=self.drm_type,
-        )
-        if isinstance(self.key, KeysManager):
-            keys = self.key.get_keys_list()
-        elif isinstance(self.key, str):
-            keys = [self.key]
-        else:
-            keys = self.key
-
-        targets = []
-        if status.get("video"):
-            targets.append((status["video"], "video"))
-        for aud in status.get("audios", []):
-            targets.append((aud, "audio"))
-
-        for target, stype in targets:
-            fp  = Path(target["path"])
-            if not fp.exists():
-                continue
-            out = fp.with_suffix(fp.suffix + ".dec")
-            success = decryptor.decrypt(str(fp), keys, str(out), stream_type=stype)
-            if success:
-                try:
-                    fp.unlink()
-                    out.rename(fp)
-                    target["size"] = fp.stat().st_size
-                except Exception as exc:
-                    logger.error(f"Failed to replace encrypted file: {exc}")
-                    if out.exists():
-                        out.unlink()
-            else:
-                logger.error(f"Decryption failed for {fp.name}")
-                if out.exists():
-                    try:
-                        out.unlink()
-                    except Exception:
-                        pass
-
     def _stream_task_key(self, stream) -> str:
         if stream.type == "video":
             return self._video_task_key
@@ -703,11 +376,11 @@ class MediaDownloader(BaseMediaDownloader):
 
     def _make_stream_dir(self, stream, protocol: str) -> Path:
         proto = protocol.lower()
-        bw    = str(stream.bitrate or 0)
-        sid   = _safe(stream.id or "", maxlen=24)
+        bw = str(stream.bitrate or 0)
+        sid = _safe(stream.id or "", maxlen=24)
 
         if stream.type == "video":
-            res  = _safe(stream.resolution or "unknown")
+            res = _safe(stream.resolution or "unknown")
             name = f"{proto}_video_{res}_{sid}_{bw}"
         else:
             lang = _safe(stream.language or "und")
@@ -724,14 +397,78 @@ class MediaDownloader(BaseMediaDownloader):
         else:
             self._download_dash_stream(stream, bar_manager, effective_live)
 
+    def _probe_media_file(self, target_path: Path) -> None:
+        """Run ffprobe on a media file to extract metadata for progress estimation."""
+        try:
+            if not target_path.exists() or target_path.stat().st_size <= 0:
+                logger.warning(f"[PROBE] Probe target not found or empty: {target_path}")
+                return
+            try:
+                from VibraVid.setup import get_ffprobe_path
+                from VibraVid.core.muxing.util.info import Mediainfo
+                ffprobe_path = get_ffprobe_path()
+                asyncio.run(Mediainfo.from_file_async(ffprobe_path, str(target_path)))
+            except Exception as exc:
+                logger.warning(f"[PROBE] Could not probe media file: {exc}")
+        except Exception as exc:
+            logger.error(f"[PROBE] Error: {exc}")
+
     def _download_stream_generic(self, dl_segs: List[Dict], stream, protocol: str, default_ext: str, bar_manager: DownloadBarManager, live_decryption: bool = False) -> None:
-        task_key   = self._stream_task_key(stream)
-        total      = len(dl_segs)
+        task_key = self._stream_task_key(stream)
+        total = len(dl_segs)
         stream_dir = self._make_stream_dir(stream, protocol)
         all_headers = self._build_headers()
         key_cache: Dict[str, bytes] = {}
+        protocol_lower = protocol.lower()
+        segment_meta_by_path = {
+            normalize_path_key(str(stream_dir / f"seg_{seg['number']:08d}.bin")): seg
+            for seg in dl_segs
+        }
+        decrypt_queue: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
+        decrypt_errors: List[str] = []
+        decrypt_thread: Optional[threading.Thread] = None
+        probe_lock = threading.Lock()
+        probe_done = False
 
-        def _progress(done: int, total_: int, total_bytes: int, speed_bps: float) -> None:
+        def _probe_once(target_path: Optional[Path], reason: str) -> None:
+            nonlocal probe_done
+            if probe_done or not target_path:
+                return
+            if not target_path.exists() or target_path.stat().st_size <= 0:
+                return
+            with probe_lock:
+                if probe_done:
+                    return
+                if not target_path.exists() or target_path.stat().st_size <= 0:
+                    return
+                probe_done = True
+            logger.info("%s probe starting -> %s (%s)", protocol.upper(), target_path.name, reason)
+            self._probe_media_file(target_path)
+
+        def _replace_segment_file(source_path: Path, target_path: Path, reason: str) -> None:
+            last_exc: Optional[Exception] = None
+            for attempt in range(1, 9):
+                try:
+                    if target_path.exists():
+                        try:
+                            target_path.unlink()
+                        except Exception:
+                            pass
+                    source_path.replace(target_path)
+                    return
+                except OSError as exc:
+                    last_exc = exc
+                    if attempt >= 8:
+                        raise
+                    if getattr(exc, "winerror", None) not in (5, 32) and not isinstance(exc, PermissionError):
+                        raise
+                    logger.debug("%s replace retry %s/8 for %s -> %s: %s", reason, attempt, source_path.name, target_path.name, exc)
+                    time.sleep(0.05 * attempt)
+
+            if last_exc:
+                raise last_exc
+
+        def _progress(done: int, total_: int, total_bytes: int, speed_bps: float, speed_label: Optional[str] = None) -> None:
             pct = int((done / total_) * 100) if total_ else 0
             estimated_total = (
                 _estimate_total_size(total_bytes, done, total_) if done > 0 else total_bytes
@@ -743,15 +480,183 @@ class MediaDownloader(BaseMediaDownloader):
             )
             bar_manager.handle_progress_line(
                 {
-                    "_task_key": task_key,
-                    "pct":       pct,
-                    "segments":  f"{done}/{total_}",
-                    "size":      size_display,
-                    "speed":     _fmt_speed(speed_bps),
+                    "task_key": task_key,
+                    "pct": pct,
+                    "segments": f"{done}/{total_}",
+                    "size": size_display,
+                    "speed": speed_label if speed_label is not None else _fmt_speed(speed_bps),
                 }
             )
 
-        paths = self._run_dl(dl_segs, stream_dir, all_headers, key_cache, _progress, live_decryption=live_decryption)
+        def _decrypt_hls_segment(fp: Path, seg: Dict[str, Any]) -> None:
+            enc = seg.get("enc") or {}
+            method = str(enc.get("method") or "NONE").upper()
+            if method != "AES-128":
+                return
+
+            key_url = enc.get("key_url")
+            if not key_url:
+                raise RuntimeError(f"Missing AES-128 key URL for {fp.name}")
+
+            key_data = key_cache.get(key_url)
+            if key_data is None:
+                with create_client(headers=all_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
+                    r = c.get(key_url)
+                    r.raise_for_status()
+                    key_data = r.content
+                if len(key_data) != 16:
+                    logger.warning("HLS AES-128 key length is %s bytes for %s", len(key_data), key_url)
+                key_cache[key_url] = key_data
+
+            logger.debug("AES-128 LIVE decrypt path=%s with key=%s", fp, _describe_key_for_log(key_data))
+            decrypted = _decrypt_aes128(
+                fp.read_bytes(),
+                key_data,
+                enc.get("iv"),
+                int(seg.get("number", 0) or 0),
+            )
+            tmp_path = fp.with_suffix(fp.suffix + ".dec")
+            tmp_path.write_bytes(decrypted)
+            _replace_segment_file(tmp_path, fp, "HLS AES-128")
+            logger.debug(f"HLS AES-128 decrypted -> {fp.name}")
+            _probe_once(fp, "hls-first-decrypted-segment")
+
+        def _decrypt_dash_segment(fp: Path, seg: Dict[str, Any], dash_decryptor: Decryptor, init_path: Optional[Path]) -> None:
+            if seg.get("seg_type") == "init":
+                logger.info(f"DASH init segment ready -> {fp.name}")
+                return
+
+            dec_tmp = fp.with_suffix(fp.suffix + ".dec")
+            logger.debug("CENC LIVE decrypt path=%s init=%s with key=%s", fp, init_path if init_path and init_path.exists() else "None", _describe_key_for_log(self.key))
+            ok, message, _data = dash_decryptor.decrypt_segment_live(
+                encrypted_path=str(fp),
+                decrypted_path=str(dec_tmp),
+                raw_keys=self.key,
+                init_path=str(init_path) if init_path and init_path.exists() else None,
+            )
+            if not ok:
+                raise RuntimeError(f"DASH live decrypt failed for {fp.name}: {message}")
+            if not dec_tmp.exists():
+                raise RuntimeError(f"DASH live decrypt produced no output for {fp.name}")
+            _replace_segment_file(dec_tmp, fp, "DASH live")
+            logger.debug(f"DASH live decrypted -> {fp.name}")
+            _probe_once(fp, "dash-first-decrypted-segment")
+
+        def _decrypt_worker() -> None:
+            dash_decryptor = (Decryptor() if protocol_lower == "dash" and live_decryption and self.key else None)
+            dash_init_path: Optional[Path] = None
+            pending_dash: List[Tuple[Path, Dict[str, Any]]] = []
+
+            while True:
+                item = decrypt_queue.get()
+                if item is None:
+                    break
+
+                try:
+                    if item.get("skipped"):
+                        continue
+
+                    path_value = item.get("path")
+                    if not path_value:
+                        continue
+
+                    fp = Path(path_value)
+                    if not fp.exists() or fp.stat().st_size <= 0:
+                        continue
+
+                    seg = segment_meta_by_path.get(normalize_path_key(str(fp)))
+                    if not seg:
+                        logger.debug("Segment completion without metadata match: %s", fp)
+                        continue
+
+                    if protocol_lower == "hls":
+                        _decrypt_hls_segment(fp, seg)
+                        continue
+
+                    if protocol_lower == "dash" and live_decryption and self.key and dash_decryptor:
+                        if seg.get("seg_type") == "init":
+                            dash_init_path = fp
+                            logger.info(f"DASH init segment cached -> {fp.name}")
+                            _probe_once(fp, "dash-init-segment")
+                            if pending_dash:
+                                queued = pending_dash[:]
+                                pending_dash.clear()
+                                for pending_fp, pending_seg in queued:
+                                    _decrypt_dash_segment(pending_fp, pending_seg, dash_decryptor, dash_init_path)
+                        else:
+                            if dash_init_path is None:
+                                pending_dash.append((fp, seg))
+                            else:
+                                _decrypt_dash_segment(fp, seg, dash_decryptor, dash_init_path)
+                except Exception as exc:
+                    decrypt_errors.append(str(exc))
+                    logger.error(f"Segment decrypt error ({protocol_lower}/{task_key}): {exc}")
+                finally:
+                    decrypt_queue.task_done()
+
+            if (
+                protocol_lower == "dash"
+                and live_decryption
+                and self.key
+                and pending_dash
+                and not dash_init_path
+            ):
+                decrypt_errors.append("DASH live decryption never received an init segment")
+
+        needs_hls_decrypt = protocol_lower == "hls" and any(
+            str((seg.get("enc") or {}).get("method") or "NONE").upper() == "AES-128"
+            for seg in dl_segs
+        )
+        needs_dash_live_decrypt = (
+            protocol_lower == "dash" and live_decryption and bool(self.key)
+        )
+
+        if needs_hls_decrypt or needs_dash_live_decrypt:
+            logger.info(
+                "%s decrypt worker started (%s)",
+                protocol.upper(),
+                "AES-128" if needs_hls_decrypt else "live DASH",
+            )
+            decrypt_thread = threading.Thread(target=_decrypt_worker, daemon=True)
+            decrypt_thread.start()
+
+        def _handle_download_event(event: Dict[str, Any]) -> None:
+            if (event.get("event") or "").lower() != "completed":
+                return
+
+            path_value = event.get("path")
+            if path_value:
+                seg = segment_meta_by_path.get(normalize_path_key(str(path_value)))
+                
+                # Probe first media segment for unencrypted streams (after download, before decrypt)
+                if seg and seg.get("seg_type") == "media" and not decrypt_thread:
+                    _probe_once(Path(path_value), f"{protocol.upper()}-first-media-segment")
+                
+                # DASH init segment tracking
+                if not decrypt_thread and protocol_lower == "dash":
+                    if seg and seg.get("seg_type") == "init":
+                        pass
+
+            if decrypt_thread:
+                decrypt_queue.put(dict(event))
+
+        try:
+            paths = self._run_dl(
+                dl_segs,
+                stream_dir,
+                all_headers,
+                _progress,
+                stream=stream,
+                event_cb=_handle_download_event,
+            )
+        finally:
+            if decrypt_thread:
+                decrypt_queue.put(None)
+                decrypt_thread.join()
+
+        if decrypt_errors:
+            raise RuntimeError(decrypt_errors[0])
+
         if self._stop_check() or not paths:
             return
 
@@ -761,14 +666,68 @@ class MediaDownloader(BaseMediaDownloader):
             ext = "mp4"
 
         out_path = self.output_dir / self._out_filename(stream, ext)
+        merge_total_size = sum(p.stat().st_size for p in paths if p.exists())
+        logger.info(f"{protocol.upper()} binary merge starting -> {out_path.name} ({len(paths)} segs, {_fmt_size(merge_total_size)})")
+        bar_manager.handle_progress_line(
+            {
+                "task_key": task_key,
+                "pct": 100,
+                "segments": f"{total}/{total}",
+                "size": (
+                    f"{_fmt_size(merge_total_size)}/{_fmt_size(merge_total_size)}"
+                    if merge_total_size
+                    else "0B/0B"
+                ),
+                "speed": "Merge",
+            }
+        )
         binary_merge_segments(paths, out_path, merge_logger=logger)
+        logger.info(f"{protocol.upper()} binary merge completed -> {out_path.name}")
+
+        # Post-merge decryption (non-live path only).
+        if (not live_decryption) and self.key and out_path.exists() and out_path.stat().st_size > 0:
+            post_merge_renamed = False
+            post_merge_path = out_path.with_suffix(out_path.suffix + ".dec")
+            try:
+                logger.info("Binary merge v1 ...")
+                decryptor = Decryptor()
+                if decryptor.decrypt(
+                    str(out_path),
+                    self.key,
+                    str(post_merge_path),
+                    stream_type=stream.type,
+                    progress_cb=bar_manager.handle_progress_line,
+                ):
+                    try:
+                        out_path.unlink(missing_ok=True)
+                        post_merge_path.rename(out_path)
+                        post_merge_renamed = True
+                        logger.info(f"{protocol.upper()} post-merge decrypt normalized -> {out_path.name}")
+                    except Exception as exc:
+                        logger.error(f"{protocol.upper()} post-merge rename failed: {exc}")
+                        if post_merge_path.exists():
+                            try:
+                                post_merge_path.unlink()
+                            except Exception:
+                                pass
+                else:
+                    logger.warning(f"{protocol.upper()} post-merge decrypt normalization failed for {out_path.name}")
+                    if post_merge_path.exists():
+                        try:
+                            post_merge_path.unlink()
+                        except Exception:
+                            pass
+            except Exception as exc:
+                logger.error(f"{protocol.upper()} post-merge decrypt normalization error: {exc}")
+                if not post_merge_renamed and post_merge_path.exists():
+                    try:
+                        post_merge_path.unlink()
+                    except Exception:
+                        pass
 
         if out_path.exists() and out_path.stat().st_size > 0:
-            logger.info(
-                f"{protocol.upper()} merged {len(paths):>4} segs -> "
-                f"{out_path.name}  ({out_path.stat().st_size // 1024} KB)"
-            )
-            _progress(total, total, out_path.stat().st_size, 0.0)
+            logger.info(f"{protocol.upper()} merged {len(paths):>4} segs -> {out_path.name}  ({out_path.stat().st_size // 1024} KB)")
+            _progress(total, total, out_path.stat().st_size, 0.0, speed_label="Merge")
         else:
             logger.error(f"{protocol.upper()} binary merge produced empty file: {out_path}")
 
@@ -788,7 +747,7 @@ class MediaDownloader(BaseMediaDownloader):
             logger.error(f"Failed to fetch HLS variant playlist: {exc}")
             return
 
-        base_url  = _hls_base_url(playlist_url)
+        base_url = _hls_base_url(playlist_url)
         media_segs, init_url = _parse_hls_variant_playlist(playlist_content, base_url)
 
         if not media_segs and not init_url:
@@ -797,26 +756,28 @@ class MediaDownloader(BaseMediaDownloader):
 
         dl_segs: List[Dict] = []
         if init_url:
-            dl_segs.append({"url": init_url, "number": 0, "enc": {"method": "NONE"}})
+            dl_segs.append({"url": init_url, "number": 0, "seg_type": "init", "enc": {"method": "NONE"}})
         offset = len(dl_segs)
         for seg in media_segs:
-            dl_segs.append({
-                    "url":    seg["url"],
+            dl_segs.append(
+                {
+                    "url": seg["url"],
                     "number": seg["number"] + offset,
-                    "enc":    seg["enc"],
-            })
+                    "seg_type": "media",
+                    "enc": seg["enc"],
+                }
+            )
 
-        # Apply max_segments limit if specified
         if self.max_segments is not None and self.max_segments > 0:
-            
-            # Keep init segment + first max_segments media segments
             if init_url:
-                dl_segs = dl_segs[:1 + self.max_segments]
+                dl_segs = dl_segs[: 1 + self.max_segments]
             else:
-                dl_segs = dl_segs[:self.max_segments]
+                dl_segs = dl_segs[: self.max_segments]
             logger.info(f"Limiting HLS download to {len(dl_segs)} segments (max_segments={self.max_segments})")
 
-        self._download_stream_generic(dl_segs, stream, "hls", "ts", bar_manager, live_decryption=live_decryption)
+        self._download_stream_generic(
+            dl_segs, stream, "hls", "ts", bar_manager, live_decryption=live_decryption
+        )
 
     def _download_dash_stream(self, stream, bar_manager: DownloadBarManager, live_decryption: bool = False) -> None:
         if not stream.segments:
@@ -824,9 +785,9 @@ class MediaDownloader(BaseMediaDownloader):
             return
 
         all_headers = self._build_headers()
-        chunk_size  = max(8 * 1024 * 1024, 1 * 1024 * 1024)
+        chunk_size = max(8 * 1024 * 1024, 1 * 1024 * 1024)
 
-        media_segments       = [s for s in stream.segments if s.seg_type == "media"]
+        media_segments = [s for s in stream.segments if s.seg_type == "media"]
         is_single_file_media = len(media_segments) == 1
 
         dl_segs: List[Dict] = []
@@ -835,9 +796,10 @@ class MediaDownloader(BaseMediaDownloader):
             if seg.byte_range:
                 dl_segs.append(
                     {
-                        "url":     seg.url,
-                        "number":  next_num,
-                        "enc":     {"method": "NONE"},
+                        "url": seg.url,
+                        "number": next_num,
+                        "seg_type": seg.seg_type,
+                        "enc": {"method": "NONE"},
                         "headers": {"Range": f"bytes={seg.byte_range}"},
                     }
                 )
@@ -848,19 +810,33 @@ class MediaDownloader(BaseMediaDownloader):
                 if ranged:
                     for part in ranged:
                         part["number"] = next_num
+                        part["seg_type"] = seg.seg_type
                         dl_segs.append(part)
                         next_num += 1
                     continue
                 else:
-                    dl_segs.append({"url": seg.url, "number": next_num, "enc": {"method": "NONE"}})
+                    dl_segs.append(
+                        {
+                            "url": seg.url,
+                            "number": next_num,
+                            "seg_type": seg.seg_type,
+                            "enc": {"method": "NONE"},
+                        }
+                    )
                     next_num += 1
             else:
-                dl_segs.append({"url": seg.url, "number": next_num, "enc": {"method": "NONE"}})
+                dl_segs.append(
+                    {
+                        "url": seg.url,
+                        "number": next_num,
+                        "seg_type": seg.seg_type,
+                        "enc": {"method": "NONE"},
+                    }
+                )
                 next_num += 1
 
-        # Apply max_segments limit if specified
         if self.max_segments is not None and self.max_segments > 0:
-            dl_segs = dl_segs[:self.max_segments]
+            dl_segs = dl_segs[: self.max_segments]
             logger.info(f"Limiting DASH download to {len(dl_segs)} segments (max_segments={self.max_segments})")
 
         self._download_stream_generic(dl_segs, stream, "dash", "mp4", bar_manager, live_decryption=live_decryption)
@@ -872,46 +848,80 @@ class MediaDownloader(BaseMediaDownloader):
                 r = c.head(media_url)
                 r.raise_for_status()
 
-            content_len   = int((r.headers.get("content-length") or "0").strip() or "0")
+            content_len = int((r.headers.get("content-length") or "0").strip() or "0")
             accept_ranges = (r.headers.get("accept-ranges") or "").lower()
 
             if content_len <= chunk_size or "bytes" not in accept_ranges:
                 return []
 
             ranges = _split_http_ranges(content_len, chunk_size)
-            logger.info(
-                f"DASH range-split | url={media_url} | size={content_len} "
-                f"| chunk={chunk_size} | parts={len(ranges)}"
-            )
+            logger.debug(f"DASH range-split | url={media_url} | size={content_len} | chunk={chunk_size} | parts={len(ranges)}")
             return [
                 {
-                    "url":     media_url,
-                    "number":  0,
-                    "enc":     {"method": "NONE"},
+                    "url": media_url,
+                    "number": 0,
+                    "enc": {"method": "NONE"},
                     "headers": {"Range": f"bytes={start}-{end}"},
                 }
                 for start, end in ranges
             ]
         except Exception as exc:
-            logger.info(f"DASH range-split skipped for {media_url}: {exc}")
+            logger.debug(f"DASH range-split skipped for {media_url}: {exc}")
             return []
 
-    def _run_dl(self, segs: List[Dict], out_dir: Path, headers: Dict, key_cache: Dict, progress_cb, live_decryption: bool = False) -> List[Path]:
-        """Dispatch to queue-based thread pool."""
+    def _run_dl(
+        self,
+        segs: List[Dict],
+        out_dir: Path,
+        headers: Dict,
+        progress_cb,
+        stream=None,
+        event_cb=None,
+    ) -> List[Path]:
+        """Dispatch segment downloads to the external Velora binary."""
         try:
-            return _download_segments_threaded(
-                segs,
-                out_dir,
-                headers,
-                concurrency=THREAD_COUNT,
-                progress_cb=progress_cb,
-                stop_check=self._stop_check,
-                retry=RETRY_COUNT,
-                timeout_s=REQUEST_TIMEOUT,
-                key_cache=key_cache,
-                key=self.key,
-                live_decryption=live_decryption,
+            plan_task_key = self._stream_task_key(stream) if stream else "download"
+            plan_label = (
+                self._video_label
+                if stream and stream.type == "video"
+                else self._audio_labels.get((stream.language or "und").lower(), "")
+                if stream and stream.type == "audio"
+                else ""
             )
+            plan = {
+                "project": "Velora",
+                "version": 1,
+                "task_key": plan_task_key,
+                "label": plan_label or plan_task_key,
+                "display_label": plan_label or plan_task_key,
+                "concurrency": THREAD_COUNT,
+                "retry_count": RETRY_COUNT,
+                "timeout_seconds": REQUEST_TIMEOUT,
+                "retry_base_delay_seconds": 1.0,
+                "retry_max_delay_seconds": 4.0,
+                "retry_jitter_seconds": 0.25,
+                "proxy_url": get_proxy_url(),
+                "headers": headers,
+                "tasks": [
+                    {
+                        "task_key": plan_task_key,
+                        "label": plan_label or plan_task_key,
+                        "display_label": plan_label or plan_task_key,
+                        "url": seg["url"],
+                        "path": str(out_dir / f"seg_{seg['number']:08d}.bin"),
+                        "headers": {**headers, **(seg.get("headers", {}))}  # Merge global headers with segment-specific headers (e.g., Range for byte-range segments)
+                    }
+                    for seg in segs
+                ],
+            }
+
+            results = run_download_plan(
+                plan,
+                progress_cb=progress_cb,
+                event_cb=event_cb,
+                stop_check=self._stop_check,
+            )
+            return [Path(item["path"]) for item in results if item.get("path")]
         except Exception as exc:
             logger.error(f"_run_dl failed: {exc}", exc_info=True)
             return []
@@ -939,6 +949,6 @@ class MediaDownloader(BaseMediaDownloader):
         """
         if stream.type == "video":
             return f"{self.filename}.{ext}"
-        lang      = re.sub(r"[^\w\-]", "_", (stream.language or "und").lower())
+        lang = re.sub(r"[^\w\-]", "_", (stream.language or "und").lower())
         audio_ext = "webm" if ext == "webm" else "m4a"
         return f"{self.filename}.{lang}.{audio_ext}"

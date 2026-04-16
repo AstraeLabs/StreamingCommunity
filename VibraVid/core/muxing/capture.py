@@ -6,13 +6,11 @@ import threading
 import subprocess
 from typing import Optional
 
-from rich.console import Console
-
 from VibraVid.utils.os import internet_manager
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
+from VibraVid.core.ui.bar_manager import console
 
 
-console = Console()
 logger = logging.getLogger(__name__)
 terminate_flag = threading.Event()
 
@@ -76,11 +74,12 @@ def capture_output(process: subprocess.Popen, description: str, progress_data: P
 
     try:
         max_length = 0
+        last_progress_string = ""
 
         for line in iter(process.stdout.readline, ''):
             try:
                 line = line.strip()
-                logger.info(f"[ffmpeg] {line}")
+                logger.debug(f"{line}")
 
                 if not line:
                     continue
@@ -137,22 +136,23 @@ def capture_output(process: subprocess.Popen, description: str, progress_data: P
                                 f"[dim]ETA:[/] [yellow]{eta_str}[/])"
                             )
                             max_length = max(max_length, len(progress_string))
-                            console.print(progress_string.ljust(max_length), end="\r")
+                            last_progress_string = progress_string.ljust(max_length)
+                            console.print(last_progress_string, end="\r")
 
                     except Exception as e:
-                        logging.error(f"Error parsing output line: {line} - {e}")
+                        logger.error(f"Error parsing output line: {line} - {e}")
 
             except Exception as e:
-                logging.error(f"Error processing line from subprocess: {e}")
+                logger.error(f"Error processing line from subprocess: {e}")
 
     except Exception as e:
-        logging.error(f"Error in capture_output: {e}")
+        logger.error(f"Error in capture_output: {e}")
 
     finally:
         try:
             terminate_process(process)
         except Exception as e:
-            logging.error(f"Error terminating process: {e}")
+            logger.error(f"Error terminating process: {e}")
 
 
 def parse_output_line(line: str) -> dict:
@@ -183,7 +183,7 @@ def parse_output_line(line: str) -> dict:
         return data
 
     except Exception as e:
-        logging.error(f"Error parsing line: {line} - {e}")
+        logger.error(f"Error parsing line: {line} - {e}")
         return {}
 
 
@@ -198,7 +198,7 @@ def terminate_process(process):
         if process.poll() is None:
             process.kill()
     except Exception as e:
-        logging.error(f"Failed to terminate process: {e}")
+        logger.error(f"Failed to terminate process: {e}")
 
 
 def capture_ffmpeg_real_time(ffmpeg_command: list, description: str, total_duration: Optional[float] = None) -> dict:
@@ -235,14 +235,14 @@ def capture_ffmpeg_real_time(ffmpeg_command: list, description: str, total_durat
         try:
             process.wait()
         except KeyboardInterrupt:
-            logging.error("Terminating ffmpeg process...")
+            logger.error("Terminating ffmpeg process...")
         except Exception as e:
-            logging.error(f"Error in ffmpeg process: {e}")
+            logger.error(f"Error in ffmpeg process: {e}")
         finally:
             terminate_flag.set()
             output_thread.join()
 
     except Exception as e:
-        logging.error(f"Failed to start ffmpeg process: {e}")
+        logger.error(f"Failed to start ffmpeg process: {e}")
 
     return progress_data.get()

@@ -1,11 +1,13 @@
 {
     "DEFAULT": {
         "debug_track_json": false,
+        "log_level": "INFO",
         "close_console": true,
         "show_message": true,
         "fetch_domain_online": true,
         "auto_update_check": true,
-        "imp_service": ["default"]
+        "imp_service": ["default"],
+        "installation": "essential"
     },
     "OUTPUT": {
         "root_path": "Video",
@@ -17,13 +19,12 @@
     },
     "DOWNLOAD": {
         "auto_select": true,
-        "preference": "n3u8dl",
         "delay_after_download": 1,
         "skip_download": false,
-        "thread_count": 12,
+        "thread_count": 8,
         "concurrent_download": true,
         "max_speed": "",
-        "select_video": "1920",
+        "select_video": "best",
         "select_audio": "ita|it",
         "select_subtitle": "ita|eng|it|en",
         "cleanup_tmp_folder": true
@@ -40,8 +41,8 @@
         "extension": "mkv"
     },
     "REQUESTS": {
-        "timeout": 10,
-        "max_retry": 5,
+        "timeout": 15,
+        "max_retry": 8,
         "use_proxy": false,
         "proxy": {
             "http": "http://localhost:8888",

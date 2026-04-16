@@ -23,7 +23,7 @@ class DeviceSearcher:
             for file in os.listdir(self.base_dir):
                 if file.lower().endswith(ext):
                     path = os.path.join(self.base_dir, file)
-                    logger.info("Found %s file in binary directory: %s", ext, path)
+                    logger.debug("Found %s file in binary directory: %s", ext, path)
                     return path
                 
             return None

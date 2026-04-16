@@ -200,7 +200,7 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
                 if indice is not None:
                     source_modules.append((module_name, indice, use_for, source, base_path))
                     loaded_module_names.add(module_name)
-                    logger.info(f"Found module '{module_name}' from source '{source}': use_for={use_for}, indice={indice}")
+                    logger.debug(f"Found module '{module_name}' from source '{source}': use_for={use_for}, indice={indice}")
                     
             except Exception as e:
                 console.print(f"[yellow]Warning: Could not read metadata from {module_name}: {str(e)}[/yellow]")

@@ -8,6 +8,7 @@ from urllib.parse import urlparse, quote
 
 from bs4 import BeautifulSoup
 
+from VibraVid.services.mediasetinfinity.client import get_client
 from VibraVid.utils.http_client import create_client, get_userAgent, get_headers
 from VibraVid.services._base.object import SeasonManager, Episode, Season
 
@@ -176,6 +177,16 @@ class GetSerieInfo:
             else:
                 logger.error(f"No titleCarousel categories found for season {season['tvSeasonNumber']}")
 
+    def _build_browse_url(self, sb_id, category_name):
+        """Build the Mediaset Infinity browse URL for a category."""
+        href = f"/browse/{category_name.lower().replace(' ', '-')}_{sb_id}"
+        return f"https://mediasetinfinity.mediaset.it{href}"
+
+    @staticmethod
+    def _is_full_episode_category(category_name: str) -> bool:
+        normalized = (category_name or "").lower()
+        return "puntate intere" in normalized or "puntata intera" in normalized
+
     def _get_season_episodes(self, season, sb_id, category_name):
         """Get episodes for a specific season"""
         print("Getting episodes for season", season['tvSeasonNumber'], "category:", category_name, "sb_id:", sb_id)
@@ -189,16 +200,131 @@ class GetSerieInfo:
         elif sb_id.startswith('sb'):
             episodes = self._get_episodes_from_feed_api(sb_id, season['tvSeasonNumber'])
         else:
-            # try RSC extraction first; if this is the "Tutti" collection but only the first page
-            # is returned, fall back to the full programs feed
-            episodes = self._extract_episodes_from_rsc_text(sb_id, season['tvSeasonNumber'], category_name, season.get('guid'))
-            if 'tutti' in category_name.lower() and len(episodes) <= 24:
+            episodes = self._extract_episodes_from_graphql_listing(sb_id, season['tvSeasonNumber'], category_name)
+            if not episodes:
+                # try RSC extraction first; if this is the "Tutti" collection but only the first page
+                # is returned, fall back to the full programs feed
+                episodes = self._extract_episodes_from_rsc_text(sb_id, season['tvSeasonNumber'], category_name, season.get('guid'))
+
+            if self._is_full_episode_category(category_name) and len(episodes) <= 24:
                 fallback = self._get_all_season_episodes(season)
-                if fallback:
+                if fallback and len(fallback) > len(episodes):
+                    logger.info(f"Using full-season feed fallback for season {season['tvSeasonNumber']} ({category_name}) because browse extraction returned {len(episodes)} episodes")
                     episodes = fallback
-        
+
         print(f"Found {len(episodes)} episodes for season {season['tvSeasonNumber']} ({category_name})")
         return episodes
+
+    def _extract_episodes_from_graphql_listing(self, sb_id, season_number, category_name):
+        """Extract episodes from the Mediaset GraphQL listing feed."""
+        listing_id = sb_id[1:] if sb_id.startswith('e') else sb_id
+        if not listing_id:
+            return []
+
+        try:
+            api = get_client()
+            headers = dict(api.generate_request_headers())
+            headers.update({
+                'accept': '*/*',
+                'accept-language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+                'cache-control': 'no-cache',
+                'content-type': 'application/json',
+                'origin': 'https://mediasetinfinity.mediaset.it',
+                'pragma': 'no-cache',
+                'referer': 'https://mediasetinfinity.mediaset.it/',
+                'user-agent': get_userAgent(),
+                'x-m-app-version': '1.1.1',
+            })
+
+            graphql_url = 'https://mediasetplay.api-graph.mediaset.it/'
+            extensions = json.dumps({
+                'persistedQuery': {'version': 1, 'sha256Hash': api.getHash256()}
+            }, separators=(',', ':'))
+            context = '{"a":{"flags":["SHOW_TITLE"],"layout":"GRID","template":"KEYFRAME"},"pt":"listing"}'
+
+            episodes = []
+            seen_ids = set()
+            after = None
+            page = 0
+
+            while True:
+                variables = {
+                    'first': 24,
+                    'id': listing_id,
+                    'pageType': 'listing',
+                    'context': context,
+                }
+                if after is not None:
+                    variables['after'] = str(after)
+
+                response = self.client.get(
+                    graphql_url,
+                    params={
+                        'extensions': extensions,
+                        'variables': json.dumps(variables, separators=(',', ':')),
+                    },
+                    headers=headers,
+                )
+
+                if response.status_code != 200:
+                    logger.error(f"GraphQL listing request failed for season {season_number} ({category_name}) with status {response.status_code}")
+                    return []
+
+                payload = response.json()
+                data = payload.get('data') or {}
+                if not data:
+                    logger.error(f"GraphQL listing returned no data for season {season_number} ({category_name})")
+                    return []
+
+                result = next(iter(data.values()))
+                items_connection = result.get('itemsConnection') or {}
+                items = items_connection.get('items') or []
+                page_info = items_connection.get('pageInfo') or {}
+                end_cursor = page_info.get('endCursor')
+                has_next_page = bool(page_info.get('hasNextPage'))
+
+                page += 1
+                print(f"GraphQL page {page} for season {season_number} ({category_name}): {len(items)} items after={after} endCursor={end_cursor} hasNext={has_next_page}")
+
+                for item in items:
+                    item_id = item.get('guid') or item.get('id') or item.get('url')
+                    if not item_id or item_id in seen_ids:
+                        continue
+
+                    duration_raw = item.get('duration') or 0
+                    try:
+                        duration = int(duration_raw / 60) if duration_raw else 0
+                    except Exception:
+                        duration = 0
+
+                    if duration < MIN_DURATION:
+                        continue
+
+                    episode = Episode(
+                        id=item_id,
+                        name=item.get('cardTitle') or item.get('cardEyelet') or '',
+                        url=item.get('url') or item.get('cardLink', {}).get('value', ''),
+                        duration=duration,
+                        number=len(episodes) + 1,
+                        category=category_name,
+                        description=item.get('cardText') or item.get('description', ''),
+                        season_number=season_number,
+                    )
+                    episodes.append(episode)
+                    seen_ids.add(item_id)
+
+                if not has_next_page or not end_cursor or not items:
+                    break
+
+                after = end_cursor
+
+            if episodes:
+                print(f"GraphQL extracted {len(episodes)} episodes for season {season_number} ({category_name})")
+
+            return episodes
+        except Exception as e:
+            logger.error(f"GraphQL listing extraction failed for season {season_number} ({category_name}): {e}")
+            return []
 
     def _get_all_season_episodes(self, season):
         """Fetch the full programs feed for the season and return a list of Episode objects for all entries."""
@@ -302,7 +428,7 @@ class GetSerieInfo:
                             name=ep.get('title', ''),
                             url=ep.get('url', ''),
                             duration=duration,
-                            number=0,  # Will be set later
+                            number=len(episodes) + 1,
                             category=category_name,
                             description=ep.get('description', ''),
                             season_number=season_number

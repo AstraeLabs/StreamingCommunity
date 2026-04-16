@@ -4,14 +4,16 @@ import os
 import json
 import shutil
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from rich.console import Console
 
 from VibraVid.utils import config_manager
 from VibraVid.core.ui.tracker import download_tracker
-from VibraVid.core.muxing import join_video, join_audios, join_subtitles
+from VibraVid.core.muxing import join_video, join_audios, join_subtitles, build_hybrid_output, probe_media_file
 from VibraVid.core.muxing.helper.video import get_media_metadata
+from VibraVid.core.muxing.helper.video_hybrid import download_other_tracks
 from VibraVid.cli.run import execute_hooks
 
 
@@ -40,12 +42,12 @@ class BaseDownloader:
         self.copied_audios = list staging audios for deferred copy
         self.audio_only = True when there is no video track
     """
-
     def _build_tracks_json(self, streams: list, keys: list, manifest_url: str) -> dict:
         """Build a JSON-serializable dict of selected tracks only. """
         videos = []
         audios: Dict[str, list] = {}
         subtitles: Dict[str, str] = {}
+        other_tracks = list(getattr(self, "other_tracks", []) or [])
 
         for s in streams:
             if not getattr(s, "selected", False):
@@ -77,7 +79,13 @@ class BaseDownloader:
                 url = getattr(s, "playlist_url", None) or getattr(s, "url", None)
                 subtitles[label] = url
 
-        return {"videos": videos, "audios": audios, "subtitles": subtitles, "keys": list(keys) if keys else []}
+        return {
+            "videos": videos,
+            "audios": audios,
+            "subtitles": subtitles,
+            "other_tracks": other_tracks,
+            "keys": list(keys) if keys else [],
+        }
 
     def _log_tracks_json(self, streams: list, keys: list, manifest_url: str) -> None:
         """Emit a TRACKS_JSON logger.info"""
@@ -129,28 +137,11 @@ class BaseDownloader:
         Merge downloaded files using FFmpeg.
         Returns the resulting file path, or None on failure.
         """
-        if status["video"] is None:
-            if status["audios"] or status["subtitles"]:
-                self.audio_only = True
-                if status["audios"]:
-                    self._track_audios_for_copy(status["audios"])
-                if status["subtitles"]:
-                    self._track_subtitles_for_copy(status["subtitles"])
-                return self.output_path
-            return None
-
-        video_path = (
-            status["video"]["path"]
-            if isinstance(status["video"], dict)
-            else status["video"].get("path")
-        )
-
-        if not os.path.exists(video_path):
-            console.print(f"[red]Video file not found: {video_path}")
-
+        video_track = status.get("video")
         audio_tracks: List[Dict] = list(status.get("audios") or [])
+        subtitle_tracks: List[Dict] = list(status.get("subtitles") or [])
 
-        # Append external audios (DASH-specific)
+        # DASH-specific external tracks
         for ext_audio in status.get("external_audios") or []:
             path = ext_audio.get("path", "")
             if path and os.path.exists(path):
@@ -158,11 +149,90 @@ class BaseDownloader:
                     {
                         "path": path,
                         "name": ext_audio.get("language") or ext_audio.get("file", ""),
+                        "language": ext_audio.get("language") or ext_audio.get("file", ""),
                         "size": os.path.getsize(path),
                     }
                 )
 
-        if not audio_tracks and not status["subtitles"]:
+        for ext_sub in status.get("external_subtitles") or []:
+            path = ext_sub.get("path", "")
+            if path and os.path.exists(path):
+                subtitle_tracks.append(
+                    {
+                        "path": path,
+                        "name": ext_sub.get("language") or ext_sub.get("file", ""),
+                        "language": ext_sub.get("language") or ext_sub.get("file", ""),
+                        "size": os.path.getsize(path),
+                    }
+                )
+
+        other_track_specs = list(status.get("other_tracks") or [])
+        other_track_results = list(status.get("other_tracks_downloaded") or [])
+
+        if other_track_specs and not other_track_results:
+            if self.download_id:
+                download_tracker.update_status(self.download_id, "Downloading other tracks ...")
+
+            other_track_results = download_other_tracks(
+                other_track_specs,
+                Path(self.output_dir),
+                self.filename_base,
+                keys=getattr(getattr(self, "media_downloader", None), "key", None),
+                headers=getattr(self, "headers", None) or getattr(self, "mpd_headers", None) or {},
+                cookies=getattr(self, "cookies", None) or {},
+                max_segments=getattr(self, "max_segments", None),
+            )
+            status["other_tracks_downloaded"] = other_track_results
+
+        if other_track_specs and self.download_id:
+            download_tracker.update_status(self.download_id, "Muxing ...")
+
+        for track in other_track_results:
+            track_kind = (track.get("kind") or track.get("type") or "").lower()
+            if track_kind == "video":
+                continue
+            if track_kind == "audio":
+                audio_tracks.append(track)
+            elif track_kind == "subtitle":
+                subtitle_tracks.append(track)
+
+        if video_track is None:
+            if audio_tracks or subtitle_tracks:
+                self.audio_only = True
+                if audio_tracks:
+                    self._track_audios_for_copy(audio_tracks)
+                if subtitle_tracks:
+                    self._track_subtitles_for_copy(subtitle_tracks)
+                return self.output_path
+            return None
+
+        video_path = (
+            video_track["path"]
+            if isinstance(video_track, dict)
+            else video_track.get("path")
+        )
+
+        if not os.path.exists(video_path):
+            console.print(f"[red]Video file not found: {video_path}")
+
+        video_probe = video_track.get("probe") if isinstance(video_track, dict) else None
+        if not video_probe and video_path and os.path.exists(video_path):
+            video_probe = probe_media_file(video_path)
+
+        if other_track_results or (video_probe or {}).get("dolby_vision"):
+            hybrid_file = build_hybrid_output(
+                video_track=video_track if isinstance(video_track, dict) else {"path": video_path},
+                other_videos=[track for track in other_track_results if (track.get("kind") or "").lower() == "video"],
+                audio_tracks=audio_tracks,
+                subtitle_tracks=subtitle_tracks,
+                output_path=self.output_path,
+                filename_base=self.filename_base,
+            )
+            if hybrid_file:
+                self.last_merge_result = {"hybrid": True, "output": hybrid_file}
+                return hybrid_file
+
+        if not audio_tracks and not subtitle_tracks:
             console.print("[cyan]\nNo additional tracks to merge, muxing video...")
             merged_file, result_json = join_video(
                 video_path=video_path,
@@ -179,13 +249,13 @@ class BaseDownloader:
             else:
                 self._track_audios_for_copy(audio_tracks)
 
-        if status["subtitles"]:
+        if subtitle_tracks:
             if MERGE_SUBTITLES:
                 current_file = self._merge_subtitle_tracks(
-                    current_file, status["subtitles"]
+                    current_file, subtitle_tracks
                 )
             else:
-                self._track_subtitles_for_copy(status["subtitles"])
+                self._track_subtitles_for_copy(subtitle_tracks)
 
         return current_file
 

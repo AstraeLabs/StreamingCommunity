@@ -1,7 +1,5 @@
 # 10.04.26
 
-from __future__ import annotations
-
 import json
 import logging
 import os
@@ -12,15 +10,12 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
-from io import StringIO
-from typing import Optional
-
-from rich.console import Console
+from typing import Any, Callable, Dict, Optional
 
 from VibraVid.setup import (get_bento4_decrypt_path, get_ffmpeg_path, get_mp4dump_path, get_shaka_packager_path)
+from VibraVid.core.ui.bar_manager import console
 
 
-console = Console()
 logger = logging.getLogger(__name__)
 
 _WIDEVINE_SYSTEM_ID = "edef8ba979d64acea3c827dcd51d21ed"
@@ -96,7 +91,7 @@ class KeysManager:
 
 class Decryptor:
     def __init__(self, license_url: str = None, drm_type: str = None, **_kwargs):
-        logger.info(f"Initializing Decryptor license_url={license_url!r} drm_type={drm_type!r}")
+        logger.debug(f"Initializing Decryptor license_url={license_url!r} drm_type={drm_type!r}")
         self.mp4decrypt_path = get_bento4_decrypt_path()
         self.mp4dump_path = get_mp4dump_path()
         self.shaka_packager_path = get_shaka_packager_path()
@@ -106,7 +101,7 @@ class Decryptor:
 
     def detect_encryption(self, file_path):
         """Return (mode, kid, pssh_b64, codec, enc_method) or 5xNone if clear."""
-        logger.info(f"Detecting encryption: {os.path.basename(file_path)}")
+        logger.debug(f"Detecting encryption: {os.path.basename(file_path)}")
         info = self._detect_encryption_info(file_path)
 
         if not info.encrypted:
@@ -118,10 +113,10 @@ class Decryptor:
             mode = "ctr"
             console.print("[dim]Encryption detected (no explicit scheme). Defaulting to CTR mode.")
 
-        logger.info(f"Encryption finalized: scheme={info.scheme}, mode={mode}, kid={info.kid}, codec={info.video_codec}, enc_method={info.encryption_method}")
+        logger.debug(f"Encryption finalized: scheme={info.scheme}, mode={mode}, kid={info.kid}, codec={info.video_codec}, enc_method={info.encryption_method}")
         return mode, info.kid, info.pssh_b64, info.video_codec, info.encryption_method
 
-    def decrypt(self, encrypted_path, keys, output_path, stream_type: str = "video"):
+    def decrypt(self, encrypted_path, keys, output_path, stream_type: str = "video", progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None):
         """Non-live decrypt API. Returns bool success."""
         logger.info(f"decrypt(): {os.path.basename(encrypted_path)} stream={stream_type} keys={keys} [NON-LIVE]")
         try:
@@ -153,6 +148,7 @@ class Decryptor:
                     stream_type,
                     label,
                     self._is_zero_kid(kid),
+                    progress_cb=progress_cb,
                 )
             else:
                 label = (f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]Bento4[/yellow]")
@@ -162,6 +158,7 @@ class Decryptor:
                     output_path,
                     label,
                     self._is_zero_kid(kid),
+                    progress_cb=progress_cb,
                 )
 
             if ok:
@@ -180,7 +177,7 @@ class Decryptor:
             console.print(f"[red]Decryption error: {exc}")
             return False
 
-    def decrypt_file(self, encrypted_path: str, decrypted_path: str, keys, label: str) -> tuple:
+    def decrypt_file(self, encrypted_path: str, decrypted_path: str, keys, label: str, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None) -> tuple:
         """Manual downloader API. Returns (success, error_message)."""
         normalized_keys = self._normalize_keys(keys)
         if not normalized_keys:
@@ -199,21 +196,29 @@ class Decryptor:
             decrypted_path,
             rich_label,
             self._is_zero_kid(kid),
+            progress_cb=progress_cb,
         )
         if ok:
             return True, None
         return False, f"Bento4 decryption failed for {filename}"
 
-    def decrypt_segment_live(self, encrypted_path: str, decrypted_path: str, raw_key: str, raw_kid: str = "", init_path: Optional[str] = None) -> tuple:
+    def decrypt_segment_live(self, encrypted_path: str, decrypted_path: str, raw_keys, init_path: Optional[str] = None) -> tuple:
         """Decrypt one live DASH fragment. Returns (ok, message, bytes|None)."""
-        logger.info(f"decrypt_segment_live(): {os.path.basename(encrypted_path)} -> {os.path.basename(decrypted_path)} [LIVE -> BENTO4]")
+        logger.debug(f"decrypt_segment_live(): {os.path.basename(encrypted_path)} -> {os.path.basename(decrypted_path)} [LIVE -> BENTO4]")
         try:
-            kid = raw_kid if raw_kid and len(raw_kid) == 32 else "00000000000000000000000000000000"
             cmd = [self.mp4decrypt_path]
             if init_path and os.path.exists(init_path):
                 cmd.extend(["--fragments-info", init_path])
-            cmd.extend(["--key", f"{kid}:{raw_key}", encrypted_path, decrypted_path])
-            logger.info(f"Bento4 live cmd: {' '.join(cmd)}")
+            
+            normalized_keys = self._normalize_keys(raw_keys)
+            if not normalized_keys:
+                logger.error("Bento4 live decryption requested without usable keys")
+                return False, "Error Bento4: no usable keys", None
+
+            for kid, raw_key in normalized_keys:
+                cmd.extend(["--key", f"{kid}:{raw_key}"])
+            cmd.extend([encrypted_path, decrypted_path])
+            logger.debug(f"Bento4 live cmd: {' '.join(cmd)}")
 
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
@@ -229,7 +234,7 @@ class Decryptor:
             if not data:
                 return False, "Error Bento4: empty output", None
 
-            logger.info(f"Bento4 live segment decrypted successfully: {len(data)} bytes")
+            logger.debug(f"Bento4 live segment decrypted successfully: {len(data)} bytes")
             return True, "Bento4 live segment decrypted", data
 
         except Exception as exc:
@@ -525,7 +530,7 @@ class Decryptor:
             logger.warning(f"Failed extracting KID from Widevine PSSH: {exc}")
             return None
 
-    def _decrypt_bento4_nonlive(self, encrypted_path: str, normalized_keys: list[tuple[str, str]], output_path: str, label: str, is_fixed_key: bool = False) -> bool:
+    def _decrypt_bento4_nonlive(self, encrypted_path: str, normalized_keys: list[tuple[str, str]], output_path: str, label: str, is_fixed_key: bool = False, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
         cmd = [self.mp4decrypt_path]
 
         pairs = normalized_keys
@@ -538,7 +543,7 @@ class Decryptor:
         cmd.extend([encrypted_path, output_path])
 
         logger.info(f"Bento4 cmd: {' '.join(cmd)}")
-        result = _run_with_progress(cmd, label, encrypted_path, output_path)
+        result = _run_with_progress(cmd, label, encrypted_path, output_path, progress_cb=progress_cb)
         if result is True:
             return True
 
@@ -547,7 +552,7 @@ class Decryptor:
         console.print(f"[red]Bento4 failed: {stderr_msg}")
         return False
 
-    def _decrypt_shaka_nonlive(self, encrypted_path: str, normalized_keys: list[tuple[str, str]], output_path: str, _stream_type: str, label: str, is_fixed_key: bool = False) -> bool:
+    def _decrypt_shaka_nonlive(self, encrypted_path: str, normalized_keys: list[tuple[str, str]], output_path: str, _stream_type: str, label: str, is_fixed_key: bool = False, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
         keys_arg: list[str] = []
         for idx, (kid, key) in enumerate(normalized_keys, start=1):
             shaka_kid = "00000000000000000000000000000000" if is_fixed_key else kid
@@ -567,7 +572,7 @@ class Decryptor:
         ]
 
         logger.info(f"Shaka cmd: {' '.join(cmd)}")
-        result = _run_with_progress(cmd, label, encrypted_path, shaka_output)
+        result = _run_with_progress(cmd, label, encrypted_path, shaka_output, progress_cb=progress_cb)
         if result is True:
             if shaka_output != output_path and os.path.exists(shaka_output):
                 shutil.move(shaka_output, output_path)
@@ -620,28 +625,55 @@ def _render_bar(percent: int, length: int = 10) -> str:
     return f"{bar} [dim]{percent:3d}%[/dim]"
 
 
-def _render_markup(text: str) -> str:
-    buf = StringIO()
-    temp = Console(file=buf, force_terminal=True)
-    temp.print(text, end="")
-    return buf.getvalue()
-
-
-def _run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: str) -> tuple:
+def _run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: str, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None) -> tuple:
     file_size = os.path.getsize(encrypted_path) if os.path.isfile(encrypted_path) else 0
     progress_percent = 0
+    last_rendered_percent = -1
     stop_monitor = threading.Event()
+    last_progress_update = time.monotonic()
+    last_observed_percent = -1
+    process_holder = {"process": None}
+    task_key = f"decrypt_{os.path.basename(output_path)}"
+
+    def _emit_progress(percent: int, current_size: int) -> None:
+        if progress_cb is None:
+            return
+        try:
+            progress_cb(
+                {
+                    "task_key": task_key,
+                    "label": label,
+                    "pct": percent,
+                    "segments": f"{percent}/100",
+                    "compact_metrics": True,
+                }
+            )
+        except Exception:
+            pass
 
     def _monitor():
-        nonlocal progress_percent
+        nonlocal progress_percent, last_progress_update, last_observed_percent
         while not stop_monitor.is_set():
+            now = time.monotonic()
+            process = process_holder["process"]
+            process_running = process is not None and process.poll() is None
             if os.path.exists(output_path) and file_size > 0:
                 current_size = os.path.getsize(output_path)
-                progress_percent = min(int((current_size / file_size) * 100), 99)
-            time.sleep(0.15)
-
-    monitor = threading.Thread(target=_monitor, daemon=True)
-    monitor.start()
+                observed_percent = min(int((current_size / file_size) * 100), 99)
+                if observed_percent != last_observed_percent:
+                    last_observed_percent = observed_percent
+                    progress_percent = observed_percent
+                    last_progress_update = now
+                    _emit_progress(progress_percent, current_size)
+                elif process_running and progress_percent < 99 and now - last_progress_update >= 0.10:
+                    progress_percent = min(progress_percent + 1, 99)
+                    last_progress_update = now
+                    _emit_progress(progress_percent, current_size)
+            elif process_running and progress_percent < 95 and now - last_progress_update >= 0.10:
+                progress_percent = min(progress_percent + 1, 95)
+                last_progress_update = now
+                _emit_progress(progress_percent, 0)
+            time.sleep(0.03)
 
     stderr_lines: list[str] = []
     try:
@@ -651,6 +683,10 @@ def _run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: 
             stderr=subprocess.PIPE,
             text=True,
         )
+        process_holder["process"] = process
+
+        monitor = threading.Thread(target=_monitor, daemon=True)
+        monitor.start()
 
         def _read_stderr():
             for line in process.stderr:
@@ -659,25 +695,31 @@ def _run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: 
         stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
         stderr_thread.start()
 
+        if progress_cb is None:
+            console.print(f"{label} {_render_bar(0)}", end="\r")
+        else:
+            _emit_progress(0, 0)
+
         while process.poll() is None:
-            output = _render_markup(f"{label} {_render_bar(progress_percent)}")
-            console.file.write(f"\r{output}")
-            console.file.flush()
-            time.sleep(0.1)
+            if progress_cb is None and progress_percent != last_rendered_percent:
+                console.print(f"{label} {_render_bar(progress_percent)}", end="\r")
+                last_rendered_percent = progress_percent
+            time.sleep(0.05)
 
         process.wait()
         stderr_thread.join(timeout=2)
     except Exception as exc:
         stop_monitor.set()
-        console.print()
         return False, str(exc)
     finally:
         stop_monitor.set()
 
     final_percent = 100 if process.returncode == 0 else progress_percent
-    output = _render_markup(f"{label} {_render_bar(final_percent)}")
-    console.file.write(f"\r{output}\n")
-    console.file.flush()
+    final_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+    if progress_cb is None:
+        console.print(f"{label} {_render_bar(final_percent)}")
+    else:
+        _emit_progress(final_percent, final_size)
 
     time.sleep(0.3)
     if process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:

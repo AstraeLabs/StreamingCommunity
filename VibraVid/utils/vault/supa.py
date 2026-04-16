@@ -32,7 +32,7 @@ class ExternalSupaDBVault:
         """Internal helper: POST to an endpoint, return parsed JSON or None on error."""
         url = f"{self.base_url}/{endpoint}"
         try:
-            logger.info("Post to Supabase endpoint '%s' with payload: %s", endpoint, payload)
+            logger.debug("Post to Supabase endpoint '%s' with payload: %s", endpoint, payload)
             response = self.session.post(url, json=payload)
             response.raise_for_status()
             return response.json()
@@ -81,7 +81,7 @@ class ExternalSupaDBVault:
         }
 
         result = self._post("save-keys", payload)
-        logger.info(f"Vault response for saving keys: {result}")
+        logger.debug(f"Vault response for saving keys: {result}")
 
         if result is None:
             return 0
@@ -103,9 +103,9 @@ class ExternalSupaDBVault:
             "drm_type": drm_type,
         }
 
-        logger.info(f"Supabase get_keys_by_pssh: license_url={base_license_url}, drm_type={drm_type}, pssh={pssh[:20]}…")
+        logger.debug(f"Supabase get_keys_by_pssh: license_url={base_license_url}, drm_type={drm_type}, pssh={pssh[:20]}…")
         result = self._post("get-keys", payload)
-        logger.info(f"Vault response for get_keys_by_pssh: {result}")
+        logger.debug(f"Vault response for get_keys_by_pssh: {result}")
 
         if result is None:
             return []
@@ -139,7 +139,7 @@ class ExternalSupaDBVault:
             payload["license_url"] = base_license_url
 
         result = self._post("get-keys", payload)
-        logger.info(f"Vault response for get_keys_by_kids: {result}")
+        logger.debug(f"Vault response for get_keys_by_kids: {result}")
 
         if result is None:
             return []

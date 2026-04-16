@@ -3,7 +3,6 @@
 import re
 import logging
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-from typing import Dict, Any
 from types import SimpleNamespace
 
 from bs4 import BeautifulSoup
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class VideoSource:
-    def __init__(self, url: str, is_series: bool, media_id: int = None, tmdb_data: Dict[str, Any] = None):
+    def __init__(self, url: str, is_series: bool, media_id: int = None):
         """
         Initialize video source for streaming site.
         
@@ -25,7 +24,6 @@ class VideoSource:
             - url (str): The URL of the streaming site.
             - is_series (bool): Flag for series or movie content
             - media_id (int, optional): Unique identifier for media item
-            - tmdb_data (dict, optional): TMDB data with 'id', 's' (season), 'e' (episode)
         """
         self.headers = {'user-agent': get_userAgent()}
         self.url = url
@@ -33,16 +31,8 @@ class VideoSource:
         self.media_id = media_id
         self.iframe_src = None
         self.window_parameter = None
-        
-        # Store TMDB data if provided
-        if tmdb_data is not None:
-            self.tmdb_id = tmdb_data.get('id')
-            self.season_number = tmdb_data.get('s')
-            self.episode_number = tmdb_data.get('e')
-        else:
-            self.tmdb_id = None
-            self.season_number = None
-            self.episode_number = None
+        self.season_number = None
+        self.episode_number = None
 
     def get_iframe(self, episode_id: int) -> None:
         """
@@ -105,15 +95,6 @@ class VideoSource:
         Fetch and process video content from iframe source.
         """
         try:
-            if self.tmdb_id is not None:
-                console.print("[red]Using API V.2")
-                if self.is_series:
-                    if self.season_number is not None and self.episode_number is not None:
-                        self.iframe_src = f"https://vixsrc.to/tv/{self.tmdb_id}/{self.season_number}/{self.episode_number}/?lang=it"
-                else:
-                    self.iframe_src = f"https://vixsrc.to/movie/{self.tmdb_id}/?lang=it"
-
-            # Fetch content from iframe source
             if self.iframe_src is not None:
                 response = create_client(headers=self.headers).get(self.iframe_src)
                 response.raise_for_status()
@@ -177,7 +158,6 @@ class VideoSourceAnime(VideoSource):
         self.src_mp4 = None
         self.master_playlist = None
         self.iframe_src = None
-        self.tmdb_id = None
 
     def get_embed(self, episode_id: int, prefer_mp4: bool = True) -> str:
         """

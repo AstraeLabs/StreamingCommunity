@@ -1,7 +1,5 @@
 # 13.03.26
 
-from __future__ import annotations
-
 import re
 import json
 import base64
@@ -11,6 +9,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
+from rich.console import Console
+
 from VibraVid.core.manifest.stream import DRMInfo, Stream
 from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.utils import config_manager
@@ -18,6 +18,7 @@ from VibraVid.core.utils.language import resolve_locale
 
 
 logger = logging.getLogger(__name__)
+console = Console()
 timeout = config_manager.config.get_int("REQUESTS", "timeout")
 
 _CC_NAME_RE = re.compile(r"\[CC\]|(?<!\w)CC(?!\w)|closed[- _]captions?|SDH", re.IGNORECASE)
@@ -88,6 +89,7 @@ class HLSParser:
                 self.raw_content = r.text
             return True
         except Exception as exc:
+            console.print(f"[red]Failed to fetch HLS manifest: {exc}.")
             logger.error(f"HLSParser: fetch failed: {exc}")
             return False
 
@@ -185,7 +187,6 @@ class HLSParser:
             else:
                 # CENC, Widevine, or unencrypted: Can support live decryption
                 stream.supports_live_decryption = True
-                logger.info(f"Stream {stream.id}: No SAMPLE-AES - Can use live decryption")
 
         return streams
 

@@ -159,7 +159,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
             license_bytes = response.content
 
             if "application/json" in content_type:
-                logger.info(f"Parsing JSON license response for {kid_info}")
+                logger.debug(f"Parsing JSON license response for {kid_info}")
                 try:
                     data = response.json()
                     if "license" in data:
@@ -173,7 +173,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
                     console.print(f"[red]Error parsing JSON license response for PSSH {pssh[:30]}...: {e}")
                     pass  # SKIP JSON parsing error and try raw content
             else:
-                logger.info(f"Received non-JSON license response for {kid_info} (content-type: {content_type})")
+                logger.debug(f"Received non-JSON license response for {kid_info} (content-type: {content_type})")
 
             if not license_bytes:
                 console.print(f"[red]License data is empty for PSSH {pssh[:30]}...]")

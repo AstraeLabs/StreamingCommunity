@@ -71,6 +71,7 @@ def _segment_number(path: Path) -> int:
 
 def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: logging.Logger | None = None) -> None:
     """Merge downloaded segments using direct raw binary concatenation."""
+    logger.info("Binary merge v2 ...")
     log = merge_logger or logger
     valid = [(p, _segment_number(p)) for p in paths if p.exists() and p.stat().st_size > 0]
     valid.sort(key=lambda item: item[1])
@@ -176,21 +177,27 @@ def resolve_compatible_extension(file_path: str, desired_ext: str) -> str:
 def detect_ts_timestamp_issues(file_path):
     """
     Detect if a TS file has timestamp issues by checking for unset timestamps.
-
     Parameters:
         - file_path (str): Path to the TS file.
 
     Returns:
         bool: True if timestamp issues are detected, False otherwise.
     """
-    cmd = [get_ffprobe_path(), '-v', 'error', '-show_packets', '-select_streams', 'v:0', '-read_intervals', '0%+#1', '-print_format', 'json', file_path]
+    cmd = [
+        get_ffprobe_path(),
+        '-v', 'error',
+        '-show_packets',
+        '-select_streams', 'v:0',
+        '-read_intervals', '%+#1',
+        '-print_format', 'json',
+        file_path
+    ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    
+
     if result.returncode != 0 or 'pts_time' not in result.stdout:
-        logger.error(f"ffprobe error while checking timestamps for file {file_path}: {result.stderr.strip()}")
+        logger.warning(f"ffprobe could not read timestamps for {file_path}: {result.stderr.strip()}")
         return True
-    
-    # Parse JSON and check for packets without pts
+
     try:
         info = json.loads(result.stdout)
         packets = info.get('packets', [])
@@ -198,9 +205,9 @@ def detect_ts_timestamp_issues(file_path):
             if packet.get('pts') is None or packet.get('pts') == 'N/A':
                 return True
     except json.JSONDecodeError:
-        logger.error(f"JSON decode error while parsing ffprobe output for timestamp check on file {file_path}: {result.stdout.strip()}")
+        logger.error(f"JSON decode error during timestamp check: {result.stdout.strip()}")
         return True
-    
+
     return False
 
 
