@@ -46,13 +46,25 @@ def title_search(query: str) -> int:
     # Create soup and find table
     soup = BeautifulSoup(response.text, "html.parser")
 
-    for serie_div in soup.find_all('div', class_='mlnew'):
+    for serie_div in soup.find_all('div', class_='movie'):
         try:
+            a   = serie_div.find('a')
+            img = serie_div.find('img')
+
+            title_tag = serie_div.find(class_=lambda c: c and 'title' in str(c).lower())
+            name = (title_tag.get_text(strip=True) if title_tag else
+                    a.get('title', '').replace('streaming guardaserie', '').strip() or
+                    a.get_text(strip=True))
+
+            image = (img.get('data-src') or img.get('src', '')) if img else ''
+            if image and image.startswith('/'):
+                image = site_constants.FULL_URL + image
+
             entries_manager.add(Entries(
-                name=serie_div.find('a').get("title").replace("streaming guardaserie", ""),
-                type='tv',
-                url=serie_div.find('a').get("href"),
-                image=f"{site_constants.FULL_URL}/{serie_div.find('img').get('src')}"
+                name  = name,
+                type  = 'tv',
+                url   = a.get('href', ''),
+                image = image,
             ))
 
         except Exception as e:
