@@ -1,4 +1,4 @@
-# Cinezo GUI API wrapper
+# 17.04.26
 
 import importlib
 from typing import List, Optional
@@ -10,7 +10,6 @@ from VibraVid.services.cinezo.scrapper import GetSerieInfo
 
 
 class CinezoAPI(BaseStreamingAPI):
-
     def __init__(self):
         super().__init__()
         self.site_name  = "cinezo"
@@ -69,15 +68,13 @@ class CinezoAPI(BaseStreamingAPI):
             ))
         return seasons if seasons else None
 
-    def start_download(self, media_item: Entries,
-                       season: Optional[str] = None,
-                       episodes: Optional[str] = None) -> bool:
+    def start_download(self, media_item: Entries, season: Optional[str] = None, episodes: Optional[str] = None) -> bool:
         search_fn  = self._get_search_fn()
         selections = None
+        
         if season or episodes:
             selections = {'season': season, 'episode': episodes}
+        
         scrape_serie = self.get_cached_scraper(media_item)
-        search_fn(direct_item=media_item.raw_data,
-                  selections=selections,
-                  scrape_serie=scrape_serie)
+        search_fn(direct_item=media_item.raw_data, selections=selections, scrape_serie=scrape_serie)
         return True
