@@ -5,6 +5,8 @@ import json
 import base64
 import hashlib
 import logging
+import threading
+import concurrent.futures
 from urllib.parse import urlparse, parse_qs, unquote
 
 from VibraVid.utils.http_client import create_client, get_userAgent
@@ -133,49 +135,70 @@ def get_servers():
         return []
 
 
+def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found_event):
+    """Query a single server. Returns (stream_url, headers) or None."""
+    if found_event.is_set():
+        return None
+    try:
+        if media_type == 'movie':
+            url = server.get('movieApiUrl', '').replace('{id}', str(tmdb_id))
+        else:
+            url = (server.get('tvApiUrl', '')
+                   .replace('{id}', str(tmdb_id))
+                   .replace('{season}', str(season))
+                   .replace('{episode}', str(episode)))
+
+        if not url or found_event.is_set():
+            return None
+
+        r = create_client(headers=api_headers).get(url, timeout=20)
+        if not r.ok or found_event.is_set():
+            return None
+
+        data = r.json()
+        if data.get('v') != 4 or not data.get('payload'):
+            return None
+
+        raw = decode_payload(data['payload'])
+        stream_url, stream_headers = _parse_stream_result(raw)
+
+        if stream_url and stream_url.startswith('http'):
+            logger.info(f"[Cinezo] Server '{server.get('name')}' OK: {stream_url[:60]}")
+            return stream_url, stream_headers
+
+    except Exception as e:
+        logger.debug(f"[Cinezo] Server '{server.get('name')}' failed: {e}")
+    return None
+
+
 def get_stream(tmdb_id: int, media_type: str,
                season: int = None, episode: int = None):
     """
     Returns (m3u8_url, headers) for the given TMDB ID.
-    Tries each server until one succeeds.
+    Queries all servers in parallel and returns the first successful result.
 
     media_type: 'movie' or 'tv'
     """
     servers = get_servers()
+    if not servers:
+        raise RuntimeError(f"[Cinezo] No servers available for tmdb_id={tmdb_id}")
+
     api_headers = {'user-agent': get_userAgent(), 'referer': 'https://api.cinezo.net/'}
+    if media_type == 'tv' and (not season or not episode):
+        season, episode = 1, 1
 
-    for server in servers:
-        try:
-            if media_type == 'movie':
-                url = server.get('movieApiUrl', '').replace('{id}', str(tmdb_id))
-            else:
-                if not season or not episode:
-                    season, episode = 1, 1
-                url = (server.get('tvApiUrl', '')
-                       .replace('{id}', str(tmdb_id))
-                       .replace('{season}', str(season))
-                       .replace('{episode}', str(episode)))
+    found_event = threading.Event()
 
-            if not url:
-                continue
-
-            r = create_client(headers=api_headers).get(url, timeout=20)
-            if not r.ok:
-                continue
-
-            data = r.json()
-            if data.get('v') != 4 or not data.get('payload'):
-                continue
-
-            raw = decode_payload(data['payload'])
-            stream_url, stream_headers = _parse_stream_result(raw)
-
-            if stream_url and stream_url.startswith('http'):
-                logger.info(f"[Cinezo] Server '{server.get('name')}' OK: {stream_url[:60]}")
-                return stream_url, stream_headers
-
-        except Exception as e:
-            logger.debug(f"[Cinezo] Server '{server.get('name')}' failed: {e}")
-            continue
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(servers)) as executor:
+        futures = {
+            executor.submit(_try_server, server, tmdb_id, media_type,
+                            season, episode, api_headers, found_event): server
+            for server in servers
+        }
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result is not None:
+                found_event.set()
+                return result
 
     raise RuntimeError(f"[Cinezo] No working server found for tmdb_id={tmdb_id}")
