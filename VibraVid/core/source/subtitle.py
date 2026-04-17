@@ -73,7 +73,12 @@ def build_ext_track_label(track: Dict, track_type: str, ext_override: str = None
         flags.append("[CC]")
     if default:
         flags.append("[DEFAULT]")
-    ext = ext_override or ext_from_url(track.get("url", ""), "UNK")
+    
+    # Use track's extension as fallback if provided
+    track_ext = track.get("extension", "UNK").lower().lstrip(".")
+    ext = ext_override or ext_from_url(track.get("url", ""), track_ext)
+    logger.debug(f"Building label for track: lang_raw={lang_raw}, resolved={resolved}, flags={flags}, ext={ext}")
+
     if plain:
         plain_parts: List[str] = [resolved]
         if flags:
@@ -168,14 +173,24 @@ async def download_external_tracks_with_progress(headers: Dict, external_subtitl
     async with create_async_client(headers=headers) as client:
         for track, track_type in all_tasks:
             lang_raw = (track.get("language") or "unknown").strip()
-            fmt: str = ext_from_url(track.get("url", ""), "UNK")
+
+            # Use track's extension as fallback if provided
+            track_ext = track.get("extension", "UNK").lower().lstrip(".")
+            fmt: str = ext_from_url(track.get("url", ""), track_ext)
             base_lang: str
             flag_suffix: str
             base_lang, flag_suffix = normalize_sub_filename(lang_raw, track)
+            logger.debug(f"Prepared to download track: lang_raw={lang_raw}, base_lang={base_lang}, flag_suffix={flag_suffix}, ext={fmt}, url={track.get('url')}")
 
             try:
                 raw_url = track["url"]
                 final_url, fmt = await resolve_url(client, raw_url, track_type)
+
+                # If format is still UNK and track provides extension, use it
+                if fmt == "UNK" and track.get("extension"):
+                    fmt = track.get("extension").lower().lstrip(".")
+                    logger.debug(f"Using track extension for {track_type}: {fmt}")
+
                 if not is_valid_format(fmt, track_type):
                     logger.error(
                         f"Skipping {track_type} with invalid format '{fmt}' for {lang_raw}: {raw_url}"
