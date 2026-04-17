@@ -88,25 +88,41 @@ def decode_payload(payload: str) -> str:
 
 def _parse_stream_result(raw: str):
     """
-    Parse the decoded payload.
+    Parse the decoded payload. Handles three formats:
+      1. JSON string  → direct or proxy URL
+      2. {"url": ..., "headers": ...}  → direct/proxy URL + headers
+      3. {"server": ..., "streams": [{...}]}  → extract first stream entry
     Returns (m3u8_url, headers_dict).
     """
-    # Raw might be a JSON string or a proxy URL string
     try:
         cleaned = json.loads(raw)
     except Exception:
         cleaned = raw.strip().strip('"')
 
-    if isinstance(cleaned, dict):
+    headers = {}
+
+    if isinstance(cleaned, dict) and 'streams' in cleaned:
+        # Format 3: {"server": "...", "streams": [...]}
+        streams = cleaned.get('streams') or []
+        if not streams:
+            return '', {}
+        first = streams[0]
+        if isinstance(first, dict):
+            url     = first.get('url') or first.get('stream') or ''
+            headers = first.get('headers') or {}
+        else:
+            url = str(first) if first else ''
+    elif isinstance(cleaned, dict):
+        # Format 2: {"url": ..., "headers": ...}
         url     = cleaned.get('url') or cleaned.get('stream') or ''
         headers = cleaned.get('headers') or {}
     else:
-        url = cleaned
+        # Format 1: plain string
+        url = cleaned or ''
 
-    # If URL is a proxy URL (prxy.tulnex.com/proxy?url=...&headers=...)
-    parsed  = urlparse(url)
-    params  = parse_qs(parsed.query)
-    headers = {}
+    # Unwrap proxy URL: prxy.tulnex.com/proxy?url=...&headers=...
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
 
     if 'url' in params:
         real_url = unquote(params['url'][0])
@@ -178,7 +194,8 @@ def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found
         console.print(f"[yellow][Cinezo] {name}: decoded but no valid URL → {str(stream_url)[:80]}")
 
     except Exception as e:
-        console.print(f"[red][Cinezo] {name}: exception → {e}")
+        import traceback
+        console.print(f"[red][Cinezo] {name}: exception → {e}\n{traceback.format_exc()}")
         logger.debug(f"[Cinezo] Server '{name}' failed: {e}", exc_info=True)
     return None
 
