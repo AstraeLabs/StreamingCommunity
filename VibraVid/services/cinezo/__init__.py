@@ -1,5 +1,4 @@
-# Cinezo.net service
-# Search via TMDB, stream via api.cinezo.net → api.tulnex.com
+# 17.04.26
 
 from urllib.parse import quote_plus
 
@@ -17,11 +16,10 @@ from .downloader import download_film, download_series
 indice  = 12
 _useFor = "Film_Serie"
 
-msg              = Prompt()
-console          = Console()
-entries_manager  = EntriesManager()
+msg = Prompt()
+console = Console()
+entries_manager = EntriesManager()
 table_show_manager = TVShowManager()
-
 _TMDB_IMG = "https://image.tmdb.org/t/p/w500"
 
 
@@ -31,7 +29,7 @@ def title_search(query: str) -> int:
 
     q = quote_plus(query)
 
-    # Cerca film
+    # Search film
     movies = tmdb_client._make_request("search/movie", {"query": q, "language": "it"}) or {}
     for m in movies.get('results', [])[:10]:
         poster = f"{_TMDB_IMG}{m['poster_path']}" if m.get('poster_path') else None
@@ -46,7 +44,7 @@ def title_search(query: str) -> int:
             year  = year,
         ))
 
-    # Cerca serie TV
+    # Search tv series
     shows = tmdb_client._make_request("search/tv", {"query": q, "language": "it"}) or {}
     for s in shows.get('results', [])[:10]:
         poster = f"{_TMDB_IMG}{s['poster_path']}" if s.get('poster_path') else None
@@ -63,7 +61,6 @@ def title_search(query: str) -> int:
 
     return len(entries_manager)
 
-
 def process_search_result(select_title, selections=None, scrape_serie=None):
     return base_process_search_result(
         select_title         = select_title,
@@ -75,9 +72,7 @@ def process_search_result(select_title, selections=None, scrape_serie=None):
         scrape_serie         = scrape_serie,
     )
 
-
-def search(string_to_search=None, get_onlyDatabase=False, direct_item=None,
-           selections=None, scrape_serie=None):
+def search(string_to_search=None, get_onlyDatabase=False, direct_item=None, selections=None, scrape_serie=None):
     return base_search(
         title_search_func    = title_search,
         process_result_func  = process_search_result,
