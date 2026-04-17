@@ -29,7 +29,7 @@ def download_film(select_title: Entries):
     if not tmdb_id:
         raise ValueError(f"[Cinezo] No TMDB ID for '{select_title.name}'")
 
-    m3u8_url, stream_headers = get_stream(int(tmdb_id), 'movie')
+    m3u8_url, stream_headers, subtitle_tracks = get_stream(int(tmdb_id), 'movie')
     console.print(f"[cyan]Stream: {m3u8_url[:70]}...\n")
 
     path_components, filename = map_movie_path(select_title.name, select_title.year)
@@ -40,9 +40,10 @@ def download_film(select_title: Entries):
     out_path = os.path.join(out_dir, f"{filename}.{extension_output}")
 
     return HLS_Downloader(
-        m3u8_url   = m3u8_url,
-        headers    = stream_headers or None,
-        output_path= out_path,
+        m3u8_url     = m3u8_url,
+        headers      = stream_headers or None,
+        output_path  = out_path,
+        other_tracks = subtitle_tracks or None,
     ).start()
 
 
@@ -54,7 +55,7 @@ def download_episode(obj_episode, index: int, scrape_serie: GetSerieInfo, season
         f"[cyan]{scrape_serie.series_name} (S{season_number}E{obj_episode.number})\n"
     )
 
-    m3u8_url, stream_headers = get_stream(
+    m3u8_url, stream_headers, subtitle_tracks = get_stream(
         scrape_serie.tmdb_id, 'tv',
         season=season_number, episode=int(obj_episode.number)
     )
@@ -72,9 +73,10 @@ def download_episode(obj_episode, index: int, scrape_serie: GetSerieInfo, season
     out_path = os.path.join(out_dir, f"{filename}.{extension_output}")
 
     return HLS_Downloader(
-        m3u8_url   = m3u8_url,
-        headers    = stream_headers or None,
-        output_path= out_path,
+        m3u8_url     = m3u8_url,
+        headers      = stream_headers or None,
+        output_path  = out_path,
+        other_tracks = subtitle_tracks or None,
     ).start()
 
 

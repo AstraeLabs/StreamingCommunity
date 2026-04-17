@@ -80,38 +80,58 @@ def decode_payload(payload: str) -> str:
     return final.decode('utf-8')
 
 
+def _subs_to_tracks(subs) -> list:
+    """Convert API subtitle list to other_tracks format for HLS_Downloader."""
+    tracks = []
+    for s in (subs or []):
+        if not isinstance(s, dict) or not s.get('url'):
+            continue
+        tracks.append({
+            "type":      "subtitle",
+            "language":  s.get("language") or "und",
+            "name":      s.get("display") or s.get("name") or s.get("language") or "Subtitle",
+            "url":       s["url"],
+            "extension": "vtt",
+        })
+    return tracks
+
+
 def _parse_stream_result(raw: str):
     """
     Parse the decoded payload. Handles three formats:
       1. JSON string  → direct or proxy URL
-      2. {"url": ..., "headers": ...}  → direct/proxy URL + headers
-      3. {"server": ..., "streams": [{...}]}  → extract first stream entry
-    Returns (m3u8_url, headers_dict).
+      2. {"url": ..., "headers": ..., "subtitles": [...]}
+      3. {"server": ..., "streams": [{...}], "subtitles": [...]}
+    Returns (m3u8_url, headers_dict, subtitle_tracks).
     """
     try:
         cleaned = json.loads(raw)
     except Exception:
         cleaned = raw.strip().strip('"')
 
-    headers = {}
+    headers  = {}
+    raw_subs = []
 
     if isinstance(cleaned, dict) and 'streams' in cleaned:
-        # Format 3: {"server": "...", "streams": [...]}
-        streams = cleaned.get('streams') or []
+        # Format 3: {"server": "...", "streams": [...], "subtitles": [...]}
+        streams  = cleaned.get('streams') or []
+        raw_subs = cleaned.get('subtitles') or []
         if not streams:
-            return '', {}
+            return '', {}, []
         first = streams[0]
         if isinstance(first, dict):
-            url     = first.get('url') or first.get('stream') or ''
-            headers = first.get('headers') or {}
+            url      = first.get('url') or first.get('stream') or ''
+            headers  = first.get('headers') or {}
+            raw_subs = raw_subs or first.get('subtitles') or []
         else:
             url = str(first) if first else ''
     elif isinstance(cleaned, dict):
-        # Format 2: {"url": ..., "headers": ...}
-        url     = cleaned.get('url') or cleaned.get('stream') or ''
-        headers = cleaned.get('headers') or {}
+        # Format 2: {"url": ..., "headers": ..., "subtitles": [...]}
+        url      = cleaned.get('url') or cleaned.get('stream') or ''
+        headers  = cleaned.get('headers') or {}
+        raw_subs = cleaned.get('subtitles') or []
     else:
-        # Format 1: plain string
+        # Format 1: plain string — no subtitles
         url = cleaned or ''
 
     # Unwrap proxy URL: prxy.tulnex.com/proxy?url=...&headers=...
@@ -128,7 +148,7 @@ def _parse_stream_result(raw: str):
     else:
         real_url = url
 
-    return real_url, headers
+    return real_url, headers, _subs_to_tracks(raw_subs)
 
 
 def get_servers():
@@ -173,12 +193,13 @@ def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found
             return None
 
         raw = decode_payload(data['payload'])
-        stream_url, stream_headers = _parse_stream_result(raw)
+        stream_url, stream_headers, subtitle_tracks = _parse_stream_result(raw)
 
         if stream_url and stream_url.startswith('http'):
-            console.print(f"[green][Cinezo] {name}: OK")
+            sub_info = f", {len(subtitle_tracks)} sub(s)" if subtitle_tracks else ""
+            console.print(f"[green][Cinezo] {name}: OK{sub_info}")
             logger.info(f"[Cinezo] Server '{name}' OK: {stream_url[:60]}")
-            return stream_url, stream_headers
+            return stream_url, stream_headers, subtitle_tracks
 
         console.print(f"[yellow][Cinezo] {name}: decoded but no valid URL → {str(stream_url)[:80]}")
 
@@ -215,6 +236,6 @@ def get_stream(tmdb_id: int, media_type: str, season: int = None, episode: int =
             result = future.result()
             if result is not None:
                 found_event.set()
-                return result
+                return result  # (stream_url, headers, subtitle_tracks)
 
     raise RuntimeError(f"[Cinezo] No working server found for tmdb_id={tmdb_id}")
