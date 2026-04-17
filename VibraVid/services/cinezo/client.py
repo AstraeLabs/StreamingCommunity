@@ -159,7 +159,7 @@ def get_stream(tmdb_id: int, media_type: str,
             if not url:
                 continue
 
-            r = create_client(headers=api_headers).get(url, timeout=8)
+            r = create_client(headers=api_headers).get(url, timeout=20)
             if not r.ok:
                 continue
 

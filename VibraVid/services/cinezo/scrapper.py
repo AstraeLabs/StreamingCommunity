@@ -17,6 +17,7 @@ class GetSerieInfo:
     def __init__(self, tmdb_id: int, series_name: str):
         self.tmdb_id     = tmdb_id
         self.series_name = series_name
+        self.series_year = None
         self.seasons_manager = SeasonManager()
         self._loaded = False
 
@@ -27,6 +28,9 @@ class GetSerieInfo:
         try:
             details = tmdb_client._make_request(f"tv/{self.tmdb_id}",
                                                 {"language": "it"}) or {}
+            first_air = details.get('first_air_date', '') or ''
+            if first_air:
+                self.series_year = int(first_air[:4])
             for raw_s in details.get('seasons', []):
                 sn = raw_s.get('season_number', 0)
                 if sn == 0:

@@ -62,7 +62,7 @@ def download_episode(obj_episode, index: int, scrape_serie: GetSerieInfo, season
 
     path_components, filename = map_episode_path(
         series_name    = scrape_serie.series_name,
-        series_year    = None,
+        series_year    = scrape_serie.series_year,
         season_number  = season_number,
         episode_number = int(obj_episode.number),
         episode_name   = obj_episode.name,
