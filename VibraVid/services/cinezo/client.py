@@ -1,5 +1,4 @@
-# Cinezo.net client
-# Stream via api.cinezo.net → api.tulnex.com → 4-layer decode → HLS URL
+# 17.04.26
 
 import json
 import base64
@@ -23,13 +22,8 @@ _servers_cache  = None
 def _pbkdf2(password: str, salt, iterations: int, length: int, hash_name: str) -> bytes:
     if isinstance(salt, str):
         salt = salt.encode('utf-8')
-    return hashlib.pbkdf2_hmac(
-        hash_name.lower().replace('-', ''),
-        password.encode('utf-8'),
-        salt,
-        iterations,
-        dklen=length
-    )
+    
+    return hashlib.pbkdf2_hmac(hash_name.lower().replace('-', ''), password.encode('utf-8'), salt, iterations, dklen=length)
 
 
 def _aes_cbc_decrypt(ciphertext: bytes, key: bytes, iv: bytes) -> bytes:
@@ -143,9 +137,7 @@ def get_servers():
     if _servers_cache:
         return _servers_cache
     try:
-        r = create_client(headers={'user-agent': get_userAgent(),
-                                   'referer': 'https://www.cinezo.net/'}).get(
-            API_SERVERS_URL, timeout=10)
+        r = create_client(headers={'user-agent': get_userAgent(), 'referer': 'https://www.cinezo.net/'}).get(API_SERVERS_URL)
         r.raise_for_status()
         _servers_cache = r.json()
         return _servers_cache
@@ -163,10 +155,7 @@ def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found
         if media_type == 'movie':
             url = server.get('movieApiUrl', '').replace('{id}', str(tmdb_id))
         else:
-            url = (server.get('tvApiUrl', '')
-                   .replace('{id}', str(tmdb_id))
-                   .replace('{season}', str(season))
-                   .replace('{episode}', str(episode)))
+            url = (server.get('tvApiUrl', '').replace('{id}', str(tmdb_id)).replace('{season}', str(season)).replace('{episode}', str(episode)))
 
         if not url or found_event.is_set():
             console.print(f"[yellow][Cinezo] {name}: no URL template")
@@ -200,8 +189,7 @@ def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found
     return None
 
 
-def get_stream(tmdb_id: int, media_type: str,
-               season: int = None, episode: int = None):
+def get_stream(tmdb_id: int, media_type: str, season: int = None, episode: int = None):
     """
     Returns (m3u8_url, headers) for the given TMDB ID.
     Queries all servers in parallel and returns the first successful result.
@@ -220,8 +208,7 @@ def get_stream(tmdb_id: int, media_type: str,
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(servers)) as executor:
         futures = {
-            executor.submit(_try_server, server, tmdb_id, media_type,
-                            season, episode, api_headers, found_event): server
+            executor.submit(_try_server, server, tmdb_id, media_type, season, episode, api_headers, found_event): server
             for server in servers
         }
         for future in concurrent.futures.as_completed(futures):
