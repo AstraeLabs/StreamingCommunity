@@ -9,9 +9,12 @@ import threading
 import concurrent.futures
 from urllib.parse import urlparse, parse_qs, unquote
 
+from rich.console import Console
+
 from VibraVid.utils.http_client import create_client, get_userAgent
 
-logger = logging.getLogger(__name__)
+logger  = logging.getLogger(__name__)
+console = Console()
 
 API_SERVERS_URL = "https://api.cinezo.net/api/servers"
 _servers_cache  = None
@@ -137,6 +140,7 @@ def get_servers():
 
 def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found_event):
     """Query a single server. Returns (stream_url, headers) or None."""
+    name = server.get('name', '?')
     if found_event.is_set():
         return None
     try:
@@ -149,25 +153,33 @@ def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found
                    .replace('{episode}', str(episode)))
 
         if not url or found_event.is_set():
+            console.print(f"[yellow][Cinezo] {name}: no URL template")
             return None
 
         r = create_client(headers=api_headers).get(url, timeout=20)
         if not r.ok or found_event.is_set():
+            console.print(f"[yellow][Cinezo] {name}: HTTP {r.status_code}")
             return None
 
         data = r.json()
-        if data.get('v') != 4 or not data.get('payload'):
+        v = data.get('v')
+        if v != 4 or not data.get('payload'):
+            console.print(f"[yellow][Cinezo] {name}: unexpected payload version v={v}, keys={list(data.keys())}")
             return None
 
         raw = decode_payload(data['payload'])
         stream_url, stream_headers = _parse_stream_result(raw)
 
         if stream_url and stream_url.startswith('http'):
-            logger.info(f"[Cinezo] Server '{server.get('name')}' OK: {stream_url[:60]}")
+            console.print(f"[green][Cinezo] {name}: OK")
+            logger.info(f"[Cinezo] Server '{name}' OK: {stream_url[:60]}")
             return stream_url, stream_headers
 
+        console.print(f"[yellow][Cinezo] {name}: decoded but no valid URL → {str(stream_url)[:80]}")
+
     except Exception as e:
-        logger.debug(f"[Cinezo] Server '{server.get('name')}' failed: {e}")
+        console.print(f"[red][Cinezo] {name}: exception → {e}")
+        logger.debug(f"[Cinezo] Server '{name}' failed: {e}", exc_info=True)
     return None
 
 
