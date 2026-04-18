@@ -115,15 +115,13 @@ class AnimeUnityAPI(BaseStreamingAPI):
             True if download started successfully
         """
         search_fn = self._get_search_fn()
-        
-        # For AnimeUnity, we only use episode selection
+        media_type = str(media_item.type or "").lower()
+        is_series_like = media_type in {"tv", "serie", "series", "ova", "ona", "show", "tv short"}
+
+        # For AnimeUnity, always pass an episode selection for series-like titles.
         selections = None
-        if episodes:
-            selections = {'episode': episodes}
-            
-        elif not media_item.is_movie:
-            # Default: download all episodes
-            selections = {'episode': '*'}
+        if is_series_like:
+            selections = {'episode': episodes or '*'}
         
         scrape_serie = self.get_cached_scraper(media_item)
         search_fn(direct_item=media_item.raw_data, selections=selections, scrape_serie=scrape_serie)

@@ -1,8 +1,5 @@
 # 13.03.26
 
-from __future__ import annotations
-
-
 VIDEO_CODEC_MAP: dict[str, str] = {
     "avc1": "H.264",
     "h264": "H.264",

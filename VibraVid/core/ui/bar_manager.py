@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.progress import Progress, TextColumn
 
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
-from VibraVid.core.ui.progress_bar import (CustomBarColumn, ColoredSegmentColumn, CompactTimeColumn, CompactTimeRemainingColumn, SizeColumn)
+from VibraVid.core.ui.progress_bar import (CustomBarColumn, ColoredSegmentColumn, CompactTimeColumn, CompactTimeRemainingColumn, TransferStatsColumn)
 
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
@@ -28,9 +28,7 @@ class DownloadBarManager:
                 CustomBarColumn(bar_width=40),
                 ColoredSegmentColumn(),
                 TextColumn("[dim][[/dim]"), CompactTimeColumn(), ("[dim]<[/dim]"), CompactTimeRemainingColumn(), TextColumn("[dim]][/dim]"),
-                SizeColumn(),
-                TextColumn("[dim]@[/dim]"),
-                TextColumn("[red]{task.fields[speed]}[/red]", justify="right"),
+                TransferStatsColumn(),
                 console=console,
                 refresh_per_second=10.0,
             )
@@ -53,8 +51,14 @@ class DownloadBarManager:
                     # If task_label already contains Rich markup (starts with [), use it as-is otherwise wrap it with [cyan] for consistency
                     final_label = task_label if task_label.startswith("[") else f"[cyan]{task_label}[/cyan]"
                     initial_segment = "0/100" if task_key.startswith("decrypt_") else "0/0"
+                    compact_metrics = task_key.startswith("decrypt_")
                     self.tasks[task_key] = self.progress.add_task(
-                        final_label, total=100, segment=initial_segment, speed="0Bps", size="0B/0B"
+                        final_label,
+                        total=100,
+                        segment=initial_segment,
+                        speed="" if compact_metrics else "0Bps",
+                        size="" if compact_metrics else "0B/0B",
+                        compact_metrics=compact_metrics,
                     )
                     
     def add_external_track_task(self, label: str, track_key: str):
@@ -62,7 +66,7 @@ class DownloadBarManager:
             if track_key not in self.tasks:
                 self.tasks[track_key] = self.progress.add_task(
                     f"[cyan]{label}",
-                    total=100, segment="0/0", speed="0Bps", size="0B/0B",
+                    total=100, segment="0/1", speed="0Bps", size="0B/0B", compact_metrics=False,
                 )
                 
     def get_task_id(self, task_key: str):
@@ -72,18 +76,20 @@ class DownloadBarManager:
         if not parsed:
             return
 
-        key   = parsed.get("_task_key") or f"{parsed.get('track', 'trk')}_{parsed.get('label', '')}"
+        key = parsed.get("task_key") or parsed.get("_task_key") or f"{parsed.get('track', 'trk')}_{parsed.get('label', '')}"
         label = parsed.get("label", key)
 
         # ── Create task if first time we see this key ──────────────────────
         if key not in self.tasks:
+            compact_metrics = bool(parsed.get("compact_metrics")) or key.startswith("decrypt_")
             self.tasks[key] = (
                 self.progress.add_task(
                     f"[cyan]{label}",
                     total=100,
                     segment="0/0",
-                    speed="0Bps",
-                    size="0B/0B",
+                    speed="" if compact_metrics else "0Bps",
+                    size="" if compact_metrics else "0B/0B",
+                    compact_metrics=compact_metrics,
                 )
                 if self.progress else "gui"
             )
@@ -96,6 +102,8 @@ class DownloadBarManager:
                 parsed.get("speed"),
                 parsed.get("size"),
                 parsed.get("segments"),
+                label=label,
+                display_label=parsed.get("display_label"),
             )
 
         # ── Update Rich progress bar ───────────────────────────────────────
@@ -103,15 +111,17 @@ class DownloadBarManager:
             return
 
         tid = self.tasks[key]
+        if "compact_metrics" in parsed:
+            self.progress.update(tid, compact_metrics=bool(parsed["compact_metrics"]))
 
         if "pct" in parsed:
             try:
                 self.progress.update(tid, completed=parsed["pct"])
             except Exception:
                 pass
-        if "speed" in parsed:
+        if "speed" in parsed and not parsed.get("compact_metrics"):
             self.progress.update(tid, speed=parsed["speed"])
-        if "size" in parsed:
+        if "size" in parsed and not parsed.get("compact_metrics"):
             self.progress.update(tid, size=parsed["size"])
         if "segments" in parsed:
             self.progress.update(tid, segment=parsed["segments"])

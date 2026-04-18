@@ -17,6 +17,9 @@ from .models import WatchlistItem
 
 DEFAULT_INTERVAL_SECONDS = 14400
 
+_loop_started = False
+_loop_lock    = threading.Lock()
+
 
 def _get_interval_seconds() -> int:
     raw = os.environ.get("WATCHLIST_AUTO_INTERVAL_SECONDS", "")
@@ -152,8 +155,16 @@ def run_watchlist_auto_once(force: bool = True) -> None:
 
 
 def start_watchlist_auto_loop() -> None:
+    global _loop_started
     if not _should_start_loop():
         return
+    # Guard against Django autoreloader calling AppConfig.ready() twice
+    # in the same process, which would start duplicate background threads.
+    with _loop_lock:
+        if _loop_started:
+            print("[WatchlistAuto] Loop already running in this process, skipping duplicate start.")
+            return
+        _loop_started = True
 
     interval_seconds = _get_interval_seconds()
     thread = threading.Thread(

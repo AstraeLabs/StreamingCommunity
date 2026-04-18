@@ -257,13 +257,14 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
         title = f"{name} - S{season}"
     else:
         title = name
-        
+    
     download_id = f"{site}_{int(time.time())}_{hash(title) % 10000}"
     _add_scheduled_download(download_id, title, site, media_type, season, episodes)
     
     def _task():
         try:
             if _is_scheduled_cancelled(download_id):
+                print("[_task] Download cancelled before start")
                 _remove_scheduled_download(download_id)
                 return
 
@@ -281,7 +282,10 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
             media_item = Entries(**entries_fields)
             
             # Start download
+            print("[_task] Calling api.start_download with:")
+            print(f"        season={season}, episodes={episodes}")
             api.start_download(media_item, season=season, episodes=episodes)
+            print("[_task] ✓ Download completed successfully")
         except Exception as e:
             error_msg = str(e) or "Errore sconosciuto"
             print(f"[Error] Download task failed: {error_msg}")
@@ -652,12 +656,16 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
             return redirect("search_home")
 
         episode_param = selected_episodes.strip() if selected_episodes else None
+        print(f"[DEBUG] episode_param after strip: '{episode_param}'")
+        
         if not episode_param:
+            print("[ERROR] episode_param is empty/None!")
             messages.error(request, "Nessun episodio selezionato.")
             from django.urls import reverse
             url = reverse('series_detail') + f"?source_alias={source_alias}&item_payload={item_payload_raw}"
             return redirect(url)
-
+        
+        print(f"[DEBUG] ✓ Proceeding with episodes: {episode_param}")
         _run_download_in_thread(
             site=source_alias,
             item_payload=item_payload,
@@ -665,6 +673,7 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
             episodes=episode_param,
             media_type=media_type
         )
+        print(f"[DEBUG] ✓ Download thread started for S{season_number} E{episode_param}")
 
         return redirect("download_dashboard")
 

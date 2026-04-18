@@ -19,10 +19,10 @@ from VibraVid.utils.tmdb_client import tmdb_client
 from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.core.ui.bar_manager import DownloadBarManager
 from VibraVid.core.ui.ui import build_table
-from VibraVid.core.utils.selector import StreamSelector, N3u8dlFormatter
+from VibraVid.core.utils.selector import StreamSelector, StreamSelectorFormatter
 from VibraVid.core.utils.language import resolve_locale, LANGUAGE_MAP
 from VibraVid.core.utils.stream_selector_ui import InteractiveStreamSelector
-from VibraVid.core.downloader.subtitle import build_ext_track_label, is_valid_format, ext_from_url
+from VibraVid.core.source.subtitle import build_ext_track_label, is_valid_format, ext_from_url, normalize_sub_filename
 from VibraVid.core.utils.codec import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
 from VibraVid.core.utils.decrypt_engine import KeysManager
 
@@ -106,6 +106,7 @@ class BaseMediaDownloader:
 
         self.external_subtitles: list = []
         self.external_audios: list = []
+        self.other_tracks: list = []
         self.custom_filters: Optional[Dict] = None
         self.license_url: Optional[str] = None
         self.drm_type: Optional[str] = None
@@ -205,7 +206,7 @@ class BaseMediaDownloader:
         v_cfg = f.get("video")    or config_manager.config.get("DOWNLOAD", "select_video")
         a_cfg = f.get("audio")    or config_manager.config.get("DOWNLOAD", "select_audio")
         s_cfg = f.get("subtitle") or config_manager.config.get("DOWNLOAD", "select_subtitle")
-        selector = StreamSelector(v_cfg, a_cfg, s_cfg, formatter=N3u8dlFormatter())
+        selector = StreamSelector(v_cfg, a_cfg, s_cfg, formatter=StreamSelectorFormatter())
         self._sv, self._sa, self._ss = selector.apply(self.streams)
         logger.info(f"Selection -> video={self._sv!r}  audio={self._sa!r}  subtitle={self._ss!r}")
 
@@ -280,6 +281,7 @@ class BaseMediaDownloader:
             "subtitles": ext_subs or [],
             "external_subtitles": [],
             "external_audios": ext_auds or [],
+            "other_tracks": list(getattr(self, "other_tracks", []) or []),
         }
         for f in sorted(self.output_dir.iterdir()):
             if not f.is_file():
@@ -457,13 +459,18 @@ class BaseMediaDownloader:
 
     def _register_external_track_tasks(self, bar_manager: DownloadBarManager) -> None:
         """Add progress-bar tasks for every selected external subtitle/audio track."""
+        seen_task_keys: Dict[str, int] = {}
         for _track, _ttype in (
             [(s, "subtitle") for s in self.external_subtitles if s.get("_selected", True)]
             + [(a, "audio")  for a in self.external_audios    if a.get("_selected", True)]
         ):
             _label    = build_ext_track_label(_track, _ttype)
             _lang     = _track.get("language", "und")
-            _task_key = f"ext_{_ttype}_{_lang}_{id(_track)}"
+            _base_lang, _flag_suffix = normalize_sub_filename(_lang, _track)
+            _base_key = f"ext_{_ttype}_{_base_lang}{_flag_suffix}"
+            _count = seen_task_keys.get(_base_key, 0)
+            seen_task_keys[_base_key] = _count + 1
+            _task_key = _base_key if _count == 0 else f"{_base_key}_{_count + 1}"
             _track["_task_key"] = _task_key
             _track["_label"]    = _label
             bar_manager.add_external_track_task(_label, _task_key)

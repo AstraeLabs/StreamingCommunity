@@ -48,7 +48,13 @@ def download_episode(obj_episode, index_select, scrape_serie, video_source):
     video_source.get_embed(obj_episode.id, not DOWNOAD_HLS)
 
     if scrape_serie.is_series:
-        episode_number = int(float(obj_episode.number)) if isinstance(obj_episode.number, (int, float, str)) else 1
+        if isinstance(obj_episode.number, str) and '-' in obj_episode.number:
+            console.print(f"[red]Warning: [yellow]Episode number '{obj_episode.number}' contains a hyphen. Using the first part as the episode number.")
+            episode_number = int(float(obj_episode.number.split('-')[0]))
+        elif isinstance(obj_episode.number, (int, float, str)):
+            episode_number = int(float(obj_episode.number))
+        else:
+            episode_number = 1
         episode_name = f"Episode {obj_episode.number}"
 
         path_components, filename = map_episode_path(series_name=scrape_serie.series_name, series_year=None, season_number=1, episode_number=episode_number, episode_name=episode_name)

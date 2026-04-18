@@ -90,7 +90,7 @@ class BinaryPaths:
         local_path = os.path.join(binary_dir, binary_name)
         
         if os.path.isfile(local_path):
-            logger.info("Found local binary %s at %s", binary_name, local_path)
+            logger.debug("Found local binary %s at %s", binary_name, local_path)
             return local_path
         
         return None

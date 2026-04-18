@@ -154,7 +154,7 @@ class GetSerieInfo:
         season = self.seasons_manager.get_season_by_number(season_number)
 
         if not season:
-            logging.error(f"Season {season_number} not found")
+            logger.error(f"Season {season_number} not found")
             return []
             
         if not season.episodes.episodes:

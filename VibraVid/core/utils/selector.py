@@ -69,7 +69,7 @@ class FilterSpec:
     ",AAC"                                  codec only (audio)
     "ita|best"                              language with fallback to best (audio)
     "ita|best,AAC"                          language + codec with fallback to best (audio)
-    "res=1080:codecs=hvc1:for=best"         native n3u8dl passthrough
+    "res=1080:codecs=hvc1:for=best"         native passthrough
     "id=audio_128k_en:for=best"             id-based (real manifest IDs).
     """
     drop: bool = False
@@ -249,8 +249,8 @@ class BaseFormatter(ABC):
         """
 
 
-class N3u8dlFormatter(BaseFormatter):
-    """Converts a SelectionResult to an N_m3u8DL-RE --select-* argument string."""
+class StreamSelectorFormatter(BaseFormatter):
+    """Converts a SelectionResult to a stream-selection argument string."""
 
     @staticmethod
     def _dedup_real_ids(matched_ids: Optional[str]) -> Optional[str]:
@@ -312,7 +312,7 @@ class N3u8dlFormatter(BaseFormatter):
         Multiple selected streams.
 
         Audio (multi-lang):
-          • Has real IDs  → id='\bA\b|\bB\b'  (no for=, n3u8dl picks all matching)
+          • Has real IDs  → id='\bA\b|\bB\b'  (no for=, downloader picks all matching)
           • No real IDs   → lang='ita|it':codecs=...:for=allN
         """
         parts: List[str] = []
@@ -587,7 +587,7 @@ class StreamSelector:
         self._vf = (video_filter or "best").strip()
         self._af = (audio_filter or "best").strip()
         self._sf = (subtitle_filter or "all").strip()
-        self._formatter = formatter or N3u8dlFormatter()
+        self._formatter = formatter or StreamSelectorFormatter()
 
     def apply(self, streams: list) -> Tuple[str, str, str]:
         """Mark stream.selected and return (sv, sa, ss) formatter strings."""

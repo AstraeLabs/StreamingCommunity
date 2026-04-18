@@ -68,7 +68,7 @@ class DownloadTracker(metaclass=SingletonMeta):
         except Exception:
             pass
             
-    def update_progress(self, download_id: str, task_key: str, progress: float = None, speed: str = None, size: str = None, segments: str = None, status: str = None):
+    def update_progress(self, download_id: str, task_key: str, progress: float = None, speed: str = None, size: str = None, segments: str = None, status: str = None, label: str = None, display_label: str = None):
         with self._lock:
             if download_id in self.downloads:
                 dl = self.downloads[download_id]
@@ -81,10 +81,15 @@ class DownloadTracker(metaclass=SingletonMeta):
                         "progress": 0.0,
                         "speed": "0B/s",
                         "size": "0B/0B",
-                        "segments": "0/0"
+                        "segments": "0/0",
                     }
                 
                 task = dl["tasks"][task_key]
+
+                if label is not None:
+                    task["label"] = label
+                if display_label is not None:
+                    task["display_label"] = display_label
                 
                 # Update task fields if new values are provided
                 if progress is not None:

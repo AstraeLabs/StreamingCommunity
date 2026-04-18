@@ -210,7 +210,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 {
 	"DOWNLOAD": {
 		"auto_select": true,
-		"preference": "n3u8dl \ manual",
 		"delay_after_download": 1,
 		"skip_download": false,
 		"thread_count": 12,
@@ -227,7 +226,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 #### Performance Settings
 
 - **`auto_select`**: Automatically select streams based on filters (default: `true`). When `false`, enables interactive stream selection mode where user can manually choose video/audio/subtitle tracks before download.
-- **`preference`**: Select the download backend to use: n3u8dl or the manual downloader (full Python-based downloader).
 - **`delay_after_download`**: Set a delay applied after finishing the download of a movie or episode.
 - **`skip_download`**: Skip the download step and process existing files (default: `false`)
 - **`thread_count`**: Number of parallel download threads (default: `12`)

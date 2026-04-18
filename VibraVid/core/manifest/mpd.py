@@ -1,7 +1,5 @@
 # 13.03.26
 
-from __future__ import annotations
-
 import math
 import re
 import logging
@@ -242,7 +240,7 @@ class DashParser:
 
                     dedup_key = _stream_dedup_key(s)
                     if dedup_key in global_seen_keys:
-                        logger.info(f"DASH stream skipped (duplicate) | id={rep_id!r} period={period_idx} lang={s.language} bw={s.bitrate} codec={s.codecs}")
+                        logger.debug(f"DASH stream skipped (duplicate) | id={rep_id!r} period={period_idx} lang={s.language} bw={s.bitrate} codec={s.codecs}")
                         continue
                     global_seen_keys.add(dedup_key)
 
@@ -321,7 +319,7 @@ class DashParser:
             media_range = media_range.get("range", "") if media_range is not None else ""
             
             if index_range or media_range:
-                logger.info(f"DASH range-split detected for stream {rep_id!r}: indexRange={index_range!r}, mediaRange={media_range!r}. Live decryption disabled.")
+                logger.debug(f"DASH range-split detected for stream {rep_id!r}: indexRange={index_range!r}, mediaRange={media_range!r}. Live decryption disabled.")
             
             # Get the media URL
             rep_base = rep.find("mpd:BaseURL", _NS)

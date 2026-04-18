@@ -6,6 +6,9 @@ from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.services._base.object import EpisodeManager, Episode
 
 
+logger = logging.getLogger(__name__)
+
+
 class ScrapeSerieAnime:
     def __init__(self, url: str):
         """
@@ -73,7 +76,7 @@ class ScrapeSerieAnime:
             
             self.episodes_cache = all_episodes
         except Exception as e:
-            logging.error(f"Error fetching all episodes: {e}")
+            logger.error(f"Error fetching all episodes: {e}")
             self.episodes_cache = None
 
     def get_info_episode(self, index_ep: int) -> Episode:

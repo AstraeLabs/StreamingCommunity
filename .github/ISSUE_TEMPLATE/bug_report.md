@@ -15,6 +15,7 @@ Please make sure to check the following:
 - [ ] If the issue is related to a website, you have verified that the URL works correctly in your browser.
 - [ ] If the issue is related to audio or subtitles, you have tested the downloaded file with VLC media player first.
 - [ ] You have searched through closed issues for similar problems or potential solutions. Issues that can be resolved by already closed topics may be automatically closed.
+- [ ] You have attached the log file from `.cache/log/` (see **Logs** section below).
 
 ## Describe the issue
 Provide a clear and detailed description of the problem.
@@ -35,7 +36,11 @@ If applicable, attach screenshots that illustrate the issue.
 Indicate the severity of the issue (e.g., Low, Medium, High, Critical).
 
 ## Logs / Console Output
-If applicable, paste relevant logs or console errors here.
+**You must attach the log file** located in `.cache/log/`. Without logs, the issue may be closed automatically.
+
+```
+[paste log file]
+```
 
 ## Related issues
 Provide links to any related or similar issues.

@@ -52,7 +52,7 @@ def title_search(query: str) -> int:
             path_id=None,
             type='film',
             url='',  # Not needed for download
-            image=movie.get('poster_path'),
+            image=f"https://image.tmdb.org/t/p/w500{movie.get('poster_path')}" if movie.get('poster_path') else None,
             imdb_id=movie.get('imdb_id'),
             year=year
         )

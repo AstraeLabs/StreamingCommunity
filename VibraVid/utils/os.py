@@ -157,71 +157,78 @@ class OsManager:
             logger.error(f"Folder removal error: {e}")
             return False
 
-
-class InternetManager():
+class InternetManager:
     def format_file_size(self, size_bytes) -> str:
-        """Formats a file size from bytes into a human-readable string representation."""
-        if isinstance(size_bytes, str):
-            try:
-                size_str = str(size_bytes).upper().strip()
-                if 'GB' in size_str:
-                    return int(float(size_str.replace('GB', '')) * 1024 * 1024 * 1024)
-                elif 'MB' in size_str:
-                    return int(float(size_str.replace('MB', '')) * 1024 * 1024)
-                elif 'KB' in size_str:
-                    return int(float(size_str.replace('KB', '')) * 1024)
-                elif 'B' in size_str:
-                    return int(float(size_str.replace('B', '')))
-                return None
-            except Exception:
-                return None
-        
-        elif isinstance(size_bytes, float) or isinstance(size_bytes, int):
-            if size_bytes <= 0:
-                return "0B"
+        """Format *size_bytes* (int or float) as a human-readable size string."""
+        try:
+            nb = float(size_bytes)
+        except (TypeError, ValueError):
+            return "0 B"
 
-            units = ['B', 'KB', 'MB', 'GB', 'TB']
-            unit_index = 0
-            while size_bytes >= 1024 and unit_index < len(units) - 1:
-                size_bytes /= 1024
-                unit_index += 1
-            return f"{size_bytes:.2f} {units[unit_index]}"
+        if nb <= 0:
+            return "0 B"
 
-    def format_transfer_speed(self, bytes: float) -> str:
-        """Formats a transfer speed from bytes per second into a human-readable string representation."""
-        if isinstance(bytes, float):
-            if bytes < 1024:
-                return f"{bytes:.2f} Bytes/s"
-            elif bytes < 1024 * 1024:
-                return f"{bytes / 1024:.2f} KB/s"
-            else:
-                return f"{bytes / (1024 * 1024):.2f} MB/s"
-        
-        elif isinstance(bytes, int):
-            if bytes >= 1024 * 1024 * 1024:
-                return f"{bytes/(1024*1024*1024):.2f} GB"
-            elif bytes >= 1024 * 1024:
-                return f"{bytes/(1024*1024):.2f} MB"
-            elif bytes >= 1024:
-                return f"{bytes/1024:.2f} KB"
-            else:
-                return f"{bytes} B"
-            
+        units = ['B', 'KB', 'MB', 'GB', 'TB']
+        unit_index = 0
+        while nb >= 1024 and unit_index < len(units) - 1:
+            nb /= 1024
+            unit_index += 1
+        return f"{nb:.2f} {units[unit_index]}"
+
+    def parse_file_size(self, size_str: str) -> int | None:
+        """Parse a human-readable size string such as ``"1.5 GB"`` into bytes."""
+        if not isinstance(size_str, str):
+            return None
+        try:
+            s = size_str.upper().strip()
+            if 'TB' in s:
+                return int(float(s.replace('TB', '').strip()) * 1024 ** 4)
+            if 'GB' in s:
+                return int(float(s.replace('GB', '').strip()) * 1024 ** 3)
+            if 'MB' in s:
+                return int(float(s.replace('MB', '').strip()) * 1024 ** 2)
+            if 'KB' in s:
+                return int(float(s.replace('KB', '').strip()) * 1024)
+            if 'B' in s:
+                return int(float(s.replace('B', '').strip()))
+            return None
+        except Exception:
+            return None
+
+    def format_transfer_speed(self, bytes_per_second) -> str:
+        """
+        Format *bytes_per_second* (int or float) as a human-readable speed string.
+        Always appends ``/s``.  Returns ``"0 B/s"`` for zero or negative values.
+        """
+        try:
+            bps = float(bytes_per_second)
+        except (TypeError, ValueError):
+            return "0 B/s"
+
+        if bps <= 0:
+            return "0 B/s"
+        if bps >= 1024 * 1024 * 1024:
+            return f"{bps / (1024 ** 3):.2f} GB/s"
+        if bps >= 1024 * 1024:
+            return f"{bps / (1024 ** 2):.2f} MB/s"
+        if bps >= 1024:
+            return f"{bps / 1024:.2f} KB/s"
+        return f"{bps:.2f} Bytes/s"
+
     def format_time(self, seconds: float, add_hours: bool = False) -> str:
-        """Format seconds to MM:SS or HH:MM:SS"""
+        """Format seconds to MM:SS or HH:MM:SS."""
         if seconds < 0 or seconds == float('inf'):
             return "00:00"
-        
+
         minutes = int(seconds // 60)
         secs = int(seconds % 60)
         if add_hours:
             hours = int(minutes // 60)
             minutes = int(minutes % 60)
             return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-        else:
-            return f"{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
 
 
-# Initialize 
+# Initialize
 os_manager = OsManager()
 internet_manager = InternetManager()

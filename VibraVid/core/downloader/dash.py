@@ -14,9 +14,10 @@ from VibraVid.setup import get_wvd_path, get_prd_path
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.utils.media_players import MediaPlayers
 
-from VibraVid.core.source.n3u8dl_re import MediaDownloader
+from VibraVid.core.source.manual import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.manifest.mpd import DashParser
+from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
 
 from .base import BaseDownloader
 
@@ -30,23 +31,6 @@ AUDIO_FILTER = config_manager.config.get("DOWNLOAD", "select_audio")
 SUBTITLE_FILTER = config_manager.config.get("DOWNLOAD", "select_subtitle")
 _WV = "widevine"
 _PR = "playready"
-
-_DOWNLOADER_N3U8DL = "n3u8dl"
-_DOWNLOADER_MANUAL = "manual"
-_VALID_DOWNLOADERS = (_DOWNLOADER_N3U8DL, _DOWNLOADER_MANUAL)
-DOWNLOAD_PREFERENCE = config_manager.config.get("DOWNLOAD", "preference", default=_DOWNLOADER_N3U8DL)
-
-def _load_media_downloader(preference: str):
-    """Lazily import and return the MediaDownloader class matching *preference*."""
-    if preference == _DOWNLOADER_N3U8DL:
-        from VibraVid.core.source.n3u8dl_re import MediaDownloader
-        return MediaDownloader
-    elif preference == _DOWNLOADER_MANUAL:
-        from VibraVid.core.source.manual import MediaDownloader
-        return MediaDownloader
-    else:
-        raise ValueError(f"Unknown downloader_preference {preference!r}. Valid values: {_VALID_DOWNLOADERS}")
-
 
 
 def _stream_drm_label(s) -> str:
@@ -134,7 +118,7 @@ class DASH_Downloader(BaseDownloader):
     def __init__(self, mpd_url: Optional[str] = None, mpd_headers: Optional[Dict[str, str]] = None, mpd_sub_list: Optional[list] = None, mpd_audio_list: Optional[list] = None,
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None, license_data: Optional[str] = None,
         output_path: Optional[str] = None, drm_preference: str = "widevine", key: Optional[str] = None, cookies: Optional[Dict[str, str]] = None,
-        max_segments: Optional[int] = None,
+        max_segments: Optional[int] = None, other_tracks: Optional[list] = None,
     ):
         """
         Parameters:
@@ -161,16 +145,17 @@ class DASH_Downloader(BaseDownloader):
         self.license_headers = license_headers
         self.license_certificate = license_certificate
         self.license_data = license_data
+        logger.info(f"DASH Downloader initialized with MPD URL: {self.mpd_url}, License URL: {self.license_url}, DRM Preference: {drm_preference}, Key provided: {'yes' if key else 'no'}")
 
         pref = drm_preference.lower()
         if pref not in (_WV, _PR):
             raise ValueError(f"drm_preference must be 'widevine' or 'playready', got: {drm_preference!r}")
         self.drm_preference = pref
 
-        self.downloader_preference = DOWNLOAD_PREFERENCE.lower()
         self.key = key
         self.cookies = cookies or {}
         self.max_segments = max_segments
+        self.other_tracks = other_tracks or []
         self.drm_manager = DRMManager(
             get_wvd_path(),
             get_prd_path(),
@@ -178,9 +163,6 @@ class DASH_Downloader(BaseDownloader):
             config_manager.config.get_dict("DRM", "playready", default={}),
             config_manager.config.get_bool("DRM", "prefer_remote_cdm"),
         )
-
-        if self.downloader_preference not in _VALID_DOWNLOADERS:
-            raise ValueError(f"Invalid downloader_preference {self.downloader_preference!r}. Valid values: {_VALID_DOWNLOADERS}")
 
         self.download_id = context_tracker.download_id
         self.site_name = context_tracker.site_name
@@ -487,10 +469,6 @@ class DASH_Downloader(BaseDownloader):
         except Exception:
             pass
 
-        # ── Downloader selection ──────────────────────────────────────────────
-        MediaDownloader = _load_media_downloader(self.downloader_preference)
-        logger.info(f"Using downloader backend: {self.downloader_preference!r}")
-
         self.media_downloader = MediaDownloader(
             url=self.mpd_url,
             output_dir=self.output_dir,
@@ -501,6 +479,10 @@ class DASH_Downloader(BaseDownloader):
             site_name=self.site_name,
             max_segments=self.max_segments,
         )
+        self.media_downloader.other_tracks = self.other_tracks
+        _, _, other_subtitles = split_other_tracks(self.other_tracks)
+        if other_subtitles:
+            self.media_downloader.external_subtitles = other_subtitles
         self.media_downloader.license_url = self.license_url
         self.media_downloader.drm_type = self.drm_preference
 
@@ -508,7 +490,7 @@ class DASH_Downloader(BaseDownloader):
             filtered_subs = _filter_subtitles(self.mpd_sub_list, SUBTITLE_FILTER)
             if filtered_subs:
                 console.print(f"[dim]Adding {len(filtered_subs)} external subtitle(s) (filtered from {len(self.mpd_sub_list)}).")
-                self.media_downloader.external_subtitles = filtered_subs
+                self.media_downloader.external_subtitles.extend(filtered_subs)
             else:
                 console.print(f"[dim]No subtitles matched filter '{SUBTITLE_FILTER}' in {len(self.mpd_sub_list)}.")
 

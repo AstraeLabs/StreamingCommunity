@@ -325,8 +325,149 @@
     updateSelectedSeasonsButtonLabel();
   });
 </script>
-<script type="module">
-  import { init } from '{% static "js/series.js" %}';
-  init();
+
+<!-- ========== EPISODE SELECTION INLINE JAVASCRIPT ========== -->
+<script>
+function selectAllEpisodes(seasonNumber) {
+  const checkboxes = document.querySelectorAll(
+    `input.episode-checkbox[data-season="${seasonNumber}"]`
+  );
+  checkboxes.forEach(cb => cb.checked = true);
+  updateSelectedEpisodes(seasonNumber);
+}
+
+function deselectAllEpisodes(seasonNumber) {
+  const checkboxes = document.querySelectorAll(
+    `input.episode-checkbox[data-season="${seasonNumber}"]`
+  );
+  checkboxes.forEach(cb => cb.checked = false);
+  updateSelectedEpisodes(seasonNumber);
+}
+
+function updateSelectedEpisodes(seasonNumber) {
+  const sNum = String(seasonNumber);
+  const checkboxes = document.querySelectorAll(
+    `input.episode-checkbox[data-season="${sNum}"]:checked`
+  );
+  const episodes = Array.from(checkboxes).map(cb => cb.value);
+  
+  console.log(`[updateSelectedEpisodes] Season ${sNum}: found ${episodes.length} checked boxes`);
+  console.log(`[updateSelectedEpisodes] Episode values:`, episodes);
+  
+  let episodeString = '';
+  
+  if (episodes.length > 0) {
+    const numericEpisodes = episodes
+      .map(val => parseInt(val, 10))
+      .filter(num => !isNaN(num))
+      .sort((a, b) => a - b);
+    
+    if (numericEpisodes.length === 0) {
+      episodeString = episodes.join(',');
+    } else {
+      const ranges = [];
+      let start = numericEpisodes[0];
+      let end = numericEpisodes[0];
+      
+      for (let i = 1; i <= numericEpisodes.length; i++) {
+        if (i < numericEpisodes.length && numericEpisodes[i] === end + 1) {
+          end = numericEpisodes[i];
+        } else {
+          if (start === end) {
+            ranges.push(String(start));
+          } else if (end === start + 1) {
+            ranges.push(String(start));
+            ranges.push(String(end));
+          } else {
+            ranges.push(`${start}-${end}`);
+          }
+          
+          if (i < numericEpisodes.length) {
+            start = numericEpisodes[i];
+            end = numericEpisodes[i];
+          }
+        }
+      }
+      
+      episodeString = ranges.join(',');
+    }
+  }
+  
+  const inputField = document.getElementById(`selected_episodes_${sNum}`);
+  console.log(`[updateSelectedEpisodes] Looking for field: selected_episodes_${sNum}`);
+  console.log(`[updateSelectedEpisodes] Field found:`, inputField ? 'YES' : 'NO');
+  
+  if (inputField) {
+    console.log(`[updateSelectedEpisodes] Setting field value to: "${episodeString}"`);
+    inputField.value = episodeString;
+    console.log(`[updateSelectedEpisodes] Field value after set:`, inputField.value);
+  } else {
+    console.warn(`[updateSelectedEpisodes] ERROR: Field not found!`);
+  }
+}
+
+function initEpisodeSelection() {
+  const checkboxes = document.querySelectorAll('.episode-checkbox');
+  
+  console.log(`[initEpisodeSelection] Found ${checkboxes.length} episode checkboxes`);
+  
+  checkboxes.forEach(cb => {
+    const season = cb.dataset.season;
+    const episodeNum = cb.value;
+    console.log(`[initEpisodeSelection] Checkbox: Season ${season}, Episode ${episodeNum}`);
+    
+    if (cb.checked) {
+      console.log(`[initEpisodeSelection] ✓ Already checked: S${season}E${episodeNum}`);
+      updateSelectedEpisodes(cb.dataset.season);
+    }
+    
+    cb.addEventListener('change', function() {
+      const checked = this.checked ? 'CHECKED' : 'UNCHECKED';
+      console.log(`[CHECKBOX CHANGE] S${season}E${episodeNum} → ${checked}`);
+      updateSelectedEpisodes(this.dataset.season);
+    });
+  });
+}
+
+function initFormValidation() {
+  const forms = document.querySelectorAll('form[id^="form-season-"]');
+  
+  console.log(`[initFormValidation] Found ${forms.length} forms`);
+  
+  forms.forEach(form => {
+    console.log(`[initFormValidation] Attaching submit listener to form: ${form.id}`);
+    
+    form.addEventListener('submit', function(e) {
+      const seasonNumberInput = this.querySelector('input[name="season_number"]');
+      if (!seasonNumberInput) return;
+      
+      const seasonNum = seasonNumberInput.value;
+      console.log(`\n[FORM SUBMIT] Season: ${seasonNum}`);
+      
+      const selectedEpisodesInput = this.querySelector('input[name="selected_episodes"]');
+      console.log(`[FORM SUBMIT] selected_episodes field value: "${selectedEpisodesInput?.value}"`);
+      
+      if (selectedEpisodesInput && !selectedEpisodesInput.value.trim()) {
+        console.error(`[FORM SUBMIT] ERROR: No episodes selected!`);
+        e.preventDefault();
+        alert('Seleziona almeno un episodio prima di scaricare.');
+      } else {
+        console.log(`[FORM SUBMIT] ✓ Form validation passed, submitting...`);
+      }
+    });
+  });
+}
+
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', function() {
+  console.log(`\n========== EPISODE SELECTION INIT START ==========`);
+  initEpisodeSelection();
+  initFormValidation();
+  console.log(`========== EPISODE SELECTION INIT END ==========\n`);
+});
+
+// Expose to window for onclick handlers
+window.selectAllEpisodes = selectAllEpisodes;
+window.deselectAllEpisodes = deselectAllEpisodes;
 </script>
 {% endblock %}

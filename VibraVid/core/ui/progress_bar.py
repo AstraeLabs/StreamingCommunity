@@ -70,3 +70,34 @@ class SizeColumn(ProgressColumn):
             current, total = size.split("/")
             return f"[dim]{current}/[/dim][green]{total}[/green]"
         return f"[green]{size}[/green]"
+
+
+class TransferStatsColumn(ProgressColumn):
+    def render(self, task):
+        if task.fields.get("compact_metrics"):
+            return Text("")
+
+        size = task.fields.get("size", "")
+        speed = task.fields.get("speed", "")
+
+        text = Text()
+        has_size = False
+
+        if size:
+            if "/" in size:
+                current, total = size.split("/", 1)
+                text.append(current, style="dim")
+                text.append("/", style="dim")
+                text.append(total, style="green")
+            else:
+                text.append(size, style="green")
+            has_size = True
+
+        if speed:
+            if has_size:
+                text.append(" ")
+            text.append("@", style="dim")
+            text.append(" ")
+            text.append(speed, style="red")
+
+        return text

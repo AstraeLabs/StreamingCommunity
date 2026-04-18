@@ -128,7 +128,7 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
                 console.print("\n[red]License URL is None.")
                 continue
 
-            logger.info(f"License challenge for {kid_info}: {challenge_bytes}, type: {type(challenge_bytes)}")
+            logger.debug(f"License challenge for {kid_info}: {challenge_bytes}, type: {type(challenge_bytes)}")
             try:
                 response = create_client(headers=req_headers).post(license_url, data=body)
             except Exception as e:
@@ -143,14 +143,14 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
 
             # Parse license response
             license_payload = response.text
-            logger.info(f"License response [{response.status_code}]: {response.text[:200]}")
+            logger.debug(f"License response [{response.status_code}]: {response.text[:200]}")
 
             if license_data:
                 try:
                     rj = response.json()
                     b64_license = rj.get("playReadyLicense", {}).get("license")
                     license_payload = base64.b64decode(b64_license).decode("utf-8")
-                    logger.info(f"Decoded PR license): {license_payload}")
+                    logger.debug(f"Decoded PR license): {license_payload}")
                 except Exception as e:
                     console.print(f"[red]Failed to parse license response: {e}\nRaw: {response.text[:200]}")
                     continue

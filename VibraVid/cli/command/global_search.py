@@ -184,8 +184,7 @@ def display_consolidated_results(all_media_items, search_terms):
         if has_year:
             entry["Year"] = str(item.get('year', ''))
         manager.add_tv_show(entry)
-
-    manager.display_data(manager.tv_shows)
+    
     return manager
 
 def select_from_consolidated_results(all_media_items, manager: TVShowManager):

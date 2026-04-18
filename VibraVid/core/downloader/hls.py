@@ -1,7 +1,5 @@
 # 17.10.24
 
-from __future__ import annotations
-
 import os
 import time
 import logging
@@ -15,7 +13,9 @@ from VibraVid.setup import get_wvd_path, get_prd_path
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.utils.media_players import MediaPlayers
 
+from VibraVid.core.source.manual import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
+from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
 
 from .base import BaseDownloader
 
@@ -27,22 +27,6 @@ EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 SKIP_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "skip_download")
 _WV = "widevine"
 _PR = "playready"
-
-_DOWNLOADER_N3U8DL = "n3u8dl"
-_DOWNLOADER_MANUAL = "manual"
-_VALID_DOWNLOADERS = (_DOWNLOADER_N3U8DL, _DOWNLOADER_MANUAL)
-DOWNLOAD_PREFERENCE = config_manager.config.get("DOWNLOAD", "preference", default=_DOWNLOADER_N3U8DL)
-
-def _load_media_downloader(preference: str):
-    """Lazily import and return the MediaDownloader class matching *preference*."""
-    if preference == _DOWNLOADER_N3U8DL:
-        from VibraVid.core.source.n3u8dl_re import MediaDownloader
-        return MediaDownloader
-    elif preference == _DOWNLOADER_MANUAL:
-        from VibraVid.core.source.manual import MediaDownloader
-        return MediaDownloader
-    else:
-        raise ValueError(f"Unknown downloader_preference {preference!r}. Valid values: {_VALID_DOWNLOADERS}")
 
 
 class HLS_Downloader(BaseDownloader):
@@ -62,6 +46,7 @@ class HLS_Downloader(BaseDownloader):
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None,
         output_path: Optional[str] = None, drm_preference: str = "widevine", key: Optional[str] = None,
         cookies: Optional[Dict[str, str]] = None, max_segments: Optional[int] = None,
+        other_tracks: Optional[list] = None,
     ):
         """
         Parameters:
@@ -82,13 +67,11 @@ class HLS_Downloader(BaseDownloader):
         self.license_headers = license_headers or self.headers
         self.license_certificate = license_certificate
         self.drm_preference = drm_preference.lower()
-        self.downloader_preference = DOWNLOAD_PREFERENCE.lower()
         self.key = key
         self.cookies = cookies or {}
         self.max_segments = max_segments
-
-        if self.downloader_preference not in _VALID_DOWNLOADERS:
-            raise ValueError(f"Invalid downloader_preference {self.downloader_preference!r}. Valid values: {_VALID_DOWNLOADERS}")
+        self.other_tracks = other_tracks or []
+        logger.info(f"Initialized HLS_Downloader with URL: {self.m3u8_url}, License URL: {self.license_url}, DRM Pref: {self.drm_preference}, Max Segments: {self.max_segments}")
 
         if not output_path:
             output_path = f"download.{EXTENSION_OUTPUT}"
@@ -242,11 +225,6 @@ class HLS_Downloader(BaseDownloader):
             return self.output_path, False
 
         os_manager.create_path(self.output_dir)
-
-        # ── Downloader selection ──────────────────────────────────────────────
-        MediaDownloader = _load_media_downloader(self.downloader_preference)
-        logger.info(f"Using downloader backend: {self.downloader_preference!r}")
-
         self.media_downloader = MediaDownloader(
             url=self.m3u8_url,
             output_dir=self.output_dir,
@@ -257,6 +235,10 @@ class HLS_Downloader(BaseDownloader):
             site_name=self.site_name,
             max_segments=self.max_segments,
         )
+        self.media_downloader.other_tracks = self.other_tracks
+        _, _, other_subtitles = split_other_tracks(self.other_tracks)
+        if other_subtitles:
+            self.media_downloader.external_subtitles = other_subtitles
 
         if self.download_id:
             download_tracker.update_status(self.download_id, "Parsing HLS ...")

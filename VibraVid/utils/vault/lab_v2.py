@@ -40,7 +40,7 @@ def _api_call(method: str, params: dict) -> dict:
     """POST a JSON-RPC-style request to the lab vault, return the `message` dict."""
     payload = {"method": method, "params": params, "token": TOKEN}
     try:
-        logger.info(f"Calling Lab API ({method}): {params}")
+        logger.debug(f"Calling Lab API ({method}): {params}")
         r = create_client(headers=get_headers()).post(VAULT_URL, json=payload)
         r.raise_for_status()
         data = r.json()
