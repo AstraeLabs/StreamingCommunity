@@ -375,16 +375,13 @@ class MediaDownloader(BaseMediaDownloader):
         return f"aud_{lang.split('-')[0]}"
 
     def _make_stream_dir(self, stream, protocol: str) -> Path:
-        proto = protocol.lower()
-        bw = str(stream.bitrate or 0)
-        sid = _safe(stream.id or "", maxlen=24)
-
+        # !!!!!!!!!!!!!! CAN CREATE PROBLEM FOR WIN FILESYSTEM IF EXCEED 260 CHARACTERS !!!!!!!!!!!!!!
         if stream.type == "video":
             res = _safe(stream.resolution or "unknown")
-            name = f"{proto}_video_{res}_{sid}_{bw}"
+            name = f"v_{res}"
         else:
-            lang = _safe(stream.language or "und")
-            name = f"{proto}_audio_{lang}_{sid}_{bw}"
+            lang = _safe((stream.language or "und").lower())
+            name = f"a_{lang}"
 
         d = self._tmp_dir / name
         d.mkdir(parents=True, exist_ok=True)

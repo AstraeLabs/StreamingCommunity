@@ -25,7 +25,8 @@ _PREFERRED_ORDER = [
     'realtime',
     'homegardentv', 
     'foodnetwork', 
-    'tubitv', 
+    'tubitv',
+    'cinezo',
     'mostraguarda'
 ]
 
