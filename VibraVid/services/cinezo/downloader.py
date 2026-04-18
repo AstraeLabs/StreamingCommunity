@@ -8,8 +8,8 @@ from rich.console import Console
 from VibraVid.utils import config_manager, start_message, os_manager
 from VibraVid.services._base import site_constants, Entries
 from VibraVid.services._base.tv_display_manager import map_movie_path, map_episode_path
-from VibraVid.core.downloader import HLS_Downloader
-from VibraVid.core.ui.tracker import context_tracker
+from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
+from VibraVid.core.downloader import HLS_Downloader, MP4_Downloader
 
 from .client import get_stream
 from .scrapper import GetSerieInfo
@@ -33,16 +33,21 @@ def download_film(select_title: Entries):
     console.print(f"[cyan]Stream: {m3u8_url[:70]}...\n")
 
     path_components, filename = map_movie_path(select_title.name, select_title.year)
-    out_dir = os_manager.get_sanitize_path(
-        os.path.join(site_constants.MOVIE_FOLDER, *path_components)
-        if path_components else site_constants.MOVIE_FOLDER
-    )
+    out_dir = os_manager.get_sanitize_path(os.path.join(site_constants.MOVIE_FOLDER, *path_components) if path_components else site_constants.MOVIE_FOLDER)
     out_path = os.path.join(out_dir, f"{filename}.{extension_output}")
 
+    if "/mp4/" in m3u8_url:
+        return MP4_Downloader(
+            mp4_url = m3u8_url,
+            headers = stream_headers or None,
+            output_path = out_path,
+            other_tracks = subtitle_tracks or None,
+        ).start()
+
     return HLS_Downloader(
-        m3u8_url     = m3u8_url,
-        headers      = stream_headers or None,
-        output_path  = out_path,
+        m3u8_url = m3u8_url,
+        headers = stream_headers or None,
+        output_path = out_path,
         other_tracks = subtitle_tracks or None,
     ).start()
 
@@ -50,10 +55,7 @@ def download_film(select_title: Entries):
 def download_episode(obj_episode, index: int, scrape_serie: GetSerieInfo, season_number: int):
     """Download a single episode from Cinezo."""
     start_message()
-    console.print(
-        f"\n[yellow]Download: [red]{site_constants.SITE_NAME} -> "
-        f"[cyan]{scrape_serie.series_name} (S{season_number}E{obj_episode.number})\n"
-    )
+    console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} -> [cyan]{scrape_serie.series_name} (S{season_number}E{obj_episode.number})\n")
 
     m3u8_url, stream_headers, subtitle_tracks = get_stream(
         scrape_serie.tmdb_id, 'tv',
@@ -62,20 +64,28 @@ def download_episode(obj_episode, index: int, scrape_serie: GetSerieInfo, season
     console.print(f"[cyan]Stream: {m3u8_url[:70]}...\n")
 
     path_components, filename = map_episode_path(
-        series_name    = scrape_serie.series_name,
-        series_year    = scrape_serie.series_year,
-        season_number  = season_number,
+        series_name = scrape_serie.series_name,
+        series_year = scrape_serie.series_year,
+        season_number = season_number,
         episode_number = int(obj_episode.number),
-        episode_name   = obj_episode.name,
+        episode_name = obj_episode.name,
     )
     out_dir  = os_manager.get_sanitize_path(
         os.path.join(site_constants.SERIES_FOLDER, *path_components))
     out_path = os.path.join(out_dir, f"{filename}.{extension_output}")
 
+    if "/mp4/" in m3u8_url:
+        return MP4_Downloader(
+            mp4_url = m3u8_url,
+            headers = stream_headers or None,
+            output_path = out_path,
+            other_tracks = subtitle_tracks or None,
+        ).start()
+
     return HLS_Downloader(
-        m3u8_url     = m3u8_url,
-        headers      = stream_headers or None,
-        output_path  = out_path,
+        m3u8_url = m3u8_url,
+        headers = stream_headers or None,
+        output_path = out_path,
         other_tracks = subtitle_tracks or None,
     ).start()
 
@@ -83,37 +93,34 @@ def download_episode(obj_episode, index: int, scrape_serie: GetSerieInfo, season
 def download_series(select_title: Entries, season_selection: str = None,
                     episode_selection: str = None, scrape_serie: GetSerieInfo = None):
     """Download selected episodes from Cinezo."""
-    from rich.prompt import Prompt
-    from VibraVid.services._base.tv_display_manager import manage_selection
-
     start_message()
 
     tmdb_id = getattr(select_title, 'id', None) or getattr(select_title, 'tmdb_id', None)
+    if not tmdb_id:
+        raise ValueError(f"[Cinezo] No TMDB ID for '{select_title.name}'")
+
     if scrape_serie is None:
         scrape_serie = GetSerieInfo(int(tmdb_id), select_title.name)
+        scrape_serie.getNumberSeason()
+    seasons_count = scrape_serie.getNumberSeason()
 
-    scrape_serie.getNumberSeason()
-    console.print(f"\n[green]Serie: [cyan]{select_title.name}")
+    def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
+        """Callback to handle episode downloads for a specific season"""
+        def download_video_callback(obj_episode, season_idx, episode_idx):
+            return download_episode(obj_episode, episode_idx, scrape_serie, season_idx)
 
-    if season_selection is None:
-        season_selection = Prompt.ask("\n[cyan]Inserisci numero stagione")
-    season_num = int(season_selection)
+        process_episode_download(
+            index_season_selected=season_number,
+            scrape_serie=scrape_serie,
+            download_video_callback=download_video_callback,
+            download_all=download_all,
+            episode_selection=episode_selection
+        )
 
-    episodes = scrape_serie.getEpisodeSeasons(season_num)
-    if not episodes:
-        console.print(f"[red]Nessun episodio trovato per stagione {season_num}.")
-        return
-
-    console.print(f"\n[green]Episodi disponibili: [red]{len(episodes)}")
-
-    if episode_selection is None:
-        episode_selection = Prompt.ask(
-            "\n[cyan]Inserisci indice episodio, [red]* [cyan]per tutti, [red]1-3 [cyan]per range")
-
-    list_ep = manage_selection(episode_selection, len(episodes))
-    kill = False
-    for i in list_ep:
-        if kill:
-            break
-        ep = episodes[i - 1]
-        _, kill = download_episode(ep, i - 1, scrape_serie, season_num)
+    process_season_selection(
+        scrape_serie=scrape_serie,
+        seasons_count=seasons_count,
+        season_selection=season_selection,
+        episode_selection=episode_selection,
+        download_episode_callback=download_episode_callback
+    )

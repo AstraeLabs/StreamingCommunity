@@ -35,6 +35,7 @@ def title_search(query: str) -> int:
 
     if not check_region_availability(_region, site_constants.SITE_NAME):
         return 0
+    
     search_url = f"https://public.aurora.enhanced.live/site/search/page/?include=default&filter[environment]=discoverychannelit&v=2&q={query}&page[number]=1&page[size]=20"
     console.print(f"[cyan]Search url: [yellow]{search_url}")
 

@@ -169,6 +169,11 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
         for init_file in found_inits:
             module_name = os.path.basename(os.path.dirname(init_file))
             
+            # Skip helper/base modules (starting with underscore)
+            if module_name.startswith('_'):
+                logger.debug(f"Skipping helper module '{module_name}'")
+                continue
+            
             # Skip if already loaded from a previous source
             if module_name in loaded_module_names:
                 logger.info(f"Skipping duplicate module '{module_name}' from source '{source}'")
@@ -186,26 +191,47 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
                     if not indice and (line.startswith('indice =') or line.startswith('indice=')):
                         try:
                             indice = int(line.split('=')[1].strip())
-                        except (ValueError, IndexError):
-                            pass
+                        except (ValueError, IndexError) as e:
+                            logger.warning(f"Module '{module_name}': Failed to parse indice value - {str(e)}")
                     elif not use_for and (line.startswith('_useFor =') or line.startswith('_useFor=')):
                         try:
                             use_for = line.split('=')[1].strip().strip('"').strip("'")
-                        except IndexError:
-                            pass
+                        except IndexError as e:
+                            logger.warning(f"Module '{module_name}': Failed to parse _useFor value - {str(e)}")
                     
                     if indice is not None and use_for is not None:
                         break
                 
-                if indice is not None:
-                    source_modules.append((module_name, indice, use_for, source, base_path))
-                    loaded_module_names.add(module_name)
-                    logger.debug(f"Found module '{module_name}' from source '{source}': use_for={use_for}, indice={indice}")
+                # Validate that both indice and _useFor are defined
+                if indice is None:
+                    logger.error(f"Module '{module_name}' from source '{source}': Missing or invalid 'indice' declaration")
+                    console.print(f"[red]Error: Module '{module_name}' is missing 'indice' declaration[/red]")
+                    continue
+                
+                if use_for is None:
+                    logger.error(f"Module '{module_name}' from source '{source}': Missing or invalid '_useFor' declaration")
+                    console.print(f"[red]Error: Module '{module_name}' is missing '_useFor' declaration[/red]")
+                    continue
+                
+                source_modules.append((module_name, indice, use_for, source, base_path))
+                loaded_module_names.add(module_name)
+                logger.debug(f"Found module '{module_name}' from source '{source}': use_for={use_for}, indice={indice}")
                     
             except Exception as e:
-                console.print(f"[yellow]Warning: Could not read metadata from {module_name}: {str(e)}[/yellow]")
+                logger.error(f"Exception reading metadata from {module_name}: {str(e)}")
+                console.print(f"[red]Error: Could not read metadata from {module_name}: {str(e)}[/red]")
         
         modules_metadata.extend(source_modules)
+    
+    # Check for duplicate indice values
+    indice_map = {}
+    for module_name, indice, use_for, source, base_path in modules_metadata:
+        if indice in indice_map:
+            existing_module = indice_map[indice]
+            logger.error(f"Duplicate indice detected: Both '{module_name}' and '{existing_module}' have indice={indice}")
+            console.print(f"[red]Error: Duplicate indice={indice} for modules '{module_name}' and '{existing_module}'[/red]")
+        else:
+            indice_map[indice] = module_name
     
     # Sort by index and create lazy loaders with consecutive indices
     sorted_modules = sorted(modules_metadata, key=lambda x: x[1])
@@ -235,6 +261,28 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
                 console.print(f"[yellow]Warning: Could not update indice in {module_name}: {str(e)}")
 
     logger.info(f"Successfully loaded {len(loaded_functions)} search functions from {len(imp_sources)} source(s)")
+    
+    # Count total service modules (exclude helper modules starting with _)
+    total_service_dirs = 0
+    for source in imp_sources:
+        if source.lower() == "default":
+            base_path = (os.path.join(sys._MEIPASS, "VibraVid", folder_name) if get_is_binary_installation() 
+                        else os.path.dirname(os.path.dirname(__file__)))
+        else:
+            base_path = source
+        
+        if os.path.isdir(base_path):
+            escaped_path = os_manager.get_glob_path(base_path)
+            found_inits = glob.glob(os.path.join(escaped_path, '*', '__init__.py'))
+            for init_file in found_inits:
+                module_name = os.path.basename(os.path.dirname(init_file))
+                if not module_name.startswith('_'):
+                    total_service_dirs += 1
+    
+    if total_service_dirs > len(loaded_functions):
+        skipped_count = total_service_dirs - len(loaded_functions)
+        logger.warning(f"{skipped_count} module(s) were found but not loaded due to configuration errors")
+    
     return loaded_functions
 
 

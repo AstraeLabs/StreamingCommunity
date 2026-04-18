@@ -102,7 +102,6 @@ def create_client(
 
 class AsyncStreamResponse:
     """Wrapper for streaming responses in async context."""
-
     def __init__(self, response):
         self.response = response
         self.headers = response.headers
@@ -127,7 +126,7 @@ class AsyncClient:
     @asynccontextmanager
     async def stream(self, method: str, url: str, **kwargs):
         """Stream request wrapper for async context."""
-        loop = asyncio.get_running_loop()  # FIX #7
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             functools.partial(self.session.request, method, url, stream=True, **kwargs),  # FIX #9
@@ -138,7 +137,7 @@ class AsyncClient:
             response.close()
 
     async def get(self, url: str, **kwargs):
-        loop = asyncio.get_running_loop()  # FIX #7
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, functools.partial(self.session.get, url, **kwargs))
 
     async def post(self, url: str, **kwargs):
