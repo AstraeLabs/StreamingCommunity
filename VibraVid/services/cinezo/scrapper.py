@@ -1,7 +1,6 @@
 # 17.04.26
 
 import logging
-from typing import List, Optional
 
 from VibraVid.services._base.object import SeasonManager, Season, Episode, EpisodeManager
 from VibraVid.utils.tmdb_client import tmdb_client
