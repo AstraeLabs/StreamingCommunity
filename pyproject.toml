@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "VibraVid"
-version = "1.1.7"
+version = "1.1.8"
 description = "Download content from streaming platforms"
 readme = "README.md"
 requires-python = ">=3.8"
