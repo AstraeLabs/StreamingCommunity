@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Tuple
 from VibraVid.utils.http_client import create_async_client, get_proxy_url
 from VibraVid.utils import config_manager
 from VibraVid.core.utils.language import resolve_locale
-from VibraVid.core.source.c_bridge import run_download_plan
+from VibraVid.core.source.bridge import run_download_plan
 
 
 logger = logging.getLogger("SubtitleDownloader")
@@ -59,6 +59,7 @@ def build_ext_track_label(track: Dict, track_type: str, ext_override: str = None
     forced = bool(track.get("forced")) or "forced" in parsed_flags
     sdh = bool(track.get("sdh")) or "sdh" in parsed_flags
     cc = bool(track.get("cc")) or "cc" in parsed_flags
+
     # Suppress DEFAULT when the track is only DEFAULT because it's forced
     default = (bool(track.get("default")) or "default" in parsed_flags) and not forced
     resolved = resolve_locale(base_lang) or base_lang
@@ -83,6 +84,7 @@ def build_ext_track_label(track: Dict, track_type: str, ext_override: str = None
         plain_parts: List[str] = [resolved]
         if flags:
             plain_parts.append(" ".join(flags))
+        
         ext_tag = f"[{ext}]" if ext else ""
         pfx = "Sub" if track_type == "subtitle" else "Aud"
         return f"{pfx} {ext_tag} {' '.join(plain_parts)}".strip()
@@ -122,6 +124,7 @@ def ext_from_url(url: str, fallback: str = "UNK") -> str:
     for ext in ("vtt", "srt", "ass", "ssa", "ttml2", "ttml", "xml", "dfxp", "m4a", "aac", "mp3"):
         if path.endswith(f".{ext}"):
             return ext
+    
     return fallback
 
 
@@ -192,9 +195,7 @@ async def download_external_tracks_with_progress(headers: Dict, external_subtitl
                     logger.debug(f"Using track extension for {track_type}: {fmt}")
 
                 if not is_valid_format(fmt, track_type):
-                    logger.error(
-                        f"Skipping {track_type} with invalid format '{fmt}' for {lang_raw}: {raw_url}"
-                    )
+                    logger.error(f"Skipping {track_type} with invalid format '{fmt}' for {lang_raw}: {raw_url}")
                     continue
 
                 # ── Build normalised filename ─────────────────────────────

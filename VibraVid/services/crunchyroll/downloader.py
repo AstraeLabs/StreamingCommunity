@@ -26,16 +26,41 @@ extension_output = config_manager.config.get("PROCESS", "extension")
 CR_LICENSE_URL = 'https://www.crunchyroll.com/license/v1/license/widevine'
 
 
-def _make_audio_spec(mpd_url: str, locale: str, headers: dict, license_headers: dict) -> dict:
-    """Build an mpd_audio_list entry for DASH_Downloader."""
+def _make_dash_audio_track(mpd_url: str, locale: str, headers: dict, license_headers: dict) -> dict:
+    """Build an ``other_tracks`` audio entry for DASH_Downloader."""
     return {
+        "type":            "audio",
+        "manifest":        "dash",
         "url":             mpd_url,
         "language":        locale,
         "headers":         headers,
         "license_url":     CR_LICENSE_URL,
         "license_headers": license_headers,
-        "show_table":      False,
     }
+
+
+def _subtitles_to_other_tracks(subtitles: list) -> list:
+    tracks = []
+    for sub in subtitles or []:
+        if not isinstance(sub, dict):
+            continue
+
+        sub_url = sub.get("url")
+        if not sub_url:
+            continue
+
+        track = {"type": "subtitle", "url": sub_url, "language": sub.get("language") or "und", "name": sub.get("label") or sub.get("name") or sub.get("language") or "Subtitle",}
+        fmt = str(sub.get("format") or "").strip().lower().lstrip(".")
+        if fmt:
+            track["extension"] = fmt
+            track["format"] = fmt
+
+        if sub.get("closed_caption"):
+            track["cc"] = True
+
+        tracks.append(track)
+
+    return tracks
 
 
 def parse_select_audio_filter(select_audio: str) -> list:
@@ -122,7 +147,7 @@ def download_film(select_title: Entries) -> str:
 
     # Resolve all requested locales in a single playback call, then split into main + extras
     main_id = url_id
-    mpd_audio_list = []
+    extra_audio_tracks = []
     if preferred_locales:
         versions = client.get_versions_by_locales(url_id, preferred_locales)
         main_version = next((v for v in versions if v["audio_locale"] == preferred_locales[0]), None)
@@ -137,20 +162,22 @@ def download_film(select_title: Entries) -> str:
 
             hdrs = client._get_headers()
             extra_license_hdrs = _build_license_headers(hdrs, v["guid"], v["mpd_url"], v.get("token"))
-            mpd_audio_list.append(_make_audio_spec(v["mpd_url"], v["audio_locale"], hdrs, extra_license_hdrs))
-        if mpd_audio_list:
-            console.print(f"[dim]Extra audio: {[v['language'] for v in mpd_audio_list]}")
+            extra_audio_tracks.append(_make_dash_audio_track(v["mpd_url"], v["audio_locale"], hdrs, extra_license_hdrs))
+        
+        if extra_audio_tracks:
+            console.print(f"[dim]Extra audio: {[v['language'] for v in extra_audio_tracks]}")
 
     mpd_url, mpd_headers, mpd_list_sub, token, audio_locale = get_playback_session(client, main_id, None)
     license_headers = _build_license_headers(mpd_headers, main_id, mpd_url, token)
+    other_tracks = _subtitles_to_other_tracks(mpd_list_sub)
+    other_tracks.extend(extra_audio_tracks)
 
     return DASH_Downloader(
         mpd_url=mpd_url,
         mpd_headers=mpd_headers,
         license_url=CR_LICENSE_URL,
         license_headers=license_headers,
-        mpd_sub_list=mpd_list_sub,
-        mpd_audio_list=mpd_audio_list,
+        other_tracks=other_tracks or None,
         output_path=os.path.join(movie_path, movie_name),
     ).start()
 
@@ -187,7 +214,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     mpd_url, mpd_headers, mpd_list_sub, token, audio_locale = get_playback_session(client, main_id, main_guid)
 
     # Build extra audio list (all locales after the first, using cached urls_by_locale)
-    mpd_audio_list = []
+    extra_audio_tracks = []
     for locale in preferred_locales[1:]:
         if locale not in urls_by_locale:
             console.print(f"[yellow]Locale {locale} not available for this episode")
@@ -200,26 +227,27 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
         try:
             extra_mpd_url, extra_mpd_headers, _, extra_token, _ = get_playback_session(client, extra_guid, None)
             extra_license_hdrs = _build_license_headers(extra_mpd_headers, extra_guid, extra_mpd_url, extra_token)
-            mpd_audio_list.append(_make_audio_spec(extra_mpd_url, locale, extra_mpd_headers, extra_license_hdrs))
+            extra_audio_tracks.append(_make_dash_audio_track(extra_mpd_url, locale, extra_mpd_headers, extra_license_hdrs))
             time.sleep(5)  # Small delay to avoid rate limiting between calls
         except Exception as e:
             console.print(f"[yellow]Errore fetch audio {locale}: {e}")
 
-    if mpd_audio_list:
-        console.print(f"[green]Extra audio tracks found: {[v['language'] for v in mpd_audio_list]}")
+    if extra_audio_tracks:
+        console.print(f"[green]Extra audio tracks found: {[v['language'] for v in extra_audio_tracks]}")
     else:
         console.print(f"[dim]No extra audio (only {audio_locale})")
 
     # License headers
     license_headers = _build_license_headers(mpd_headers, main_id, mpd_url, token)
+    other_tracks = _subtitles_to_other_tracks(mpd_list_sub)
+    other_tracks.extend(extra_audio_tracks)
 
     return DASH_Downloader(
         mpd_url=mpd_url,
         mpd_headers=mpd_headers,
         license_url=CR_LICENSE_URL,
         license_headers=license_headers,
-        mpd_sub_list=mpd_list_sub,
-        mpd_audio_list=mpd_audio_list,
+        other_tracks=other_tracks or None,
         output_path=os.path.join(title_path, title_name)
     ).start()
 

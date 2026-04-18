@@ -14,10 +14,9 @@ from VibraVid.setup import get_wvd_path, get_prd_path
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.utils.media_players import MediaPlayers
 
-from VibraVid.core.source.manual import MediaDownloader
+from VibraVid.core.source.downloader import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.manifest.mpd import DashParser
-from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
 
 from .base import BaseDownloader
 
@@ -101,6 +100,63 @@ def _filter_subtitles(sub_list: list, filter_str: str) -> list:
     return filtered
 
 
+def _other_track_kind(track_type: str) -> str:
+    raw = (track_type or "").strip().lower()
+    if ":" in raw:
+        raw = raw.split(":", 1)[0]
+    if raw in ("sub", "subtitle", "subtitles"):
+        return "subtitle"
+    if raw in ("aud", "audio"):
+        return "audio"
+    if raw in ("vid", "video"):
+        return "video"
+    return raw
+
+
+def _other_track_tag(track_type: str) -> str:
+    raw = (track_type or "").strip().lower()
+    if ":" in raw:
+        return raw.split(":", 1)[1]
+    return ""
+
+
+def _is_dash_audio_track(track: Dict) -> bool:
+    if _other_track_kind(track.get("type", "")) != "audio":
+        return False
+
+    manifest_type = (track.get("manifest") or track.get("manifest_type") or "").strip().lower()
+    if manifest_type == "dash":
+        return True
+
+    url = str(track.get("url") or "")
+    path_no_query = url.split("?", 1)[0].lower()
+    if path_no_query.endswith(".mpd"):
+        return True
+
+    if track.get("license_url") or track.get("license_headers"):
+        return True
+
+    return False
+
+
+def _to_external_subtitle_track(track: Dict) -> Dict:
+    normalized = dict(track or {})
+
+    fmt = str(normalized.get("extension") or normalized.get("format") or "").strip().lower().lstrip(".")
+    if fmt:
+        normalized.setdefault("extension", fmt)
+        normalized.setdefault("type", fmt)
+
+    if "closed_caption" in normalized and "cc" not in normalized:
+        normalized["cc"] = bool(normalized.get("closed_caption"))
+
+    if normalized.get("label") and not normalized.get("name"):
+        normalized["name"] = normalized.get("label")
+
+    normalized.setdefault("language", "und")
+    return normalized
+
+
 class DASH_Downloader(BaseDownloader):
     """
     High-level DASH downloader.
@@ -111,11 +167,11 @@ class DASH_Downloader(BaseDownloader):
     2. DRM extraction       — collect PSSH from selected Stream.drm objects
     3. Key fetch            — DRMManager → Widevine or PlayReady
     4. ``start_download()`` — run n3u8dl / manual, decrypt, build status dict
-    5. Extra audio MPDs     — each gets its own MediaDownloader + key fetch
+    5. Extra audio tracks   — DASH audio specs from other_tracks get dedicated key fetch
     6. ``_merge_files()``   — FFmpeg mux
     7. ``_finalize()``      — move, summary, NFO, tracker, cleanup
     """
-    def __init__(self, mpd_url: Optional[str] = None, mpd_headers: Optional[Dict[str, str]] = None, mpd_sub_list: Optional[list] = None, mpd_audio_list: Optional[list] = None,
+    def __init__(self, mpd_url: Optional[str] = None, mpd_headers: Optional[Dict[str, str]] = None,
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None, license_data: Optional[str] = None,
         output_path: Optional[str] = None, drm_preference: str = "widevine", key: Optional[str] = None, cookies: Optional[Dict[str, str]] = None,
         max_segments: Optional[int] = None, other_tracks: Optional[list] = None,
@@ -124,8 +180,6 @@ class DASH_Downloader(BaseDownloader):
         Parameters:
             - mpd_url: DASH MPD manifest URL.
             - mpd_headers: HTTP headers for MPD requests.
-            - mpd_sub_list: External subtitles list of dicts. Example: [{"language": "it", "url": "..."}, ...]
-            - mpd_audio_list: External audio MPD specs. Example: [{"url": "...", "language": "en", "headers": {...}}, ...]
             - license_url: DRM license server URL for Widevine/PlayReady.
             - license_headers: HTTP headers for DRM license requests.
             - license_certificate: Widevine certificate (base64) for license challenge.
@@ -138,8 +192,21 @@ class DASH_Downloader(BaseDownloader):
         """
         self.mpd_url = str(mpd_url).strip() if mpd_url else None
         self.mpd_headers = mpd_headers or get_headers()
-        self.mpd_sub_list = mpd_sub_list or []
-        self.mpd_audio_list = mpd_audio_list or []
+        self.other_tracks = [dict(track or {}) for track in (other_tracks or [])]
+
+        self._subtitle_tracks: List[Dict] = []
+        self._dash_audio_tracks: List[Dict] = []
+        self._merge_other_tracks: List[Dict] = []
+
+        for track in self.other_tracks:
+            kind = _other_track_kind(track.get("type", ""))
+            if kind == "subtitle":
+                self._subtitle_tracks.append(track)
+                continue
+            if kind == "audio" and _is_dash_audio_track(track):
+                self._dash_audio_tracks.append(track)
+                continue
+            self._merge_other_tracks.append(track)
 
         self.license_url = str(license_url).strip() if license_url else None
         self.license_headers = license_headers
@@ -155,7 +222,6 @@ class DASH_Downloader(BaseDownloader):
         self.key = key
         self.cookies = cookies or {}
         self.max_segments = max_segments
-        self.other_tracks = other_tracks or []
         self.drm_manager = DRMManager(
             get_wvd_path(),
             get_prd_path(),
@@ -193,12 +259,12 @@ class DASH_Downloader(BaseDownloader):
         Args:
             streams: List of Stream objects
             check_selected: If True, only collect from streams with selected=True.
-                          If False, collect from all streams with DRM (used for fallback).
+                        If False, collect from all streams with DRM (used for fallback).
 
         Returns:
             {
-              'WV': [{'pssh': ..., 'kid': ..., 'type': 'Widevine', 'label': ...}, ...],
-              'PR': [{'pssh': ..., 'kid': ..., 'type': 'PlayReady', 'label': ...}, ...],
+            'WV': [{'pssh': ..., 'kid': ..., 'type': 'Widevine', 'label': ...}, ...],
+            'PR': [{'pssh': ..., 'kid': ..., 'type': 'PlayReady', 'label': ...}, ...],
             }
         """
         result: Dict[str, List[Dict]] = {"WV": [], "PR": []}
@@ -226,20 +292,36 @@ class DASH_Downloader(BaseDownloader):
                     continue
 
                 pssh = drm.get_pssh_for(dt)
-                if not pssh or pssh in seen[dt]:
+                if not pssh:
                     continue
 
-                seen[dt].add(pssh)
-                kid = getattr(drm, "kid", None) or getattr(drm, "default_kid", None) or "N/A"
-                logger.info(f"  → PSSH added for {dt}: KID={kid}")
-                result[dt].append(
-                    {
-                        "pssh": pssh,
-                        "kid": kid,
-                        "type": "Widevine" if dt == "WV" else "PlayReady",
-                        "label": label,
-                    }
-                )
+                kids = []
+                if hasattr(drm, "get_all_kids"):
+                    kids = [k for k in drm.get_all_kids() if k and k != "N/A"]
+                else:
+                    for kid_attr in ("kid", "default_kid"):
+                        kid = getattr(drm, kid_attr, None)
+                        if kid and kid != "N/A" and kid not in kids:
+                            kids.append(kid)
+
+                if not kids:
+                    kids = ["N/A"]
+
+                for kid in kids:
+                    dedup_key = (pssh, kid)
+                    if dedup_key in seen[dt]:
+                        continue
+
+                    seen[dt].add(dedup_key)
+                    logger.info(f"  → PSSH added for {dt}: KID={kid}")
+                    result[dt].append(
+                        {
+                            "pssh": pssh,
+                            "kid": kid,
+                            "type": "Widevine" if dt == "WV" else "PlayReady",
+                            "label": label,
+                        }
+                    )
 
         return result
 
@@ -349,13 +431,13 @@ class DASH_Downloader(BaseDownloader):
     # Extra audio tracks
     # ──────────────────────────────────────────────────────────────────────────
     def _download_extra_audios(self) -> tuple[List[Dict], List[Dict]]:
-        """Download extra audio tracks from separate MPD URLs."""
+        """Download extra DASH audio tracks from ``other_tracks`` audio entries."""
         external_audios: List[Dict] = []
         external_subtitles: List[Dict] = []
 
-        for audio_spec in self.mpd_audio_list:
+        for audio_spec in self._dash_audio_tracks:
             audio_url = audio_spec.get("url")
-            audio_language = audio_spec.get("language", "und")
+            audio_language = audio_spec.get("language") or _other_track_tag(audio_spec.get("type", "")) or "und"
             audio_headers = audio_spec.get("headers") or self.mpd_headers
             audio_license_url = audio_spec.get("license_url")
             audio_license_headers = audio_spec.get("license_headers")
@@ -479,23 +561,21 @@ class DASH_Downloader(BaseDownloader):
             site_name=self.site_name,
             max_segments=self.max_segments,
         )
-        self.media_downloader.other_tracks = self.other_tracks
-        _, _, other_subtitles = split_other_tracks(self.other_tracks)
-        if other_subtitles:
-            self.media_downloader.external_subtitles = other_subtitles
+        self.media_downloader.other_tracks = self._merge_other_tracks
         self.media_downloader.license_url = self.license_url
         self.media_downloader.drm_type = self.drm_preference
 
-        if self.mpd_sub_list and SUBTITLE_FILTER != "false":
-            filtered_subs = _filter_subtitles(self.mpd_sub_list, SUBTITLE_FILTER)
+        if self._subtitle_tracks and SUBTITLE_FILTER != "false":
+            normalized_subs = [_to_external_subtitle_track(track) for track in self._subtitle_tracks]
+            filtered_subs = _filter_subtitles(normalized_subs, SUBTITLE_FILTER)
             if filtered_subs:
-                console.print(f"[dim]Adding {len(filtered_subs)} external subtitle(s) (filtered from {len(self.mpd_sub_list)}).")
+                console.print(f"[dim]Adding {len(filtered_subs)} external subtitle(s) (filtered from {len(self._subtitle_tracks)}).")
                 self.media_downloader.external_subtitles.extend(filtered_subs)
             else:
-                console.print(f"[dim]No subtitles matched filter '{SUBTITLE_FILTER}' in {len(self.mpd_sub_list)}.")
+                console.print(f"[dim]No subtitles matched filter '{SUBTITLE_FILTER}' in {len(self._subtitle_tracks)}.")
 
-        if self.mpd_audio_list and AUDIO_FILTER != "false":
-            console.print(f"[dim]Adding {len(self.mpd_audio_list)} external audio(s) (filtered from {len(self.mpd_audio_list)}).")
+        if self._dash_audio_tracks and AUDIO_FILTER != "false":
+            console.print(f"[dim]Adding {len(self._dash_audio_tracks)} external audio(s) (filtered from {len(self._dash_audio_tracks)}).")
 
         # ── Parse ─────────────────────────────────────────────────────────────
         if self.download_id:
@@ -555,9 +635,9 @@ class DASH_Downloader(BaseDownloader):
             return None, True
 
         # ── Extra audio MPDs ──────────────────────────────────────────────────
-        if self.mpd_audio_list and AUDIO_FILTER != "false":
+        if self._dash_audio_tracks and AUDIO_FILTER != "false":
             if self.download_id:
-                download_tracker.update_status(self.download_id, f"Downloading {len(self.mpd_audio_list)} extra audio track(s)...")
+                download_tracker.update_status(self.download_id, f"Downloading {len(self._dash_audio_tracks)} extra audio track(s)...")
             extra_audios, extra_subs = self._download_extra_audios()
             status["external_audios"] = extra_audios
             if extra_subs:

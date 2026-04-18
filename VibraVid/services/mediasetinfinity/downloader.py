@@ -25,6 +25,27 @@ msg = Prompt()
 extension_output = config_manager.config.get("PROCESS", "extension")
 
 
+def _subtitles_to_other_tracks(subtitles: list) -> list:
+    tracks = []
+    for sub in subtitles or []:
+        if not isinstance(sub, dict):
+            continue
+
+        sub_url = sub.get("url")
+        if not sub_url:
+            continue
+
+        track = {"type": "subtitle", "url": sub_url, "language": sub.get("language") or "und", "name": sub.get("language") or "Subtitle",}
+        fmt = str(sub.get("format") or "").strip().lower().lstrip(".")
+        if fmt:
+            track["extension"] = fmt
+            track["format"] = fmt
+
+        tracks.append(track)
+
+    return tracks
+
+
 def try_mpd(url, qualities):
     """
     Given a url containing one of the qualities (hd/hr/sd), try to replace it with the others and check which manifest exists.
@@ -123,7 +144,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     return DASH_Downloader(
         mpd_url=get_manifest(tracking_info['videos'][0]['url']),
         license_url=license_url,
-        mpd_sub_list=tracking_info['subtitles'],
+        other_tracks=_subtitles_to_other_tracks(tracking_info['subtitles']) or None,
         output_path=os.path.join(episode_path, episode_name),
     ).start()
     

@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from VibraVid.core.muxing.util.info import Mediainfo
 from VibraVid.core.muxing.helper.video import get_media_metadata
 from VibraVid.setup import get_dovi_tool_path, get_ffmpeg_path, get_ffprobe_path, get_mkvmerge_path
-from VibraVid.core.utils.decrypt_engine import _run_with_progress
+from VibraVid.core.decryptor._subprocess_runner import run_with_progress
 
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def _run_command(cmd: List[str], description: str) -> bool:
 
 
 def _run_progress_command(cmd: List[str], label: str, input_path: Path, output_path: Path) -> bool:
-    result = _run_with_progress(cmd, label, str(input_path), str(output_path))
+    result = run_with_progress(cmd, label, str(input_path), str(output_path))
     if isinstance(result, tuple):
         return bool(result[0])
     return bool(result)

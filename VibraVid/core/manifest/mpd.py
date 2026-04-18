@@ -285,13 +285,14 @@ class DashParser:
             for dtype, pssh in adapt_drm._pssh_by_type.items():
                 if dtype not in rep_drm._pssh_by_type:
                     rep_drm.set_pssh(pssh, drm_type_hint=dtype)
-            if not rep_drm.kid and adapt_drm.kid:
-                rep_drm.set_kid(adapt_drm.kid)
-            if not rep_drm.default_kid and adapt_drm.default_kid:
-                rep_drm.default_kid = adapt_drm.default_kid
+
+            for kid in adapt_drm.get_all_kids():
+                rep_drm.set_kid(kid)
             s.drm = rep_drm
+        
         elif rep_drm.is_encrypted():
             s.drm = rep_drm
+        
         elif adapt_drm.is_encrypted():
             s.drm = adapt_drm
         else:

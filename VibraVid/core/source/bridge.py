@@ -1,4 +1,4 @@
-# 01.04.24
+# 01.04.26
 
 import json
 import logging
@@ -32,6 +32,7 @@ def _format_header_keys(headers: Optional[Dict[str, Any]]) -> str:
 
 
 def _format_bridge_event(event: Dict[str, Any]) -> str:
+    """Format a Velora event dict into a human-readable string for logging."""
     event_name = (event.get("event") or "").lower()
     label = event.get("display_label") or event.get("label") or event.get("task_key") or "download"
     url = event.get("url") or ""
@@ -43,17 +44,14 @@ def _format_bridge_event(event: Dict[str, Any]) -> str:
         return (f"START {label} | tasks={event.get('task_count', '?')} | concurrency={event.get('concurrency', '?')}")
 
     if event_name == "summary":
-        elapsed_display = (
-            f"{float(elapsed_seconds):.1f}s"
-            if isinstance(elapsed_seconds, (int, float))
-            else "?"
-        )
+        elapsed_display = (f"{float(elapsed_seconds):.1f}s" if isinstance(elapsed_seconds, (int, float)) else "?")
         return (f"SUMMARY {label} | completed={event.get('completed', '?')}/{event.get('total', '?')} | bytes={format_size(int(event.get('bytes') or 0))} | elapsed={elapsed_display}")
 
     if event_name == "completed":
         parts = [f"GET {url}" if url else "GET", f"PATH: {path}" if path else None]
         if headers:
             parts.append(f"HEADERS: {headers}")
+
         parts.extend(
             [
                 f"segments={event.get('segments', '?')}",
@@ -71,6 +69,7 @@ def _format_bridge_event(event: Dict[str, Any]) -> str:
         parts = [f"GET {url}" if url else "GET", f"PATH: {path}" if path else None]
         if headers:
             parts.append(f"HEADERS: {headers}")
+        
         parts.extend(
             [
                 f"RETRY={event.get('attempt', '?')}/{event.get('retry_count', '?')}",
@@ -86,6 +85,7 @@ def _format_bridge_event(event: Dict[str, Any]) -> str:
         parts = [f"GET {url}" if url else "GET", f"PATH: {path}" if path else None]
         if headers:
             parts.append(f"HEADERS: {headers}")
+        
         parts.extend(
             [
                 f"ERROR: {event.get('message', '')}",
@@ -109,14 +109,10 @@ def _normalize_event_task_key(event: Dict[str, Any]) -> Dict[str, Any]:
     if "_task_key" in event and "task_key" not in event:
         event = dict(event)
         event["task_key"] = event.pop("_task_key")
+    
     return event
 
-def run_download_plan(
-    plan: Dict[str, Any],
-    progress_cb: Optional[Callable[[int, int, int, float], None]] = None,
-    event_cb: Optional[Callable[[Dict[str, Any]], None]] = None,
-    stop_check: Optional[Callable[[], bool]] = None,
-) -> List[Dict[str, Any]]:
+def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int, int, int, float], None]] = None, event_cb: Optional[Callable[[Dict[str, Any]], None]] = None, stop_check: Optional[Callable[[], bool]] = None) -> List[Dict[str, Any]]:
     """
     Launch the Velora binary for *plan* and stream its events back to the caller.
 
@@ -195,6 +191,7 @@ def run_download_plan(
                         except Exception as e:
                             logger.error(f"Failed to terminate: {e}")
                         return
+                    
                     time.sleep(0.25)
                 logger.debug("Stop-watcher thread exiting (process already dead)")
 
@@ -275,10 +272,7 @@ def run_download_plan(
                 progress_event.setdefault("task_key", plan.get("task_key", "download"))
                 progress_event.setdefault("label", plan.get("label", ""))
                 progress_event.setdefault("display_label", plan.get("display_label", ""))
-                progress_event.setdefault(
-                    "pct",
-                    int((done_count / total) * 100) if total else 100,
-                )
+                progress_event.setdefault("pct", int((done_count / total) * 100) if total else 100)
                 progress_event.setdefault("segments", f"{done_count}/{total}")
                 estimated_total = estimate_total_size(total_bytes, done_count, total)
                 progress_event.setdefault(

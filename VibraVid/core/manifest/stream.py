@@ -21,6 +21,7 @@ class DRMInfo:
         self.system_id = None
         self.drm_type = None
         self.default_kid = None
+        self.default_kids: List[str] = []
         self.method = None
         self._pssh_by_type: Dict[str, str] = {}
         self._drm_types: List[str] = []
@@ -121,7 +122,25 @@ class DRMInfo:
         return list(self._drm_types)
 
     def set_kid(self, kid_hex: str) -> None:
-        self.kid = kid_hex.lower().replace("-", "")
+        kid = (kid_hex or "").lower().replace("-", "").strip()
+        if not kid:
+            return
+
+        if kid not in self.default_kids:
+            self.default_kids.append(kid)
+
+        if not self.kid:
+            self.kid = kid
+        if not self.default_kid:
+            self.default_kid = kid
+
+    def get_all_kids(self) -> List[str]:
+        kids = list(self.default_kids)
+        if not kids:
+            for candidate in (self.kid, self.default_kid):
+                if candidate and candidate not in kids:
+                    kids.append(candidate)
+        return kids
 
     def set_key(self, key_hex: str) -> None:
         self.key = key_hex.lower().replace("-", "")
@@ -149,19 +168,24 @@ class DRMInfo:
             self.drm_type = detected
 
     def is_encrypted(self) -> bool:
-        return bool(self.pssh or self.kid or self.default_kid or self._pssh_by_type)
+        return bool(self.pssh or self.kid or self.default_kid or self.default_kids or self._pssh_by_type)
 
     def get_drm_display(self) -> str:
         if self._drm_types:
             return "+".join(self._drm_types)
         if self.drm_type:
             return self.drm_type
+        if self.default_kids:
+            first = self.default_kids[0][:8] + "…"
+            if len(self.default_kids) > 1:
+                return f"{first} (+{len(self.default_kids) - 1})"
+            return first
         if self.default_kid:
             return self.default_kid[:8] + "…"
         return "-"
 
     def get_key_pair(self) -> Optional[str]:
-        kid = self.kid or self.default_kid
+        kid = self.kid or self.default_kid or (self.default_kids[0] if self.default_kids else None)
         if kid and self.key:
             return f"{kid}:{self.key}"
         return None
@@ -169,7 +193,8 @@ class DRMInfo:
     def __repr__(self) -> str:
         if not self.is_encrypted():
             return "DRMInfo(plain)"
-        kid = (self.kid or self.default_kid or "")[:8]
+        kid_source = self.kid or self.default_kid or (self.default_kids[0] if self.default_kids else "")
+        kid = kid_source[:8]
         types = "+".join(self._drm_types) if self._drm_types else (self.drm_type or "?")
         return f"DRMInfo({types}, KID={kid}…)"
 

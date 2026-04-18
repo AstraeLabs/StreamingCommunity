@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from rich.console import Console
 
-
 from VibraVid.utils import config_manager
 from VibraVid.core.manifest.m3u8 import HLSParser
 from VibraVid.core.manifest.mpd import DashParser
@@ -24,7 +23,7 @@ from VibraVid.core.utils.language import resolve_locale, LANGUAGE_MAP
 from VibraVid.core.utils.stream_selector_ui import InteractiveStreamSelector
 from VibraVid.core.source.subtitle import build_ext_track_label, is_valid_format, ext_from_url, normalize_sub_filename
 from VibraVid.core.utils.codec import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
-from VibraVid.core.utils.decrypt_engine import KeysManager
+from VibraVid.core.decryptor import KeysManager
 
 
 logger = logging.getLogger(__name__)
@@ -32,7 +31,8 @@ auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select")
 
 
 def resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
-    """Synchronously probe *url* to determine the real subtitle format.
+    """
+    Synchronously probe *url* to determine the real subtitle format.
 
     If the response is an HLS manifest (``#EXTM3U``), the first media segment
     URL is extracted and its extension is used.  Returns ``(final_url, ext)``
@@ -42,6 +42,7 @@ def resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
         hdrs = dict(headers)
         hdrs.setdefault("User-Agent", get_headers().get("User-Agent", ""))
         logger.info(f"resolve_subtitle_url_sync: probing {url!r}")
+
         with create_client(headers=hdrs, timeout=15, follow_redirects=True) as client:
             resp = client.get(url)
             resp.raise_for_status()
@@ -57,6 +58,7 @@ def resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
                 resolved_ext = ext_from_url(line, "")
                 logger.info(f"Resolved HLS subtitle manifest -> segment {line!r} (ext={resolved_ext!r})")
                 return line, resolved_ext
+        
         logger.info(f"resolve_subtitle_url_sync: manifest at {url!r} had no segments")
         return url, ""
 
@@ -67,6 +69,7 @@ def resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
     ):
         if mime in content_type:
             return url, ext
+    
     return url, ext_from_url(url, "")
 
 
@@ -201,8 +204,11 @@ class BaseMediaDownloader:
     def get_status(self) -> Dict:
         return self.status or self._build_status([], [])
 
+    def start_download(self) -> Dict[str, Any]:
+        raise NotImplementedError("Subclasses must implement start_download()")
+
     def _apply_selection(self) -> None:
-        f = self.custom_filters or {}
+        f     = self.custom_filters or {}
         v_cfg = f.get("video")    or config_manager.config.get("DOWNLOAD", "select_video")
         a_cfg = f.get("audio")    or config_manager.config.get("DOWNLOAD", "select_audio")
         s_cfg = f.get("subtitle") or config_manager.config.get("DOWNLOAD", "select_subtitle")
@@ -211,7 +217,7 @@ class BaseMediaDownloader:
         logger.info(f"Selection -> video={self._sv!r}  audio={self._sa!r}  subtitle={self._ss!r}")
 
     def _ext_lang_matches(self, lang: str, track_type: str) -> bool:
-        """Return True if the external track with the given *lang* tag should be downloaded."""
+        """Return True if the external track with *lang* tag should be downloaded."""
         cfg_key = "select_subtitle" if track_type == "subtitle" else "select_audio"
         cfg = config_manager.config.get("DOWNLOAD", cfg_key)
         if not cfg or cfg.lower() == "all":
@@ -226,13 +232,16 @@ class BaseMediaDownloader:
             base_token = token.split("_")[0]
             if base_token in lang_l or lang_l.startswith(base_token):
                 return True
-            # ISO-639-2 three-letter -> two-letter prefix match ("ita" -> "it")
+            
+            # ISO-639-2 three-letter → two-letter prefix match ("ita" → "it")
             if len(base_token) == 3 and base_token.isalpha() and lang_l.startswith(base_token[:2]):
                 return True
         return False
 
     def _ext_track_matches(self, track: Dict, track_type: str) -> bool:
-        """Return True if *track* (a full external track dict with flag fields) matches the configured selection filter, including flag requirements.
+        """
+        Return True if *track* (a full external track dict with flag fields)
+        matches the configured selection filter, including flag requirements.
         """
         cfg_key = "select_subtitle" if track_type == "subtitle" else "select_audio"
         cfg = config_manager.config.get("DOWNLOAD", cfg_key)
@@ -270,39 +279,9 @@ class BaseMediaDownloader:
                     track_flags.add("sdh")
                 if not req_flags.issubset(track_flags):
                     continue
-
             return True
+
         return False
-
-    def _build_status(self, ext_subs: List, ext_auds: List = None) -> Dict:
-        status: Dict[str, Any] = {
-            "video": None,
-            "audios": [],
-            "subtitles": ext_subs or [],
-            "external_subtitles": [],
-            "external_audios": ext_auds or [],
-            "other_tracks": list(getattr(self, "other_tracks", []) or []),
-        }
-        for f in sorted(self.output_dir.iterdir()):
-            if not f.is_file():
-                continue
-            ext = f.suffix.lower()
-            fname_l = self.filename.lower()
-
-            if ext in VIDEO_EXTENSIONS and f.stem.lower() == fname_l:
-                if status["video"] is None:
-                    status["video"] = {"path": str(f), "size": f.stat().st_size}
-                continue
-
-            if ext in AUDIO_EXTENSIONS and f.name.lower().startswith(fname_l):
-                if status["video"] and Path(status["video"]["path"]).name == f.name:
-                    continue
-                track_name = f.stem[len(self.filename):].lstrip(".")
-                status["audios"].append(
-                    {"path": str(f), "name": track_name, "size": f.stat().st_size}
-                )
-
-        return status
 
     def _prepare_labels(self) -> None:
         sel_video = [s for s in self.streams if s.type == "video"    and s.selected and not s.is_external]
@@ -371,10 +350,7 @@ class BaseMediaDownloader:
                 self._sub_labels[f"{raw}:{tmdb_client._slugify(name)}"] = label
             self._sub_labels.setdefault(raw, label)
 
-        logger.info(
-            f"Labels ready -- video={self._video_label!r} "
-            f"audio={list(self._audio_labels)[:4]}  subs={list(self._sub_labels)[:4]}"
-        )
+        logger.info(f"Labels ready -- video={self._video_label!r} audio={list(self._audio_labels)[:4]}  subs={list(self._sub_labels)[:4]}")
 
     @staticmethod
     def _sub_stream_label(s: Stream) -> str:
@@ -410,12 +386,14 @@ class BaseMediaDownloader:
         tasks: List[Tuple[str, str]] = []
         if self._has_video:
             tasks.append((self._video_task_key, f"[bold cyan]Vid[/bold cyan] {self._video_label}"))
+
         seen: Set[str] = set()
         for lang_code, label in self._audio_task_keys:
             key = f"aud_{lang_code}"
             if key not in seen:
                 seen.add(key)
                 tasks.append((key, f"[bold cyan]Aud[/bold cyan] {label}"))
+        
         return tasks
 
     def _promote_hls_subtitles_to_external(self) -> None:
@@ -431,12 +409,10 @@ class BaseMediaDownloader:
                 if not ext or not is_valid_format(ext, "subtitle"):
                     resolved_url, ext = resolve_subtitle_url_sync(sub_url, self.headers)
                     if not ext or not is_valid_format(ext, "subtitle"):
-                        logger.info(
-                            f"Skipping external subtitle (unsupported format): "
-                            f"{s.language} url={sub_url}"
-                        )
+                        logger.info(f"Skipping external subtitle (unsupported format): {s.language} url={sub_url}")
                         s.selected = False
                         continue
+                        
                     sub_url = resolved_url
 
                 new_ext_subs.append({
@@ -464,8 +440,8 @@ class BaseMediaDownloader:
             [(s, "subtitle") for s in self.external_subtitles if s.get("_selected", True)]
             + [(a, "audio")  for a in self.external_audios    if a.get("_selected", True)]
         ):
-            _label    = build_ext_track_label(_track, _ttype)
-            _lang     = _track.get("language", "und")
+            _label = build_ext_track_label(_track, _ttype)
+            _lang = _track.get("language", "und")
             _base_lang, _flag_suffix = normalize_sub_filename(_lang, _track)
             _base_key = f"ext_{_ttype}_{_base_lang}{_flag_suffix}"
             _count = seen_task_keys.get(_base_key, 0)
@@ -475,5 +451,32 @@ class BaseMediaDownloader:
             _track["_label"]    = _label
             bar_manager.add_external_track_task(_label, _task_key)
 
-    def start_download(self) -> Dict[str, Any]:  # pragma: no cover
-        raise NotImplementedError("Subclasses must implement start_download()")
+    
+    def _build_status(self, ext_subs: List, ext_auds: List = None) -> Dict:
+        status: Dict[str, Any] = {
+            "video": None,
+            "audios": [],
+            "subtitles": ext_subs or [],
+            "external_subtitles": [],
+            "external_audios": ext_auds or [],
+            "other_tracks": list(getattr(self, "other_tracks", []) or []),
+        }
+        for f in sorted(self.output_dir.iterdir()):
+            if not f.is_file():
+                continue
+            
+            ext = f.suffix.lower()
+            fname_l = self.filename.lower()
+
+            if ext in VIDEO_EXTENSIONS and f.stem.lower() == fname_l:
+                if status["video"] is None:
+                    status["video"] = {"path": str(f), "size": f.stat().st_size}
+                continue
+
+            if ext in AUDIO_EXTENSIONS and f.name.lower().startswith(fname_l):
+                if status["video"] and Path(status["video"]["path"]).name == f.name:
+                    continue
+                track_name = f.stem[len(self.filename):].lstrip(".")
+                status["audios"].append({"path": str(f), "name": track_name, "size": f.stat().st_size})
+
+        return status

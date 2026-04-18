@@ -12,7 +12,7 @@ from pywidevine.pssh import PSSH
 
 from VibraVid.setup import get_info_wvd
 from VibraVid.utils.http_client import create_client
-from VibraVid.core.utils.decrypt_engine import KeysManager
+from VibraVid.core.decryptor import KeysManager
 
 
 console = Console()

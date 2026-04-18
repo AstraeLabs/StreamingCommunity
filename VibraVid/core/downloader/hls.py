@@ -13,7 +13,7 @@ from VibraVid.setup import get_wvd_path, get_prd_path
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.utils.media_players import MediaPlayers
 
-from VibraVid.core.source.manual import MediaDownloader
+from VibraVid.core.source.downloader import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
 

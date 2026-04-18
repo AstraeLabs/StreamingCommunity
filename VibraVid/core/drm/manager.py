@@ -9,7 +9,7 @@ from rich.console import Console
 
 from VibraVid.utils import config_manager
 from VibraVid.utils.vault import supa_vault, lab_vault, claudio_vault
-from VibraVid.core.utils.decrypt_engine import KeysManager
+from VibraVid.core.decryptor import KeysManager
 
 from .playready import get_playready_keys
 from .widevine import get_widevine_keys
