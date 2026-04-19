@@ -245,7 +245,19 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                 logger.info(_format_bridge_event(event))
                 continue
 
-            if event_name in {"retry", "error", "cancelled"}:
+            if event_name == "retry":
+                logger.warning(_format_bridge_event(event))
+                if event_cb:
+                    normalized_event = dict(event)
+                    normalized_event.setdefault("task_key", plan.get("task_key", "download"))
+                    normalized_event.setdefault("label", plan.get("label", ""))
+                    normalized_event.setdefault("display_label", plan.get("display_label", ""))
+                    normalized_event.setdefault("segments", "0/1")
+                    normalized_event.setdefault("speed", "ERR")
+                    event_cb(normalized_event)
+                continue
+
+            if event_name in {"error", "cancelled"}:
                 logger.info(_format_bridge_event(event))
                 if event_cb:
                     normalized_event = dict(event)

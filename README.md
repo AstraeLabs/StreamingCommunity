@@ -106,7 +106,37 @@ python manual.py
 
 Key configuration parameters in `config.json`:
 
-### Output Directories
+### Default
+
+```json
+{
+	"DEFAULT": {
+		"debug_track_json": false,
+		"log_level": "INFO",
+		"close_console": true,
+		"show_message": false,
+		"fetch_domain_online": true,
+		"auto_update_check": true,
+		"imp_service": ["default"],
+		"installation": "essential"
+	}
+}
+```
+
+- **`close_console`**: Automatically close console after download completion (default: `true`)
+- **`debug_track_json`**: Log a `TRACKS_JSON` payload with the selected tracks, keys, and manifest metadata to help debug stream selection.
+- **`log_level`**: Sets the application logging level used by both the console and file logger. Use standard Python logging values such as `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`.
+- **`show_message`**: Show the startup banner and clear the console before printing it.
+- **`fetch_domain_online`**: Automatically fetch latest domains from GitHub (default: `true`)
+- **`auto_update_check`**: Check for new VibraVid updates automatically at startup (default: `true`). If enabled, notifies you when a new version is available.
+- **`imp_service`**: List of service source paths to load site modules from (default: `["default"]`). The `"default"` entry loads all built-in sites bundled with VibraVid. You can add absolute paths to external directories containing custom site modules — each directory must follow the standard module structure (a folder with `__init__.py` defining `indice` and `_useFor`). Modules from custom paths take precedence over built-in ones if they share the same name.
+- **`installation`**: Controls which bundled binaries are auto-downloaded during setup. `none` skips bundled binaries, `essential` downloads Bento4, FFmpeg, and Velora, and `full` also adds Dovi Tool and MKVToolNix.
+
+  ```json
+  "imp_service": ["default", "/home/user/my_custom_sites"]
+  ```
+
+### Output
 
 ```json
 {
@@ -204,7 +234,7 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 "serie_folder_name": "Serie/%{site_name}"
 ```
 
-### Download Settings
+### Download
 
 ```json
 {
@@ -214,7 +244,6 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 		"skip_download": false,
 		"thread_count": 12,
 		"concurrent_download": true,
-		"max_speed": "30MB",
 		"select_video": "1920",
 		"select_audio": "ita|Ita",
 		"select_subtitle": "ita|eng|Ita|Eng",
@@ -228,9 +257,8 @@ S%(season:02d)/      → Season folder  (S01, S02, ...)
 - **`auto_select`**: Automatically select streams based on filters (default: `true`). When `false`, enables interactive stream selection mode where user can manually choose video/audio/subtitle tracks before download.
 - **`delay_after_download`**: Set a delay applied after finishing the download of a movie or episode.
 - **`skip_download`**: Skip the download step and process existing files (default: `false`)
-- **`thread_count`**: Number of parallel download threads (default: `12`)
-- **`concurrent_download`**: Enable parallel download queue for films and series episodes (default: `true`). When `true`, downloads are queued and processed by a thread pool with a live Download Monitor table. When `false`, downloads run sequentially. When only one item is in the queue, it will download immediately regardless of this setting.
-- **`max_speed`**: Speed limit per stream (e.g., `"30MB"`, `"10MB"`)
+- **`thread_count`**: Number of concurrent segment requests used for a single stream download.
+- **`concurrent_download`**: Enable download video audios(s) subtitles(s) simultaneously.
 - **`cleanup_tmp_folder`**: Remove temporary files after download (default: `true`)
 
 #### Stream Selection Filters
@@ -279,7 +307,7 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
 
 > **Native passthrough syntax** (`res=...:codecs=...:for=...` and `id=...:for=...`) is passed directly to N_m3u8DL-RE without further processing and is available for all three track types. Use it when you need precise control over manifest-level stream selection.
 
-### Processing Settings
+### Post Process
 
 ```json
 {
@@ -339,30 +367,6 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
     - **`http`**: HTTP proxy URL (e.g., `"http://localhost:8888"`)
     - **`https`**: HTTPS proxy URL (e.g., `"http://localhost:8888"`)
 
-### Default Settings
-
-```json
-{
-	"DEFAULT": {
-		"close_console": true,
-		"show_message": false,
-		"fetch_domain_online": true,
-		"auto_update_check": true,
-		"imp_service": ["default"]
-	}
-}
-```
-
-- **`close_console`**: Automatically close console after download completion (default: `true`)
-- **`show_message`**: Display debug messages (default: `false`)
-- **`fetch_domain_online`**: Automatically fetch latest domains from GitHub (default: `true`)
-- **`auto_update_check`**: Check for new VibraVid updates automatically at startup (default: `true`). If enabled, notifies you when a new version is available.
-- **`imp_service`**: List of service source paths to load site modules from (default: `["default"]`). The `"default"` entry loads all built-in sites bundled with VibraVid. You can add absolute paths to external directories containing custom site modules — each directory must follow the standard module structure (a folder with `__init__.py` defining `indice` and `_useFor`). Modules from custom paths take precedence over built-in ones if they share the same name.
-
-  ```json
-  "imp_service": ["default", "/home/user/my_custom_sites"]
-  ```
-
 ### DRM Configuration
 
 ```json
@@ -382,6 +386,7 @@ Control which streams are downloaded using `select_video`, `select_audio`, and `
 
 - **`use_cdm`**: Enable/disable CDM-based key extraction (default: `true`). When disabled, only database lookups are attempted.
 - **`prefer_remote_cdm`**: Prefer remote CDM services over local devices (default: `true`). When `true`, remote CDM API credentials are used; when `false`, local CDM device files are prioritized.
+- **`vault`**: Optional external DRM key store configuration used before CDM extraction.
 
 #### Adding Remote CDM Services
 

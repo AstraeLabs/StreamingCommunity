@@ -87,7 +87,6 @@ class MediaDownloader(BaseMediaDownloader):
                 if no_keys:
                     console.print("[red]Warning:[/red] SAMPLE-AES/CBCS streams detected but no keys provided.")
                     logger.error("No keys provided for post-download decryption — merged file will remain encrypted.")
-            
             else:
                 logger.info("Using post-download decryption.")
 
@@ -129,24 +128,56 @@ class MediaDownloader(BaseMediaDownloader):
                         self._unregister_loop(ext_loop)
                         ext_loop.close()
 
-                ext_thread = threading.Thread(target=_run_externals, daemon=True)
-                ext_thread.start()
+                def _run_stream(s) -> None:
+                    try:
+                        self._download_stream(s, bar_manager)
+                    except Exception as exc:
+                        logger.error(f"Stream download error ({s.type}/{s.language}): {exc}", exc_info=True)
 
-                media_threads: List[threading.Thread] = []
-                for stream in selected_media:
-                    def _run_stream(s=stream) -> None:
-                        try:
-                            self._download_stream(s, bar_manager)
-                        except Exception as exc:
-                            logger.error(f"Stream download error ({s.type}/{s.language}): {exc}", exc_info=True,)
+                if CONCURRENT_DL:
+                    logger.info("Concurrent download: video + audio in parallel, externals in parallel.")
+                    ext_thread = threading.Thread(target=_run_externals, daemon=True)
+                    ext_thread.start()
 
-                    t = threading.Thread(target=_run_stream, daemon=True)
-                    media_threads.append(t)
-                    t.start()
+                    media_threads: List[threading.Thread] = []
+                    for stream in selected_media:
+                        t = threading.Thread(target=_run_stream, args=(stream,), daemon=True)
+                        media_threads.append(t)
+                        t.start()
 
-                join_interruptible(media_threads, self._stop_event)
-                bar_manager.finish_all_tasks()
-                join_interruptible([ext_thread], self._stop_event, hard_timeout=300.0)
+                    join_interruptible(media_threads, self._stop_event)
+                    bar_manager.finish_all_tasks()
+                    join_interruptible([ext_thread], self._stop_event, hard_timeout=300.0)
+
+                else:
+                    logger.info("Sequential download: video → audio → external tracks.")
+                    video_streams = [s for s in selected_media if s.type == "video"]
+                    audio_streams = [s for s in selected_media if s.type == "audio"]
+
+                    for stream in video_streams:
+                        if self._stop_check():
+                            break
+                        logger.info(f"Sequential: downloading video ({stream.resolution or 'unknown'})")
+                        t = threading.Thread(target=_run_stream, args=(stream,), daemon=True)
+                        t.start()
+                        join_interruptible([t], self._stop_event)
+
+                    for stream in audio_streams:
+                        if self._stop_check():
+                            break
+                        
+                        logger.info(f"Sequential: downloading audio ({stream.language or 'und'})")
+                        t = threading.Thread(target=_run_stream, args=(stream,), daemon=True)
+                        t.start()
+                        join_interruptible([t], self._stop_event)
+
+                    bar_manager.finish_all_tasks()
+
+                    if not self._stop_check():
+                        logger.info("Sequential: downloading external tracks (subtitles / audio).")
+                        ext_thread = threading.Thread(target=_run_externals, daemon=True)
+                        ext_thread.start()
+                        join_interruptible([ext_thread], self._stop_event, hard_timeout=300.0)
 
                 ext_subs = ext_result["ext_subs"]
                 ext_auds = ext_result["ext_auds"]

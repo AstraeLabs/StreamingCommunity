@@ -23,7 +23,6 @@
         "skip_download": false,
         "thread_count": 8,
         "concurrent_download": true,
-        "max_speed": "",
         "select_video": "best",
         "select_audio": "ita|it",
         "select_subtitle": "ita|eng|it|en",

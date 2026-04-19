@@ -244,6 +244,13 @@ jobs:
                   --hidden-import=curl_cffi \
                   --hidden-import=_cffi_backend \
                   --collect-all curl_cffi \
+                  --hidden-import=Cryptodome \
+                  --hidden-import=Cryptodome.Cipher \
+                  --hidden-import=Cryptodome.Cipher.AES \
+                  --hidden-import=Cryptodome.Util \
+                  --hidden-import=Cryptodome.Util.Padding \
+                  --collect-all Cryptodome \
+                  --exclude-module Cryptodome.SelfTest \
                   --additional-hooks-dir=pyinstaller/hooks \
                   --add-data "VibraVid${{ matrix.separator }}VibraVid" \
                   --name=${{ matrix.artifact_name }} manual.py
