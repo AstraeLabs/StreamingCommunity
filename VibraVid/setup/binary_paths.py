@@ -31,7 +31,9 @@ class BinaryPaths:
         system = platform.system().lower()
         supported_systems = ['windows', 'darwin', 'linux']
         if system not in supported_systems:
-            raise ValueError(f"Unsupported OS: {system}")
+            logger.warning("Unsupported OS detected (%s), falling back to linux semantics", system)
+            return 'linux'
+        
         return system
 
     def _detect_arch(self) -> str:

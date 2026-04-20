@@ -13,6 +13,25 @@ from ._subprocess_runner import run_with_progress
 logger = logging.getLogger(__name__)
 
 
+def _redacted_cmd(cmd: list[str]) -> str:
+    redacted = []
+    hide_next = False
+    for token in cmd:
+        if hide_next:
+            redacted.append("<redacted>")
+            hide_next = False
+            continue
+
+        if token in {"--key", "--keys"}:
+            redacted.append(token)
+            hide_next = True
+            continue
+
+        redacted.append(token)
+
+    return " ".join(redacted)
+
+
 # ---------------------------------------------------------------------------
 # Bento4
 # ---------------------------------------------------------------------------
@@ -36,9 +55,12 @@ def decrypt_bento4_nonlive(mp4decrypt_path: str, encrypted_path: str, normalized
         cmd.extend(["--key", f"{kid.lower()}:{key.lower()}"])
     cmd.extend([encrypted_path, output_path])
 
-    logger.info(f"Bento4 cmd: {' '.join(cmd)}")
+    logger.info(f"Bento4 cmd: {_redacted_cmd(cmd)}")
     result = run_with_progress(cmd, label, encrypted_path, output_path, progress_cb=progress_cb)
     if result is True:
+        if not os.path.exists(output_path) or os.path.getsize(output_path) <= 0:
+            logger.error("Bento4 reported success but output is missing/empty")
+            return False
         return True
 
     stderr_msg = result[1] if isinstance(result, tuple) else "Unknown error"
@@ -67,9 +89,9 @@ def decrypt_bento4_live(mp4decrypt_path: str, encrypted_path: str, decrypted_pat
             cmd.extend(["--key", f"{kid}:{raw_key}"])
         
         cmd.extend([encrypted_path, decrypted_path])
-        logger.debug(f"Bento4 live cmd: {' '.join(cmd)}")
+        logger.debug(f"Bento4 live cmd: {_redacted_cmd(cmd)}")
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         if result.returncode != 0:
             msg = result.stderr.strip() if result.stderr else "Unknown error"
             logger.error(f"Bento4 live decryption failed: {msg}")
@@ -119,11 +141,23 @@ def decrypt_shaka_nonlive(shaka_packager_path: str, encrypted_path: str, normali
         " ".join(keys_arg),
     ]
 
-    logger.info(f"Shaka cmd: {' '.join(cmd)}")
+    logger.info(f"Shaka cmd: {_redacted_cmd(cmd)}")
     result = run_with_progress(cmd, label, encrypted_path, shaka_output, progress_cb=progress_cb)
     if result is True:
         if shaka_output != output_path and os.path.exists(shaka_output):
-            shutil.move(shaka_output, output_path)
+            try:
+                os.replace(shaka_output, output_path)
+            except OSError:
+                try:
+                    shutil.copy2(shaka_output, output_path)
+                    os.remove(shaka_output)
+                except Exception as exc:
+                    logger.error(f"Shaka output move failed: {exc}")
+                    return False
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) <= 0:
+            logger.error("Shaka reported success but output is missing/empty")
+            return False
         return True
 
     stderr_msg = result[1] if isinstance(result, tuple) else "Unknown error"

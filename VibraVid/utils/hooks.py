@@ -103,6 +103,7 @@ def _build_command_for_hook(hook: dict, stage: str, context: Optional[Dict[str, 
     normalized_context, env_context = _normalize_context(stage, context)
     script_path = hook.get("path")
     inline_command = hook.get("command")
+    allow_inline_template = bool(hook.get("allow_inline_template", False))
     args = hook.get("args", [])
     env = hook.get("env") or {}
     workdir = hook.get("cwd")
@@ -125,7 +126,9 @@ def _build_command_for_hook(hook: dict, stage: str, context: Optional[Dict[str, 
             script_path = os.path.abspath(script_path)
 
     if inline_command:
-        inline_command = _safe_format(inline_command, template_context)
+        inline_command = str(inline_command)
+        if allow_inline_template:
+            inline_command = _safe_format(inline_command, template_context)
 
     if workdir:
         workdir = _safe_format(workdir, template_context)

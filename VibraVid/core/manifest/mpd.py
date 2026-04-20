@@ -31,6 +31,11 @@ _TC_MAP = {
     "18": "HLG",  # ARIB STD-B67
 }
 _CP_HDR_HINT = {"9"}  # BT.2020 ColourPrimaries
+_FILE_EXT_WHITELIST = {
+    ".mpd", ".m4s", ".mp4", ".cmfv", ".cmfa", ".m4a", ".webm", ".mp3", ".aac", ".vtt", ".ttml", ".srt"
+}
+_AD_PATH_RE = re.compile(r"(?:^|/)(?:ad|ads|advert|impression|preroll|midroll|postroll)(?:/|$)", re.IGNORECASE)
+_SEGMENT_TOKEN_RE = re.compile(r"\$(RepresentationID|Number|Time|Bandwidth)(?:%0?(\d+)d)?\$")
 
 
 def _norm(v: Optional[str]) -> str:
@@ -105,12 +110,22 @@ def _is_ad_period(period_url: str, period_element) -> bool:
     - Have "/ad/" in their base URL (e.g., https://.../ad/ixmedia/encoding-xxx/)
     - Have no content protection (DRM)
     """
-    is_ad_presente = "/ad/" in period_url.lower()
+    url_is_ad = bool(_AD_PATH_RE.search(period_url or ""))
     has_drm = period_element.find(".//mpd:ContentProtection", _NS) is not None
+
+    xlink_actuate = ""
+    for attr_name, attr_value in period_element.attrib.items():
+        if attr_name.lower().endswith("actuate"):
+            xlink_actuate = (attr_value or "").strip().lower()
+            break
+
+    asset_identifier = period_element.find(".//mpd:AssetIdentifier", _NS)
+    asset_text = (asset_identifier.text or "").strip().lower() if asset_identifier is not None else ""
+    asset_is_ad = any(token in asset_text for token in ("ad", "advert", "impression", "preroll", "midroll", "postroll"))
+    xlink_is_ad = xlink_actuate == "onload"
+    logger.info("_is_ad_period | url=%s | url_ad=%s | xlink_onload=%s | asset_ad=%s | has_drm=%s", period_url, url_is_ad, xlink_is_ad, asset_is_ad, has_drm,)
     
-    logger.info(f"_is_ad_period | url={period_url} | has_/ad/={is_ad_presente} | has_drm={has_drm}")
-    
-    if is_ad_presente and not has_drm:
+    if (url_is_ad or xlink_is_ad or asset_is_ad) and not has_drm:
         return True
     return False
 
@@ -120,7 +135,13 @@ def _is_file_url(url: str) -> bool:
     try:
         path = (urlparse(url).path or "").rstrip("/")
         tail = path.rsplit("/", 1)[-1]
-        return bool(tail and "." in tail)
+        if not tail or "." not in tail:
+            return False
+        dot_idx = tail.rfind(".")
+        if dot_idx <= 0:
+            return False
+        ext = tail[dot_idx:].lower()
+        return ext in _FILE_EXT_WHITELIST
     except Exception:
         return False
 
@@ -530,24 +551,67 @@ class DashParser:
             return resolved
         return parent_base
 
+    @staticmethod
+    def _expand_segment_template_tokens(template: str, rep_id: str, bandwidth: int, number: Optional[int] = None, time_value: Optional[int] = None) -> str:
+        if not template:
+            return ""
+
+        # DASH escaping for literal '$'
+        escaped = template.replace("$$", "__DASH_DOLLAR__")
+
+        def _repl(match: re.Match) -> str:
+            token = match.group(1)
+            width_raw = match.group(2)
+            width = int(width_raw) if width_raw else 0
+
+            if token == "RepresentationID":
+                value = rep_id
+            elif token == "Bandwidth":
+                value = str(int(bandwidth or 0))
+            elif token == "Number":
+                if number is None:
+                    return match.group(0)
+                value = str(int(number))
+            elif token == "Time":
+                if time_value is None:
+                    return match.group(0)
+                value = str(int(time_value))
+            else:
+                return match.group(0)
+
+            if width and value.isdigit():
+                return value.zfill(width)
+            return value
+
+        expanded = _SEGMENT_TOKEN_RE.sub(_repl, escaped)
+        return expanded.replace("__DASH_DOLLAR__", "$")
+
     
     def _apply_segment_template(self, tmpl, rep_id, stream, period_start, base_url):
         if "/ad/" in base_url.lower():
             logger.info(f"DashParser: segment skipped (ad path) | url={base_url}")
             return
-        init_tpl = tmpl.get("initialization", "").replace("$RepresentationID$", rep_id)
-        media_tpl = tmpl.get("media", "").replace("$RepresentationID$", rep_id)
+        init_tpl = tmpl.get("initialization", "")
+        media_tpl = tmpl.get("media", "")
         start_num = int(tmpl.get("startNumber", 1))
         timescale = int(tmpl.get("timescale", 1))
+        bandwidth = int(stream.bitrate or 0)
+        start_time = int(period_start * timescale) if period_start else 0
 
         if init_tpl:
-            stream.add_segment(Segment(urljoin(base_url, init_tpl), 0, "init"))
+            init_url = self._expand_segment_template_tokens(
+                init_tpl,
+                rep_id,
+                bandwidth,
+                number=start_num,
+                time_value=start_time,
+            )
+            stream.add_segment(Segment(urljoin(base_url, init_url), 0, "init"))
 
         timeline = tmpl.find(".//mpd:SegmentTimeline", _NS)
         if timeline is not None:
             seg_num = start_num
-            current_time = int(period_start * timescale) if period_start else 0
-            use_time = "$Time$" in media_tpl
+            current_time = start_time
             for s_el in timeline.findall("mpd:S", _NS):
                 t = s_el.get("t")
                 if t is not None:
@@ -555,23 +619,26 @@ class DashParser:
                 d = int(s_el.get("d", 0))
                 r = int(s_el.get("r", 0))
                 for _ in range(r + 1):
-                    seg_url = (
-                        media_tpl.replace("$Time$", str(current_time))
-                        if use_time
-                        else media_tpl.replace("$Number$", str(seg_num))
+                    seg_url = self._expand_segment_template_tokens(
+                        media_tpl,
+                        rep_id,
+                        bandwidth,
+                        number=seg_num,
+                        time_value=current_time,
                     )
                     stream.add_segment(Segment(urljoin(base_url, seg_url), seg_num, "media"))
                     current_time += d
                     seg_num += 1
-        elif "$Number$" in media_tpl:
+        elif "$Number" in media_tpl:
             seg_duration = int(tmpl.get("duration", 0))
             if seg_duration <= 0 or stream.duration <= 0:
                 logger.error("DashParser: SegmentTemplate $Number$ without timeline: missing duration — cannot generate segments")
                 return
             total_segments = math.ceil(stream.duration * timescale / seg_duration)
             for i in range(start_num, start_num + total_segments):
-                stream.add_segment(Segment(urljoin(base_url, media_tpl.replace("$Number$", str(i))), i, "media"))
-        elif "$Time$" in media_tpl:
+                seg_url = self._expand_segment_template_tokens(media_tpl, rep_id, bandwidth, number=i)
+                stream.add_segment(Segment(urljoin(base_url, seg_url), i, "media"))
+        elif "$Time" in media_tpl:
             logger.error("DashParser: SegmentTemplate $Time$ without SegmentTimeline — skipping")
     
     def _apply_segment_list(self, seg_list, stream, base_url):

@@ -10,6 +10,7 @@ from rich.console import Console
 from VibraVid.utils import config_manager
 from VibraVid.setup import binary_paths, get_ffmpeg_path
 from VibraVid.core.ui.tracker import context_tracker
+from VibraVid.core.utils.language import resolve_iso639_2
 
 from .helper.video import detect_ts_timestamp_issues, convert_ts_to_mp4, resolve_compatible_extension
 from .helper.audio import check_duration_v_a, has_audio, get_video_duration
@@ -19,13 +20,22 @@ from .capture import capture_ffmpeg_real_time
 
 console = Console()
 logger = logging.getLogger(__name__)
-os_type = binary_paths._detect_system()
 USE_GPU = config_manager.config.get_bool("PROCESS", "use_gpu")
-PARAM_VIDEO = config_manager.config.get_list("PROCESS", "param_video")
-PARAM_AUDIO = config_manager.config.get_list("PROCESS", "param_audio")
-PARAM_FINAL = config_manager.config.get_list("PROCESS", "param_final")
 FORCE_SUBTITLE = config_manager.config.get("PROCESS", "force_subtitle")
 SUBTITLE_DISPOSITION_LANGUAGE = config_manager.config.get("PROCESS", "subtitle_disposition_language")
+_GPU_TYPE_CACHE = None
+
+
+def _get_param_video() -> list:
+    return config_manager.config.get_list("PROCESS", "param_video")
+
+
+def _get_param_audio() -> list:
+    return config_manager.config.get_list("PROCESS", "param_audio")
+
+
+def _get_param_final() -> list:
+    return config_manager.config.get_list("PROCESS", "param_final")
 
 
 def detect_gpu_device_type() -> str:
@@ -35,6 +45,12 @@ def detect_gpu_device_type() -> str:
     Returns:
         str: The type of GPU device detected ('cuda', 'vaapi', 'qsv', or 'none').
     """
+    global _GPU_TYPE_CACHE
+    if _GPU_TYPE_CACHE is not None:
+        return _GPU_TYPE_CACHE
+
+    os_type = binary_paths._detect_system()
+
     try:
         if os_type == 'linux':
             result = subprocess.run(['lspci'], capture_output=True, text=True, check=True)
@@ -56,19 +72,25 @@ def detect_gpu_device_type() -> str:
             output = result.stdout.lower()
 
         else:
-            return 'none'
+            _GPU_TYPE_CACHE = 'none'
+            return _GPU_TYPE_CACHE
 
         if 'nvidia' in output:
-            return 'cuda'
+            _GPU_TYPE_CACHE = 'cuda'
+            return _GPU_TYPE_CACHE
         elif 'intel' in output:
-            return 'qsv'
+            _GPU_TYPE_CACHE = 'qsv'
+            return _GPU_TYPE_CACHE
         elif 'amd' in output or 'ati' in output:
-            return 'vaapi'
+            _GPU_TYPE_CACHE = 'vaapi'
+            return _GPU_TYPE_CACHE
         else:
-            return 'none'
+            _GPU_TYPE_CACHE = 'none'
+            return _GPU_TYPE_CACHE
 
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return 'none'
+        _GPU_TYPE_CACHE = 'none'
+        return _GPU_TYPE_CACHE
 
 
 def add_encoding_params(ffmpeg_cmd: List[str]):
@@ -84,18 +106,22 @@ def add_encoding_params(ffmpeg_cmd: List[str]):
     Parameters:
         ffmpeg_cmd (List[str]): FFmpeg command list to extend in-place.
     """
-    if PARAM_FINAL:
-        ffmpeg_cmd.extend(PARAM_FINAL)
+    param_final = _get_param_final()
+    param_video = _get_param_video()
+    param_audio = _get_param_audio()
+
+    if param_final:
+        ffmpeg_cmd.extend(param_final)
         return
 
-    if PARAM_VIDEO:
-        ffmpeg_cmd.extend(PARAM_VIDEO)
+    if param_video:
+        ffmpeg_cmd.extend(param_video)
     else:
         logger.warning("No video encoding parameters set in config. Using default: libx265 with CRF 22.")
         ffmpeg_cmd.extend(['-c:v', 'libx265', '-crf', '22', '-preset', 'medium'])
 
-    if PARAM_AUDIO:
-        ffmpeg_cmd.extend(PARAM_AUDIO)
+    if param_audio:
+        ffmpeg_cmd.extend(param_audio)
     else:
         logger.warning("No audio encoding parameters set in config. Using default: libopus with 128k bitrate.")
         ffmpeg_cmd.extend(['-c:a', 'libopus', '-b:a', '128k'])
@@ -221,7 +247,8 @@ def join_audios(video_path: str, audio_tracks: List[Dict[str, str]], out_path: s
         ffmpeg_cmd.extend(['-map', f'{i}:a'])
 
     for i, audio_track in enumerate(audio_tracks):
-        lang_code = audio_track.get('name', 'unknown')
+        lang_source = audio_track.get('language') or audio_track.get('name', 'unknown')
+        lang_code = resolve_iso639_2(lang_source)
         ffmpeg_cmd.extend([f'-metadata:s:a:{i}', f'language={lang_code}'])
         ffmpeg_cmd.extend([f'-metadata:s:a:{i}', f'title={audio_track.get("name", "unknown")}'])
 

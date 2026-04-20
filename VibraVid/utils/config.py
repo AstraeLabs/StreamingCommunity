@@ -434,6 +434,11 @@ class ConfigManager:
                 console.print(f"[green]Domains loaded from GitHub structure: {site_count} streaming services")
 
             else:
+                console.print("[dim]Domain file not found locally, trying online fallback...")
+                self._load_site_data_online()
+                if self._domains_data:
+                    return
+
                 console.print("[dim]Domain path: Disabled[/dim]")
                 self._domains_data.clear()
         

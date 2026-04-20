@@ -119,7 +119,7 @@ def check_ffmpeg() -> Tuple[Optional[str], Optional[str]]:
 
     # STEP 3: Download (only if installation level includes ffmpeg)
     if not _should_download("ffmpeg"):
-        logger.info(f"Skipping download of ffmpeg/ffprobe (installation level: {binary_paths.installation_level})")
+        logger.info("Skipping download of ffmpeg/ffprobe")
         return None, None
 
     ffmpeg_downloaded = binary_paths.download_binary("ffmpeg", ffmpeg_name)

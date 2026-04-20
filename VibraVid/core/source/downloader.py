@@ -535,7 +535,13 @@ class MediaDownloader(BaseMediaDownloader):
             path_value = event.get("path")
             if path_value:
                 seg = segment_meta_by_path.get(normalize_path_key(str(path_value)))
-                if seg and seg.get("seg_type") == "media" and not decrypt_thread:
+                should_probe_now = (
+                    seg
+                    and seg.get("seg_type") == "media"
+                    and not decrypt_thread
+                    and not ((not live_decryption) and bool(self.key))
+                )
+                if should_probe_now:
                     _probe_once(Path(path_value), f"{protocol.upper()}-first-media-segment")
             
             if decrypt_thread:
@@ -586,6 +592,7 @@ class MediaDownloader(BaseMediaDownloader):
                         post_merge_path.rename(out_path)
                         post_merge_renamed = True
                         logger.info(f"{protocol.upper()} post-merge decrypt normalized -> {out_path.name}")
+                        _probe_once(out_path, f"{protocol.upper()}-post-merge-decrypt")
                     except Exception as exc:
                         logger.error(f"{protocol.upper()} post-merge rename failed: {exc}")
                         if post_merge_path.exists():

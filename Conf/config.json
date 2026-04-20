@@ -40,7 +40,7 @@
         "extension": "mkv"
     },
     "REQUESTS": {
-        "timeout": 15,
+        "timeout": 20,
         "max_retry": 8,
         "use_proxy": false,
         "proxy": {

@@ -196,12 +196,16 @@ def terminate_process(process):
     """
     try:
         if process.poll() is None:
-            process.kill()
+            process.terminate()
+            try:
+                process.wait(timeout=2.0)
+            except Exception:
+                process.kill()
     except Exception as e:
         logger.error(f"Failed to terminate process: {e}")
 
 
-def capture_ffmpeg_real_time(ffmpeg_command: list, description: str, total_duration: Optional[float] = None) -> dict:
+def capture_ffmpeg_real_time(ffmpeg_command: list, description: str, total_duration: Optional[float] = None, wait_timeout_seconds: float = 1800.0) -> dict:
     """
     Function to capture real-time output from ffmpeg process.
 
@@ -220,29 +224,56 @@ def capture_ffmpeg_real_time(ffmpeg_command: list, description: str, total_durat
 
     _parent_download_id = context_tracker.download_id
     _parent_is_parallel = context_tracker.is_parallel_cli
+    process: Optional[subprocess.Popen] = None
+    output_thread: Optional[threading.Thread] = None
+    timed_out = False
 
     try:
-        process = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        process = subprocess.Popen(
+            ffmpeg_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1,
+        )
 
         def _output_worker():
             context_tracker.download_id = _parent_download_id
             context_tracker.is_parallel_cli = _parent_is_parallel
             capture_output(process, description, progress_data, terminate_flag, total_duration)
 
-        output_thread = threading.Thread(target=_output_worker)
+        output_thread = threading.Thread(target=_output_worker, daemon=True)
         output_thread.start()
 
         try:
-            process.wait()
+            process.wait(timeout=max(wait_timeout_seconds, 1.0))
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            logger.error("FFmpeg timed out after %.1fs; terminating process", wait_timeout_seconds)
+            terminate_flag.set()
+            terminate_process(process)
         except KeyboardInterrupt:
             logger.error("Terminating ffmpeg process...")
         except Exception as e:
             logger.error(f"Error in ffmpeg process: {e}")
         finally:
             terminate_flag.set()
-            output_thread.join()
+            if process and process.stdout:
+                try:
+                    process.stdout.close()
+                except Exception:
+                    pass
+
+            if output_thread:
+                output_thread.join(timeout=10.0)
+                if output_thread.is_alive():
+                    logger.warning("FFmpeg output thread did not terminate within timeout")
 
     except Exception as e:
         logger.error(f"Failed to start ffmpeg process: {e}")
 
-    return progress_data.get()
+    result = progress_data.get() or {}
+    if process is not None:
+        result.setdefault("exit_code", process.returncode)
+    result.setdefault("timed_out", timed_out)
+    return result

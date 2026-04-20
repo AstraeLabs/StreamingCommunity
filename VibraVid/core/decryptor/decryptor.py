@@ -105,10 +105,8 @@ class Decryptor:
                 return True
 
             if mode == "unknown":
-                # Preserve legacy behaviour: fallback copy for force-attempt path.
-                logger.error("Forced decryption failed; copying input to output.")
-                shutil.copy(encrypted_path, output_path)
-                return True
+                logger.error("Forced decryption failed in unknown mode; refusing to copy encrypted content as decrypted output.")
+                return False
 
             return False
 

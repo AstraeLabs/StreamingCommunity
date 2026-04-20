@@ -85,13 +85,15 @@ class MediasetAPI:
             'appName': self.app_name,
             'client_id': self.client_id,
         }
-        response = create_client(headers=self.headers).post('https://api-ott-prod-fe.mediaset.net/PROD/play/idm/anonymous/login/v2.0', json=json_data)
-        return response.json()['response']['beToken']
+        with create_client(headers=self.headers) as client:
+            response = client.post('https://api-ott-prod-fe.mediaset.net/PROD/play/idm/anonymous/login/v2.0', json=json_data)
+            return response.json()['response']['beToken']
 
     def fetch_html(self):
-        response = create_client(headers=self.headers).get("https://mediasetinfinity.mediaset.it/")
-        response.raise_for_status()
-        return response.text
+        with create_client(headers=self.headers) as client:
+            response = client.get("https://mediasetinfinity.mediaset.it/")
+            response.raise_for_status()
+            return response.text
 
     def find_relevant_script(self, html):
         soup = BeautifulSoup(html, "html.parser")
@@ -144,9 +146,10 @@ def get_playback_url(CONTENT_ID):
     }
 
     try:
-        response = create_client(headers=headers).post('https://api-ott-prod-fe.mediaset.net/PROD/play/playback/check/v2.0', json=json_data)
-        response.raise_for_status()
-        resp_json = response.json()
+        with create_client(headers=headers) as client:
+            response = client.post('https://api-ott-prod-fe.mediaset.net/PROD/play/playback/check/v2.0', json=json_data)
+            response.raise_for_status()
+            resp_json = response.json()
 
         # Check for PL022 error (Infinity+ rights)
         if 'error' in resp_json and resp_json['error'].get('code') == 'PL022':
@@ -284,11 +287,12 @@ def get_tracking_info(PLAYBACK_JSON):
         params['publicUrl'] = PLAYBACK_JSON['publicUrl']
 
     try:
-        response = create_client(headers={'user-agent': get_userAgent()}).get(PLAYBACK_JSON['url'], params=params)
-        response.raise_for_status()
+        with create_client(headers={'user-agent': get_userAgent()}) as client:
+            response = client.get(PLAYBACK_JSON['url'], params=params)
+            response.raise_for_status()
 
-        results = parse_smil_for_media_info(response.text)
-        return results
+            results = parse_smil_for_media_info(response.text)
+            return results
 
     except Exception as e:
         print(f"Error fetching tracking info: {e}")

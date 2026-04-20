@@ -19,12 +19,15 @@ from VibraVid.core.utils.language import resolve_locale
 
 logger = logging.getLogger(__name__)
 console = Console()
-timeout = config_manager.config.get_int("REQUESTS", "timeout")
 
-_CC_NAME_RE = re.compile(r"\[CC\]|(?<!\w)CC(?!\w)|closed[- _]captions?|SDH", re.IGNORECASE)
-_SDH_NAME_RE = re.compile(r"\[SDH\]|(?<!\w)SDH(?!\w)|hearing[- _]impaired|HI(?!\w)", re.IGNORECASE)
+_CC_NAME_RE = re.compile(r"\[CC\]|\bCC\b|closed[- _]captions?|\bSDH\b", re.IGNORECASE)
+_SDH_NAME_RE = re.compile(r"\[SDH\]|\bSDH\b|hearing[- _]impaired|\bHI\b", re.IGNORECASE)
 _FORCED_NAME_RE = re.compile(r"\[forced\]|\bforced\b", re.IGNORECASE)
 _COMPOUND_LANG_RE = re.compile(r"^(.+?)[-_](forced|cc|sdh|hi|default)$", re.IGNORECASE)
+
+
+def _request_timeout() -> int:
+    return config_manager.config.get_int("REQUESTS", "timeout")
 
 
 def _make_video_id(s: Stream) -> str:
@@ -83,7 +86,7 @@ class HLSParser:
         try:
             hdrs = dict(self.headers)
             hdrs.setdefault("User-Agent", get_headers().get("User-Agent", ""))
-            with create_client(headers=hdrs, timeout=timeout, follow_redirects=True) as c:
+            with create_client(headers=hdrs, timeout=_request_timeout(), follow_redirects=True) as c:
                 r = c.get(self.m3u8_url)
                 r.raise_for_status()
                 self.raw_content = r.text
@@ -195,7 +198,7 @@ class HLSParser:
         try:
             hdrs = dict(self.headers)
             hdrs.setdefault("User-Agent", get_headers().get("User-Agent", ""))
-            with create_client(headers=hdrs, timeout=timeout, follow_redirects=True) as c:
+            with create_client(headers=hdrs, timeout=_request_timeout(), follow_redirects=True) as c:
                 r = c.get(variant_url)
                 r.raise_for_status()
                 variant_content = r.text

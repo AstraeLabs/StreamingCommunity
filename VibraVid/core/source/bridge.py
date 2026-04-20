@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import queue
 import subprocess
 import tempfile
@@ -16,6 +17,96 @@ from VibraVid.core.source.download_utils import (normalize_path_key, format_size
 
 logger = logging.getLogger("velora_bridge")
 _QUEUE_SENTINEL = object()
+_EVENT_CB_LOCK = threading.Lock()
+_PROGRESS_CB_LOCK = threading.Lock()
+DEFAULT_WAIT_TIMEOUT_SECONDS = 900.0
+
+
+def _safe_event_cb(event_cb: Optional[Callable[[Dict[str, Any]], None]], event: Dict[str, Any]) -> None:
+    if not event_cb:
+        return
+    try:
+        with _EVENT_CB_LOCK:
+            event_cb(event)
+    except Exception as exc:
+        logger.debug("event_cb raised: %s", exc)
+
+
+def _safe_progress_cb(progress_cb: Optional[Callable[[int, int, int, float], None]], done: int, total: int, total_bytes: int, speed: float) -> None:
+    if not progress_cb:
+        return
+    try:
+        with _PROGRESS_CB_LOCK:
+            progress_cb(done, total, total_bytes, speed)
+    except Exception as exc:
+        logger.debug("progress_cb raised: %s", exc)
+
+
+def _request_stop_via_stdin(process: subprocess.Popen[str]) -> bool:
+    if process.stdin is None or process.poll() is not None:
+        return False
+    try:
+        process.stdin.write('{"event":"stop"}\n')
+        process.stdin.flush()
+        return True
+    except Exception as exc:
+        logger.debug("Failed to send stop event on stdin: %s", exc)
+        return False
+
+
+def _terminate_process_tree(process: subprocess.Popen[str], graceful_timeout: float = 5.0) -> None:
+    if process.poll() is not None:
+        return
+
+    try:
+        process.terminate()
+        process.wait(timeout=graceful_timeout)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    except Exception as exc:
+        logger.debug("Graceful terminate failed: %s", exc)
+
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                text=True,
+            )
+        except Exception as exc:
+            logger.debug("taskkill failed: %s", exc)
+    else:
+        try:
+            import signal
+
+            os.killpg(process.pid, signal.SIGKILL)
+        except Exception as exc:
+            logger.debug("killpg failed: %s", exc)
+
+    try:
+        process.wait(timeout=2.0)
+    except Exception:
+        pass
+
+
+def _stop_process_orderly(process: subprocess.Popen[str], graceful_timeout: float = 5.0) -> None:
+    if process.poll() is not None:
+        return
+
+    sent = _request_stop_via_stdin(process)
+    if sent:
+        try:
+            process.wait(timeout=graceful_timeout)
+            return
+        except subprocess.TimeoutExpired:
+            logger.debug("Stop event sent but process did not exit in time")
+        except Exception as exc:
+            logger.debug("Error while waiting after stop event: %s", exc)
+
+    _terminate_process_tree(process, graceful_timeout=graceful_timeout)
 
 
 def _format_header_keys(headers: Optional[Dict[str, Any]]) -> str:
@@ -112,7 +203,7 @@ def _normalize_event_task_key(event: Dict[str, Any]) -> Dict[str, Any]:
     
     return event
 
-def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int, int, int, float], None]] = None, event_cb: Optional[Callable[[Dict[str, Any]], None]] = None, stop_check: Optional[Callable[[], bool]] = None) -> List[Dict[str, Any]]:
+def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int, int, int, float], None]] = None, event_cb: Optional[Callable[[Dict[str, Any]], None]] = None, stop_check: Optional[Callable[[], bool]] = None, wait_timeout_seconds: float = DEFAULT_WAIT_TIMEOUT_SECONDS) -> List[Dict[str, Any]]:
     """
     Launch the Velora binary for *plan* and stream its events back to the caller.
 
@@ -141,6 +232,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
     plan_path: Optional[str] = None
     process: Optional[subprocess.Popen[str]] = None
     stop_thread: Optional[threading.Thread] = None
+    reader_thread: Optional[threading.Thread] = None
     results: List[Dict[str, Any]] = []
     done_count = 0
     total_bytes = 0
@@ -150,7 +242,12 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
         # Write plan to a temp file.
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as tmp:
             plan_path = tmp.name
+            try:
+                os.chmod(plan_path, 0o600)
+            except Exception:
+                pass
             json.dump(plan, tmp, ensure_ascii=False)
+            tmp.flush()
 
         command = (["dotnet", binary_path, plan_path] if binary_path.lower().endswith(".dll") else [binary_path, plan_path])
         logger.info(f"Launching Velora with command: {command}")
@@ -158,11 +255,14 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
+            stdin=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            start_new_session=(os.name != "nt"),
+            creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0),
         )
 
         # Read stdout in a dedicated thread → queue so the main loop cannot block forever if the process crashes silently.
@@ -185,11 +285,8 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                 logger.debug("Stop-watcher thread started")
                 while process.poll() is None:
                     if stop_check():
-                        logger.warning("Stop requested, terminating velora...")
-                        try:
-                            process.terminate()
-                        except Exception as e:
-                            logger.error(f"Failed to terminate: {e}")
+                        logger.warning("Stop requested, forwarding stop event to Velora...")
+                        _stop_process_orderly(process, graceful_timeout=5.0)
                         return
                     
                     time.sleep(0.25)
@@ -212,10 +309,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                 break
 
             if stop_check and stop_check():
-                try:
-                    process.terminate()
-                except Exception:
-                    pass
+                _stop_process_orderly(process, graceful_timeout=5.0)
                 break
 
             raw_line = item
@@ -254,7 +348,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                     normalized_event.setdefault("display_label", plan.get("display_label", ""))
                     normalized_event.setdefault("segments", "0/1")
                     normalized_event.setdefault("speed", "ERR")
-                    event_cb(normalized_event)
+                    _safe_event_cb(event_cb, normalized_event)
                 continue
 
             if event_name in {"error", "cancelled"}:
@@ -266,7 +360,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                     normalized_event.setdefault("display_label", plan.get("display_label", ""))
                     normalized_event.setdefault("segments", "0/1")
                     normalized_event.setdefault("speed", "ERR")
-                    event_cb(normalized_event)
+                    _safe_event_cb(event_cb, normalized_event)
                 continue
 
             if event_name == "completed" or "path" in event:
@@ -277,8 +371,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
 
                 elapsed = max(time.monotonic() - started_at, 0.001)
                 speed = total_bytes / elapsed
-                if progress_cb:
-                    progress_cb(done_count, total, total_bytes, speed)
+                _safe_progress_cb(progress_cb, done_count, total, total_bytes, speed)
 
                 progress_event = dict(event)
                 progress_event.setdefault("task_key", plan.get("task_key", "download"))
@@ -296,8 +389,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                 progress_event.setdefault("final_size", format_size(bytes_written))
                 progress_event.setdefault("speed", format_speed(speed))
 
-                if event_cb:
-                    event_cb(progress_event)
+                _safe_event_cb(event_cb, progress_event)
 
                 results.append(
                     {
@@ -311,11 +403,15 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                 )
                 continue
 
-            if event_cb:
-                event_cb(event)
+            _safe_event_cb(event_cb, event)
 
         if process is not None:
-            return_code = process.wait()
+            try:
+                return_code = process.wait(timeout=max(wait_timeout_seconds, 1.0))
+            except subprocess.TimeoutExpired:
+                logger.error("Velora wait timeout (%.1fs), terminating process tree", wait_timeout_seconds)
+                _terminate_process_tree(process, graceful_timeout=2.0)
+                return_code = process.returncode
             if return_code not in (0, None):
                 logger.warning("Velora exited with code %s", return_code)
 
@@ -334,23 +430,13 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
         if process:
             try:
                 if process.poll() is None:
-                    logging.info("Terminating velora process (SIGTERM)...")
-                    process.terminate()
-                    
-                    # Wait up to 5 seconds for graceful termination
-                    try:
-                        process.wait(timeout=5.0)
-                        logger.debug("Velora terminated gracefully")
-                    except subprocess.TimeoutExpired:
-                        logger.warning("Velora didn't terminate in 5s, using SIGKILL...")
-                        process.kill()
-                        process.wait(timeout=2.0)
-                        logger.warning("✓Velora force-killed")
+                    logging.info("Terminating velora process...")
+                    _stop_process_orderly(process, graceful_timeout=5.0)
             except Exception as e:
                 logger.error(f"Error terminating velora: {e}")
 
         # Join reader thread with longer timeout
-        if "reader_thread" in dir() and reader_thread and reader_thread.is_alive():
+        if reader_thread and reader_thread.is_alive():
             logger.debug("Waiting for reader thread...")
             reader_thread.join(timeout=5.0)
             if reader_thread.is_alive():

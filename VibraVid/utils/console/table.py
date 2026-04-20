@@ -1,6 +1,5 @@
 # 03.03.24
 
-import sys
 import logging
 from typing import Dict, List, Any
 
@@ -105,7 +104,7 @@ class TVShowManager:
         """
         if not self.tv_shows:
             logger.error("Error: No data available for display.")
-            sys.exit(0)
+            return ""
             
         if not self.column_info:
             logger.error("Error: Columns not configured.")
@@ -126,7 +125,8 @@ class TVShowManager:
             
             result_func = self.display_data(current_slice)
             if result_func == 404:
-                sys.exit(1)
+                logger.error("Error displaying data. Exiting.")
+                return ""
 
             # Handle pagination and user input
             if self.slice_end < total_items:

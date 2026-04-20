@@ -4,9 +4,13 @@ import os
 import subprocess
 import threading
 import time
+import logging
 from typing import Callable, Dict, Any, Optional
 
 from VibraVid.core.ui.bar_manager import console
+
+
+logger = logging.getLogger(__name__)
 
 
 def _render_bar(percent: int, length: int = 10) -> str:
@@ -21,7 +25,7 @@ def _render_bar(percent: int, length: int = 10) -> str:
     return f"{bar} [dim]{percent:3d}%[/dim]"
 
 
-def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: str, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None) -> tuple:
+def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: str, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None, timeout_seconds: Optional[int] = 1800) -> tuple:
     """
     Launch *cmd* as a subprocess and monitor its progress by watching how
     fast the *output_path* file grows relative to *encrypted_path*.
@@ -56,8 +60,8 @@ def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: s
                     "compact_metrics": True,
                 }
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("progress_cb error for %s: %s", task_key, exc)
 
     def _monitor() -> None:
         nonlocal progress_percent, last_progress_update, last_observed_percent
@@ -75,17 +79,17 @@ def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: s
                     last_progress_update  = now
                     _emit(progress_percent, current_size)
 
-                elif running and progress_percent < 99 and now - last_progress_update >= 0.10:
+                elif running and progress_percent < 99 and now - last_progress_update >= 0.20:
                     progress_percent     = min(progress_percent + 1, 99)
                     last_progress_update = now
                     _emit(progress_percent, current_size)
 
-            elif running and progress_percent < 95 and now - last_progress_update >= 0.10:
-                progress_percent     = min(progress_percent + 1, 95)
+            elif running and progress_percent < 90 and now - last_progress_update >= 0.30:
+                progress_percent     = min(progress_percent + 1, 90)
                 last_progress_update = now
                 _emit(progress_percent, 0)
 
-            time.sleep(0.03)
+            time.sleep(0.05)
 
     stderr_lines: list[str] = []
     try:
@@ -107,11 +111,20 @@ def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: s
         else:
             _emit(0, 0)
 
+        start_wait = time.monotonic()
         while process.poll() is None:
             if progress_cb is None and progress_percent != last_rendered_percent:
                 console.print(f"{label} {_render_bar(progress_percent)}", end="\r")
                 last_rendered_percent = progress_percent
-            time.sleep(0.05)
+
+            if timeout_seconds and (time.monotonic() - start_wait) > timeout_seconds:
+                process.kill()
+                return False, f"Timeout after {timeout_seconds}s"
+
+            try:
+                process.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                continue
 
         process.wait()
         stderr_thread.join(timeout=2)
@@ -130,9 +143,7 @@ def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: s
     else:
         _emit(final_percent, final_size)
 
-    time.sleep(0.3)
-
-    if process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+    if process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
         return True
 
     stderr_text = "".join(stderr_lines).strip()

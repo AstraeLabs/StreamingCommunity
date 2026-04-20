@@ -204,9 +204,9 @@ def show_dependencies(search_functions):
     for func in sorted(search_functions.values(), key=lambda x: x.indice):
         if func.source.lower() == "default":
             base_path = func.base_path if func.base_path else "N/A"
-            service_path = f"{base_path}\\{func.module_name}" if base_path != "N/A" else "N/A"
+            service_path = os.path.join(base_path, func.module_name) if base_path != "N/A" else "N/A"
         else:
-            service_path = f"{func.base_path}\\{func.module_name}" if func.base_path else "N/A"
+            service_path = os.path.join(func.base_path, func.module_name) if func.base_path else "N/A"
 
         console.print(f"  [{COLOR_MAP.get(func.use_for, 'white')}][{func.indice}][/] [yellow]{func.module_name.capitalize()}[/]: [white]{service_path}[/]")
     console.print()

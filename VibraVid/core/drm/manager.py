@@ -1,6 +1,5 @@
 # 29.01.26
 
-import sys
 import logging
 from typing import Optional
 from urllib.parse import urlparse
@@ -86,7 +85,7 @@ class DRMManager:
                 logger.error(f"Failed to sync to {name} (will continue): {e}")
                 console.print(f"[yellow]Warning: Could not sync to {name}: {e}")
 
-    def _resolve_keys(self, pssh_list: list[dict], license_url: str, drm_type: str, cdm_fn, cdm_kwargs: dict, key: str = None) -> KeysManager:
+    def _resolve_keys(self, pssh_list: list[dict], license_url: str, drm_type: str, cdm_fn, cdm_kwargs: dict, key: str = None) -> Optional[KeysManager]:
         """
         Shared key resolution logic for both Widevine and PlayReady.
         Step 1: Manual key override. Step 2: vault lookup (by license_url or generic). Step 3: CDM extraction as fallback.
@@ -158,7 +157,7 @@ class DRMManager:
 
                 logger.error(f"{drm_type} CDM extraction returned no keys")
                 console.print("[yellow]CDM extraction returned no keys")
-                sys.exit(0)
+                return None
 
             except Exception as e:
                 logger.error(f"{drm_type} CDM error: {e}")
@@ -166,10 +165,10 @@ class DRMManager:
 
             logger.error(f"All {drm_type} extraction methods failed")
             console.print(f"\n[red]All extraction methods failed for {drm_type}")
-            sys.exit(0)
             return None
         else:
             console.print("[yellow]CDM extraction disabled by config.")
+            return None
 
     def get_wv_keys(self, pssh_list: list[dict], license_url: str, license_certificate: str = None, headers: dict = None, key: str = None):
         """
