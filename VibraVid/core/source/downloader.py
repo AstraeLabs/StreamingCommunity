@@ -649,7 +649,7 @@ class MediaDownloader(BaseMediaDownloader):
                         "display_label": plan_label or plan_task_key,
                         "url": seg["url"],
                         "path": str(out_dir / f"seg_{seg['number']:08d}.bin"),
-                        "headers": {**headers, **(seg.get("headers", {}))},   # Merge global headers with segment-specific ones (e.g., Range)
+                        "headers": seg.get("headers", {}),   # Task-specific headers only, Velora handles merging with global
                     }
                     for seg in segs
                 ],
