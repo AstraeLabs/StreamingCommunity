@@ -133,6 +133,13 @@ class BinaryPaths:
 
             if key not in paths_json:
                 logger.error("No binary paths found for key %s in binary paths JSON", key)
+                
+                # Fallback: the file may have been installed manually or by a previous session
+                # even though the remote manifest is unavailable (e.g. HTTP 404 / network error).
+                if os.path.isfile(local_path) and os.path.getsize(local_path) > 0:
+                    logger.info("Manifest unavailable but binary %s found on disk, using it", binary_name)
+                    self._resolved[binary_name] = local_path
+                    return local_path
                 return None
 
             for rel_path in paths_json[key]:

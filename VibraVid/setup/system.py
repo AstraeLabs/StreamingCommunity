@@ -90,8 +90,11 @@ def get_prd_path() -> str:
     return _prd_path
 
 def get_velora_path() -> str:
+    global _velora_path
     if not _initialized:
         _initialize_paths()
+    if _velora_path is None:
+        _velora_path = check_velora()
     return _velora_path
 
 def get_shaka_packager_path() -> str:

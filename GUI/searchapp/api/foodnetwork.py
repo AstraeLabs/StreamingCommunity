@@ -94,8 +94,12 @@ class FoodNetworkAPI(BaseStreamingAPI):
             episodes = []
             
             for idx, ep in enumerate(episodes_raw or [], 1):
+                ep_number = getattr(ep, "number", None)
+                if not ep_number and ep_number != 0:
+                    ep_number = idx
+
                 episode = Episode(
-                    number=getattr(ep, "number", idx),
+                    number=ep_number,
                     name=getattr(ep, 'name', f"Episodio {idx}"),
                     id=getattr(ep, 'id', idx)
                 )

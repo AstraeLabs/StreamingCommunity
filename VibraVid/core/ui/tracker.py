@@ -27,6 +27,7 @@ class DownloadTracker(metaclass=SingletonMeta):
         self.history: List[Dict[str, Any]] = []
         self.stop_events: Dict[str, threading.Event] = {}
         self.active_processes: Dict[str, List[any]] = {} 
+        self.stale_timeout_seconds = 30 * 60
         self._lock = threading.Lock()
         
     def start_download(self, download_id: str, title: str, site: str, media_type: str = "Film", path: str = None):
@@ -189,36 +190,59 @@ class DownloadTracker(metaclass=SingletonMeta):
     def complete_download(self, download_id: str, success: bool = True, error: str = None, path: str = None):
         hook_context = None
         with self._lock:
-            if download_id in self.downloads:
-                dl = self.downloads.pop(download_id)
-                
-                # Cleanup signals and processes
-                self.stop_events.pop(download_id, None)
-                self.active_processes.pop(download_id, None)
+            dl = self.downloads.pop(download_id, None)
 
-                dl["status"] = "completed" if success else "failed"
-                if error == "cancelled":
-                    dl["status"] = "cancelled"
+            # Cleanup signals and processes regardless of where the final state is stored.
+            self.stop_events.pop(download_id, None)
+            self.active_processes.pop(download_id, None)
+
+            found_in_history = False
+            if dl is None:
                 
-                dl["end_time"] = time.time()
-                dl["error"] = error
+                # Recovery path: if a long-running download was temporarily marked timed_out,
+                # allow final completion to overwrite that provisional state.
+                for item in reversed(self.history):
+                    if item.get("id") == download_id:
+                        if item.get("status") != "timed_out":
+                            return
+                        dl = item
+                        found_in_history = True
+                        break
+
+            if dl is None:
+                return
+
+            dl["status"] = "completed" if success else "failed"
+            if error == "cancelled":
+                dl["status"] = "cancelled"
+
+            dl["end_time"] = time.time()
+            dl["error"] = error
+            if path is not None:
                 dl["path"] = path
-                dl["progress"] = 100 if success else dl["progress"]
-                self.history.append(dl)
-                hook_context = {
-                    "download_id": dl.get("id"),
-                    "download_title": dl.get("title"),
-                    "download_site": dl.get("site"),
-                    "download_media_type": dl.get("type"),
-                    "download_status": dl.get("status"),
-                    "download_path": path or dl.get("path"),
-                    "success": success,
-                    "download_error": error or "",
-                }
+            dl["progress"] = 100 if success else dl.get("progress", 0)
 
-                # Limit history size
-                if len(self.history) > 50:
-                    self.history.pop(0)
+            if found_in_history:
+                try:
+                    self.history.remove(dl)
+                except ValueError:
+                    pass
+            self.history.append(dl)
+
+            hook_context = {
+                "download_id": dl.get("id"),
+                "download_title": dl.get("title"),
+                "download_site": dl.get("site"),
+                "download_media_type": dl.get("type"),
+                "download_status": dl.get("status"),
+                "download_path": path or dl.get("path"),
+                "success": success,
+                "download_error": error or "",
+            }
+
+            # Limit history size
+            if len(self.history) > 50:
+                self.history.pop(0)
 
         if hook_context:
             try:
@@ -233,17 +257,27 @@ class DownloadTracker(metaclass=SingletonMeta):
     def get_active_downloads(self) -> List[Dict[str, Any]]:
         with self._lock:
 
-            # Clean up old downloads that haven't been updated for a while (e.g. 5 minutes)
+            # Clean up very old downloads with no tracker updates.
             now = time.time()
+            timeout_seconds = int(getattr(self, "stale_timeout_seconds", 0) or 0)
             to_remove = []
             for did, dl in self.downloads.items():
-                if now - dl["last_update"] > 300: # 5 minutes timeout
-                    to_remove.append(did)
+                last_update = float(dl.get("last_update", now))
+                stale_for = now - last_update
+                if timeout_seconds > 0 and stale_for > timeout_seconds:
+                    to_remove.append((did, int(stale_for)))
             
-            for did in to_remove:
+            for did, stale_for in to_remove:
                 dl = self.downloads.pop(did)
                 dl["status"] = "timed_out"
+                dl["error"] = f"No tracker updates for {stale_for}s"
+                dl["end_time"] = now
+                self.stop_events.pop(did, None)
+                self.active_processes.pop(did, None)
                 self.history.append(dl)
+
+            if len(self.history) > 50:
+                self.history = self.history[-50:]
                 
             return list(self.downloads.values())
 

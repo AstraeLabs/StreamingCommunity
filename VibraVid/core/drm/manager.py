@@ -90,6 +90,12 @@ class DRMManager:
         Shared key resolution logic for both Widevine and PlayReady.
         Step 1: Manual key override. Step 2: vault lookup (by license_url or generic). Step 3: CDM extraction as fallback.
         """
+        all_kids = [
+            item["kid"].replace("-", "").strip().lower()
+            for item in pssh_list
+            if item.get("kid") and item["kid"] != "N/A"
+        ]
+
         if key:
             manual_keys = []
             for entry in key.split("|"):
@@ -100,6 +106,12 @@ class DRMManager:
                     key_val = parts[1].replace("-", "").strip()
                     manual_keys.append(f"{kid_val}:{key_val}")
             if manual_keys:
+                missing = self._missing_kids(all_kids, manual_keys)
+                if missing:
+                    msg = f"Missing {drm_type} key for KID(s): {', '.join(missing)}. Decryption cannot occur!"
+                    logger.warning(msg)
+                    console.print(f"[bold yellow]WARNING: {msg}[/bold yellow]")
+
                 base_license_url = self._clean_license_url(license_url) or "generic"
                 pssh_val = next((i.get("pssh") for i in pssh_list if i.get("pssh")), None)
                 kid_to_label = {
@@ -111,11 +123,6 @@ class DRMManager:
                 return KeysManager(manual_keys)
 
         base_license_url = self._clean_license_url(license_url)
-        all_kids = [
-            item["kid"].replace("-", "").strip().lower()
-            for item in pssh_list
-            if item.get("kid") and item["kid"] != "N/A"
-        ]
 
         pssh_val = next((i.get("pssh") for i in pssh_list if i.get("pssh")), None)
         kid_to_label = {
@@ -129,6 +136,7 @@ class DRMManager:
             logger.info(f"Looking up {len(all_kids)} {drm_type} KID(s) across {len(self._vaults)} vault(s)")
             found_keys, source = self._db_lookup(all_kids, base_license_url, drm_type, pssh_val)
             unique_keys = list(set(found_keys))
+            
             if unique_keys:
                 self._store_keys(unique_keys, drm_type, base_license_url, pssh_val, kid_to_label, source=source)
             if set(all_kids).issubset({k.split(":")[0].strip().lower() for k in unique_keys}):
@@ -140,6 +148,7 @@ class DRMManager:
             logger.warning(f"DRM detected but missing license_url. Searching database for {len(all_kids)} {drm_type} KID(s) using 'generic' lookup")
             found_keys, source = self._db_lookup(all_kids, "generic", drm_type, pssh_val)
             unique_keys = list(set(found_keys))
+
             if unique_keys and set(all_kids).issubset({k.split(":")[0].strip().lower() for k in unique_keys}):
                 logger.info(f"{drm_type} keys found in vault(s) via generic lookup: {len(unique_keys)} key(s)")
                 return KeysManager(unique_keys)
@@ -152,22 +161,29 @@ class DRMManager:
                 keys = cdm_fn(pssh_list, license_url, **cdm_kwargs)
                 if keys:
                     logger.info(f"{drm_type} CDM extraction successful: {len(keys.get_keys_list())} key(s)")
+                    missing = self._missing_kids(all_kids, keys.get_keys_list())
+                    if missing:
+                        msg = f"Missing {drm_type} key for KID(s): {', '.join(missing)}. Decryption cannot occur!"
+                        logger.warning(msg)
+                        console.print(f"[bold yellow]WARNING: {msg}[/bold yellow]")
+                    
                     self._store_keys(keys.get_keys_list(), drm_type, base_license_url, pssh_val, kid_to_label, source=None)
                     return keys
 
-                logger.error(f"{drm_type} CDM extraction returned no keys")
-                console.print("[yellow]CDM extraction returned no keys")
+                logger.error(f"{drm_type} CDM extraction returned no keys. Missing keys for KIDs: {', '.join(all_kids)}. Decryption cannot occur!")
+                console.print(f"[bold red]WARNING: Missing {drm_type} key for KID(s): {', '.join(all_kids)}. Decryption cannot occur![/bold red]")
                 return None
 
             except Exception as e:
                 logger.error(f"{drm_type} CDM error: {e}")
                 console.print(f"[red]CDM error: {e}")
 
-            logger.error(f"All {drm_type} extraction methods failed")
-            console.print(f"\n[red]All extraction methods failed for {drm_type}")
+            logger.error(f"All {drm_type} extraction methods failed. Missing keys for KIDs: {', '.join(all_kids)}. Decryption cannot occur!")
+            console.print(f"\n[bold red]WARNING: Missing {drm_type} key for KID(s): {', '.join(all_kids)}. Decryption cannot occur![/bold red]")
             return None
         else:
-            console.print("[yellow]CDM extraction disabled by config.")
+            logger.error(f"CDM extraction disabled. Missing {drm_type} keys for KIDs: {', '.join(all_kids)}. Decryption cannot occur!")
+            console.print(f"[bold red]WARNING: Missing {drm_type} key for KID(s): {', '.join(all_kids)}. Decryption cannot occur![/bold red]")
             return None
 
     def get_wv_keys(self, pssh_list: list[dict], license_url: str, license_certificate: str = None, headers: dict = None, key: str = None):
