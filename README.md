@@ -9,433 +9,442 @@
 
 _⚡ **Quick Start:** `pip install VibraVid && VibraVid`_
 
+**🌍 Language / Lingua**
+
+[🇬🇧 English](README.md) | [🇮🇹 Italiano](./.github/docs/it/README.md)
+
 </div>
+
+---
 
 ## 📖 Table of Contents
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Login](.github/doc/login.md)
-- [Service](.github/doc/add_service.md)
+- [Login](.github/docs/en/login.md)
+- [Service](.github/docs/en/add_service.md)
 - [Downloaders](#downloaders)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
 - [Global Search](#global-search)
 - [Advanced Features](#advanced-features)
 - [Docker](#docker)
-- [GUI](GUI/README.md)
+- [Gui](./.github/docs/en/gui.md)
 - [Related Projects](#related-projects)
 
 ---
 
 ## Installation
 
-### Manual Clone
+### Option 1 — PyPI (recommended)
+
+```bash
+pip install VibraVid
+VibraVid
+```
+
+### Option 2 — uv
+
+```bash
+uv tool install VibraVid
+VibraVid
+```
+
+### Option 3 — Manual Clone
 
 ```bash
 git clone https://github.com/AstraeLabs/VibraVid.git
 cd VibraVid
 ```
 
-#### PyPI
+Then install and run with either **pip** or **uv**:
 
+**pip:**
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run
-python manual.py
-
-# Update
-python update.py
-
-# Sync dependencies
-pip install -r requirements.txt --upgrade
+pip install -r requirements.txt   # install
+python manual.py                  # run
+python update.py                  # update
+pip install -r requirements.txt --upgrade  # sync deps
 ```
 
-#### Uv
-
+**uv:**
 ```bash
-# Install dependencies
-uv sync
-
-# Run
-uv run manual.py
-
-# Update
-uv run update.py
-
-# Sync dependencies
-uv sync --upgrade
+uv sync              # install
+uv run manual.py     # run
+uv run update.py     # update
+uv sync --upgrade    # sync deps
 ```
 
 ### Additional Documentation
 
-- 📝 [Login Guide](.github/doc/login.md) - Authentication for supported services
+- 📝 [Login Guide](.github/doc/login.md) — Authentication for supported services
 
 ---
 
 ## Quick Start
 
 ```bash
-# If installed via PyPI
-pip install VibraVid
+# PyPI or uv install
 VibraVid
 
-# If installed via uv
-uv tool install VibraVid
-VibraVid
-
-# If cloned manually
+# Manual clone
 python manual.py
 ```
 
+---
+
 ## Downloaders
 
-| Type     | Description                 | Example                                  |
-| -------- | --------------------------- | ---------------------------------------- |
-| **HLS**  | HTTP Live Streaming (m3u8)  | [View example](./Test/Downloads/HLS.py)  |
-| **MP4**  | Direct MP4 download         | [View example](./Test/Downloads/MP4.py)  |
-| **DASH** | MPEG-DASH with DRM bypass\* | [View example](./Test/Downloads/DASH.py) |
+| Type     | Description                  | Example                                  |
+| -------- | ---------------------------- | ---------------------------------------- |
+| **HLS**  | HTTP Live Streaming (m3u8)   | [View example](./Test/Downloads/HLS.py)  |
+| **MP4**  | Direct MP4 download          | [View example](./Test/Downloads/MP4.py)  |
+| **DASH** | MPEG-DASH with DRM bypass\*  | [View example](./Test/Downloads/DASH.py) |
 
-**\*DASH with DRM bypass:** Requires a valid L3 CDM (Content Decryption Module). This project does not provide or facilitate obtaining CDMs. Users must ensure compliance with applicable laws.
+> **\*DASH with DRM bypass:** Requires a valid L3\L2\L1\SL3000\SL2000 CDM (Content Decryption Module). This project does not provide or facilitate obtaining CDMs. Users must ensure compliance with applicable laws.
 
 ---
 
 ## Configuration
 
-Key configuration parameters in `config.json`:
+All settings live in `config.json`. The sections below cover each configuration block.
 
-### Default
+### DEFAULT
 
 ```json
 {
-	"DEFAULT": {
-		"debug_track_json": false,
-		"log_level": "INFO",
-		"close_console": true,
-		"show_message": false,
-		"fetch_domain_online": true,
-		"auto_update_check": true,
-		"imp_service": ["default"],
-		"installation": "essential"
-	}
+  "DEFAULT": {
+    "debug_track_json": false,
+    "log_level": "INFO",
+    "close_console": true,
+    "show_message": false,
+    "fetch_domain_online": true,
+    "auto_update_check": true,
+    "imp_service": ["default"],
+    "installation": "essential"
+  }
 }
 ```
 
-- **`close_console`**: Automatically close console after download completion (default: `true`)
-- **`debug_track_json`**: Log a `TRACKS_JSON` payload with the selected tracks, keys, and manifest metadata to help debug stream selection.
-- **`log_level`**: Sets the application logging level used by both the console and file logger. Use standard Python logging values such as `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`.
-- **`show_message`**: Show the startup banner and clear the console before printing it.
-- **`fetch_domain_online`**: Automatically fetch latest domains from GitHub (default: `true`)
-- **`auto_update_check`**: Check for new VibraVid updates automatically at startup (default: `true`). If enabled, notifies you when a new version is available.
-- **`imp_service`**: List of service source paths to load site modules from (default: `["default"]`). The `"default"` entry loads all built-in sites bundled with VibraVid. You can add absolute paths to external directories containing custom site modules — each directory must follow the standard module structure (a folder with `__init__.py` defining `indice` and `_useFor`). Modules from custom paths take precedence over built-in ones if they share the same name.
-- **`installation`**: Controls which bundled binaries are auto-downloaded during setup. `none` skips bundled binaries, `essential` downloads Bento4, FFmpeg, and Velora, and `full` also adds Dovi Tool and MKVToolNix.
+| Key | Default | Description |
+|-----|---------|-------------|
+| `close_console` | `true` | Automatically close the console after download completes |
+| `debug_track_json` | `false` | Log a `TRACKS_JSON` payload with selected tracks, keys, and manifest metadata — useful for debugging stream selection |
+| `log_level` | `"INFO"` | Logging verbosity. Accepts standard Python values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `show_message` | `false` | Show the startup banner and clear the console before printing it |
+| `fetch_domain_online` | `true` | Automatically fetch the latest domains from GitHub |
+| `auto_update_check` | `true` | Notify you at startup when a new VibraVid version is available |
+| `imp_service` | `["default"]` | Service source paths to load site modules from. `"default"` loads all built-in sites. Add absolute paths to directories containing custom site modules — each must have `__init__.py` defining `indice` and `_useFor`. Custom modules take precedence over built-ins with the same name. |
+| `installation` | `"essential"` | Controls which bundled binaries are auto-downloaded at setup: `none` skips all, `essential` downloads Bento4, FFmpeg, and Velora, `full` also adds Dovi Tool and MKVToolNix |
 
-  ```json
-  "imp_service": ["default", "/home/user/my_custom_sites"]
-  ```
+**Custom `imp_service` example:**
+```json
+"imp_service": ["default", "/home/user/my_custom_sites"]
+```
 
-### Output
+---
+
+### OUTPUT
 
 ```json
 {
-	"OUTPUT": {
-		"root_path": "Video",
-		"movie_folder_name": "Movie",
-		"serie_folder_name": "Serie",
-		"anime_folder_name": "Anime",
-		"movie_format": "%(title_name) (%(title_year))/%(title_name) (%(title_year))",
-		"episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
-	}
+  "OUTPUT": {
+    "root_path": "Video",
+    "movie_folder_name": "Movie",
+    "serie_folder_name": "Serie",
+    "anime_folder_name": "Anime",
+    "movie_format": "%(title_name) (%(title_year))/%(title_name) (%(title_year))",
+    "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
+  }
 }
 ```
 
-- **`root_path`**: Base directory where videos are saved
-    - Windows: `C:\\MyLibrary\\Folder` or `\\\\MyServer\\Share`
-    - Linux/MacOS: `Desktop/MyLibrary/Folder`
+**`root_path`** — Base directory where videos are saved.
+- Windows: `C:\\MyLibrary\\Folder` or `\\\\MyServer\\Share`
+- Linux/macOS: `Desktop/MyLibrary/Folder`
 
-- **`movie_folder_name`**: Subfolder name for movies (default: `"Movie"`)
-    - Supports `%{site_name}` placeholder: `"Movie/%{site_name}"` → `"Movie/Crunchyroll"`
-    - Example with year: `"Movie (%{site_name})"`
+**`movie_folder_name`**, **`serie_folder_name`**, **`anime_folder_name`** — Subfolder names for each content type (defaults: `"Movie"`, `"Serie"`, `"Anime"`). All support the `%{site_name}` placeholder:
 
-- **`serie_folder_name`**: Subfolder name for TV series (default: `"Serie"`)
-    - Supports `%{site_name}` placeholder: `"Serie/%{site_name}"` → `"Serie/Crunchyroll"`
-    - Example with year: `"Series by %{site_name}"`
-
-- **`anime_folder_name`**: Subfolder name for anime (default: `"Anime"`)
-    - Supports `%{site_name}` placeholder: `"Anime/%{site_name}"` → `"Anime/Crunchyroll"`
+```
+"Movie/%{site_name}"  →  "Movie/Crunchyroll"
+"Serie/%{site_name}"  →  "Serie/Crunchyroll"
+```
 
 ---
 
-#### Movie Format Configuration
+#### Movie Format
 
-**Default format:** `"%(title_name) (%(title_year))/%(title_name) (%(title_year))"`
-
-Results in:
+**Default:** `"%(title_name) (%(title_year))/%(title_name) (%(title_year))"`
 
 ```
-%(title_name) (%(title_year))/  → Movie folder  (Inception (2010))
-%(title_name) (%(title_year))   → Filename      (Inception (2010).mkv)
+%(title_name) (%(title_year))/   →  folder    Inception (2010)/
+%(title_name) (%(title_year))    →  filename  Inception (2010).mkv
 ```
 
-**Format variables:**
-- `%(title_name)`: Movie title
-- `%(title_name_slug)`: Movie title as slug
-- `%(title_year)`: Movie release year (optional, removed if not available)
-- `%(quality)`: Video resolution
-- `%(language)`: Audio languages
-- `%(video_codec)`: Video codec
-- `%(audio_codec)`: Audio codec
+| Variable | Description |
+|----------|-------------|
+| `%(title_name)` | Movie title |
+| `%(title_name_slug)` | Movie title as slug |
+| `%(title_year)` | Release year (omitted if unavailable) |
+| `%(quality)` | Video resolution |
+| `%(language)` | Audio languages |
+| `%(video_codec)` | Video codec |
+| `%(audio_codec)` | Audio codec |
 
 ---
 
-#### Episode Format Configuration
+#### Episode Format
 
-**Default format:** `"%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"`
-
-Results in:
+**Default:** `"%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"`
 
 ```
-%(series_name)/      → Series folder  (Breaking Bad)
-S%(season:02d)/      → Season folder  (S01, S02, ...)
-%(episode_name)...   → Filename       (Pilot S01E05.mkv)
+%(series_name)/     →  series folder   Breaking Bad/
+S%(season:02d)/     →  season folder   S01/
+%(episode_name)...  →  filename        Pilot S01E05.mkv
 ```
 
-**Format variables:**
+| Variable | Description |
+|----------|-------------|
+| `%(series_name)` | Series name |
+| `%(series_name_slug)` | Series name as slug |
+| `%(series_year)` | Series release year |
+| `%(season:FORMAT)` | Season number with inline padding (see below) |
+| `%(episode:FORMAT)` | Episode number with inline padding (see below) |
+| `%(episode_name)` | Episode title (sanitized) |
+| `%(episode_name_slug)` | Episode title as slug |
+| `%(quality)` | Video resolution |
+| `%(language)` | Audio languages |
+| `%(video_codec)` | Video codec |
+| `%(audio_codec)` | Audio codec |
 
-- `%(series_name)`: Series name
-- `%(series_name_slug)`: Series name as slug
-- `%(series_year)`: Series release year
-- `%(season:FORMAT)`: Season number — padding controlled inline (see table below)
-- `%(episode:FORMAT)`: Episode number — padding controlled inline (see table below)
-- `%(episode_name)`: Episode title (sanitized)
-- `%(episode_name_slug)`: Episode title as slug
-- `%(quality)`: Video resolution
-- `%(language)`: Audio languages
-- `%(video_codec)`: Video codec
-- `%(audio_codec)`: Audio codec
+**Inline padding syntax (for `season` and `episode`):**
 
-**Inline Padding Syntax:**
-
-| Token           | Result (n=1) | Description          |
-| --------------- | ------------ | -------------------- |
-| `%(season:02d)` | `01`         | Zero-pad to 2 digits |
-| `%(season:03d)` | `001`        | Zero-pad to 3 digits |
-| `%(season:d)`   | `1`          | No padding           |
-
+| Token | Result (n=1) | Description |
+|-------|-------------|-------------|
+| `%(season:02d)` | `01` | Zero-pad to 2 digits |
+| `%(season:03d)` | `001` | Zero-pad to 3 digits |
+| `%(season:d)` | `1` | No padding |
 
 ---
 
-**Note:** The legacy `add_siteName` option has been removed. Use `%{site_name}` placeholder in folder names instead:
-
-```json
-"movie_folder_name": "Movie/%{site_name}",
-"serie_folder_name": "Serie/%{site_name}"
-```
-
-### Download
+### DOWNLOAD
 
 ```json
 {
-	"DOWNLOAD": {
-		"auto_select": true,
-		"delay_after_download": 1,
-		"skip_download": false,
-		"thread_count": 12,
-		"concurrent_download": true,
-		"select_video": "1920",
-		"select_audio": "ita|Ita",
-		"select_subtitle": "ita|eng|Ita|Eng",
-		"cleanup_tmp_folder": true
-	}
+  "DOWNLOAD": {
+    "auto_select": true,
+    "delay_after_download": 1,
+    "skip_download": false,
+    "thread_count": 12,
+    "concurrent_download": true,
+    "select_video": "1920",
+    "select_audio": "ita|Ita",
+    "select_subtitle": "ita|eng|Ita|Eng",
+    "cleanup_tmp_folder": true
+  }
 }
 ```
 
 #### Performance Settings
 
-- **`auto_select`**: Automatically select streams based on filters (default: `true`). When `false`, enables interactive stream selection mode where user can manually choose video/audio/subtitle tracks before download.
-- **`delay_after_download`**: Set a delay applied after finishing the download of a movie or episode.
-- **`skip_download`**: Skip the download step and process existing files (default: `false`)
-- **`thread_count`**: Number of concurrent segment requests used for a single stream download.
-- **`concurrent_download`**: Enable download video audios(s) subtitles(s) simultaneously.
-- **`cleanup_tmp_folder`**: Remove temporary files after download (default: `true`)
+| Key | Default | Description |
+|-----|---------|-------------|
+| `auto_select` | `true` | Automatically select streams based on filters. When `false`, enables interactive track selection before download |
+| `delay_after_download` | `1` | Delay (seconds) applied after each movie or episode download |
+| `skip_download` | `false` | Skip the download step and process existing files |
+| `thread_count` | `12` | Number of concurrent segment requests for a single stream |
+| `concurrent_download` | `true` | Download video, audio, and subtitles simultaneously |
+| `cleanup_tmp_folder` | `true` | Remove temporary files after download |
 
 #### Stream Selection Filters
 
-Control which streams are downloaded using `select_video`, `select_audio`, and `select_subtitle`:
+Use `select_video`, `select_audio`, and `select_subtitle` to control which tracks are downloaded.
 
-**Video Filter Syntax (`select_video`):**
+**Video (`select_video`):**
 
-| Format | Description |
-|--------|-------------|
+| Value | Description |
+|-------|-------------|
 | `"best"` | Best available resolution |
 | `"worst"` | Worst available resolution |
-| `"1080"` | Exact height (fallback to worst if not found) |
+| `"1080"` | Exact height (falls back to worst if not found) |
 | `"1080,H265"` | Height + codec constraint |
 | `"1080\|best"` | Height with fallback to best |
 | `"1080\|best,H265"` | Height + codec with fallback to best |
-| `"false"` | Skip video (download) |
+| `"false"` | Skip video |
 
-**Audio Filter Syntax (`select_audio`):**
+**Audio (`select_audio`):**
 
-| Format | Description | Behavior if not found |
-|--------|-------------|-----------------------|
-| `"best"` | Best available bitrate per language | Selects best across all languages |
-| `"worst"` | Worst available bitrate per language | Selects worst across all languages |
+| Value | Description | If not found |
+|-------|-------------|--------------|
+| `"best"` | Best bitrate per language | Selects best across all |
+| `"worst"` | Worst bitrate per language | Selects worst across all |
 | `"all"` | All audio tracks | Downloads all |
-| `"default"` | Only streams marked as default | DROP if no default stream exists |
-| `"non-default"` | Only streams NOT marked as default | DROP if no non-default streams exist |
-| `"ita"` | Find Italian audio | **DROP** (no download) |
-| `"ita\|it"` | Find specified languages (pipe-separated) | **DROP** if none found |
-| `"ita,MP4A"` | Find Italian + MP4A codec | **DROP** if combination not found |
-| `"ita\|best"` | Language with fallback to best if not found | Fallback to best available |
-| `"ita\|best,AAC"` | Language + codec with fallback to best | Fallback to best available |
-| `"false"` | Skip audio | Does not download |
+| `"default"` | Streams marked as default | DROP |
+| `"non-default"` | Streams NOT marked as default | DROP |
+| `"ita"` | Italian audio | DROP |
+| `"ita\|it"` | Pipe-separated language codes | DROP if none found |
+| `"ita,MP4A"` | Language + codec | DROP if combination not found |
+| `"ita\|best"` | Language with fallback to best | Fallback to best |
+| `"ita\|best,AAC"` | Language + codec with fallback | Fallback to best |
+| `"false"` | Skip audio | — |
 
-**Subtitle Filter Syntax (`select_subtitle`):**
+**Subtitle (`select_subtitle`):**
 
-| Format | Description |
-|--------|-------------|
+| Value | Description |
+|-------|-------------|
 | `"all"` | All subtitles |
-| `"default"` | Only streams marked as default |
-| `"non-default"` | Only streams NOT marked as default |
-| `"ita\|eng"` | Language tokens (pipe-separated) |
-| `"ita_forced"` | Language with flag (forced/cc/sdh) |
+| `"default"` | Streams marked as default |
+| `"non-default"` | Streams NOT marked as default |
+| `"ita\|eng"` | Pipe-separated language codes |
+| `"ita_forced"` | Language with flag (`forced`, `cc`, `sdh`) |
 | `"ita_forced\|eng_cc"` | Multiple languages with flags |
 | `"false"` | Skip subtitles |
 
-> **Native passthrough syntax** (`res=...:codecs=...:for=...` and `id=...:for=...`) is passed directly to N_m3u8DL-RE without further processing and is available for all three track types. Use it when you need precise control over manifest-level stream selection.
+---
 
-### Post Process
-
-```json
-{
-	"PROCESS": {
-		"use_gpu": false,
-		"param_video": ["-c:v", "libx265", "-crf", "28", "-preset", "medium"],
-		"param_audio": ["-c:a", "libopus", "-b:a", "128k"],
-		"param_final": ["-c", "copy"],
-		"audio_order": ["ita", "eng"],
-		"subtitle_order": ["ita", "eng"],
-		"merge_audio": true,
-		"merge_subtitle": true,
-		"subtitle_disposition_language": "ita_forced",
-		"extension": "mkv"
-	}
-}
-```
-
-- **`use_gpu`**: Enable hardware acceleration (default: `false`). When enabled, the GPU type is detected automatically at runtime: `cuda` for NVIDIA, `qsv` for Intel, `vaapi` for AMD. No manual configuration is needed.
-- **`param_video`**: FFmpeg video encoding parameters
-    - Example: `["-c:v", "libx265", "-crf", "28", "-preset", "medium"]` (H.265/HEVC encoding)
-- **`param_audio`**: FFmpeg audio encoding parameters
-    - Example: `["-c:a", "libopus", "-b:a", "128k"]` (Opus audio at 128kbps)
-- **`param_final`**: Final FFmpeg parameters (default: `["-c", "copy"]` for stream copy). When set, it takes full precedence over `param_video` and `param_audio`.
-- **`audio_order`**: List of strings to order audio tracks (e.g., `["ita", "eng"]`)
-- **`subtitle_order`**: List of strings to order subtitle tracks (e.g., `["ita", "eng"]`)
-- **`merge_audio`**: Merge all audio tracks into a single output file (default: `true`)
-- **`merge_subtitle`**: Merge all subtitle tracks into a single output file (default: `true`)
-- **`subtitle_disposition_language`**: Mark a specific subtitle as default/forced
-- **`force_subtitle`**: How subtitles are handled before remuxing
-    - `"auto"` (default): subtitles are renamed/converted according to their detected format; VTT files are also sanitized (unmatched `<` replaced) to avoid data loss when muxed as SRT.
-    - `"copy"`: do not convert or rename, just mux the original file as-is (useful if you want to preserve VTT output). This also skips the VTT sanitization step, so any problematic `<` characters remain untouched.
-    - `"srt"`, `"vtt"`, `"ass"`: force-convert all subtitle tracks to the specified format using ffmpeg, applying sanitization for `vtt` as needed.
-    - See `VibraVid/core/processors/helper/ex_sub.py` for conversion logic.
-- **`extension`**: Output file format (`"mkv"` or `"mp4"`)
-
-### Request Settings
+### PROCESS (Post-Processing)
 
 ```json
 {
-	"REQUESTS": {
-		"timeout": 30,
-		"max_retry": 10,
-		"use_proxy": false,
-		"proxy": {
-			"http": "http://localhost:8888",
-			"https": "http://localhost:8888"
-		}
-	}
+  "PROCESS": {
+    "use_gpu": false,
+    "param_video": ["-c:v", "libx265", "-crf", "28", "-preset", "medium"],
+    "param_audio": ["-c:a", "libopus", "-b:a", "128k"],
+    "param_final": ["-c", "copy"],
+    "audio_order": ["ita", "eng"],
+    "subtitle_order": ["ita", "eng"],
+    "merge_audio": true,
+    "merge_subtitle": true,
+    "subtitle_disposition_language": "ita_forced",
+    "extension": "mkv"
+  }
 }
 ```
 
-- **`timeout`**: Request timeout in seconds (default: `30`)
-- **`max_retry`**: Maximum retry attempts for failed requests (default: `10`)
-- **`use_proxy`**: Enable proxy support for HTTP requests (default: `false`)
-- **`proxy`**: Proxy configuration for HTTP and HTTPS connections
-    - **`http`**: HTTP proxy URL (e.g., `"http://localhost:8888"`)
-    - **`https`**: HTTPS proxy URL (e.g., `"http://localhost:8888"`)
+| Key | Default | Description |
+|-----|---------|-------------|
+| `use_gpu` | `false` | Enable hardware acceleration. GPU type is auto-detected at runtime: `cuda` (NVIDIA), `qsv` (Intel), `vaapi` (AMD) |
+| `param_video` | H.265/HEVC | FFmpeg video encoding parameters, e.g. `["-c:v", "libx265", "-crf", "28", "-preset", "medium"]` |
+| `param_audio` | Opus 128k | FFmpeg audio encoding parameters, e.g. `["-c:a", "libopus", "-b:a", "128k"]` |
+| `param_final` | `["-c", "copy"]` | Final FFmpeg parameters. When set, takes full precedence over `param_video` and `param_audio` |
+| `audio_order` | — | Order of audio tracks in the output, e.g. `["ita", "eng"]` |
+| `subtitle_order` | — | Order of subtitle tracks in the output, e.g. `["ita", "eng"]` |
+| `merge_audio` | `true` | Merge all audio tracks into a single output file |
+| `merge_subtitle` | `true` | Merge all subtitle tracks into a single output file |
+| `subtitle_disposition_language` | — | Mark a specific subtitle track as default/forced |
+| `extension` | `"mkv"` | Output container format: `"mkv"` or `"mp4"` |
 
-### DRM Configuration
+**`force_subtitle`** — Controls how subtitles are handled before remuxing:
+
+| Value | Behaviour |
+|-------|-----------|
+| `"auto"` (default) | Subtitles are renamed/converted based on their detected format. VTT files are sanitized (unmatched `<` replaced) to prevent data loss when muxed as SRT |
+| `"copy"` | No conversion or renaming — the original file is muxed as-is. Also skips VTT sanitization |
+| `"srt"` / `"vtt"` / `"ass"` | Force-convert all subtitles to the specified format using FFmpeg, with sanitization applied for `vtt` |
+
+See `VibraVid/core/processors/helper/ex_sub.py` for conversion logic.
+
+---
+
+### REQUESTS
 
 ```json
 {
-	"DRM": {
-		"use_cdm": true,
-		"prefer_remote_cdm": true,
-		"vault": {
-			"supa": {
-				"url": "https://crqczuxpqjmrjvdvqvlx.supabase.co",
-				"token": ""
-			}
-		}
-	}
+  "REQUESTS": {
+    "timeout": 30,
+    "max_retry": 10,
+    "use_proxy": false,
+    "proxy": {
+      "http": "http://localhost:8888",
+      "https": "http://localhost:8888"
+    }
+  }
 }
 ```
 
-- **`use_cdm`**: Enable/disable CDM-based key extraction (default: `true`). When disabled, only database lookups are attempted.
-- **`prefer_remote_cdm`**: Prefer remote CDM services over local devices (default: `true`). When `true`, remote CDM API credentials are used; when `false`, local CDM device files are prioritized.
-- **`vault`**: Optional external DRM key store configuration used before CDM extraction.
+| Key | Default | Description |
+|-----|---------|-------------|
+| `timeout` | `30` | Request timeout in seconds |
+| `max_retry` | `10` | Maximum retry attempts for failed requests |
+| `use_proxy` | `false` | Enable proxy support for HTTP requests |
+| `proxy.http` | — | HTTP proxy URL |
+| `proxy.https` | — | HTTPS proxy URL |
 
-#### Adding Remote CDM Services
+---
 
-When remote CDM services are back online, add the following to your `config.json`:
+### DRM
 
-**Widevine Remote CDM:**
+```json
+{
+  "DRM": {
+    "use_cdm": true,
+    "prefer_remote_cdm": true,
+    "vault": {
+      "supa": {
+        "url": "https://crqczuxpqjmrjvdvqvlx.supabase.co",
+        "token": ""
+      }
+    }
+  }
+}
+```
 
+| Key | Default | Description |
+|-----|---------|-------------|
+| `use_cdm` | `true` | Enable CDM-based key extraction. When `false`, only database lookups are attempted |
+| `prefer_remote_cdm` | `true` | Prefer remote CDM services over local device files |
+| `vault` | — | Optional external DRM key store, queried before CDM extraction |
+
+#### Remote CDM Services
+
+When remote CDM services are available, add one or both of the following blocks to `config.json`:
+
+**Widevine:**
 ```json
 "widevine": {
-	"device_type": "ANDROID",
-	"system_id": 22590,
-	"security_level": 3,
-	"host": "https://cdrm-project.com/remotecdm/widevine",
-	"secret": "CDRM",
-	"device_name": "public"
+  "device_type": "ANDROID",
+  "system_id": 22590,
+  "security_level": 3,
+  "host": "https://cdrm-project.com/remotecdm/widevine",
+  "secret": "CDRM",
+  "device_name": "public"
 }
 ```
 
-- **`device_type`**: Device model (`"ANDROID"`, `"CHROME"`)
-- **`system_id`**: Widevine system ID (default: `22590` for Android)
-- **`security_level`**: Security level (1-3, where 3 = L3)
-- **`host`**: Remote CDM server URL
-- **`secret`**: Authentication secret for the remote CDM service
-- **`device_name`**: Device identifier registered on the remote CDM service
+| Key | Description |
+|-----|-------------|
+| `device_type` | Device model: `"ANDROID"` or `"CHROME"` |
+| `system_id` | Widevine system ID (default `22590` for Android) |
+| `security_level` | Security level 1–3 (3 = L3) |
+| `host` | Remote CDM server URL |
+| `secret` | Authentication secret |
+| `device_name` | Device identifier registered on the remote service |
 
-**PlayReady Remote CDM:**
-
+**PlayReady:**
 ```json
 "playready": {
-	"device_name": "public",
-	"security_level": 3000,
-	"host": "https://cdrm-project.com/remotecdm/playready",
-	"secret": "CDRM"
+  "device_name": "public",
+  "security_level": 3000,
+  "host": "https://cdrm-project.com/remotecdm/playready",
+  "secret": "CDRM"
 }
 ```
 
-- **`device_name`**: Device identifier registered on the remote CDM service
-- **`security_level`**: Security level (e.g., `3000` for SL3000)
-- **`host`**: Remote CDM server URL
-- **`secret`**: Authentication secret for the remote CDM service
+| Key | Description |
+|-----|-------------|
+| `device_name` | Device identifier registered on the remote service |
+| `security_level` | Security level (e.g. `3000` for SL3000) |
+| `host` | Remote CDM server URL |
+| `secret` | Authentication secret |
 
-#### Using Local CDM Devices
+#### Local CDM Devices
 
-To use local CDM device files instead of remote services, place them in the project root and ensure they're discoverable by the system:
+To use local CDM device files instead of remote services, place them in the project root:
 
-- **Widevine**: `.wvd` device file (from pywidevine)
-- **PlayReady**: `.prd` device file (from pyplayready)
+- **Widevine:** `.wvd` file (from pywidevine)
+- **PlayReady:** `.prd` file (from pyplayready)
 
-When local devices are found, they will be automatically used if `prefer_remote_cdm` is set to `false`.
+Set `prefer_remote_cdm` to `false` and local devices will be picked up automatically.
 
 ---
 
@@ -450,37 +459,35 @@ python manual.py -h
 # Search and download
 python manual.py --site streamingcommunity --search "interstellar"
 
-# Auto-download first result
+# Auto-download the first result
 python manual.py --site streamingcommunity --search "interstellar" --auto-first
 
-# Use site by index
+# Use a site by its index number
 python manual.py --site 0 --search "interstellar"
 ```
 
 ### Series Selection
 
-Use `--season` and `--episode` to bypass interactive prompts when downloading series:
+Use `--season` and `--episode` to skip interactive prompts:
 
 ```bash
-# Download a specific episode
-python manual.py --site streamingcommunity --search "breaking bad" --season 1 --episode 3
+# Specific episode
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season 1 --episode 3
 
-# Download a range of episodes
-python manual.py --site streamingcommunity --search "breaking bad" --season 1 --episode "1-5"
+# Range of episodes
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season 1 --episode "1-5"
 
-# Download all episodes of a season
-python manual.py --site streamingcommunity --search "breaking bad" --season 1 --episode "*"
+# All episodes of a season
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season 1 --episode "*"
 
-# Download all episodes of all seasons
-python manual.py --site streamingcommunity --search "breaking bad" --season "*"
+# All episodes of all seasons
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season "*"
 
-# Download multiple seasons
-python manual.py --site streamingcommunity --search "breaking bad" --season "1-3"
+# Multiple seasons
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season "1-3"
 ```
 
 ### Year Filter
-
-Use `--year` to narrow search results to a specific release year or range:
 
 ```bash
 # Exact year
@@ -492,25 +499,21 @@ python manual.py --site streamingcommunity --search "batman" --year "1990-2015"
 
 ### Stream Track Overrides
 
-Override the default audio/video/subtitle selection from config for a single run:
-
 ```bash
-# Select a different video resolution
+# Video resolution
 python manual.py --site streamingcommunity --search "interstellar" -sv 1080
 
-# Select audio language
+# Audio language
 python manual.py --site streamingcommunity --search "interstellar" -sa "eng"
 
-# Select subtitles
+# Subtitles
 python manual.py --site streamingcommunity --search "interstellar" -ss "eng"
 ```
 
 ### Console Behaviour Override
 
-Override the `close_console` config value for a single run without editing `config.json`:
-
 ```bash
-# Keep console open after download (loop mode)
+# Keep console open (loop mode)
 python manual.py --close-console false
 
 # Close console after download
@@ -520,13 +523,10 @@ python manual.py --site streamingcommunity --search "interstellar" --close-conso
 ### Proxy
 
 ```bash
-# Enable proxy for this run (uses proxy settings from config.json)
 python manual.py --site streamingcommunity --search "interstellar" --use_proxy
 ```
 
 ### Show Dependency Paths
-
-Display all resolved paths for config files, loaded services, external binaries (FFmpeg, N_m3u8DL-RE, Shaka Packager, Bento4) and DRM device files:
 
 ```bash
 python manual.py --dep
@@ -536,19 +536,15 @@ python manual.py --dep
 
 ## Global Search
 
-Search across multiple streaming sites simultaneously:
-
 ```bash
 # Global search
 python manual.py --global -s "cars"
 
-# Search by category
+# Filter by category
 python manual.py --category 1    # Anime
 python manual.py --category 2    # Movies & Series
 python manual.py --category 3    # Series only
 ```
-
-Results display title, media type, and source site in a consolidated table.
 
 ---
 
@@ -556,151 +552,134 @@ Results display title, media type, and source site in a consolidated table.
 
 ### Hook System
 
-Execute custom scripts before/after downloads. Configure in `config.json`:
+Execute custom scripts at specific points in the download lifecycle. Hooks are configured in `config.json` under the `HOOKS` key.
+
+**Available stages:**
+- `pre_run` — runs before the main flow starts
+- `post_download` — runs after each individual download completes (in the GUI, once per item)
+- `post_run` — runs once when the overall execution ends
 
 ```json
 {
-	"HOOKS": {
-		"pre_run": [
-			{
-				"name": "prepare-env",
-				"type": "python",
-				"path": "scripts/prepare.py",
-				"args": ["--clean"],
-				"env": { "MY_FLAG": "1" },
-				"cwd": "~",
-				"os": ["linux", "darwin"],
-				"timeout": 60,
-				"enabled": true,
-				"continue_on_error": true
-			}
-		],
-		"post_download": [
-			{
-				"name": "post-download-env",
-				"type": "python",
-				"path": "/app/script.py",
-				"args": ["{download_path}"],
-				"env": {
-					"MY_FLAG": "1"
-				},
-				"cwd": "~",
-				"os": ["linux"],
-				"timeout": 60,
-				"enabled": true,
-				"continue_on_error": true
-			}
-		],
-		"post_run": [
-			{
-				"name": "notify",
-				"type": "bash",
-				"command": "echo 'Download completed'"
-			}
-		]
-	}
+  "HOOKS": {
+    "pre_run": [
+      {
+        "name": "prepare-env",
+        "type": "python",
+        "path": "scripts/prepare.py",
+        "args": ["--clean"],
+        "env": { "MY_FLAG": "1" },
+        "cwd": "~",
+        "os": ["linux", "darwin"],
+        "timeout": 60,
+        "enabled": true,
+        "continue_on_error": true
+      }
+    ],
+    "post_download": [
+      {
+        "name": "post-download-env",
+        "type": "python",
+        "path": "/app/script.py",
+        "args": ["{download_path}"],
+        "env": { "MY_FLAG": "1" },
+        "cwd": "~",
+        "os": ["linux"],
+        "timeout": 60,
+        "enabled": true,
+        "continue_on_error": true
+      }
+    ],
+    "post_run": [
+      {
+        "name": "notify",
+        "type": "bash",
+        "command": "echo 'Download completed'"
+      }
+    ]
+  }
 }
 ```
 
-#### Hook Configuration Options
+#### Hook Options
 
-- **Stages available**: `pre_run`, `post_download`, `post_run`
-- **`name`**: Descriptive name for the hook
-- **`type`**: Script type - `python`, `bash`, `sh`, `shell`, `bat`, `cmd`
-- **`path`**: Path to script file (alternative to `command`)
-- **`command`**: Inline command to execute (alternative to `path`)
-- **`args`**: List of arguments passed to the script
-- **`env`**: Additional environment variables as key-value pairs
-- **`cwd`**: Working directory for script execution (supports `~` and environment variables)
-- **`os`**: Optional OS filter - `["windows"]`, `["darwin"]` (macOS), `["linux"]`, or combinations
-- **`timeout`**: Maximum execution time in seconds (hook fails if exceeded)
-- **`enabled`**: Enable/disable the hook without removing configuration
-- **`continue_on_error`**: If `false`, stops execution when hook fails
+| Key | Description |
+|-----|-------------|
+| `name` | Descriptive label for the hook |
+| `type` | Script type: `python`, `bash`, `sh`, `shell`, `bat`, `cmd` |
+| `path` | Path to script file (alternative to `command`) |
+| `command` | Inline command to execute (alternative to `path`). Note: `args` are ignored when using `command` |
+| `args` | List of arguments passed to the script |
+| `env` | Additional environment variables as key-value pairs |
+| `cwd` | Working directory for execution (supports `~` and env vars) |
+| `os` | Optional OS filter: `["windows"]`, `["darwin"]`, `["linux"]`, or any combination |
+| `timeout` | Maximum execution time in seconds (hook fails if exceeded) |
+| `enabled` | Enable or disable the hook without removing it |
+| `continue_on_error` | If `false`, stops execution when the hook fails |
 
 #### Hook Types
 
-- **Python hooks**: Run with current Python interpreter
-- **Bash/sh/shell hooks**: All three types execute via `/bin/bash -c` on macOS/Linux
-- **Bat/cmd/shell hooks**: Execute via `cmd /c` on Windows
-- **Inline commands**: Use `command` instead of `path` for simple one-liners. Note: `args` are ignored when using `command`; they only apply when using `path`.
+- **Python:** runs with the current Python interpreter
+- **Bash / sh / shell:** executed via `/bin/bash -c` on macOS/Linux
+- **Bat / cmd / shell:** executed via `cmd /c` on Windows
+- **Inline commands:** use `command` instead of `path` for simple one-liners
 
-#### Hook Context Placeholders
+#### Context Placeholders
 
-Hooks can interpolate download context in `path`, `command`, `args`, `env`, and `cwd`.
+| Placeholder | Description |
+|-------------|-------------|
+| `{download_path}` | Absolute path of the downloaded file |
+| `{download_dir}` | Directory containing the downloaded file |
+| `{download_filename}` | Filename of the downloaded file |
+| `{download_id}` | Internal download identifier |
+| `{download_title}` | Download title |
+| `{download_site}` | Source site name |
+| `{download_media_type}` | Media type |
+| `{download_status}` | Final download status |
+| `{download_error}` | Error message, if any |
+| `{download_success}` | `1` on success, `0` on failure |
+| `{stage}` | Current hook stage |
 
-- **`{download_path}`**: Absolute path of the downloaded file
-- **`{download_dir}`**: Directory containing the downloaded file
-- **`{download_filename}`**: Filename of the downloaded file
-- **`{download_id}`**: Internal download identifier
-- **`{download_title}`**: Download title
-- **`{download_site}`**: Source site name
-- **`{download_media_type}`**: Media type
-- **`{download_status}`**: Final download status
-- **`{download_error}`**: Error message, if present
-- **`{download_success}`**: `1` on success, `0` on failure
-- **`{stage}`**: Current hook stage
-
-The same values are also exposed as environment variables with the `SC_` prefix, such as `SC_DOWNLOAD_PATH`, `SC_DOWNLOAD_FILENAME`, `SC_DOWNLOAD_SUCCESS`, and `SC_HOOK_STAGE`.
-
-Hooks are automatically executed before the main flow (`pre_run`), after each completed download (`post_download`), and at the end of the main execution flow (`post_run`). In the GUI, `post_download` runs for every individual completed item, while `post_run` is triggered once when the overall execution ends.
+The same values are also exposed as environment variables with the `SC_` prefix (e.g. `SC_DOWNLOAD_PATH`, `SC_DOWNLOAD_SUCCESS`, `SC_HOOK_STAGE`).
 
 ---
 
 ### Source Code Update (`update.py`)
 
-When running from a manual clone, `update.py` downloads and applies the latest commit from GitHub. It includes safety checks to avoid accidental deletion of user data.
-
 ```bash
-# Interactive update (prompts for confirmation)
+# Interactive update
 python update.py
 
-# Skip the first confirmation prompt (still requires typing the confirmation phrase)
+# Skip first confirmation prompt
 python update.py -y
 
 # Cancel automatically without prompting
 python update.py -n
 
-# Preview what would be deleted without actually deleting anything
+# Preview what would be deleted without deleting anything
 python update.py --dry-run
 
-# Combine: skip first prompt and run in dry-run mode
+# Combine: skip first prompt + dry run
 python update.py -y --dry-run
 ```
 
-The following folders and files are **always preserved** during an update and never deleted:
-
-- Folders: `Video`, `Conf`, `.git`
-- Files: `update.py`
-
-To preserve additional items, edit the `KEEP_FOLDERS` and `KEEP_FILES` sets at the top of `update.py`.
+The following are **always preserved** during an update: folders `Video`, `Conf`, `.git` and file `update.py`.
 
 ---
 
 ## Docker
 
-### Recommended: Docker Compose (Production Ready)
-
-Use `docker-compose.yml` for best results with persistent data:
+### Recommended: Docker Compose
 
 ```bash
-# Start the container
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop the container (data persists)
-docker-compose down
-
-# Restart the container
-docker-compose up -d
+docker-compose up -d        # Start
+docker-compose logs -f      # View logs
+docker-compose down         # Stop (data persists)
 ```
 
 ### Private Network Deployment
 
-For deployments with a custom domain and private IP (e.g., LAN streaming):
-
-Edit `docker-compose.yml` and uncomment the `environment` section, then update:
+Uncomment and edit the `environment` section in `docker-compose.yml`:
 
 ```yaml
 environment:
@@ -714,17 +693,11 @@ environment:
   DJANGO_SECRET_KEY: "your-secure-secret-key-here"
 ```
 
-Replace the domain and IP with your actual values.
-
-### Manual Docker Build & Run
-
-If you prefer not to use docker-compose:
+### Manual Docker Build
 
 ```bash
-# Build image
 docker build -t vibravid .
 
-# Run with persistent volumes (recommended)
 docker run -d \
   --name vibravid \
   -p 8000:8000 \
@@ -738,8 +711,6 @@ docker run -d \
 
 ### Binding Local Folders
 
-To save downloads to a specific folder on your host machine:
-
 ```bash
 # Linux/macOS
 docker run -d --name vibravid -p 8000:8000 \
@@ -752,17 +723,15 @@ docker run -d --name vibravid -p 8000:8000 `
   vibravid
 ```
 
-**Note:** Path separators differ by OS. Use `/` for Linux/macOS and `\` for Windows paths.
-
 ---
 
 ## Related Projects
 
-- **[MammaMia](https://github.com/UrloMythus/MammaMia)** - Stremio addon for Italian streaming (by UrloMythus)
-- **[Unit3Dup](https://github.com/31December99/Unit3Dup)** - Torrent automation for Unit3D tracker (by 31December99)
-- **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** - Universal downloader for HLS/DASH/ISM (by nilaoda)
-- **[pywidevine](https://github.com/devine-dl/pywidevine)** - Widevine L3 decryption library (by devine-dl)
-- **[pyplayready](https://git.gay/ready-dl/pyplayready)** - PlayReady decryption library (by ready-dl)
+- **[MammaMia](https://github.com/UrloMythus/MammaMia)** — Stremio addon for Italian streaming (by UrloMythus)
+- **[Unit3Dup](https://github.com/31December99/Unit3Dup)** — Torrent automation for Unit3D tracker (by 31December99)
+- **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** — Universal downloader for HLS/DASH/ISM (by nilaoda)
+- **[pywidevine](https://github.com/devine-dl/pywidevine)** — Widevine L3 decryption library (by devine-dl)
+- **[pyplayready](https://git.gay/ready-dl/pyplayready)** — PlayReady decryption library (by ready-dl)
 
 ---
 
@@ -774,7 +743,7 @@ docker run -d --name vibravid -p 8000:8000 `
 > - **DO NOT** provide or facilitate DRM circumvention tools, CDMs, or decryption keys
 > - **DO NOT** endorse piracy or copyright infringement
 >
-> By using this software, you agree to comply with all laws and have rights to any content you process. No warranty is provided. If you do not agree, do not use this software.
+> By using this software, you agree to comply with all applicable laws and confirm you have rights to any content you process. No warranty is provided.
 
 ---
 
