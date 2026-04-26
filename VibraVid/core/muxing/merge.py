@@ -3,7 +3,7 @@
 import os
 import subprocess
 import logging
-from typing import List, Dict
+from typing import List, Dict, Any
 
 from rich.console import Console
 
@@ -36,6 +36,79 @@ def _get_param_audio() -> list:
 
 def _get_param_final() -> list:
     return config_manager.config.get_list("PROCESS", "param_final")
+
+
+def _get_audio_order() -> list:
+    return config_manager.config.get_list("PROCESS", "audio_order", default=[])
+
+
+def _get_subtitle_order() -> list:
+    return config_manager.config.get_list("PROCESS", "subtitle_order", default=[])
+
+
+def _normalize_lang_token(value: str) -> str:
+    raw = (value or "").strip().lower()
+    if not raw:
+        return ""
+
+    # Strip common subtitle flags to match entries such as "ita_forced" or "eng_cc".
+    for suffix in ("_forced", "_cc", "_sdh"):
+        if raw.endswith(suffix):
+            raw = raw[:-len(suffix)]
+            break
+
+    return raw.replace("_", "-")
+
+
+def _sort_tracks_by_order(tracks: List[Dict[str, Any]], order_config: List[str], lang_fields: List[str]) -> List[Dict[str, Any]]:
+    if not tracks or not order_config:
+        return tracks
+
+    normalized_order: List[str] = []
+    for item in order_config:
+        token = _normalize_lang_token(str(item))
+        if token:
+            normalized_order.append(token)
+
+    if not normalized_order:
+        return tracks
+    
+    for track in tracks:
+        logger.info(f"Track before sorting: {track}")
+
+    priority_map = {lang: idx for idx, lang in enumerate(normalized_order)}
+
+    def _rank(track: Dict[str, Any]) -> int:
+        candidates: List[str] = []
+
+        for field in lang_fields:
+            field_val = track.get(field)
+            if field_val:
+                candidates.append(str(field_val))
+
+        for raw in candidates:
+            normalized = _normalize_lang_token(raw)
+            if normalized in priority_map:
+                return priority_map[normalized]
+
+            base = normalized.split("-", 1)[0]
+            if base in priority_map:
+                return priority_map[base]
+
+            iso_code = resolve_iso639_2(normalized)
+            if iso_code in priority_map:
+                return priority_map[iso_code]
+
+            if len(iso_code) == 3 and iso_code != "und":
+                iso_base = iso_code[:2]
+                if iso_base in priority_map:
+                    return priority_map[iso_base]
+
+        return len(priority_map) + 1
+
+    indexed = list(enumerate(tracks))
+    indexed.sort(key=lambda pair: (_rank(pair[1]), pair[0]))
+    return [track for _, track in indexed]
 
 
 def detect_gpu_device_type() -> str:
@@ -205,6 +278,11 @@ def join_audios(video_path: str, audio_tracks: List[Dict[str, str]], out_path: s
     """
     use_shortest = False
 
+    audio_order = _get_audio_order()
+    if audio_order:
+        audio_tracks = _sort_tracks_by_order(audio_tracks, audio_order, ["language", "name", "lang"])
+        logger.info(f"Applying configured audio order: {audio_order}")
+
     # Check and convert audio tracks if TS with issues
     temp_audio_paths = []
     for audio_track in audio_tracks:
@@ -288,6 +366,11 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     Returns:
         tuple: (out_path, result_json)
     """
+    subtitle_order = _get_subtitle_order()
+    if subtitle_order:
+        subtitles_list = _sort_tracks_by_order(subtitles_list, subtitle_order, ["language", "lang", "name"])
+        logger.info(f"Applying configured subtitle order: {subtitle_order}")
+
     for subtitle in subtitles_list:
         original_path = subtitle['path']
         corrected_path = convert_subtitle(original_path, FORCE_SUBTITLE)
