@@ -62,7 +62,7 @@ class HLS_Downloader(BaseDownloader):
             - cookies: HTTP cookies for authenticated requests.
             - max_segments: Maximum number of segments to download (for testing). Default: None (all).
         """
-        self.m3u8_url = str(m3u8_url).strip()
+        self.m3u8_url = self._resolve_url(str(m3u8_url).strip())
         self.headers = headers or get_headers()
         self.license_url = str(license_url).strip() if license_url else None
         self.license_headers = license_headers or self.headers
