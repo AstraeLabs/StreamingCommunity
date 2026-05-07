@@ -38,7 +38,7 @@ other_tracks = [
     },
 ]
 
-main_hdr10_track = "https://vod-ak-amt.tv.apple.com/itunes-assets/HLSVideo211/v4/e6/31/07/e6310703-34ef-c097-4f48-b2b3ed41b196/P1346664989_A1890577745_FF_video_gr798_HDR10Plus_3828x1592_-.m3u8"
+main_hdr10_track = ""
 
 hls_process = HLS_Downloader(
     m3u8_url=main_hdr10_track,
