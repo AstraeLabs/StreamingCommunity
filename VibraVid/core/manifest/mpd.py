@@ -196,6 +196,20 @@ class DashParser:
                 logger.error(f"DashParser: injected XML parse error: {exc}")
                 self._injected = None
 
+        if self.mpd_url.startswith("file://"):
+            try:
+                from urllib.request import url2pathname
+                local_path = Path(url2pathname(urlparse(self.mpd_url).path))
+                self.raw_content = local_path.read_text(encoding="utf-8")
+                self._base_url = local_path.parent.as_uri() + "/"
+                self._root = ET.fromstring(self.raw_content)
+                self._resolve_base_url()
+                return True
+            except Exception as exc:
+                console.print(f"[red]Failed to read local DASH manifest: {exc}.")
+                logger.error(f"DashParser: local file read failed: {exc}")
+                return False
+
         try:
             timeout = config_manager.config.get_int("REQUESTS", "timeout")
             hdrs = dict(self.headers)
