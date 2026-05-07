@@ -84,6 +84,19 @@ class ISMParser:
                 logger.error(f"ISMParser: injected XML parse error: {exc}")
                 self._injected = None   # fall through to network fetch
 
+        if self.ism_url.startswith("file://"):
+            try:
+                from urllib.request import url2pathname
+                local_path = Path(url2pathname(urlparse(self.ism_url).path))
+                self.raw_content = local_path.read_text(encoding="utf-8")
+                self._base_url = local_path.parent.as_uri() + "/"
+                self._root = ET.fromstring(self.raw_content)
+                return True
+            except Exception as exc:
+                console.print(f"[red]Failed to read local ISM manifest: {exc}.")
+                logger.error(f"ISMParser: local file read failed: {exc}")
+                return False
+
         try:
             timeout = config_manager.config.get_int("REQUESTS", "timeout")
             hdrs = dict(self.headers)
