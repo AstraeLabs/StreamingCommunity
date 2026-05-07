@@ -107,29 +107,38 @@ def _to_annexb(input_path: Path, output_path: Path) -> bool:
     return _run_command(cmd, f"ffmpeg annexb {input_path.name}")
 
 
-def _select_hybrid_video(video_track: Dict[str, Any], other_videos: Iterable[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _select_hybrid_video(video_track, other_videos):
     base_path = str(video_track.get("path") or "").strip()
     if not base_path:
         return None
 
     base_probe = video_track.get("probe") or probe_media_file(base_path)
-    if base_probe.get("dolby_vision") and not list(other_videos):
+    other_list = list(other_videos)
+
+    # Case 1: base is DV and no other candidates, use it as is (e.g. DV-only source)
+    if base_probe.get("dolby_vision") and not other_list:
         return video_track
 
-    if not base_probe.get("hdr"):
-        return None
+    # Case 2: base is HDR10 and no other candidates, use it as is (e.g. HDR10-only source)
+    if base_probe.get("hdr") and not base_probe.get("dolby_vision"):
+        for candidate in other_list:
+            probe = candidate.get("probe") or probe_media_file(str(candidate.get("path", "")))
+            candidate["probe"] = probe
+            if probe.get("dolby_vision") or (candidate.get("tag") or "").lower() == "dv":
+                return candidate
 
-    dv_candidate = None
-    for candidate in other_videos:
-        if not candidate:
-            continue
-        probe = candidate.get("probe") or probe_media_file(str(candidate.get("path", "")))
-        candidate["probe"] = probe
-        if probe.get("dolby_vision") or (candidate.get("tag") or "").lower() == "dv":
-            dv_candidate = candidate
-            break
+    # Case 3: base is DV but has HDR10 candidates, prefer a non-DV HDR10 candidate if available (e.g. mixed source)
+    if base_probe.get("dolby_vision"):
+        for candidate in other_list:
+            probe = candidate.get("probe") or probe_media_file(str(candidate.get("path", "")))
+            candidate["probe"] = probe
+            tag = (candidate.get("tag") or candidate.get("type") or "").lower()
+            if probe.get("hdr") and not probe.get("dolby_vision"):
+                return candidate
+            if "hdr" in tag:
+                return candidate
 
-    return dv_candidate
+    return None
 
 
 def build_hybrid_output(
