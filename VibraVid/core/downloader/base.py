@@ -1,7 +1,8 @@
-﻿# 2.03.26
+# 2.03.26
 
 import os
 import json
+import re
 import shutil
 import logging
 from pathlib import Path
@@ -28,25 +29,54 @@ DEBUG_TRACK_JSON = config_manager.config.get_bool("DEFAULT", "debug_track_json")
 
 
 class BaseDownloader:
-    """
-    Shared base for HLS_Downloader and DASH_Downloader.
+    def _extract_season_episode(self, output_path: str) -> tuple:
+        """Extract season and episode numbers from output_path using regex patterns."""
+        season = 0
+        episode = 0
+        
+        # Try to match S##E## or S#E# pattern
+        match = re.search(r'[/\\]S(\d+)[/\\].*?S\d+E(\d+)', output_path)
+        if match:
+            season = int(match.group(1))
+            episode = int(match.group(2))
+            return season, episode
+        
+        # Fallback: try to match just S##E## in filename
+        match = re.search(r'S(\d+)E(\d+)', output_path)
+        if match:
+            season = int(match.group(1))
+            episode = int(match.group(2))
+        
+        return season, episode
 
-    Subclasses are responsible for setting up:
-        self.output_path = full final file path
-        self.filename_base = stem without extension
-        self.output_dir = temp working directory
-        self.download_id = tracker ID (or None)
-        self.last_merge_result = populated by merge methods
-        self.copied_subtitles = list staging subtitles for deferred copy
-        self.copied_audios = list staging audios for deferred copy
-        self.audio_only = True when there is no video track
-    """
     def _build_tracks_json(self, streams: list, keys: list, manifest_url: str) -> dict:
-        """Build a JSON-serializable dict of selected tracks only. """
+        """Build a JSON-serializable dict of selected tracks only."""
         videos = []
         audios: Dict[str, list] = {}
         subtitles: Dict[str, str] = {}
-        other_tracks = list(getattr(self, "other_tracks", []) or [])
+        other_tracks = []
+        for track in list(getattr(self, "other_tracks", []) or []):
+            if not isinstance(track, dict):
+                continue
+            normalized_track = {
+                "type": track.get("type"),
+                "url": track.get("url"),
+                "language": track.get("language"),
+            }
+            if normalized_track["type"] and normalized_track["url"]:
+                other_tracks.append(normalized_track)
+
+        def _to_mbps(value):
+            if value is None:
+                return None
+            try:
+                bps = float(value)
+            except (TypeError, ValueError):
+                return None
+            if bps <= 0:
+                return None
+            mbps = bps / 1_000_000
+            return f"{mbps:.3f}".rstrip("0").rstrip(".") + " Mbps"
 
         for s in streams:
             if not getattr(s, "selected", False):
@@ -54,20 +84,31 @@ class BaseDownloader:
             stype = getattr(s, "type", "") or ""
 
             if stype == "video":
+                codec = s.get_short_codec() if hasattr(s, 'get_short_codec') else getattr(s, "codecs", None)
+                if not codec:
+                    codec = "H.264"
                 videos.append({
                     "manifest_url": manifest_url,
                     "quality": getattr(s, "resolution", None),
-                    "bitrate": getattr(s, "bitrate", None),
+                    "bitrate": _to_mbps(getattr(s, "bitrate", None)),
+                    "codec": codec,
                 })
 
             elif stype == "audio":
+                audio_url = getattr(s, "playlist_url", None) or getattr(s, "url", None) or manifest_url
+                if audio_url == manifest_url:
+                    continue  # same manifest as video, skip
                 lang = (getattr(s, "language", None) or "und").strip()
+                codec = s.get_short_codec() if hasattr(s, 'get_short_codec') else getattr(s, "codecs", None)
+                if not codec:
+                    codec = "AAC"
+                audio_bitrate = _to_mbps(getattr(s, "bitrate", None))
+                if audio_bitrate is None:
+                    audio_bitrate = "128kbps"
                 entry = {
-                    "manifest_url": manifest_url,
-                    "codec": getattr(s, "codecs", None),
-                    "channels": getattr(s, "channels", None),
-                    "bitrate": getattr(s, "bitrate", None),
-                    "url": getattr(s, "playlist_url", None) or getattr(s, "url", None),
+                    "manifest_url": audio_url,
+                    "codec": codec,
+                    "bitrate": audio_bitrate,
                 }
                 audios.setdefault(lang, []).append(entry)
 
@@ -76,26 +117,57 @@ class BaseDownloader:
                 name = getattr(s, "name", None) or lang
                 label = f"{lang} - {name}" if name and name != lang else lang
                 url = getattr(s, "playlist_url", None) or getattr(s, "url", None)
+                
+                if not url and manifest_url:
+                    url = manifest_url
+
+                if url == manifest_url:
+                    continue
+                
                 subtitles[label] = url
 
-        return {
-            "videos": videos,
-            "audios": audios,
-            "subtitles": subtitles,
-            "other_tracks": other_tracks,
-            "keys": list(keys) if keys else [],
-        }
+        formatted_keys = []
+        for k in (keys or []):
+            if isinstance(k, (list, tuple)) and len(k) == 2:
+                formatted_keys.append(f"{k[0]}:{k[1]}")
+            else:
+                formatted_keys.append(str(k))
+
+        result = {"videos": videos}
+        if audios:
+            result["audios"] = audios
+        result["subtitles"] = subtitles
+        result["other_tracks"] = other_tracks
+        result["keys"] = formatted_keys
+        return result
 
     def _log_tracks_json(self, streams: list, keys: list, manifest_url: str) -> None:
         """Emit a TRACKS_JSON logger.info"""
         from VibraVid.core.ui.tracker import context_tracker
         tracks = self._build_tracks_json(streams, keys, manifest_url)
+        
+        # Extract season/episode from output_path if available
+        season, episode = 0, 0
+        output_path = getattr(self, "output_path", "")
+        if output_path:
+            season, episode = self._extract_season_episode(output_path)
+        
+        # Fallback to context_tracker if extraction failed
+        if season == 0:
+            season = context_tracker.season or 0
+        if episode == 0:
+            episode = context_tracker.episode or 0
+        
+        # Determine media type: if season or episode > 0, it's a TV series, otherwise it's a film
+        media_type = context_tracker.media_type or "Film"
+        if season > 0 or episode > 0:
+            media_type = "TV"
+        
         payload = {
             "name": context_tracker.title or self.filename_base,
-            "type": (context_tracker.media_type or "UNKNOWN").upper(),
-            "season": context_tracker.season  or 0,
-            "episode": context_tracker.episode or 0,
-            "episode_name": context_tracker.episode_name,
+            "type": media_type.upper(),
+            "season": season,
+            "episode": episode,
             "tracks": tracks,
         }
         if DEBUG_TRACK_JSON:
@@ -188,11 +260,12 @@ class BaseDownloader:
 
         for track in other_track_results:
             track_kind = (track.get("kind") or track.get("type") or "").lower()
-            if track_kind == "video":
+            base_kind = track_kind.split(":")[0]   # "video:hdr10" → "video"
+            if base_kind == "video":
                 continue
-            if track_kind == "audio":
+            if base_kind == "audio":
                 audio_tracks.append(track)
-            elif track_kind == "subtitle":
+            elif base_kind == "subtitle":
                 subtitle_tracks.append(track)
 
         if video_track is None:
@@ -221,7 +294,7 @@ class BaseDownloader:
         if other_track_results or (video_probe or {}).get("dolby_vision"):
             hybrid_file = build_hybrid_output(
                 video_track=video_track if isinstance(video_track, dict) else {"path": video_path},
-                other_videos=[track for track in other_track_results if (track.get("kind") or "").lower() == "video"],
+                other_videos=[track for track in other_track_results if (track.get("kind") or track.get("type") or "").lower().split(":")[0] == "video"],
                 audio_tracks=audio_tracks,
                 subtitle_tracks=subtitle_tracks,
                 output_path=self.output_path,
@@ -229,7 +302,10 @@ class BaseDownloader:
             )
             if hybrid_file:
                 self.last_merge_result = {"hybrid": True, "output": hybrid_file}
+                # hybrid_file include già audio e subtitle via mkvmerge:
+                # non chiamare join_audios/join_subtitles separatamente
                 return hybrid_file
+
 
         if not audio_tracks and not subtitle_tracks:
             console.print("[cyan]\nNo additional tracks to merge, muxing video...")
