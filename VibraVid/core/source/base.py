@@ -39,6 +39,7 @@ def resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
     URL is extracted and its extension is used.  Returns ``(final_url, ext)``
     where *ext* may be an empty string if nothing recognisable was found.
     """
+    from urllib.parse import urljoin
     try:
         hdrs = dict(headers)
         hdrs.setdefault("User-Agent", get_headers().get("User-Agent", ""))
@@ -56,9 +57,10 @@ def resolve_subtitle_url_sync(url: str, headers: Dict) -> Tuple[str, str]:
         for line in text.splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
-                resolved_ext = ext_from_url(line, "")
+                absolute_url = urljoin(url, line)
+                resolved_ext = ext_from_url(absolute_url, "")
                 logger.info(f"Resolved HLS subtitle manifest -> segment {line!r} (ext={resolved_ext!r})")
-                return line, resolved_ext
+                return absolute_url, resolved_ext
         
         logger.info(f"resolve_subtitle_url_sync: manifest at {url!r} had no segments")
         return url, ""
