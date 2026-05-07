@@ -207,9 +207,16 @@ class Segment:
     size: int = 0
     downloaded: bool = False
     byte_range: str = ""  # e.g. "12132-31195" for byte-range requests
+    duration: float = 0.0          # seconds; set by parser when known (e.g. #EXTINF or <S d=…/>)
+    estimated_size: int = 0        # bytes; computed from stream bitrate × duration when size == 0
+
+    def get_effective_size(self) -> int:
+        """Return real size if downloaded/known, otherwise the estimate."""
+        return self.size if self.size else self.estimated_size
 
     def __repr__(self) -> str:
-        return f"Segment({self.number}, {self.seg_type})"
+        dur_s = f", {self.duration:.3f}s" if self.duration else ""
+        return f"Segment({self.number}, {self.seg_type}{dur_s})"
 
 
 @dataclass
@@ -271,8 +278,61 @@ class Stream:
     is_live: bool = False
     is_wvtt_mp4: bool = False
 
+    # ── Size estimation ───────────────────────────────────────────────────────
+    # Populated by compute_estimated_size(); do not set manually.
+    estimated_size: int = 0        # bytes; total stream size estimate
+
     def add_segment(self, seg: Segment) -> None:
         self.segments.append(seg)
+
+    def compute_estimated_size(self, bitrate_override: int = 0) -> int:
+        """
+        Compute and store an estimated total size in bytes, then return it.
+
+        Priority order:
+        1. Sum of real ``Segment.size`` values (when already downloaded/known).
+        2. Sum of ``Segment.estimated_size`` values (pre-filled by parser from
+           per-segment durations × bitrate, e.g. from DASH <S d=…/> or
+           HLS #EXTINF).
+        3. Fallback: ``(avg_bitrate or bitrate or bitrate_override) × duration``
+           using the stream-level duration.
+
+        The result is stored in ``self.estimated_size`` and also returned.
+        """
+        # 1. Real sizes from already-downloaded segments
+        real_total = sum(s.size for s in self.segments if s.size)
+        if real_total:
+            self.estimated_size = real_total
+            return self.estimated_size
+
+        # 2. Per-segment estimates (set by parser from per-segment duration × bitrate)
+        seg_est_total = sum(s.estimated_size for s in self.segments if s.estimated_size)
+        if seg_est_total:
+            self.estimated_size = seg_est_total
+            return self.estimated_size
+
+        # 3. Stream-level fallback: bitrate × total duration
+        bw = bitrate_override or self.avg_bitrate or self.bitrate
+        if bw and self.duration > 0:
+            self.estimated_size = int(bw / 8 * self.duration)
+            return self.estimated_size
+
+        self.estimated_size = 0
+        return 0
+
+    @property
+    def estimated_size_display(self) -> str:
+        """Human-readable estimated size, e.g. '1.2 GB', '450 MB', '820 KB'."""
+        b = self.estimated_size
+        if not b:
+            return "N/A"
+        if b >= 1_073_741_824:
+            return f"~{b / 1_073_741_824:.2f} GB"
+        if b >= 1_048_576:
+            return f"~{b / 1_048_576:.1f} MB"
+        if b >= 1_024:
+            return f"~{b / 1_024:.0f} KB"
+        return f"~{b} B"
 
     # ─── Display helpers ───────────────────────────────────────────────────────
     @property
