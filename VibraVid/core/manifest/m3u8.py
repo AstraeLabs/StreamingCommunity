@@ -83,6 +83,19 @@ class HLSParser:
         if self._injected:
             self.raw_content = self._injected
             return True
+        
+        if self.m3u8_url.startswith("file://"):
+            try:
+                from urllib.request import url2pathname
+                local_path = Path(url2pathname(urlparse(self.m3u8_url).path))
+                self.raw_content = local_path.read_text(encoding="utf-8")
+                self._base_url = local_path.parent.as_uri() + "/"
+                return True
+            except Exception as exc:
+                console.print(f"[red]Failed to read local HLS manifest: {exc}.")
+                logger.error(f"HLSParser: local file read failed: {exc}")
+                return False
+
         try:
             hdrs = dict(self.headers)
             hdrs.setdefault("User-Agent", get_headers().get("User-Agent", ""))
