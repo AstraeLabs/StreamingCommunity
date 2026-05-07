@@ -123,15 +123,16 @@ def normalize_sub_filename(lang_raw: str, track_info: Dict = None) -> Tuple[str,
 def ext_from_url(url: str, fallback: str = "UNK") -> str:
     """Detect subtitle/audio format from URL path, ignoring query string."""
     path = url.split("?")[0].lower()
-    for ext in ("vtt", "srt", "ass", "ssa", "ttml2", "ttml", "xml", "dfxp", "m4a", "aac", "mp3"):
+    for ext in ("webvtt", "vtt", "srt", "ass", "ssa", "ttml2", "ttml", "xml", "dfxp", "m4a", "aac", "mp3"):
         if path.endswith(f".{ext}"):
-            return ext
+            return "vtt" if ext == "webvtt" else ext
     
     return fallback
 
 
 async def resolve_url(client: Any, url: str, track_type: str) -> Tuple[str, str]:
     """If *url* points to an HLS manifest (#EXTM3U), resolve and return the first media segment URL and its detected format."""
+    from urllib.parse import urljoin
     try:
         resp = await client.get(url)
         resp.raise_for_status()
@@ -144,9 +145,10 @@ async def resolve_url(client: Any, url: str, track_type: str) -> Tuple[str, str]
         for line in text.splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
-                fmt = ext_from_url(line, "UNK")
+                absolute_url = urljoin(url, line)
+                fmt = ext_from_url(absolute_url, "UNK")
                 logger.info(f"Resolved manifest → segment: {line} (fmt={fmt})")
-                return line, fmt
+                return absolute_url, fmt
 
         logger.error(f"Manifest parsed but no segment found in {url!r}")
         return url, ext_from_url(url, "UNK")
