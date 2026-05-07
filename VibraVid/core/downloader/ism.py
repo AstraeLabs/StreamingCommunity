@@ -38,7 +38,7 @@ class ISM_Downloader(BaseDownloader):
         max_segments: Optional[int] = None,
         other_tracks: Optional[list] = None,
     ):
-        self.ism_url = str(ism_url).strip()
+        self.ism_url = self._resolve_url(str(ism_url).strip())
         self.headers = headers or get_headers()
         self.license_url = str(license_url).strip() if license_url else None
         self.license_headers = license_headers or self.headers
