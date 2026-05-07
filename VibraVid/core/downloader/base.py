@@ -29,6 +29,21 @@ DEBUG_TRACK_JSON = config_manager.config.get_bool("DEFAULT", "debug_track_json")
 
 
 class BaseDownloader:
+
+    @staticmethod
+    def _resolve_url(url_or_path: str) -> str:
+        if not url_or_path:
+            return url_or_path
+        stripped = url_or_path.strip()
+
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9+\-.]*://', stripped):
+            return stripped
+
+        path = Path(stripped)
+        if path.exists() and path.is_file():
+            return path.resolve().as_uri()
+        return stripped
+
     def _extract_season_episode(self, output_path: str) -> tuple:
         """Extract season and episode numbers from output_path using regex patterns."""
         season = 0
