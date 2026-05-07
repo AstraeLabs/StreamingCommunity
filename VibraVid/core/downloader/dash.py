@@ -191,7 +191,7 @@ class DASH_Downloader(BaseDownloader):
             - cookies: HTTP cookies for authenticated requests.
             - max_segments: Maximum number of segments to download (for testing). Default: None (all).
         """
-        self.mpd_url = str(mpd_url).strip() if mpd_url else None
+        self.mpd_url = self._resolve_url(str(mpd_url).strip()) if mpd_url else None
         self.mpd_headers = mpd_headers or get_headers()
         self.other_tracks = [dict(track or {}) for track in (other_tracks or [])]
 
