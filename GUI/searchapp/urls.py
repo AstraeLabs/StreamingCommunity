@@ -33,4 +33,5 @@ urlpatterns = [
     # Settings
     path("settings/", views.settings_editor, name="settings_editor"),
     path("api/save-settings/", views.save_settings, name="save_settings"),
+    path("api/reload-config/", views.reload_config, name="reload_config"),
 ]

@@ -1,8 +1,10 @@
 # 23-01-26
 
+import json
+import os
 import time
 import threading
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 
 class SingletonMeta(type):
@@ -29,6 +31,47 @@ class DownloadTracker(metaclass=SingletonMeta):
         self.active_processes: Dict[str, List[any]] = {} 
         self.stale_timeout_seconds = 30 * 60
         self._lock = threading.Lock()
+        self._load_persisted_history()
+
+    def _django_enabled(self) -> bool:
+        return bool(os.environ.get("DJANGO_SETTINGS_MODULE"))
+
+    def _get_history_model(self) -> Optional[any]:
+        if not self._django_enabled():
+            return None
+        try:
+            from GUI.searchapp.models import DownloadHistory
+            return DownloadHistory
+        except Exception:
+            return None
+
+    def _load_persisted_history(self) -> None:
+        model = self._get_history_model()
+        if not model:
+            return
+        try:
+            rows = list(model.objects.order_by("-created_at")[:50])
+            payloads: List[Dict[str, Any]] = []
+            for row in reversed(rows):
+                try:
+                    payloads.append(json.loads(row.payload))
+                except Exception:
+                    continue
+            self.history = payloads
+        except Exception:
+            pass
+
+    def _persist_history_entry(self, entry: Dict[str, Any]) -> None:
+        model = self._get_history_model()
+        if not model:
+            return
+        try:
+            model.objects.create(
+                download_id=str(entry.get("id") or ""),
+                payload=json.dumps(entry),
+            )
+        except Exception:
+            pass
         
     def start_download(self, download_id: str, title: str, site: str, media_type: str = "Film", path: str = None):
         hook_context = None
@@ -244,6 +287,8 @@ class DownloadTracker(metaclass=SingletonMeta):
             if len(self.history) > 50:
                 self.history.pop(0)
 
+            self._persist_history_entry(dl)
+
         if hook_context:
             try:
                 from VibraVid.utils.hooks import execute_hooks, remember_hook_context
@@ -289,6 +334,12 @@ class DownloadTracker(metaclass=SingletonMeta):
         """Clear all download history."""
         with self._lock:
             self.history.clear()
+        model = self._get_history_model()
+        if model:
+            try:
+                model.objects.all().delete()
+            except Exception:
+                pass
 
 
 class ContextTracker:

@@ -63,6 +63,12 @@
             Ripristina
           </button>
           <button 
+            onclick="reloadConfig()"
+            class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg transition-all"
+          >
+            Ricarica config
+          </button>
+          <button 
             onclick="saveSettings('config')"
             class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-all transform hover:scale-105 active:scale-95"
           >
@@ -87,6 +93,12 @@
             class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-all"
           >
             Ripristina
+          </button>
+          <button 
+            onclick="reloadConfig(true, 'login')"
+            class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg transition-all"
+          >
+            Ricarica login
           </button>
           <button 
             onclick="saveSettings('login')"
@@ -149,7 +161,10 @@
   function resetEditor(tab) {
     const original = tab === 'config' ? originalConfig : originalLogin;
     document.getElementById(tab + '-editor').value = original;
-    showMessage(tab, 'Editor ripristinato', 'info');
+    const infoMessage = tab === 'login'
+      ? 'Login editor ripristinato'
+      : 'Config editor ripristinato';
+    showMessage(tab, infoMessage, 'info');
   }
 
   function showMessage(fileType, message, type = 'success') {
@@ -174,7 +189,10 @@
     const content = editor.value.trim();
     
     if (!content) {
-      showMessage(fileType, 'Contenuto vuoto', 'error');
+      const errMessage = fileType === 'login'
+        ? 'Login contenuto vuoto'
+        : 'Config contenuto vuoto';
+      showMessage(fileType, errMessage, 'error');
       return;
     }
     
@@ -182,11 +200,17 @@
     try {
       JSON.parse(content);
     } catch (e) {
-      showMessage(fileType, `JSON non valido: ${e.message}`, 'error');
+      const errMessage = fileType === 'login'
+        ? `Login JSON non valido: ${e.message}`
+        : `Config JSON non valido: ${e.message}`;
+      showMessage(fileType, errMessage, 'error');
       return;
     }
     
-    showMessage(fileType, 'Salvataggio in corso...', 'info');
+    const savingMessage = fileType === 'login'
+      ? 'Login salvataggio in corso...'
+      : 'Config salvataggio in corso...';
+    showMessage(fileType, savingMessage, 'info');
     
     try {
       const response = await fetch('{% url "save_settings" %}', {
@@ -204,17 +228,81 @@
       const data = await response.json();
       
       if (data.success) {
-        showMessage(fileType, data.message || 'Impostazioni salvate con successo!', 'success');
         if (fileType === 'config') {
           originalConfig = content;
+          const reloadOk = await reloadConfig(false, 'config');
+          if (reloadOk) {
+            showMessage(fileType, 'Config salvata e ricaricata', 'success');
+          } else {
+            showMessage(fileType, 'Config salvata, ma reload fallito', 'error');
+          }
         } else {
           originalLogin = content;
+          const reloadOk = await reloadConfig(false, 'login');
+          if (reloadOk) {
+            showMessage(fileType, 'Login salvato e ricaricato', 'success');
+          } else {
+            showMessage(fileType, 'Login salvato, ma reload fallito', 'error');
+          }
         }
       } else {
-        showMessage(fileType, data.error || 'Errore nel salvataggio', 'error');
+        const errMessage = fileType === 'login'
+          ? (data.error || 'Login salvataggio fallito')
+          : (data.error || 'Config salvataggio fallito');
+        showMessage(fileType, errMessage, 'error');
       }
     } catch (error) {
-      showMessage(fileType, `Errore: ${error.message}`, 'error');
+      const errMessage = fileType === 'login'
+        ? `Login salvataggio fallito: ${error.message}`
+        : `Config salvataggio fallito: ${error.message}`;
+      showMessage(fileType, errMessage, 'error');
+    }
+  }
+
+  async function reloadConfig(showMessages = true, messageTarget = 'config') {
+    if (showMessages) {
+      const label = messageTarget === 'login' ? 'Ricarica login in corso...' : 'Ricarica config in corso...';
+      showMessage(messageTarget, label, 'info');
+    }
+
+    try {
+      const response = await fetch('{% url "reload_config" %}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({
+          file_type: messageTarget
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        if (showMessages) {
+          const okMessage = messageTarget === 'login'
+            ? (data.message || 'Login ricaricato')
+            : (data.message || 'Config ricaricata');
+          showMessage(messageTarget, okMessage, 'success');
+        }
+        return true;
+      }
+      if (showMessages) {
+        const errMessage = messageTarget === 'login'
+          ? (data.error || 'Login reload fallito')
+          : (data.error || 'Config reload fallito');
+        showMessage(messageTarget, errMessage, 'error');
+      }
+      return false;
+    } catch (error) {
+      if (showMessages) {
+        const errMessage = messageTarget === 'login'
+          ? `Login reload fallito: ${error.message}`
+          : `Config reload fallito: ${error.message}`;
+        showMessage(messageTarget, errMessage, 'error');
+      }
+      return false;
     }
   }
 

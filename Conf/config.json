@@ -6,6 +6,7 @@
         "show_message": true,
         "fetch_domain_online": true,
         "auto_update_check": true,
+        "disable_scraper_cache": false,
         "imp_service": ["default"],
         "installation": "essential"
     },

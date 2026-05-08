@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
+from VibraVid.utils import config_manager
+
 
 @dataclass
 class Entries:
@@ -56,13 +58,20 @@ class BaseStreamingAPI(ABC):
         """Generate a unique key for the scraper cache."""
         return f"{self.site_name}_{media_item.url or media_item.path_id or media_item.id or media_item.slug}"
 
+    def _scraper_cache_enabled(self) -> bool:
+        return not bool(config_manager.config.get_bool("DEFAULT", "disable_scraper_cache", default=False))
+
     def get_cached_scraper(self, media_item: Entries) -> Optional[Any]:
         """Retrieve a cached scraper instance from the global cache."""
+        if not self._scraper_cache_enabled():
+            return None
         key = self._get_cache_key(media_item)
         return self._scraper_cache.get(key)
 
     def set_cached_scraper(self, media_item: Entries, scraper: Any):
         """Store a scraper instance in the global cache."""
+        if not self._scraper_cache_enabled():
+            return
         key = self._get_cache_key(media_item)
         self._scraper_cache[key] = scraper
 

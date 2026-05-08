@@ -474,6 +474,22 @@ class ConfigManager:
         
         console.print("[red]No local domains.json file available for fallback")
         self._domains_data.clear()
+
+    def reload(self) -> None:
+        """Reload configuration files and clear cached values."""
+        self.cache.clear()
+        self.load_all_configs()
+
+    def reload_config_only(self) -> None:
+        """Reload only config.json and refresh related settings."""
+        self.cache.clear()
+        self._load_config()
+        self._update_settings_from_config()
+
+    def reload_login_only(self) -> None:
+        """Reload only login.json."""
+        self.cache.clear()
+        self._load_login()
     
     def save_config(self) -> None:
         """Save the main configuration to file."""

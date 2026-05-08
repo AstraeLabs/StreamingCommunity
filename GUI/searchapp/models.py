@@ -34,3 +34,15 @@ class WatchlistItem(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.source_alias})"
+
+
+class DownloadHistory(models.Model):
+    download_id = models.CharField(max_length=128, db_index=True)
+    payload = models.TextField()
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.download_id} @ {self.created_at}"

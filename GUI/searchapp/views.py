@@ -24,6 +24,7 @@ from GUI.searchapp.api import get_api
 from GUI.searchapp.api.base import Entries
 
 from VibraVid.core.ui.tracker import  download_tracker, context_tracker
+from VibraVid.utils import config_manager
 from VibraVid.utils.tmdb_client import tmdb_client
 from VibraVid.cli.run import execute_hooks
 
@@ -1158,4 +1159,35 @@ def save_settings(request: HttpRequest) -> JsonResponse:
         return JsonResponse({
             "success": False,
             "error": f"Errore nel salvataggio: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["POST"])
+def reload_config(request: HttpRequest) -> JsonResponse:
+    try:
+        file_type = None
+        if request.content_type and "application/json" in request.content_type:
+            try:
+                data = json.loads(request.body.decode("utf-8"))
+                file_type = data.get("file_type")
+            except Exception:
+                file_type = None
+
+        if file_type == "login":
+            config_manager.reload_login_only()
+            message = "Login ricaricato"
+        elif file_type == "config":
+            config_manager.reload_config_only()
+            message = "Config ricaricata"
+        else:
+            config_manager.reload()
+            message = "Config ricaricata"
+        return JsonResponse({
+            "success": True,
+            "message": message
+        })
+    except Exception as e:
+        return JsonResponse({
+            "success": False,
+            "error": f"Errore nel reload: {str(e)}"
         }, status=500)
