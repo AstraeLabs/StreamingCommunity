@@ -56,12 +56,6 @@ git clone https://github.com/AstraeLabs/VibraVid.git
 cd VibraVid
 ```
 
-### Opzione 4 — Unraid
-
-```bash
-Puoi trovare l'applicazione nella Community Application
-```
-
 Installa e avvia con **pip** o **uv**:
 
 **pip:**
@@ -78,6 +72,12 @@ uv sync              # installa
 uv run manual.py     # avvia
 uv run update.py     # aggiorna
 uv sync --upgrade    # aggiorna dipendenze
+```
+
+### Opzione 4 — Unraid
+
+```bash
+Puoi trovare l'applicazione nella Community Application
 ```
 
 ### Documentazione aggiuntiva
