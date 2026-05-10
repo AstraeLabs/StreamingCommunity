@@ -52,9 +52,16 @@ VibraVid
 ### Option 3 — Manual Clone
 
 ```bash
+You can find the app in the Community Application
+```
+
+### Option 4 — Unraid
+
+```bash
 git clone https://github.com/AstraeLabs/VibraVid.git
 cd VibraVid
 ```
+
 
 Then install and run with either **pip** or **uv**:
 
