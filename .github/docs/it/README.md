@@ -56,6 +56,12 @@ git clone https://github.com/AstraeLabs/VibraVid.git
 cd VibraVid
 ```
 
+### Opzione 4 — Unraid
+
+```bash
+Puoi trovare l'applicazione nella Community Application
+```
+
 Installa e avvia con **pip** o **uv**:
 
 **pip:**
