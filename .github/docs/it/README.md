@@ -76,7 +76,7 @@ uv sync --upgrade    # aggiorna dipendenze
 
 ### Opzione 4 — Unraid
 
-```bash
+```
 Puoi trovare l'applicazione nella Community Application
 ```
 
