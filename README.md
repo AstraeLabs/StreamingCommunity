@@ -76,7 +76,7 @@ uv sync --upgrade    # sync deps
 
 ### Option 4 — Unraid
 
-```bash
+```
 You can find the app in the Community Application
 ```
 
