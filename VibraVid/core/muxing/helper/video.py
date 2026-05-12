@@ -1,7 +1,8 @@
-﻿# 17.01.25
+# 17.01.25
 
 import os
 import json
+import gzip
 import subprocess
 import logging
 from pathlib import Path
@@ -84,6 +85,15 @@ def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: lo
     with open(output_path, "wb") as out_f:
         for seg_path, _ in valid:
             chunk = seg_path.read_bytes()
+            
+            # Check if this chunk is gzip-compressed (magic bytes: 1f 8b)
+            if len(chunk) >= 2 and chunk[0:2] == b'\x1f\x8b':
+                try:
+                    log.info(f"[binary_merge] detected gzip-compressed segment: {seg_path.name}, decompressing ...")
+                    chunk = gzip.decompress(chunk)
+                except Exception as e:
+                    log.warning(f"[binary_merge] failed to decompress {seg_path.name}: {e}, using raw data")
+            
             out_f.write(chunk)
             total_written += len(chunk)
 
