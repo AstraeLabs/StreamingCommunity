@@ -34,7 +34,7 @@ from .base import BaseMediaDownloader
 from ._hls_utils import hls_base_url, parse_hls_variant_playlist
 from ._dash_utils import build_dash_ranged_segments
 from ..decryptor._segment_crypto import decrypt_aes128
-from ._stream_helpers import (detect_seg_ext, safe_name, describe_key_for_log, join_interruptible, SilentDownloadBarManager)
+from ._stream_helpers import (detect_seg_ext, safe_name, describe_key_for_log, join_interruptible, collect_failed_segments, print_failed_segments_report, SilentDownloadBarManager)
 from .downloader_live import LiveDownloadMixin
 
 
@@ -66,6 +66,10 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
 
         # Live-decryption tracking
         self._session_live_decrypt: bool = False
+
+        # Failed-segment accumulator
+        self._failed_segments: list = []
+        self._failed_segments_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -207,6 +211,10 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
 
         if self._stop_event.is_set() or (self.download_id and download_tracker.is_stopped(self.download_id)):
             return {"error": "cancelled"}
+        
+        if self._failed_segments:
+            print_failed_segments_report(self._failed_segments)
+            self._failed_segments.clear()
 
         self.status = self._build_status(ext_subs, ext_auds)
         return self.status
@@ -816,6 +824,20 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         if decrypt_thread:
             decrypt_queue.put(None)
             decrypt_thread.join()
+
+        if paths is not None:
+            _stream_label_rich = (
+                self._video_label if stream.type == "video"
+                else self._audio_labels.get((stream.language or "und").lower(), stream.language or "und")
+                if stream.type == "audio"
+                else stream.language or "und"
+            )
+            
+            _plain_label = re.sub(r"\[/?[^\[\]]*\]", "", _stream_label_rich).strip() or task_key
+            failed = collect_failed_segments(dl_segs, paths, stream_dir, default_ext)
+            if failed:
+                with self._failed_segments_lock:
+                    self._failed_segments.append((_plain_label, failed))
 
         if decrypt_errors:
             raise RuntimeError(decrypt_errors[0])
