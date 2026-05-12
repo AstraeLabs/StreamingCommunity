@@ -4,10 +4,18 @@
 import re
 import time
 import threading
+import logging
+from pathlib import Path
 from typing import Any, List, Optional
+
+from rich.console import Console
 
 from VibraVid.core.ui.bar_manager import DownloadBarManager
 from VibraVid.core.decryptor import KeysManager
+
+
+console = Console()
+logger = logging.getLogger("manual")
 
 
 def detect_seg_ext(url: str, default: str = "ts") -> str:
@@ -60,6 +68,47 @@ def join_interruptible(threads: List[threading.Thread], stop_event: threading.Ev
             break
         for t in alive:
             t.join(timeout=poll)
+
+
+def collect_failed_segments(dl_segs: list, downloaded_paths: list, stream_dir, default_ext: str) -> list:
+    """
+    Return a list of (seg_number, url) tuples for segments that were not
+    successfully downloaded (missing file or zero-byte file).
+    """
+    downloaded_set = {
+        str(p.resolve()).casefold()
+        for p in (downloaded_paths or [])
+        if p.exists() and p.stat().st_size > 0
+    }
+
+    failed = []
+    for seg in dl_segs:
+        seg_ext = detect_seg_ext(seg.get("url", ""), default=default_ext)
+        if seg_ext == "m4s":
+            seg_ext = "mp4"
+        
+        expected_path = Path(stream_dir) / f"seg_{seg['number']:05d}.{seg_ext}"
+        key = str(expected_path.resolve()).casefold()
+        if key not in downloaded_set:
+            failed.append((seg["number"], seg.get("url", "N/A")))
+
+    return failed
+
+
+def print_failed_segments_report(failed_by_stream: list) -> None:
+    """
+    Print a summary of all failed segments after all progress bars are gone.
+    """
+    if not failed_by_stream:
+        return
+
+    console.print()
+    for stream_label, failed in failed_by_stream:
+        if not failed:
+            continue
+        
+        logger.error(f"Failed segments for {stream_label!r}: {len(failed)} missing")
+        console.print(f"[bold yellow]Failed segments for:[/bold yellow] [bold white]{stream_label}[/bold white] [red]({len(failed)} missing)[/red]")
 
 
 class SilentDownloadBarManager(DownloadBarManager):
