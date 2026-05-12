@@ -78,7 +78,7 @@ class DRMManager:
                 logger.error(f"Failed to sync to {name} (will continue): {e}")
                 console.print(f"[yellow]Warning: Could not sync to {name}: {e}")
 
-    def _resolve_keys(self, pssh_list: list[dict], license_url: str, drm_type: str, cdm_fn, cdm_kwargs: dict, key: str = None) -> Optional[KeysManager]:
+    def _resolve_keys(self, pssh_list: list[dict], license_url: str, drm_type: str, cdm_fn, cdm_kwargs: dict, key: str | list[str] = None) -> Optional[KeysManager]:
         """
         Shared key resolution logic for both Widevine and PlayReady.
         Step 1: Manual key override. Step 2: vault lookup (by license_url or generic). Step 3: CDM extraction as fallback.
@@ -91,7 +91,9 @@ class DRMManager:
 
         if key:
             manual_keys = []
-            for entry in key.split("|"):
+            key_entries = key.split("|") if isinstance(key, str) else key
+            
+            for entry in key_entries:
                 parts = entry.split(":")
                 if len(parts) == 2:
                     logger.info(f"Using manual {drm_type} key override for KID {parts[0].strip()}")
