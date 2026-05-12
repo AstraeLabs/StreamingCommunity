@@ -5,7 +5,7 @@ from .console import start_message
 from .console import TVShowManager
 from .os import os_manager, internet_manager
 from .tmdb_client import tmdb_client
-from .logger import setup_logger, logger
+from .logger import setup_logger, logger, get_log_file_path
 
 
 __all__ = [
@@ -18,4 +18,5 @@ __all__ = [
     "tmdb_client",
     "setup_logger",
     "logger",
+    "get_log_file_path",
 ]
