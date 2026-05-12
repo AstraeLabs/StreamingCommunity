@@ -11,7 +11,7 @@ from pywidevine.device import DeviceTypes
 from pywidevine.remotecdm import RemoteCdm
 from pywidevine.pssh import PSSH
 
-from VibraVid.setup import get_info_wvd
+from VibraVid.setup import get_info_wvd, binary_paths
 from VibraVid.utils.http_client import create_client
 from VibraVid.core.decryptor import KeysManager
 
@@ -49,21 +49,30 @@ def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: 
     cdm_remote_api = cdm_remote_api if cdm_remote_api else None
     if prefer_remote_cdm and cdm_remote_api is None:
         logger.error("Widevine: prefer_remote_cdm=true but no remote CDM config found")
-        console.print("[red]Error: prefer_remote_cdm=true but no remote CDM config found. Database lookup will continue.")
+        console.print(
+            "[red]Error: prefer_remote_cdm=true but no remote CDM config found. Database lookup will continue."
+            f"\n[yellow]If no database key exists, place device.wvd in:[/] [white]{binary_paths.get_binary_directory()}[/white]"
+        )
         
         # Return None here to skip CDM extraction but allow database lookup in manager._resolve_keys
         return None
     
     if not prefer_remote_cdm and cdm_device_path is None:
         logger.error("Widevine: prefer_remote_cdm=false but no local CDM device found")
-        console.print("[red]Error: prefer_remote_cdm=false but no local CDM device found. Database lookup will continue.")
+        console.print(
+            "[red]Error: prefer_remote_cdm=false but no local CDM device found. Database lookup will continue."
+            f"\n[yellow]If no database key exists, place device.wvd in:[/] [white]{binary_paths.get_binary_directory()}[/white]"
+        )
         
         # Return None here to skip CDM extraction but allow database lookup in manager._resolve_keys
         return None
     
     if cdm_device_path is None and cdm_remote_api is None:
         logger.error("Must provide either cdm_device_path or cdm_remote_api")
-        console.print("[red]Error: Must provide either cdm_device_path or cdm_remote_api.")
+        console.print(
+            "[red]Error: Must provide either cdm_device_path or cdm_remote_api."
+            f"\n[yellow]Place device.wvd in:[/] [white]{binary_paths.get_binary_directory()}[/white]"
+        )
         return None
 
     return _get_widevine_keys(pssh_list, license_url, cdm_device_path, cdm_remote_api, headers, license_data, license_certificate)
