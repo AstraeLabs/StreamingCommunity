@@ -481,7 +481,7 @@ def series_detail(request: HttpRequest) -> HttpResponse:
             for ep in season.episodes:
                 ep_dict = ep.__dict__.copy()
                 lang = ep_dict.get("language") or ""
-                ep_dict["language_list"] = [l.strip() for l in lang.split(",") if l.strip()] if lang else []
+                ep_dict["language_list"] = [langs.strip() for langs in lang.split(",") if langs.strip()] if lang else []
                 episodes_data.append(ep_dict)
 
             seasons_data.append({
