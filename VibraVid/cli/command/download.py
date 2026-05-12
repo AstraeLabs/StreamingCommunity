@@ -7,7 +7,6 @@ from typing import Optional
 from rich.console import Console
 
 from VibraVid.utils import config_manager
-from VibraVid.core.downloader import (MP4_Downloader, HLS_Downloader, DASH_Downloader, ISM_Downloader)  # adjust paths as needed
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -119,6 +118,9 @@ def handle_direct_download(args) -> bool:
         f"  [dim]out :[/dim] {output}" +
         (f"\n  [dim]drm :[/dim] {drm_pref}" if lic_url or keys else "")
     )
+
+    # Lazy import to avoid circular dependency
+    from VibraVid.core.downloader import MP4_Downloader, HLS_Downloader, DASH_Downloader, ISM_Downloader
 
     try:
         if url_type == 'mp4':
