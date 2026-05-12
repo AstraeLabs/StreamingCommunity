@@ -19,6 +19,11 @@ LOG_LEVEL = getattr(logging, conf_log_level)
 
 _log_file = None
 
+
+def get_log_file_path():
+    """Return the current log file path, if logging has been initialized."""
+    return str(_log_file) if _log_file is not None else None
+
 def setup_logger(name=None):
     global _log_file
     app_base_path = config_manager.base_path
