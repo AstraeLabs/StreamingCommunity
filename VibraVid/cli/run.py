@@ -10,7 +10,6 @@ from typing import Callable
 from rich.console import Console
 from rich.prompt import Prompt
 
-from . import call_global_search
 from VibraVid.utils import config_manager, start_message, setup_logger
 from VibraVid.services._base import load_search_functions
 from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
@@ -19,6 +18,9 @@ from VibraVid.setup.system import _initialize_paths
 from VibraVid.setup.system import (get_ffmpeg_path, get_ffprobe_path, get_bento4_decrypt_path, get_mp4dump_path, get_wvd_path, get_prd_path, get_shaka_packager_path, get_dovi_tool_path, get_mkvmerge_path, get_velora_path)
 from VibraVid.setup.binary_paths import binary_paths
 from VibraVid.upload.version import __version__, __title__
+
+from VibraVid.cli.command.global_search import global_search as call_global_search
+from VibraVid.cli.command.download import handle_direct_download
 
 
 console = Console()
@@ -61,7 +63,7 @@ def setup_argument_parser(search_functions):
         epilog=f"Available sites by name: {available_names}\nAvailable sites by index: {available_indices}"
     )
 
-    # Add arguments
+    # ── Standard arguments
     parser.add_argument('-s', '--search', default=None, help='Search terms')
     parser.add_argument('--site', type=str, help='Site by name or index')
     parser.add_argument('--category', type=int, help='Category filter for global search (1=Anime, 2=Movies/Series, 3=Series, 4=Movies)')
@@ -83,6 +85,16 @@ def setup_argument_parser(search_functions):
     parser.add_argument('-UP', '--update', action='store_true', help='Auto-update to latest version (binary only)')
     parser.add_argument('--dep', action='store_true', help='Show all dependency paths (config, services, binaries)')
     parser.add_argument('--version', action='version', version=f'{__title__} {__version__}')
+
+    # ── Direct download arguments
+    dl_group = parser.add_argument_group('Direct download')
+    dl_group.add_argument('--down', metavar='URL', help='Direct stream URL to download (MP4 / HLS / DASH / ISM).')
+    dl_group.add_argument('-o', '--output', metavar='PATH', help='Output file path (extension auto-appended if omitted).')
+    dl_group.add_argument('--headers', action='append', metavar='Key:Value', help='HTTP request header. Repeatable: --headers "Name:Val" --headers "Name2:Val2".')
+    dl_group.add_argument('--license-url', dest='license_url', metavar='URL', help='DRM license server URL (Widevine / PlayReady).')
+    dl_group.add_argument('--license-headers', dest='license_headers', action='append', metavar='Key:Value', help='HTTP header for the DRM license request. Repeatable.',)
+    dl_group.add_argument('--key', action='append', metavar='KID:KEY', help='Manual decryption key in KID:KEY hex format. Repeatable for multiple keys.',)
+    dl_group.add_argument('--drm', choices=['widevine', 'playready', 'auto'], default='auto', help='DRM system preference (default: auto — widevine for HLS/DASH, playready for ISM).',)
 
     logger.debug("Argument parser set up with available sites and options.")
     return parser
@@ -273,6 +285,11 @@ def main():
             return
 
         apply_config_updates(args)
+
+        # ── Direct download (--down) — handled before interactive site selection ──
+        if handle_direct_download(args):
+            return
+
         close_console_flag = None
         if hasattr(args, 'close_console') and args.close_console is not None:
             close_console_flag = args.close_console.lower() == 'true'
