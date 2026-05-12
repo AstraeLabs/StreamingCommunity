@@ -10,7 +10,7 @@ from typing import Callable
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import config_manager, start_message, setup_logger
+from VibraVid.utils import config_manager, start_message, setup_logger, get_log_file_path
 from VibraVid.services._base import load_search_functions
 from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
 from VibraVid.upload import git_update, binary_update
@@ -43,7 +43,6 @@ def run_function(func: Callable[..., None], search_terms: str = None, selections
 
 def force_exit():
     """Force script termination in any context."""
-    console.print("\n[red]Closing the application...")
     logger.info("Forcing script termination.")
     sys.exit(0)
 
@@ -264,8 +263,26 @@ def main():
 
         # Initialize
         _initialize_paths()
+
+        # Check critical dependencies before proceeding
+        ffmpeg_path = get_ffmpeg_path()
+        ffprobe_path = get_ffprobe_path()
+        if not ffmpeg_path or not ffprobe_path:
+            missing_tools = []
+            if not ffmpeg_path:
+                missing_tools.append("FFmpeg")
+            if not ffprobe_path:
+                missing_tools.append("FFprobe")
+
+            console.print(f"[red]Missing required dependency: {', '.join(missing_tools)}.[/red]")
+            logger.error(f"Missing required dependency: {missing_tools}")
+            raise SystemExit(1)
+
+        # Execute pre-run hooks with context from post-download if available, otherwise with empty context
         execute_hooks('pre_run')
         start_message(False)
+
+        # Attempt git update but continue even if it fails (e.g., no network, git not available)
         try:
             git_update()
         except Exception as e:
@@ -290,6 +307,7 @@ def main():
         if handle_direct_download(args):
             return
 
+        # If we reach this point, we're in interactive mode (either normal or with --site specified)
         close_console_flag = None
         if hasattr(args, 'close_console') and args.close_console is not None:
             close_console_flag = args.close_console.lower() == 'true'
@@ -346,5 +364,9 @@ def main():
             force_exit()
 
     finally:
+        log_file_path = get_log_file_path()
+        if log_file_path:
+            console.print(f"[dim]Log: {log_file_path}[/dim]")
+        
         logger.info("Script execution completed.")
         execute_hooks('post_run', context=get_last_hook_context('post_download') or get_last_hook_context('post_run'))
