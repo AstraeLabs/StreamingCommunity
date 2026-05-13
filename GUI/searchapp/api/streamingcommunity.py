@@ -65,7 +65,18 @@ class StreamingCommunityAPI(BaseStreamingAPI):
                 )
                 results.append(media_item)
         
-        return results
+        # Dedup by ID: search runs for both 'it' and 'en', same title appears twice.
+        # Keep 'it' version when both exist for the same ID.
+        seen: dict = {}
+        deduped = []
+        for item in results:
+            key = item.id
+            if key not in seen:
+                seen[key] = len(deduped)
+                deduped.append(item)
+            elif item.provider_language == 'it' and deduped[seen[key]].provider_language != 'it':
+                deduped[seen[key]] = item
+        return deduped
 
     def get_series_metadata(self, media_item: Entries) -> Optional[List[Season]]:
         """
