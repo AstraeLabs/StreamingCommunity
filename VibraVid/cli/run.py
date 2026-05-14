@@ -367,7 +367,7 @@ def main():
     finally:
         log_file_path = get_log_file_path()
         if log_file_path:
-            console.print(f"[dim]Log: {log_file_path}[/dim]")
+            console.print(f"\n[dim]Log: {log_file_path}[/dim]")
         
         logger.info("Script execution completed.")
         execute_hooks('post_run', context=get_last_hook_context('post_download') or get_last_hook_context('post_run'))
