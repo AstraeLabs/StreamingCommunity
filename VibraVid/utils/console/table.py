@@ -4,14 +4,15 @@ import logging
 from typing import Dict, List, Any
 
 from rich.console import Console
-from rich.table import Table
 from rich.prompt import Prompt
-from rich import box
+from rich.text import Text
 
 from .message import start_message
+from .shared_styles import create_styled_table, TableStyle
 
 
 logger = logging.getLogger(__name__)
+TABLE_STYLE = TableStyle.MODERN_ROUNDED
 
 
 class TVShowManager:
@@ -25,6 +26,7 @@ class TVShowManager:
         self.slice_end = 10
         self.step = self.slice_end
         self.column_info = []
+        self.table_style = TABLE_STYLE
 
     def add_column(self, column_info: Dict[str, Dict[str, str]]) -> None:
         """
@@ -60,34 +62,39 @@ class TVShowManager:
             logger.error("Error: Column information not configured.")
             return 404
 
-        # Create table with specified style
-        table = Table(
-            box=box.ROUNDED,
-            show_header=True,
-            header_style="cyan",
-            border_style="blue",
-            padding=(0, 1)
-        )
+        table = create_styled_table(self.table_style)
 
         # Add columns dynamically based on provided column information
         for col_name, col_style in self.column_info.items():
             color = col_style.get("color", "white")
             width = col_style.get("width", None)
             justify = col_style.get("justify", "center")
+            header_color = col_style.get("header_color", None)
+            if header_color:
+                col_name = Text(col_name, style=header_color)
             
             table.add_column(
                 col_name, 
                 style=color,
                 justify=justify,
-                width=width
+                width=width,
+                no_wrap=col_style.get("no_wrap", False),
+                overflow=col_style.get("overflow", "ellipsis"),
             )
 
         # Add rows dynamically based on available TV show data
         for idx, entry in enumerate(data_slice):
             if entry:
-                row_data = [str(entry.get(col_name, '')) for col_name in self.column_info.keys()]
-                style = "dim" if idx % 2 == 1 else None
-                table.add_row(*row_data, style=style)
+                row_data = []
+                for col_name in self.column_info.keys():
+                    value = str(entry.get(col_name, '\\'))
+                    # Troncamento intelligente per valori lunghi
+                    max_len = self.column_info[col_name].get("max_length", None)
+                    if max_len and len(value) > max_len:
+                        value = value[:max_len-3] + "..."
+                    row_data.append(value)
+                
+                table.add_row(*row_data)
 
         self.console.print(table)
 
@@ -127,6 +134,10 @@ class TVShowManager:
             if result_func == 404:
                 logger.error("Error displaying data. Exiting.")
                 return ""
+
+            # Add page info below the table
+            page_info = f"[dim][{self.slice_start+1}-{min(self.slice_end, total_items)} of {total_items}][/dim]"
+            self.console.print(page_info, justify="center")
 
             # Handle pagination and user input
             if self.slice_end < total_items:
