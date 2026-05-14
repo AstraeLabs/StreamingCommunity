@@ -8,3 +8,4 @@ ua-generator
 pywidevine
 pyplayready
 pycryptodomex
+mutagen
