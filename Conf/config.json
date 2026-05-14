@@ -17,7 +17,8 @@
         "anime_folder_name": "Anime",
         "music_folder_name": "Music",
         "movie_format": "%(title_name) (%(title_year))/%(title_name) (%(title_year))",
-        "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
+        "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)",
+        "song_format": "%(artist)/%(album)/%(track_number:02d). %(title)"
     },
     "DOWNLOAD": {
         "auto_select": true,
@@ -35,6 +36,7 @@
         "param_video": ["-c:v","libx265","-crf","28","-preset","medium"],
         "param_audio": ["-c:a","libopus","-b:a","128k"],
         "param_final": ["-c","copy"],
+        "param_song_ffmpeg": [],
         "audio_order": [],
         "subtitle_order": [],
         "subtitle_disposition_language": "ita_forced",
