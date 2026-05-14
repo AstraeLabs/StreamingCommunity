@@ -237,10 +237,12 @@ jobs:
                   --hidden-import=six \
                   --hidden-import=pathvalidate \
                   --hidden-import=xml.etree.ElementTree \
+                  --hidden-import=mutagen \
                   --hidden-import=pywidevine \
                   --hidden-import=pyplayready \
                   --hidden-import=ttconv \
                   --collect-all ttconv \
+                  --collect-all mutagen \
                   --hidden-import=curl_cffi \
                   --hidden-import=_cffi_backend \
                   --collect-all curl_cffi \
