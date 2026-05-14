@@ -2,12 +2,12 @@
 
 from typing import Optional, Set
 
-from rich import box
 from rich.table import Table
 from rich.text import Text
 
 from VibraVid.core.utils.codec import get_channel_label
 from VibraVid.core.manifest.stream import Stream as _Stream
+from VibraVid.utils.console.shared_styles import create_styled_table, TableStyle
 
 
 _COL_VIDEO = "cyan"
@@ -31,6 +31,8 @@ _HDR_STYLE = {
     "HDR": "bold yellow",
 }
 
+TABLE_STYLE = TableStyle.MODERN_ROUNDED
+
 
 def _c(text: str, colour: Optional[str]) -> Text:
     return Text(str(text), style=colour) if colour else Text(str(text))
@@ -52,7 +54,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
     Display order: Video (bitrate desc) → Audio (bitrate desc) → Subtitle.
     External streams (*EXT) appear at the end of their category.
     """
-    table = Table(box=box.ROUNDED, show_header=True, header_style="cyan", border_style="blue", padding=(0, 1),)
+    table = create_styled_table(TABLE_STYLE)
 
     cols = [
         ("#", "right"),
@@ -124,8 +126,6 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
         # ── Row style ─────────────────────────────────────────────────────────
         if interactive and highlight_cursor and orig_idx == cursor:
             row_style = "bold white on blue"
-        elif orig_idx % 2 == 1:
-            row_style = "dim"
         else:
             row_style = None
 
