@@ -25,7 +25,6 @@ from VibraVid.cli.command.download import handle_direct_download
 
 console = Console()
 msg = Prompt()
-setup_logger()
 logger = logging.getLogger(__name__)
 COLOR_MAP = {"anime": "#E63946", "film_serie": "#FFD60A", "serie": "#3891C9", "film": "#06A77D"}
 CATEGORY_MAP = {1: "anime", 2: "Film_serie", 3: "serie", 4: "film"}
@@ -68,6 +67,7 @@ def setup_argument_parser(search_functions):
     parser.add_argument('--category', type=int, help='Category filter for global search (1=Anime, 2=Movies/Series, 3=Series, 4=Movies)')
     parser.add_argument('--global', dest='global_search', action='store_true', help='Global search across sites')
     parser.add_argument('--close-console', dest='close_console', type=str, choices=['true', 'false'], help='Set whether to exit after last download (overrides config)')
+    parser.add_argument('--no-log', action='store_true', help='Disable log file creation for this run')
 
     parser.add_argument('--auto-first', action='store_true', help='Auto-download first result (use with --site and --search)')
     parser.add_argument('--season', type=str, default=None, help='Season selection (for series, e.g., "1" or "1-3" or "*")')
@@ -256,6 +256,7 @@ def main():
         search_functions = load_search_functions()
         parser = setup_argument_parser(search_functions)
         args = parser.parse_args()
+        setup_logger(no_log=getattr(args, 'no_log', False))
 
         if hasattr(args, 'dep') and args.dep:
             show_dependencies(search_functions)
