@@ -16,6 +16,7 @@ from VibraVid.utils import config_manager, os_manager, internet_manager
 from VibraVid.cli.run import execute_hooks
 from VibraVid.core.ui.progress_bar import CustomBarColumn
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
+from VibraVid.utils.vault.supa import supa_vault
 
 
 msg = Prompt()
@@ -54,17 +55,18 @@ def signal_handler(signum, frame, interrupt_handler, original_handler):
         signal.signal(signum, original_handler)
 
 
-def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = None, download_id: str = None, site_name: str = None):
+def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = None, download_id: str = None, site_name: str = None, label: str = "MP4"):
     """
-    Downloads an MP4 video
+    Downloads a file via HTTP (video, audio, or any binary stream).
 
     Parameters:
-        - url: The URL of the video to download
-        - path: The local file path to save the video to
+        - url: The URL of the file to download
+        - path: The local file path to save the file to
         - referer: Optional referer header to include in the request
         - headers_: Optional additional headers to include in the request
         - download_id: Optional ID for tracking the download in the GUI
         - site_name: Optional site name for tracking purposes in the GUI
+        - label: Label shown in progress bar (default: "MP4", use "Audio" for music)
     """
     url = str(url).strip()
     path = os_manager.get_sanitize_path(path)
@@ -93,7 +95,7 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
         download_tracker.start_download(download_id, filename, site_name or "Unknown", media_type, path=os.path.abspath(path))
         download_tracker.update_status(download_id, "Downloading ...")
 
-    # Set headers
+    # Build headers
     headers = {}
     if referer:
         headers['Referer'] = referer
@@ -124,11 +126,12 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
     # Ensure the output directory exists
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    client = create_client()
+    # Use the project's http_client (curl_cffi based)
+    client = create_client(headers=headers)
     try:
         # HEAD request to check content type
         try:
-            head = client.head(url, headers=headers)
+            head = client.head(url)
             head.raise_for_status()
             content_type = (head.headers.get('content-type') or '').lower()
         except Exception:
@@ -139,7 +142,7 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
             logger.error("HEAD indicates non-video; retrying GET without Range/If-Range...")
 
             try:
-                resp_check = client.get(url, headers=headers)
+                resp_check = client.get(url)
                 resp_check.raise_for_status()
 
                 try:
@@ -156,7 +159,7 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
                 logger.error(f"Fallback GET failed: {e}")
                 return None, False
 
-        response = client.get(url, headers=headers, stream=True)
+        response = client.get(url, stream=True)
         try:
             response.raise_for_status()
 
@@ -175,10 +178,10 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
 
             from contextlib import nullcontext
             progress_ctx = nullcontext() if context_tracker.is_gui else Progress(
-                TextColumn("[yellow]MP4[/yellow] [cyan]Downloading[/cyan]: "),
+                TextColumn(f"[yellow]{label}[/yellow] [cyan]Downloading[/cyan]: "),
                 CustomBarColumn(),
                 TextColumn("[bright_green]{task.fields[downloaded]}[/bright_green] [bright_magenta]{task.fields[downloaded_unit]}[/bright_magenta][dim]/[/dim][bright_cyan]{task.fields[total_size]}[/bright_cyan] [bright_magenta]{task.fields[total_unit]}[/bright_magenta]"),
-                TextColumn("[dim]\\\\[[/dim][bright_yellow]{task.fields[elapsed]}[/bright_yellow][dim] < [/dim][bright_cyan]{task.fields[eta]}[/bright_cyan][dim]][/dim]"),
+                TextColumn("[dim]\\[[/dim][bright_yellow]{task.fields[elapsed]}[/bright_yellow][dim] < [/dim][bright_cyan]{task.fields[eta]}[/bright_cyan][dim]][/dim]"),
                 TextColumn("[bright_magenta]@[/bright_magenta]"),
                 TextColumn("[bright_cyan]{task.fields[speed]}[/bright_cyan]"),
                 console=console,
@@ -313,6 +316,37 @@ def MP4_Downloader(url: str, path: str, referer: str = None, headers_: dict = No
         if download_id:
             abs_path = os.path.abspath(path)
             download_tracker.complete_download(download_id, success=True, path=abs_path)
+
+        # Fire-and-forget
+        try:
+            try:
+                title_to_track = context_tracker.title or os.path.basename(path)
+                media_type_to_track = media_type or "Film"
+                site_to_track = site_name or ""
+
+                def _track_run(title, mtype, site):
+                    try:
+                        if supa_vault:
+                            title_str = "://generic"
+                            media_type_str = (mtype or "").strip()
+                            site_str = (site or "").strip().lower()
+                            logger.info(f"supa-dl tracking: title={title_str} type={media_type_str} service={site_str}")
+
+                            try:
+                                result = supa_vault.track_download(title=title_str, media_type=media_type_str, service=site_str)
+                                logger.info(f"supa-dl track result: {result}")
+                            except Exception as e:
+                                logger.error(f"supa_vault.track_download failed: {e}", exc_info=True)
+                        else:
+                            logger.warning("supa-dl tracking: supa_vault not initialized")
+                    except Exception as e:
+                        logger.error(f"supa-dl tracking: Error tracking download: {e}", exc_info=True)
+
+                threading.Thread(target=_track_run, args=(title_to_track, media_type_to_track, site_to_track), daemon=False).start()
+            except Exception:
+                logger.debug("Failed to start supa tracking thread (ignored)")
+        except Exception:
+            pass
 
         execute_hooks('post_run')
         if DELAY_SS > 0:
