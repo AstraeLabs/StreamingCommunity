@@ -23,6 +23,7 @@ dependencies = [
     "pywidevine",
     "pyplayready",
     "pycryptodomex",
+    "mutagen",
 ]
 
 [project.scripts]
