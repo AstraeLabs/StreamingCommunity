@@ -24,10 +24,18 @@ def get_log_file_path():
     """Return the current log file path, if logging has been initialized."""
     return str(_log_file) if _log_file is not None else None
 
-def setup_logger(name=None):
+def setup_logger(name=None, no_log: bool = False):
     global _log_file
     app_base_path = config_manager.base_path
-    
+
+    if no_log:
+        _log_file = None
+        logger = logging.getLogger(name)
+        logger.setLevel(LOG_LEVEL)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(LOG_LEVEL)
+        return logger
+
     cache_dir = Path(os.path.join(app_base_path, ".cache"))
     log_dir = cache_dir / "logs"
     try:
@@ -71,4 +79,4 @@ def setup_logger(name=None):
     return logger
 
 # Init
-logger = setup_logger()
+logger = logging.getLogger(__name__)
