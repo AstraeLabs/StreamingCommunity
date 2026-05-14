@@ -17,6 +17,7 @@ console = Console()
 logger = logging.getLogger(__name__)
 MOVIE_FORMAT = config_manager.config.get('OUTPUT', 'movie_format')
 EPISODE_FORMAT = config_manager.config.get('OUTPUT', 'episode_format')
+SONG_FORMAT = config_manager.config.get('OUTPUT', 'song_format', default=None)
 
 
 def _apply_format_token(token: str, value: int) -> str:
@@ -169,24 +170,82 @@ def map_movie_path(title_name: str, title_year: str = None) -> tuple:
     return (path_components, filename)
 
 
-def map_series_name(series_name: str, series_year: str = None) -> str:
-    """
-    Returns the sanitized series name for folder naming.
 
-    Parameters:
-        series_name (str): The name of the series.
-        series_year (str): The release year of the series (optional).
+def map_song_path(artist: str, album: str, title: str, year: str = None, track_number: int = None) -> tuple:
+    """
+    Maps the complete song directory and filename using the song_format config.
+
+    Supported tokens in song_format:
+        %(artist)            - artist name
+        %(album)             - album name
+        %(title)             - track title
+        %(year)              - release year (omitted with surrounding parens if missing)
+        %(track_number:02d)  - track number with inline format spec (same as season/episode)
 
     Returns:
-        str: The formatted series name for folder naming.
+        tuple: (path_components, filename) where path_components is a list for
+               os.path.join assembly and filename is the final track filename (no extension).
     """
+    logger.info(f"Mapping song path: artist={artist} album={album} title={title} year={year} track_number={track_number}")
+    fmt = SONG_FORMAT
+
+    # ── artist
+    if artist:
+        fmt = fmt.replace("%(artist)", os_manager.get_sanitize_file(artist))
+        fmt = fmt.replace("%(artist_slug)", tmdb_client._slugify(artist))
+    else:
+        fmt = fmt.replace("%(artist)", "Unknown Artist")
+        fmt = fmt.replace("%(artist_slug)", "unknown-artist")
+
+    # ── album
+    if album:
+        fmt = fmt.replace("%(album)", os_manager.get_sanitize_file(album))
+        fmt = fmt.replace("%(album_slug)", tmdb_client._slugify(album))
+    else:
+        fmt = fmt.replace("%(album)", "Unknown Album")
+        fmt = fmt.replace("%(album_slug)", "unknown-album")
+
+    # ── title
+    if title:
+        fmt = fmt.replace("%(title)", os_manager.get_sanitize_file(title))
+        fmt = fmt.replace("%(title_slug)", tmdb_client._slugify(title))
+    else:
+        fmt = fmt.replace("%(title)", "Unknown Track")
+        fmt = fmt.replace("%(title_slug)", "unknown-track")
+
+    # ── year (optional — strip surrounding parens when absent)
+    if year is not None:
+        y = str(year).split('-')[0].strip()
+        if y.isdigit() and len(y) == 4:
+            fmt = fmt.replace("%(year)", y)
+        else:
+            fmt = fmt.replace("(%(year))", "").strip()
+            fmt = fmt.replace("%(year)", "").strip()
+    else:
+        fmt = fmt.replace("(%(year))", "").strip()
+        fmt = fmt.replace("%(year)", "").strip()
+
+    # ── track_number (optional — strip surrounding text when absent)
+    if track_number is not None:
+        fmt = _replace_format_key(fmt, 'track_number', int(track_number))
+    else:
+        fmt = _re.sub(r'%\(track_number:[^)]+\)[.\s]*', '', fmt)
+
+    # Clean up any double spaces left after removals
+    fmt = _re.sub(r'  +', ' ', fmt).strip()
+
+    parts = fmt.split('/')
+    filename = parts[-1] if parts else fmt
+    path_components = parts[:-1] if len(parts) > 1 else []
+    return (path_components, filename)
+
+
+def map_series_name(series_name: str, series_year: str = None) -> str:
+    """Returns the sanitized series name for folder naming."""
     logger.info(f"Mapping series name with name: {series_name} and year: {series_year}")
-    result = series_name
-
     if series_name is not None:
-        result = os_manager.get_sanitize_file(series_name)
-
-    return result
+        return os_manager.get_sanitize_file(series_name)
+    return series_name
 
 
 def map_episode_title(tv_name: str, number_season: int, episode_number: int, episode_name: str) -> str:
@@ -353,7 +412,7 @@ def display_seasons_list(seasons_manager) -> str:
     """
     if len(seasons_manager.seasons) == 1:
         return "1"
-    
+
     # Set up table for displaying seasons
     table_show_manager = TVShowManager()
 
@@ -375,17 +434,11 @@ def display_seasons_list(seasons_manager) -> str:
             break
 
     # Add columns to the table
-    column_info = {
-        "Index": {'color': 'red'},
-        "Name": {'color': 'yellow'}
-    }
-
+    column_info = {"Index": {'color': 'red'}, "Name": {'color': 'yellow'}}
     if has_type:
         column_info["Type"] = {'color': 'magenta'}
-    
     if has_id:
         column_info["ID"] = {'color': 'cyan'}
-    
     if has_extra:
         column_info["Extra"] = {'color': 'green'}
 
@@ -394,33 +447,20 @@ def display_seasons_list(seasons_manager) -> str:
     # Populate the table with seasons information
     for i, season in enumerate(seasons_manager.seasons):
         season_name = season.name if hasattr(season, 'name') else 'N/A'
-        season_info = {
-            'Index': str(i + 1),
-            'Name': season_name
-        }
-
-        # Add 'Type', 'ID' and 'Extra' if they exist
+        season_info = {'Index': str(i + 1), 'Name': season_name}
         if has_type:
-            season_type = season.type if hasattr(season, 'type') else 'N/A'
-            season_info['Type'] = season_type
-        
+            season_info['Type'] = season.type if hasattr(season, 'type') else 'N/A'
         if has_id:
-            season_id = season.id if hasattr(season, 'id') else 'N/A'
-            season_info['ID'] = season_id
-        
+            season_info['ID'] = season.id if hasattr(season, 'id') else 'N/A'
         if has_extra:
-            season_extra = getattr(season, 'extra', '')
-            season_info['Extra'] = season_extra
-
+            season_info['Extra'] = getattr(season, 'extra', '')
         table_show_manager.add_tv_show(season_info)
 
     # Run the table and handle user input
     last_command = table_show_manager.run()
-
     if last_command in ("q", "quit"):
         console.print("\n[red]Quit ...")
         sys.exit(0)
-
     return last_command
 
 
