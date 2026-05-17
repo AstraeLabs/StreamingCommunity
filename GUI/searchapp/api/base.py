@@ -1,7 +1,8 @@
 # 06.06.25
 
+import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 from VibraVid.utils import config_manager
@@ -57,8 +58,11 @@ class Season:
         return len(self.episodes)
 
 
+_SCRAPER_CACHE_TTL = 900  # 15 minutes — allows the GUI to see new episodes without a container restart
+
+
 class BaseStreamingAPI(ABC):
-    _scraper_cache: Dict[str, Any] = {}  # Global cache to persist scrapers across instances
+    _scraper_cache: Dict[str, Tuple[Any, float]] = {}  # key → (scraper, timestamp)
 
     def __init__(self):
         self.site_name: str = ""
@@ -76,14 +80,21 @@ class BaseStreamingAPI(ABC):
         if not self._scraper_cache_enabled():
             return None
         key = self._get_cache_key(media_item)
-        return self._scraper_cache.get(key)
+        entry = self._scraper_cache.get(key)
+        if entry is None:
+            return None
+        scraper, ts = entry
+        if time.monotonic() - ts > _SCRAPER_CACHE_TTL:
+            del self._scraper_cache[key]
+            return None
+        return scraper
 
     def set_cached_scraper(self, media_item: Entries, scraper: Any):
         """Store a scraper instance in the global cache."""
         if not self._scraper_cache_enabled():
             return
         key = self._get_cache_key(media_item)
-        self._scraper_cache[key] = scraper
+        self._scraper_cache[key] = (scraper, time.monotonic())
 
     @abstractmethod
     def search(self, query: str) -> List[Entries]:
