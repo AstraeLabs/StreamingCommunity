@@ -2049,3 +2049,67 @@ def reload_config(request: HttpRequest) -> JsonResponse:
             "success": False,
             "error": f"Errore nel reload: {str(e)}"
         }, status=500)
+
+
+# ── In-app update check ──────────────────────────────────────────────────────
+
+_update_check_cache: dict = {}  # {timestamp: float, result: dict}
+_UPDATE_CHECK_TTL = 3600  # re-fetch GitHub releases at most once per hour
+
+
+@require_http_methods(["GET"])
+def check_updates(request: HttpRequest) -> JsonResponse:
+    """Return current and latest version info, with a 1-hour in-memory cache."""
+    import urllib.request
+    from VibraVid.upload.version import __version__
+
+    cached = _update_check_cache
+    if cached and time.monotonic() - cached.get("ts", 0) < _UPDATE_CHECK_TTL:
+        return JsonResponse(cached["result"])
+
+    try:
+        api_url = "https://api.github.com/repos/AstraeLabs/VibraVid/releases/latest"
+        req = urllib.request.Request(api_url, headers={"User-Agent": "VibraVid-update-check/1"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+        latest = data.get("tag_name", "").lstrip("v")
+        html_url = data.get("html_url", "")
+    except Exception as exc:
+        logger.warning(f"Update check failed: {exc}")
+        return JsonResponse({"error": str(exc)}, status=502)
+
+    def _ver_tuple(v):
+        try:
+            return tuple(int(x) for x in v.split("."))
+        except Exception:
+            return (0,)
+
+    update_available = _ver_tuple(latest) > _ver_tuple(__version__)
+    result = {
+        "current": __version__,
+        "latest": latest,
+        "update_available": update_available,
+        "html_url": html_url,
+    }
+    _update_check_cache["ts"] = time.monotonic()
+    _update_check_cache["result"] = result
+    return JsonResponse(result)
+
+
+@require_http_methods(["POST"])
+def trigger_update(request: HttpRequest) -> JsonResponse:
+    """Write a sentinel file that a host-side update script can watch.
+
+    The container itself cannot run docker compose — it writes a marker file
+    to /app/data/.update_requested so an external script (scripts/nas-update.sh)
+    can detect it and perform the actual image pull + container recreation.
+    """
+    sentinel = os.path.join(os.environ.get("DJANGO_DB_DIR", "/app/data"), ".update_requested")
+    try:
+        with open(sentinel, "w") as f:
+            f.write(str(time.time()))
+        logger.info(f"Update sentinel written: {sentinel}")
+        return JsonResponse({"success": True, "sentinel": sentinel})
+    except Exception as exc:
+        logger.error(f"Failed to write update sentinel: {exc}")
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)

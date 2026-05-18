@@ -413,6 +413,68 @@
 			</div>
 		</nav>
 
+		<!-- Update banner — shown when a newer version is available on GitHub -->
+		<div id="update-banner" class="hidden fixed top-[var(--navbar-height)] left-0 right-0 z-40 bg-blue-700 text-white text-sm px-4 py-2 flex items-center justify-between gap-3">
+			<span id="update-banner-text"></span>
+			<div class="flex items-center gap-3 flex-shrink-0">
+				<a id="update-release-link" href="#" target="_blank" rel="noopener" class="underline font-medium hover:text-blue-100">Release notes</a>
+				<button id="update-trigger-btn" class="bg-white text-blue-700 font-semibold px-3 py-1 rounded hover:bg-blue-50 transition-colors">Update now</button>
+				<button onclick="dismissUpdateBanner()" class="text-blue-200 hover:text-white transition-colors" aria-label="Dismiss">&times;</button>
+			</div>
+		</div>
+		<script>
+		(function() {
+			var DISMISS_KEY = 'vibravid_update_dismissed_v';
+			function dismissUpdateBanner() {
+				var banner = document.getElementById('update-banner');
+				if (banner) {
+					var ver = banner.dataset.latest || '';
+					localStorage.setItem(DISMISS_KEY + ver, '1');
+					banner.classList.add('hidden');
+				}
+			}
+			window.dismissUpdateBanner = dismissUpdateBanner;
+
+			fetch('/api/version/check/')
+				.then(function(r) { return r.ok ? r.json() : null; })
+				.then(function(data) {
+					if (!data || !data.update_available) return;
+					var dismissed = localStorage.getItem(DISMISS_KEY + data.latest);
+					if (dismissed) return;
+					var banner = document.getElementById('update-banner');
+					var text = document.getElementById('update-banner-text');
+					var link = document.getElementById('update-release-link');
+					var btn = document.getElementById('update-trigger-btn');
+					text.textContent = 'VibraVid ' + data.latest + ' is available (current: ' + data.current + ')';
+					if (link) link.href = data.html_url || '#';
+					banner.dataset.latest = data.latest;
+					banner.classList.remove('hidden');
+
+					btn.addEventListener('click', function() {
+						btn.disabled = true;
+						btn.textContent = 'Updating…';
+						fetch('/api/version/update/', {method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}})
+							.then(function(r) { return r.json(); })
+							.then(function(d) {
+								if (d.success) {
+									btn.textContent = 'Restarting…';
+									setTimeout(function() { location.reload(); }, 30000);
+								} else {
+									btn.textContent = 'Failed — update manually';
+								}
+							})
+							.catch(function() { btn.textContent = 'Failed — update manually'; });
+					});
+				})
+				.catch(function() {});
+
+			function getCookie(name) {
+				var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+				return v ? v[2] : '';
+			}
+		})();
+		</script>
+
 		<!-- Main Content -->
 		<main class="relative min-h-screen pt-[var(--navbar-height)]">
 			<!-- Messages Toast -->

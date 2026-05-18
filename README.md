@@ -1028,6 +1028,26 @@ docker run -d --name vibravid -p 8000:8000 `
   vibravid
 ```
 
+### Updating (Docker)
+
+When a new version is released, VibraVid shows an **update banner** in the web UI. Click **Update now** to trigger the update.
+
+The container cannot restart itself — it writes a marker file to `/app/data/.update_requested`. A host-side script (`scripts/nas-update.sh`) picks it up and runs:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+To use the one-click update, install and start `scripts/nas-update.sh` on the host. See [scripts/README.md](scripts/README.md) for setup instructions (systemd, Synology Scheduled Task, cron).
+
+**Manual update** (works without the script):
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
 ---
 
 ## Known Issues
