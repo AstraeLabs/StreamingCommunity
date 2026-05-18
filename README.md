@@ -170,6 +170,7 @@ All settings live in `config.json`. The sections below cover each configuration 
 **`root_path`** — Base directory where videos are saved.
 - Windows: `C:\\MyLibrary\\Folder` or `\\\\MyServer\\Share`
 - Linux/macOS: `Desktop/MyLibrary/Folder`
+- Docker / NAS: set the `VIBRAVID_OUTPUT_ROOT` environment variable instead of editing `config.json` — the value is applied at startup and overrides this field without touching the persisted config file. Example: `VIBRAVID_OUTPUT_ROOT=/app/Video` (container path matching the bind-mount target).
 
 **`movie_folder_name`**, **`serie_folder_name`**, **`anime_folder_name`** — Subfolder names for each content type (defaults: `"Movie"`, `"Serie"`, `"Anime"`). All support the `%{site_name}` placeholder:
 

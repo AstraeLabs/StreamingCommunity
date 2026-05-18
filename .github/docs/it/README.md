@@ -170,6 +170,7 @@ Tutte le impostazioni si trovano in `config.json`. Le sezioni seguenti descrivon
 **`root_path`** — Cartella base dove vengono salvati i video.
 - Windows: `C:\\MyLibrary\\Folder` o `\\\\MyServer\\Share`
 - Linux/macOS: `Desktop/MyLibrary/Folder`
+- Docker / NAS: impostare la variabile d'ambiente `VIBRAVID_OUTPUT_ROOT` invece di modificare `config.json` — il valore viene applicato all'avvio e sovrascrive questo campo senza toccare il file di configurazione persistito. Esempio: `VIBRAVID_OUTPUT_ROOT=/app/Video` (percorso container corrispondente al bind mount).
 
 **`movie_folder_name`**, **`serie_folder_name`**, **`anime_folder_name`** — Nomi delle sottocartelle per ogni tipo di contenuto (predefiniti: `"Movie"`, `"Serie"`, `"Anime"`). Tutti supportano il segnaposto `%{site_name}`:
 
