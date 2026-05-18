@@ -85,6 +85,7 @@ You can find the app in the Community Application
 ### Additional Documentation
 
 - 📝 [Login Guide](.github/doc/login.md) — Authentication for supported services
+- 🖥️ [NAS Deployment Guide](docs/NAS.md) — Docker setup on Synology, TrueNAS, and other NAS devices
 
 ---
 
