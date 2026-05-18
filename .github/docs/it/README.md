@@ -640,6 +640,45 @@ docker-compose logs -f      # Visualizza log
 docker-compose down         # Ferma (i dati vengono preservati)
 ```
 
+Per utenti NAS (Synology, TrueNAS, Unraid, ecc.) vedere **[docs/NAS.md](../../docs/NAS.md)** per una guida passo passo che include bind mount e configurazione dei permessi.
+
+### Percorsi e porte personalizzate
+
+Copiare il template e modificare i valori necessari:
+
+```bash
+cp .env.example .env
+```
+
+Variabili principali (elenco completo in `.env.example`):
+
+| Variabile | Default | Descrizione |
+|---|---|---|
+| `VIBRAVID_PORT` | `8000` | Porta host esposta dal container |
+| `VIBRAVID_VIDEO_DIR` | named volume | Dove finiscono i download sull'host (es. `/volume2/Film`) |
+| `VIBRAVID_DB_DIR` | named volume | Percorso host del database SQLite |
+| `VIBRAVID_CONFIG_DIR` | named volume | Percorso host per `config.json` / `login.json` |
+| `VIBRAVID_LOGS_DIR` | named volume | Percorso host per i log dell'applicazione |
+| `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Hostname accettati da Django |
+| `CSRF_TRUSTED_ORIGINS` | `http://localhost:8000,...` | Origini per la validazione CSRF |
+
+**Esempio NAS** — download su share NAS, porta 9000:
+
+```env
+VIBRAVID_PORT=9000
+VIBRAVID_VIDEO_DIR=/volume2/Film
+VIBRAVID_DB_DIR=/volume1/docker/vibravid/db
+VIBRAVID_CONFIG_DIR=/volume1/docker/vibravid/conf
+VIBRAVID_LOGS_DIR=/volume1/docker/vibravid/logs
+ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.100
+CSRF_TRUSTED_ORIGINS=http://192.168.1.100:9000
+```
+
+Poi avviare normalmente:
+```bash
+docker-compose up -d
+```
+
 ### Deploy su rete privata
 
 Decommentare e modificare la sezione `environment` in `docker-compose.yml`:
@@ -664,7 +703,7 @@ docker build -t vibravid .
 docker run -d \
   --name vibravid \
   -p 8000:8000 \
-  -v vibravid_db:/app/GUI \
+  -v vibravid_db:/app/data \
   -v vibravid_videos:/app/Video \
   -v vibravid_logs:/app/logs \
   -v vibravid_config:/app/Conf \
