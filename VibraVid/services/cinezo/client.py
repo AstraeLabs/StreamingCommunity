@@ -15,14 +15,32 @@ from VibraVid.utils.http_client import create_client, get_userAgent
 logger  = logging.getLogger(__name__)
 console = Console()
 
-API_SERVERS_URL = "https://api.cinezo.net/api/servers"
-_servers_cache  = None
+# Servers extracted from player.cinezo.live JS bundle (API endpoint deprecated)
+SUBS_API_URL = "https://player.cinezo.live/api/subtitles"
+HARDCODED_SERVERS = [
+    {"name": "Alpha",        "movieApiUrl": "https://api.tulnex.com/111movies/Alpha/movie/{id}",          "tvApiUrl": "https://api.tulnex.com/111movies/Alpha/tv/{id}/{season}/{episode}"},
+    {"name": "Bravo",        "movieApiUrl": "https://api.tulnex.com/111movies/Bravo/movie/{id}",          "tvApiUrl": "https://api.tulnex.com/111movies/Bravo/tv/{id}/{season}/{episode}"},
+    {"name": "NgFlix",       "movieApiUrl": "https://api.tulnex.com/111movies/NgFlix/movie/{id}",         "tvApiUrl": "https://api.tulnex.com/111movies/NgFlix/tv/{id}/{season}/{episode}"},
+    {"name": "Icefy",        "movieApiUrl": "https://api.tulnex.com/icefy/movie/{id}",                    "tvApiUrl": "https://api.tulnex.com/icefy/tv/{id}/{season}/{episode}"},
+    {"name": "MovieBox",     "movieApiUrl": "https://api.tulnex.com/moviebox/movie/{id}",                 "tvApiUrl": "https://api.tulnex.com/moviebox/tv/{id}/{season}/{episode}"},
+    {"name": "Onion",        "movieApiUrl": "https://api.tulnex.com/onion/movie/{id}",                    "tvApiUrl": "https://api.tulnex.com/onion/tv/{id}/{season}/{episode}"},
+    {"name": "AllMovies",    "movieApiUrl": "https://api.tulnex.com/provider/allmovies/movie/{id}?lang=english", "tvApiUrl": "https://api.tulnex.com/provider/allmovies/tv/{id}/{season}/{episode}?lang=english"},
+    {"name": "VidLink",      "movieApiUrl": "https://api.tulnex.com/provider/vidlink/movie/{id}",         "tvApiUrl": "https://api.tulnex.com/provider/vidlink/tv/{id}/{season}/{episode}"},
+    {"name": "Tik",          "movieApiUrl": "https://api.tulnex.com/tik/movie/{id}",                      "tvApiUrl": "https://api.tulnex.com/tik/tv/{id}/{season}/{episode}"},
+    {"name": "UniqueStream", "movieApiUrl": "https://api.tulnex.com/uniquestream/movie/{id}",             "tvApiUrl": "https://api.tulnex.com/uniquestream/tv/{id}/{season}/{episode}"},
+    {"name": "VaPlayer",     "movieApiUrl": "https://api.tulnex.com/vaplayer/movie/{id}",                 "tvApiUrl": "https://api.tulnex.com/vaplayer/tv/{id}/{season}/{episode}"},
+    {"name": "Neon",         "movieApiUrl": "https://api.tulnex.com/ve/server/Neon/movie/{id}",           "tvApiUrl": "https://api.tulnex.com/ve/server/Neon/tv/{id}/{season}/{episode}"},
+    {"name": "Yoru",         "movieApiUrl": "https://api.tulnex.com/ve/server/Yoru/movie/{id}",           "tvApiUrl": "https://api.tulnex.com/ve/server/Yoru/tv/{id}/{season}/{episode}"},
+    {"name": "VEdge",        "movieApiUrl": "https://api.tulnex.com/vidfast/movie/vedge/{id}",            "tvApiUrl": "https://api.tulnex.com/vidfast/tv/vedge/{id}/{season}/{episode}"},
+    {"name": "VFast",        "movieApiUrl": "https://api.tulnex.com/vidfast/movie/vfast/{id}",            "tvApiUrl": "https://api.tulnex.com/vidfast/tv/vfast/{id}/{season}/{episode}"},
+    {"name": "VidZee",       "movieApiUrl": "https://api.tulnex.com/vidzee/movie/{id}?server=0",          "tvApiUrl": "https://api.tulnex.com/vidzee/tv/{id}/{season}/{episode}?server=0"},
+]
 
 
 def _pbkdf2(password: str, salt, iterations: int, length: int, hash_name: str) -> bytes:
     if isinstance(salt, str):
         salt = salt.encode('utf-8')
-    
+
     return hashlib.pbkdf2_hmac(hash_name.lower().replace('-', ''), password.encode('utf-8'), salt, iterations, dklen=length)
 
 
@@ -44,9 +62,9 @@ def decode_payload(payload: str) -> str:
     """
     Decodes the 4-layer encrypted payload from api.tulnex.com.
 
-    Layer 4 (v): split on '|', base64-decode data part → L3 string
+    Layer 4 (v): split on '|', base64-decode data part -> L3 string
     Layer 3 (h): AES-CBC decrypt with PBKDF2-SHA512 key
-    Layer 2:     base64-decode → binary string → chars
+    Layer 2:     base64-decode -> binary string -> chars
     Layer 1:     XOR with PBKDF2-SHA256 key
     """
     # L4: split on '|'
@@ -62,7 +80,7 @@ def decode_payload(payload: str) -> str:
     iv_b64, key_material_b64, cipher_b64 = parts
     iv         = _b64decode_safe(iv_b64)
     salt       = _b64decode_safe(key_material_b64)
-    aes_key    = _pbkdf2("Sn00pD0g#L3_AES_S3cur3K3y@2025$", salt, 100_000, 32, 'sha512')
+    aes_key    = _pbkdf2("Sn00pD0g#L3_AES_S3cur3K3y@2026$sex", salt, 100_000, 32, 'sha512')
     ciphertext = _b64decode_safe(cipher_b64)
     intermediate_b64 = _aes_cbc_decrypt(ciphertext, aes_key, iv).decode('utf-8')
 
@@ -73,7 +91,7 @@ def decode_payload(payload: str) -> str:
     )
 
     # L1: XOR with PBKDF2-SHA256 key
-    xor_key  = _pbkdf2("Sn00pD0g#L1_X0R_M4st3rK3y!2025", "xK9!mR2@pL5#nQ8", 50_000, 32, 'sha256')
+    xor_key  = _pbkdf2("Sn00pD0g#L1_X0R_M4st3rK3y!2026sex", "xK9!mR2@pL5#nQ8sex", 50_000, 32, 'sha256')
     raw_bytes = bytes.fromhex(hex_str)
     final    = bytes(raw_bytes[i] ^ xor_key[i % len(xor_key)] for i in range(len(raw_bytes)))
 
@@ -96,11 +114,32 @@ def _subs_to_tracks(subs) -> list:
     return tracks
 
 
+def _unwrap_proxy_url(url, headers=None):
+    """
+    Unwrap proxy URL (e.g. pronhub.tulnex.com/m3u8-proxy.m3u8?url=...&headers=...).
+    Returns (real_url, headers_dict).
+    """
+    if headers is None:
+        headers = {}
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+    if 'url' in params:
+        real_url = unquote(params['url'][0])
+        if 'headers' in params:
+            try:
+                headers = json.loads(unquote(params['headers'][0]))
+            except Exception:
+                pass
+        return real_url, headers
+    return url, headers
+
+
 def _parse_stream_result(raw: str):
     """
-    Parse the decoded payload. Handles three formats:
-      1. JSON string  → direct or proxy URL
+    Parse the decoded payload. Handles four formats:
+      1. JSON string  -> direct or proxy URL
       2. {"url": ..., "headers": ..., "subtitles": [...]}
+      2b. {"sources": [{"url": ...}], "subtitles": [...]}
       3. {"server": ..., "streams": [{...}], "subtitles": [...]}
     Returns (m3u8_url, headers_dict, subtitle_tracks).
     """
@@ -125,6 +164,18 @@ def _parse_stream_result(raw: str):
             raw_subs = raw_subs or first.get('subtitles') or []
         else:
             url = str(first) if first else ''
+    elif isinstance(cleaned, dict) and 'sources' in cleaned:
+        # Format 2b: {"sources": [{"url": ...}], "subtitles": [...]}
+        sources  = cleaned.get('sources') or []
+        raw_subs = cleaned.get('subtitles') or []
+        if not sources:
+            return '', {}, []
+        first = sources[0] if isinstance(sources, list) else sources
+        if isinstance(first, dict):
+            url     = first.get('url') or first.get('file') or first.get('stream') or ''
+            headers = first.get('headers') or {}
+        else:
+            url = str(first) if first else ''
     elif isinstance(cleaned, dict):
         # Format 2: {"url": ..., "headers": ..., "subtitles": [...]}
         url      = cleaned.get('url') or cleaned.get('stream') or ''
@@ -134,42 +185,19 @@ def _parse_stream_result(raw: str):
         # Format 1: plain string — no subtitles
         url = cleaned or ''
 
-    # Unwrap proxy URL: prxy.tulnex.com/proxy?url=...&headers=...
-    parsed = urlparse(url)
-    params = parse_qs(parsed.query)
-
-    if 'url' in params:
-        real_url = unquote(params['url'][0])
-        if 'headers' in params:
-            try:
-                headers = json.loads(unquote(params['headers'][0]))
-            except Exception:
-                pass
-    else:
-        real_url = url
+    # Unwrap proxy URL
+    real_url, headers = _unwrap_proxy_url(url, headers)
 
     return real_url, headers, _subs_to_tracks(raw_subs)
 
 
 def get_servers():
-    """Fetch and cache server list from api.cinezo.net."""
-    global _servers_cache
-    if _servers_cache:
-        return _servers_cache
-    try:
-        client = create_client(headers={'user-agent': get_userAgent(), 'referer': 'https://www.cinezo.net/'})
-        r = client.get(API_SERVERS_URL)
-        client.close()
-        r.raise_for_status()
-        _servers_cache = r.json()
-        return _servers_cache
-    except Exception as e:
-        logger.error(f"[Cinezo] Failed to fetch servers: {e}")
-        return []
+    """Return hardcoded server list (old API endpoint deprecated)."""
+    return HARDCODED_SERVERS
 
 
 def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found_event):
-    """Query a single server. Returns (stream_url, headers) or None."""
+    """Query a single server. Returns (stream_url, headers, subtitle_tracks) or None."""
     name = server.get('name', '?')
     if found_event.is_set():
         return None
@@ -191,9 +219,71 @@ def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found
             return None
 
         data = r.json()
-        v = data.get('v')
-        if v != 4 or not data.get('payload'):
-            console.print(f"[yellow][Cinezo] {name}: unexpected payload version v={v}, keys={list(data.keys())}")
+
+        # Handle error responses
+        if data.get('success') is False or data.get('error'):
+            err_msg = data.get('error', 'unknown error')
+            console.print(f"[yellow][Cinezo] {name}: {err_msg}")
+            return None
+
+        # Format A: non-encrypted (e.g. Icefy) — has 'sources' directly
+        if 'sources' in data and not data.get('payload'):
+            sources = data.get('sources') or []
+            raw_subs = data.get('subtitles') or []
+            if not sources:
+                console.print(f"[yellow][Cinezo] {name}: no sources in response")
+                return None
+            first = sources[0] if isinstance(sources, list) else sources
+            if isinstance(first, dict):
+                stream_url = first.get('url') or first.get('file') or first.get('stream') or ''
+                stream_headers = first.get('headers') or {}
+            else:
+                stream_url = str(first)
+                stream_headers = {}
+            subtitle_tracks = _subs_to_tracks(raw_subs)
+            if stream_url and stream_url.startswith('http'):
+                stream_url, stream_headers = _unwrap_proxy_url(stream_url, stream_headers)
+                sub_info = f", {len(subtitle_tracks)} sub(s)" if subtitle_tracks else ""
+                console.print(f"[green][Cinezo] {name}: OK (direct){sub_info}")
+                return stream_url, stream_headers, subtitle_tracks
+            console.print(f"[yellow][Cinezo] {name}: no valid URL in sources")
+            return None
+
+        # Format C: VidLink-style nested data (source/data/stream)
+        if 'data' in data and not data.get('payload'):
+            try:
+                inner = data['data']
+                if isinstance(inner, dict) and 'data' in inner:
+                    inner = inner['data']
+                stream_info = inner.get('stream') or {}
+                playlist = stream_info.get('playlist') or stream_info.get('url') or ''
+                captions = stream_info.get('captions') or []
+                stream_headers = {}
+                if playlist:
+                    playlist, stream_headers = _unwrap_proxy_url(playlist)
+                sub_tracks = []
+                for cap in captions:
+                    if isinstance(cap, dict) and cap.get('url'):
+                        sub_tracks.append({
+                            "type": "subtitle",
+                            "language": cap.get("language", "und"),
+                            "name": cap.get("language", "Subtitle"),
+                            "url": cap["url"],
+                            "extension": "vtt",
+                        })
+                if playlist and playlist.startswith('http'):
+                    sub_info = f", {len(sub_tracks)} sub(s)" if sub_tracks else ""
+                    console.print(f"[green][Cinezo] {name}: OK (vidlink){sub_info}")
+                    return playlist, stream_headers, sub_tracks
+                console.print(f"[yellow][Cinezo] {name}: no playlist in nested data")
+                return None
+            except Exception as e:
+                console.print(f"[yellow][Cinezo] {name}: failed parsing nested data: {e}")
+                return None
+
+        # Format B: encrypted payload
+        if not data.get('payload'):
+            console.print(f"[yellow][Cinezo] {name}: no payload, keys={list(data.keys())}")
             return None
 
         raw = decode_payload(data['payload'])
@@ -205,18 +295,18 @@ def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found
             logger.info(f"[Cinezo] Server '{name}' OK: {stream_url[:60]}")
             return stream_url, stream_headers, subtitle_tracks
 
-        console.print(f"[yellow][Cinezo] {name}: decoded but no valid URL → {str(stream_url)[:80]}")
+        console.print(f"[yellow][Cinezo] {name}: decoded but no valid URL \u2192 {str(stream_url)[:80]}")
 
     except Exception as e:
         import traceback
-        console.print(f"[red][Cinezo] {name}: exception → {e}\n{traceback.format_exc()}")
+        console.print(f"[red][Cinezo] {name}: exception \u2192 {e}\n{traceback.format_exc()}")
         logger.debug(f"[Cinezo] Server '{name}' failed: {e}", exc_info=True)
     return None
 
 
 def get_stream(tmdb_id: int, media_type: str, season: int = None, episode: int = None):
     """
-    Returns (m3u8_url, headers) for the given TMDB ID.
+    Returns (m3u8_url, headers, subtitle_tracks) for the given TMDB ID.
     Queries all servers in parallel and returns the first successful result.
 
     media_type: 'movie' or 'tv'
@@ -225,7 +315,7 @@ def get_stream(tmdb_id: int, media_type: str, season: int = None, episode: int =
     if not servers:
         raise RuntimeError(f"[Cinezo] No servers available for tmdb_id={tmdb_id}")
 
-    api_headers = {'user-agent': get_userAgent(), 'referer': 'https://api.cinezo.net/'}
+    api_headers = {'user-agent': get_userAgent(), 'referer': 'https://player.cinezo.live/embed/'}
     if media_type == 'tv' and (not season or not episode):
         season, episode = 1, 1
 
