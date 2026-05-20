@@ -1,6 +1,6 @@
 # VibraVid — Guida al deployment su NAS
 
-Questa guida spiega come eseguire VibraVid su un NAS o home server tramite Docker Compose. Una sezione dedicata copre **Synology Container Manager** (DSM 7.2+) con istruzioni passo passo.
+Questa guida spiega come eseguire VibraVid su un NAS o home server tramite Docker Compose. Sezioni dedicate coprono **Synology Container Manager** (DSM 7.2+), **QNAP Container Station** (ARM64) e host **Linux generici** (Ubuntu, Debian, Raspberry Pi OS, ecc.).
 
 ---
 
@@ -16,7 +16,9 @@ cd VibraVid
 
 ---
 
-## Docker NAS generico (qualsiasi distribuzione)
+## Host Linux generico (Ubuntu, Debian, Raspberry Pi OS e qualsiasi distribuzione)
+
+Questa sezione si applica a qualsiasi host Linux con Docker: un mini-PC, un Raspberry Pi, un home server o una macchina con disco esterno USB/SATA. I passaggi sono identici indipendentemente dalla distribuzione.
 
 ### 1. Creare il file `.env`
 
@@ -24,11 +26,11 @@ cd VibraVid
 cp .env.example .env
 ```
 
-Modifica `.env` con i percorsi e le impostazioni del tuo setup. Al minimo, imposta la cartella di download e l'IP del NAS:
+Modifica `.env` con i percorsi e le impostazioni del tuo setup. Al minimo, imposta la cartella di download e l'IP dell'host. Per un disco esterno montato in `/mnt/esterno`:
 
 ```env
-# Percorso sull'host NAS dove verranno salvati i download
-VIBRAVID_VIDEO_DIR=/mnt/data/media/vibravid
+# Percorso sull'host dove verranno salvati i download (es. disco esterno)
+VIBRAVID_VIDEO_DIR=/mnt/esterno/vibravid
 
 # Opzionale: database e configurazione sull'host (consigliato per backup facili)
 VIBRAVID_DB_DIR=/mnt/data/appdata/vibravid/db
@@ -168,6 +170,66 @@ Se i file scaricati appartengono a root, assicurati che `PUID` e `PGID` siano im
 ls -ln /volume2/Media/Film
 # I file devono mostrare il tuo UID:GID, non 0:0
 ```
+
+---
+
+## QNAP NAS (ARM64)
+
+I dispositivi QNAP utilizzano spesso processori ARM64. L'immagine Docker di VibraVid è pubblicata come **manifest multi-arch** (`linux/amd64` + `linux/arm64`), quindi puoi eseguirla su QNAP senza compilare da sorgente.
+
+> **Non eseguire `docker compose up --build` su ARM64.** Il repository sorgente include binari precompilati solo per x86_64 (Bento4, Shaka Packager) che causano il fallimento della build su ARM64. Usa sempre `docker compose pull` per scaricare l'immagine pre-compilata.
+
+### Setup via QNAP Container Station
+
+1. Installa **Container Station** dall'App Center QNAP se non è già presente.
+2. Apri un terminale via SSH o dalla shell QNAP e clona il repository:
+
+```bash
+git clone https://github.com/AstraeLabs/VibraVid.git
+cd VibraVid
+```
+
+3. Crea il file `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Modifica `.env` con i percorsi del tuo QNAP. Le cartelle condivise QNAP si trovano di solito sotto `/share/`:
+
+```env
+VIBRAVID_VIDEO_DIR=/share/Multimedia/vibravid
+VIBRAVID_DB_DIR=/share/Container/vibravid/db
+VIBRAVID_CONFIG_DIR=/share/Container/vibravid/conf
+VIBRAVID_LOGS_DIR=/share/Container/vibravid/logs
+VIBRAVID_PORT=8000
+ALLOWED_HOSTS=localhost,127.0.0.1,<ip-qnap>
+CSRF_TRUSTED_ORIGINS=http://<ip-qnap>:8000
+```
+
+4. Trova UID/GID del tuo utente:
+
+```bash
+id <nome-utente>
+```
+
+Aggiungi a `.env`:
+
+```env
+PUID=<tuo-uid>
+PGID=<tuo-gid>
+```
+
+5. Scarica l'immagine ARM64 pre-compilata e avvia:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Docker seleziona automaticamente la variante ARM64 dal manifest multi-arch.
+
+6. Accedi a VibraVid su `http://<ip-qnap>:8000`.
 
 ---
 
