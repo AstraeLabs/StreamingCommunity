@@ -13,7 +13,7 @@ from .client import JumoClient, format_duration
 from .downloader import download_song
 
 
-indice = 17
+indice = 16
 _useFor = "song"
 console = Console()
 msg = Prompt()

@@ -968,6 +968,45 @@ docker-compose logs -f      # View logs
 docker-compose down         # Stop (data persists)
 ```
 
+For NAS users (Synology, TrueNAS, Unraid, etc.), see **[docs/NAS.md](docs/NAS.md)** for a step-by-step setup guide including bind mounts and permission configuration.
+
+### Custom paths and ports
+
+Copy the provided template and edit the values you need:
+
+```bash
+cp .env.example .env
+```
+
+Key variables (full list in `.env.example`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `VIBRAVID_PORT` | `8000` | Host port exposed by the container |
+| `VIBRAVID_VIDEO_DIR` | named volume | Where downloads land on the host (e.g. `/volume2/Movies`) |
+| `VIBRAVID_DB_DIR` | named volume | Host path for the SQLite database |
+| `VIBRAVID_CONFIG_DIR` | named volume | Host path for `config.json` / `login.json` |
+| `VIBRAVID_LOGS_DIR` | named volume | Host path for application logs |
+| `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames Django accepts |
+| `CSRF_TRUSTED_ORIGINS` | `http://localhost:8000,...` | Origins for CSRF validation |
+
+**NAS example** — store downloads on a NAS share, expose on port 9000:
+
+```env
+VIBRAVID_PORT=9000
+VIBRAVID_VIDEO_DIR=/volume2/Movies
+VIBRAVID_DB_DIR=/volume1/docker/vibravid/db
+VIBRAVID_CONFIG_DIR=/volume1/docker/vibravid/conf
+VIBRAVID_LOGS_DIR=/volume1/docker/vibravid/logs
+ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.100
+CSRF_TRUSTED_ORIGINS=http://192.168.1.100:9000
+```
+
+Then start normally:
+```bash
+docker-compose up -d
+```
+
 ### Private Network Deployment
 
 Uncomment and edit the `environment` section in `docker-compose.yml`:
@@ -1007,7 +1046,7 @@ docker build -t vibravid .
 docker run -d \
   --name vibravid \
   -p 8000:8000 \
-  -v vibravid_db:/app/GUI \
+  -v vibravid_db:/app/data \
   -v vibravid_videos:/app/Video \
   -v vibravid_logs:/app/logs \
   -v vibravid_config:/app/Conf \
@@ -1027,6 +1066,26 @@ docker run -d --name vibravid -p 8000:8000 \
 docker run -d --name vibravid -p 8000:8000 `
   -v "D:\Video:/app/Video" `
   vibravid
+```
+
+### Updating (Docker)
+
+When a new version is released, VibraVid shows an **update banner** in the web UI. Click **Update now** to trigger the update.
+
+The container cannot restart itself — it writes a marker file to `/app/data/.update_requested`. A host-side script (`scripts/nas-update.sh`) picks it up and runs:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+To use the one-click update, install and start `scripts/nas-update.sh` on the host. See [scripts/README.md](scripts/README.md) for setup instructions (systemd, Synology Scheduled Task, cron).
+
+**Manual update** (works without the script):
+
+```bash
+docker compose pull
+docker compose up -d
 ```
 
 ---

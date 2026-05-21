@@ -44,4 +44,8 @@ urlpatterns = [
     path("api/arr/webhook/radarr/", views.radarr_webhook, name="radarr_webhook"),
     path("api/arr/status/", views.arr_status, name="arr_status"),
     path("api/arr/trigger-sync/", views.arr_trigger_sync, name="arr_trigger_sync"),
+
+    # In-app update
+    path("api/version/check/", views.check_updates, name="check_updates"),
+    path("api/version/update/", views.trigger_update, name="trigger_update"),
 ]

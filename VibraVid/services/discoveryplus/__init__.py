@@ -12,7 +12,7 @@ from .downloader import download_film, download_series
 from .client import get_client
 
 
-indice = 11
+indice = 10
 _useFor = "Film_Serie"
 _region = ["IT"]
 msg = Prompt()

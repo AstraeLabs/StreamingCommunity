@@ -11,7 +11,7 @@ from .downloader import download_film, download_series
 from .client import CrunchyrollClient
 
 
-indice = 7
+indice = 6
 _useFor = "Anime"
 msg = Prompt()
 console = Console()

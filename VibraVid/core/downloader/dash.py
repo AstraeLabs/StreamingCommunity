@@ -158,19 +158,6 @@ def _to_external_subtitle_track(track: Dict) -> Dict:
 
 
 class DASH_Downloader(BaseDownloader):
-    """
-    High-level DASH downloader.
-
-    Flow
-    ----
-    1. ``parse_stream()``   — fetch MPD → auto-select → show table
-    2. DRM extraction       — collect PSSH from selected Stream.drm objects
-    3. Key fetch            — DRMManager → Widevine or PlayReady
-    4. ``start_download()`` — run n3u8dl / manual, decrypt, build status dict
-    5. Extra audio tracks   — DASH audio specs from other_tracks get dedicated key fetch
-    6. ``_merge_files()``   — FFmpeg mux
-    7. ``_finalize()``      — move, summary, NFO, tracker, cleanup
-    """
     def __init__(self, mpd_url: Optional[str] = None, mpd_headers: Optional[Dict[str, str]] = None,
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None, license_data: Optional[str] = None,
         output_path: Optional[str] = None, drm_preference = DRMType.WIDEVINE, key: Optional[str] = None, cookies: Optional[Dict[str, str]] = None,

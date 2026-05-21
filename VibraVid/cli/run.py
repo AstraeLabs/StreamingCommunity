@@ -26,8 +26,8 @@ from VibraVid.cli.command.download import handle_direct_download
 console = Console()
 msg = Prompt()
 logger = logging.getLogger(__name__)
-COLOR_MAP = {"anime": "red", "film_serie": "yellow", "serie": "cyan", "film": "green", "song": "grey35"}
-CATEGORY_MAP = {1: "anime", 2: "Film_serie", 3: "serie", 4: "film", 5: "song"}
+COLOR_MAP = {"anime": "red", "film_serie": "yellow", "serie": "green", "song": "grey35"}
+CATEGORY_MAP = {1: "anime", 2: "Film_serie", 3: "serie", 5: "song"}
 CLOSE_CONSOLE = config_manager.config.get_bool('DEFAULT', 'close_console')
 PERSISTENT_ARGS = {'use_proxy', 'extension', 'close_console'}
 
@@ -185,15 +185,20 @@ def handle_direct_site_selection(args, input_to_function, module_name_to_functio
 def get_user_site_selection(args, choice_labels):
     """Get site selection from user (interactive or category-based)."""
     legend_text = " | ".join([f"[{color}]{cat.capitalize()}[/{color}]" for cat, color in COLOR_MAP.items()])
-    legend_text += " | [magenta]Global[/magenta]"
-    console.print(f"\n[cyan]Category Legend: {legend_text}")
+    console.print(f"\n[cyan]Category: {legend_text}")
 
     choice_keys = list(choice_labels.keys()) + ["global"]
-    prompt_message = "[cyan]Insert site: " + ", ".join([
-        f"[{COLOR_MAP.get(label[1], 'white')}]({key}) {label[0]}[/{COLOR_MAP.get(label[1], 'white')}]"
+    site_entries = [
+        f"{key}: [{COLOR_MAP.get(label[1], 'white')}]{label[0]}[/{COLOR_MAP.get(label[1], 'white')}]"
         for key, label in choice_labels.items()
-    ]) + ", [magenta](global) Global[/magenta]"
-    return msg.ask(prompt_message, choices=choice_keys, default="0", show_choices=False, show_default=False)
+    ] + ["[magenta](global) Global[/magenta]"]
+
+    site_rows = [" | ".join(site_entries[i:i + 6]) for i in range(0, len(site_entries), 6)]
+    for row in site_rows:
+        console.print(row)
+    
+    console.print()
+    return msg.ask("[cyan]Insert site index[/cyan]", choices=choice_keys, default="0", show_choices=False, show_default=False)
 
 
 def get_logs_directory() -> str:

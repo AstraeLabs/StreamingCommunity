@@ -261,12 +261,19 @@ class TMDBClient:
 
         series = []
         for show in results:
+            details = self._make_request(f"tv/{show.get('id')}/external_ids", {"language": language_preference})
+            imdb_id = details.get('imdb_id')
+
+            if not imdb_id:
+                continue
+
             series_data = {
                 'id': show.get('id'),
                 'name': show.get('name'),
                 'first_air_date': show.get('first_air_date'),
                 'popularity': show.get('popularity'),
-                'poster_path': show.get('poster_path')
+                'poster_path': show.get('poster_path'),
+                'imdb_id': imdb_id
             }
             series.append(series_data)
 

@@ -81,7 +81,7 @@ class DownloadBarManager:
         if self.progress:
             if track_key not in self.tasks:
                 self.tasks[track_key] = self.progress.add_task(
-                    f"[cyan]{label}",
+                    label if label.startswith("[") else f"[cyan]{label}",       # <-- Use provided label or default to track_key, and wrap with [cyan] if it doesn't already contain Rich markup
                     total=100, segment="0/1", speed="0Bps", size="0B/0B", compact_metrics=False,
                 )
                 
@@ -100,7 +100,7 @@ class DownloadBarManager:
             compact_metrics = bool(parsed.get("compact_metrics")) or key.startswith("decrypt_")
             self.tasks[key] = (
                 self.progress.add_task(
-                    f"[cyan]{label}",
+                    label if label.startswith("[") else f"[cyan]{label}",   # <-- Use provided label or default to key, and wrap with [cyan] if it doesn't already contain Rich markup
                     total=100,
                     segment="0/0",
                     speed="" if compact_metrics else "0Bps",

@@ -14,8 +14,8 @@ from .downloader import download_series, download_film
 from .client import get_bearer_token
 
 
-indice = 10
-_useFor = "Serie"
+indice = 9
+_useFor = "Film_Serie"
 _region = ["US"]
 msg = Prompt()
 console = Console()

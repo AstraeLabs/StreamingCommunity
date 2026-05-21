@@ -44,7 +44,7 @@ def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: s
     last_progress_update = time.monotonic()
     last_observed_percent = -1
     process_holder = {"process": None}
-    task_key = f"decrypt_{os.path.basename(output_path)}"
+    task_key = f"decrypt_{os.path.basename(encrypted_path)}"
 
     def _emit(percent: int, current_size: int) -> None:
         if progress_cb is None:

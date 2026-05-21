@@ -12,7 +12,7 @@ from VibraVid.services._base.site_search_manager import base_process_search_resu
 from .downloader import download_film, download_series
 
 
-indice = 6
+indice = 5
 _useFor = "Anime"
 msg = Prompt()
 console = Console()

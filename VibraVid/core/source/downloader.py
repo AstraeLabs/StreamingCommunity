@@ -587,7 +587,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             self.key,
             str(out_path),
             stream_type=stream.type,
-            progress_cb=None,
+            progress_cb=bar_manager.handle_progress_line,
         )
 
         try:
