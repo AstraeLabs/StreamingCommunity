@@ -259,7 +259,12 @@ class ConfigManager:
             with open(self.config_file_path, 'r') as f:
                 self._config_data.clear()
                 self._config_data.update(json.load(f))
-            
+
+            env_root = os.environ.get('VIBRAVID_OUTPUT_ROOT')
+            if env_root:
+                self._config_data.setdefault('OUTPUT', {})['root_path'] = env_root
+                logger.info(f"OUTPUT.root_path overridden via VIBRAVID_OUTPUT_ROOT={env_root}")
+
             # Pre-cache commonly used configuration values
             self._precache_config_values()
                 

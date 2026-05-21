@@ -128,6 +128,12 @@ ARR_WEBHOOK_PRIORITY_ENABLED = _env_flag("ARR_WEBHOOK_PRIORITY_ENABLED", True)
 ARR_NATIVE_WEBHOOK_PRIORITY_WINDOW_SECONDS = _env_int("ARR_NATIVE_WEBHOOK_PRIORITY_WINDOW_SECONDS", 120)
 ARR_SEERR_FALLBACK_DELAY_SECONDS = _env_int("ARR_SEERR_FALLBACK_DELAY_SECONDS", 20)
 
+_ARR_LOG_DIR = PROJECT_ROOT / ".cache" / "arr"
+try:
+    _ARR_LOG_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
 # ── Logging Configuration ────────────────────────────────────────────────────────
 LOGGING = {
     "version": 1,

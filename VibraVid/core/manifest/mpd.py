@@ -151,9 +151,6 @@ def _is_file_url(url: str) -> bool:
 
 
 class DashParser:
-    """
-    Fetch and parse an MPEG-DASH MPD manifest.
-    """
     def __init__(self, mpd_url: str, headers: Dict[str, str] = None, provided_kid: str = None, content: str = None):
         self.mpd_url = mpd_url
         self.headers = headers or {}

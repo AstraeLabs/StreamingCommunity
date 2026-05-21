@@ -31,6 +31,48 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 
+def _get_declared_xml_encoding(block: bytes) -> Optional[str]:
+    """Extract encoding from XML declaration if present."""
+    try:
+        head = block[:256].decode('ascii', errors='ignore')
+        match = re.search(r'<\?xml[^>]*encoding=["\']([^"\']+)["\']', head, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    except Exception:
+        pass
+    return None
+
+
+def _decode_ttml_block(block: bytes) -> str:
+    """Decode TTML block with declared encoding first, then safe fallbacks."""
+    candidates: List[str] = []
+    declared = _get_declared_xml_encoding(block)
+    if declared:
+        candidates.append(declared)
+
+    candidates.extend([
+        'utf-8-sig',
+        'utf-8',
+        'utf-16',
+        'utf-16-le',
+        'utf-16-be',
+        'cp1252',
+        'latin-1',
+    ])
+
+    tried = set()
+    for encoding in candidates:
+        if encoding in tried:
+            continue
+        tried.add(encoding)
+        try:
+            return block.decode(encoding)
+        except Exception:
+            continue
+
+    raise UnicodeDecodeError('utf-8', block, 0, min(len(block), 1), 'could not decode TTML block with supported encodings')
+
+
 def extract_font_name_from_style(style_line: str) -> Optional[str]:
     """
     Extract font name from ASS/SSA Style line.
@@ -86,13 +128,18 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
         with open(ttml_path, 'rb') as f:
             data = f.read()
 
-        # Extract all TTML blocks (works for both plain TTML files and .m4s fragments)
-        ttml_blocks = re.findall(br'<\?xml.*?</tt>', data, re.DOTALL)
+        # Extract TTML blocks from plain XML or fragmented MP4 payloads.
+        # Supports both XML declaration-prefixed documents and raw <tt> blocks.
+        ttml_blocks = re.findall(
+            br'(?:<\?xml[^>]*\?>\s*)?<tt\b.*?</tt>',
+            data,
+            re.DOTALL,
+        )
 
         if not ttml_blocks:
             # Try to see if it's a plain TTML without the XML declaration or just one block
             try:
-                text_content = data.decode('utf-8')
+                text_content = data.decode('utf-8', errors='ignore')
                 if '<tt' in text_content and '</tt>' in text_content:
                     match = re.search(r'<tt.*?</tt>', text_content, re.DOTALL)
                     if match:
@@ -106,10 +153,10 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
 
         all_captions: List[str] = []
         
-        for block in ttml_blocks:
+        for index, block in enumerate(ttml_blocks, start=1):
             try:
                 # Decode and parse TTML
-                ttml_str = block.decode('utf-8')
+                ttml_str = _decode_ttml_block(block)
                 root = et.fromstring(ttml_str)
                 tree = et.ElementTree(root)
 
@@ -128,7 +175,7 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
                         all_captions.append(content.strip())
 
             except Exception as e:
-                console.print(f"[yellow]Warning: Failed to process TTML block: {e}")
+                console.print(f"[yellow]Warning: Failed to process TTML block {index}/{len(ttml_blocks)}: {e}")
                 continue
 
         if not all_captions:

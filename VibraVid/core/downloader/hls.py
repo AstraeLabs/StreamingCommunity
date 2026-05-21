@@ -30,18 +30,6 @@ DELAY_SS = config_manager.config.get_int('DOWNLOAD', 'delay_after_download')
 
 
 class HLS_Downloader(BaseDownloader):
-    """
-    High-level HLS downloader.
-
-    Flow
-    ----
-    1. ``parse_stream()``   — fetch manifest → auto-select → show table
-    2. DRM extraction       — read DRMInfo from selected Stream objects (fallback: M3U8Parser scan of the saved raw .m3u8)
-    3. Key fetch            — DRMManager → Widevine or PlayReady
-    4. ``start_download()`` — run n3u8dl / manual, decrypt, build status dict
-    5. ``_merge_files()``   — FFmpeg mux
-    6. ``_finalize()``      — move, summary, NFO, tracker, cleanup
-    """
     def __init__(self, m3u8_url: str, headers: Optional[Dict[str, str]] = None,
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None,
         output_path: Optional[str] = None, drm_preference = _DRMSystems.WIDEVINE, key: Optional[str] = None,

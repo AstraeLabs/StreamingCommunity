@@ -1,4 +1,5 @@
 # 17.04.26
+# by @nu00
 
 from urllib.parse import quote_plus
 
@@ -13,7 +14,7 @@ from VibraVid.services._base.site_search_manager import base_process_search_resu
 from .downloader import download_film, download_series
 
 
-indice = 16
+indice = 15
 _useFor = "Film_Serie"
 
 msg = Prompt()
