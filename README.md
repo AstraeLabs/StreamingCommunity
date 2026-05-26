@@ -677,7 +677,10 @@ When remote CDM services are available, add one or both of the following blocks 
 
 #### Local CDM Devices
 
-To use local CDM device files instead of remote services, place them in the project root:
+To use local CDM device files instead of remote services, place them in the binary directory resolved at runtime:
+
+- Default on Linux: `~/.local/bin/binary`
+- Override with `VIBRAVID_BINARY_DIR` if you need a different path, for example `/home/user_name/.local/bin/binary`
 
 - **Widevine:** `.wvd` file (from pywidevine)
 - **PlayReady:** `.prd` file (from pyplayready)
