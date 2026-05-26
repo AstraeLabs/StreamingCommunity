@@ -20,6 +20,7 @@ class BinaryPaths:
         self.system = self._detect_system()
         self.arch = self._detect_arch()
         self.home_dir = os.path.expanduser('~')
+        self.binary_dir_override = os.environ.get('VIBRAVID_BINARY_DIR') or os.environ.get('BINARY_DIR')
         self.github_repo = "https://raw.githubusercontent.com/AstraeLabs/Binary/main"
         self._paths_json_cache: Optional[dict] = None
         self._resolved: Dict[str, str] = {}
@@ -49,6 +50,9 @@ class BinaryPaths:
 
     def get_binary_directory(self) -> str:
         """Return the platform-specific directory where binaries are stored."""
+        if self.binary_dir_override:
+            return self.binary_dir_override
+
         if self.system == 'windows':
             return os.path.join(os.path.splitdrive(self.home_dir)[0] + os.path.sep, 'binary')
         elif self.system == 'darwin':
