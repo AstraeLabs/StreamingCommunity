@@ -465,7 +465,10 @@ S%(season:02d)/     →  cartella stagione  S01/
 
 #### Dispositivi CDM locali
 
-Per usare file CDM locali, posizionarli nella root del progetto:
+Per usare file CDM locali, posizionarli nella cartella dei binari risolta a runtime:
+
+- Default su Linux: `~/.local/bin/binary`
+- È possibile forzare un percorso diverso con `VIBRAVID_BINARY_DIR`, per esempio `/home/user_name/.local/bin/binary`
 
 - **Widevine:** file `.wvd` (da pywidevine)
 - **PlayReady:** file `.prd` (da pyplayready)
