@@ -120,15 +120,37 @@ class DRMProbe:
                 pass
 
     def _resolve_drm_names(self, pssh_boxes: list) -> list:
-        names: list  = []
-        seen:  set   = set()
+        known_names: list[str] = []
+        unknown_ids: list[str] = []
+        seen_known: set[str] = set()
+        seen_unknown: set[str] = set()
+
         for box in pssh_boxes:
             sid  = box.get("system_id", "").replace(" ", "").lower()
-            name = self._systems.get(sid, f"Unknown ({sid[:8]}...)" if sid else "Unknown")
-            if name not in seen:
-                seen.add(name)
-                names.append(name)
-        return names
+            if not sid:
+                continue
+
+            name = self._systems.get(sid)
+            if name:
+                if name not in seen_known:
+                    seen_known.add(name)
+                    known_names.append(name)
+                continue
+
+            if sid not in seen_unknown:
+                seen_unknown.add(sid)
+                unknown_ids.append(sid)
+
+        if unknown_ids:
+            logger.debug(f"DRMProbe: unknown system_id(s): {', '.join(unknown_ids)}")
+
+        if known_names and unknown_ids:
+            return [*known_names, f"Unknown SID x{len(unknown_ids)}"]
+        if known_names:
+            return known_names
+        if unknown_ids:
+            return [f"Unknown ({sid[:8]}...)" for sid in unknown_ids]
+        return ["Unknown"]
 
     @staticmethod
     def _report(scheme: Optional[str], kid: Optional[str], drm_names: list) -> None:
@@ -272,13 +294,14 @@ class MP4FileDownloader:
     _decryptor = PostDownloadDecryptor()
     _tracker = SupaTracker()
 
-    def __init__(self,url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None) -> None:
+    def __init__(self,url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None, max_percentage: Optional[float] = None) -> None:
         self.url = str(url).strip()
         self.path = os_manager.get_sanitize_path(path)
         self.referer = referer
         self.headers_ = headers_
         self.label = label
         self.key = key
+        self.max_percentage = self._normalize_max_percentage(max_percentage)
 
         # Merge explicit args with context-level defaults
         self.download_id = download_id or context_tracker.download_id
@@ -291,6 +314,19 @@ class MP4FileDownloader:
         self._total: Optional[int] = None
         self._downloaded: int = 0
         self._incomplete_err: Any = False
+
+    @staticmethod
+    def _normalize_max_percentage(value: Optional[float]) -> float:
+        try:
+            value_f = float(value)
+        except (TypeError, ValueError):
+            return 100.0
+
+        if value_f <= 0:
+            return 100.0
+        if value_f > 100:
+            return 100.0
+        return value_f
 
     def download(self) -> tuple:
         """
@@ -497,6 +533,11 @@ class MP4FileDownloader:
                     self._downloaded += fh.write(chunk)
                     self._tick_progress(progress_bars, start_time, bar_mgr)
 
+                    if self._should_stop_at_max_percentage():
+                        self._incomplete_err = f"max_percentage_reached:{self.max_percentage:.2f}"
+                        self._interrupt.kill_download = True
+                        break
+
         except KeyboardInterrupt:
             if not self._interrupt.force_quit:
                 self._interrupt.kill_download = True
@@ -513,20 +554,25 @@ class MP4FileDownloader:
             except Exception:
                 pass
 
+    def _should_stop_at_max_percentage(self) -> bool:
+        if self.max_percentage >= 100.0 or not self._total:
+            return False
+        return (self._downloaded / self._total * 100.0) >= self.max_percentage
+
     def _tick_progress(self, progress_bars, start_time: float, bar_mgr: DownloadBarManager) -> None:
         elapsed = time.time() - start_time
         speed = self._downloaded / elapsed if elapsed > 0 else 0
         speed_str = internet_manager.format_transfer_speed(speed) if speed > 0 else "-- B/s"
         dl_val, dl_unit = internet_manager.format_file_size(self._downloaded).split(" ")
         percent = (self._downloaded / self._total * 100) if self._total else 0
-        total_size_str = f"{self._total / 1024 / 1024:.2f}MB" if self._total else "Unknown"
+        total_size_str = internet_manager.format_file_size(self._total) if self._total else "Unknown"
         pct_int = max(0, min(100, int(percent)))
 
         parsed = {
             "task_key": "video",
             "pct": percent,
             "speed": speed_str,
-            "size": f"{dl_val}{dl_unit}/{total_size_str}",
+            "size": f"{dl_val} {dl_unit}/{total_size_str}",
             "segments": f"{pct_int}/100",
             "label": self.label,
             "display_label": self.label,
@@ -563,6 +609,19 @@ class MP4FileDownloader:
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="cancelled")
             return None, True, "cancelled"
+
+        # Explicit threshold stop requested by user/config
+        if isinstance(self._incomplete_err, str) and self._incomplete_err.startswith("max_percentage_reached:"):
+            if not self._rename_temp():
+                return None, True, self._incomplete_err
+
+            # Try decryption even on partial files when keys are available.
+            if PostDownloadDecryptor.has_keys(self.key):
+                self._decryptor.run(self.path, self.key, self.download_id)
+
+            if self.download_id:
+                download_tracker.complete_download(self.download_id, success=False, error=self._incomplete_err)
+            return self.path, True, None
 
         # Atomic rename temp → final
         if not self._rename_temp():
@@ -619,7 +678,7 @@ class MP4FileDownloader:
         console.print(f"[red]Could not rename temp file after 10 retries: {last_exc}")
         return False
 
-def MP4_Downloader(url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None) -> tuple:
+def MP4_Downloader(url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None, max_percentage: Optional[float] = None) -> tuple:
     """
     Backward-compatible entry point — wraps ``MP4FileDownloader.download()``.
 
@@ -643,4 +702,5 @@ def MP4_Downloader(url: str, path: str, referer: Optional[str] = None, headers_:
         site_name=site_name,
         label=label,
         key=key,
+        max_percentage=max_percentage,
     ).download()
