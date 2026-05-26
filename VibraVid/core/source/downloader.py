@@ -71,9 +71,6 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         self._failed_segments: list = []
         self._failed_segments_lock = threading.Lock()
 
-    # ------------------------------------------------------------------
-    # Public entry point
-    # ------------------------------------------------------------------
     def start_download(self, show_progress: bool = True) -> Dict[str, Any]:
         if self.download_id:
             download_tracker.update_status(self.download_id, "Downloading ...")
@@ -101,9 +98,11 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                     or (isinstance(self.key, str) and not self.key.strip())
                     or (isinstance(self.key, (list, tuple)) and not self.key)
                 )
+
                 if no_keys:
                     console.print("[red]Warning:[/red] SAMPLE-AES/CBCS streams detected but no keys provided.")
                     logger.error("No keys provided for post-download decryption — merged file will remain encrypted.")
+            
             else:
                 logger.info("Using post-download decryption.")
 
@@ -115,6 +114,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                 if show_progress
                 else SilentDownloadBarManager(self.download_id)
             )
+
             with bar_ctx as bar_manager:
                 bar_manager.add_prebuilt_tasks(self._get_prebuilt_tasks())
                 self._register_external_track_tasks(bar_manager)
@@ -139,8 +139,10 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                         )
                         ext_result["ext_subs"] = subs
                         ext_result["ext_auds"] = auds
+
                     except Exception as exc:
                         logger.error(f"External downloads failed: {exc}")
+                    
                     finally:
                         self._unregister_loop(ext_loop)
                         ext_loop.close()
@@ -165,6 +167,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                     join_interruptible(media_threads, self._stop_event)
                     bar_manager.finish_all_tasks()
                     join_interruptible([ext_thread], self._stop_event, hard_timeout=300.0)
+                
                 else:
                     logger.info("Sequential download: video → audio → subtitles → external tracks.")
                     video_streams  = [s for s in selected_media if s.type == "video"]
@@ -174,21 +177,21 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                     for stream in video_streams:
                         if self._stop_check():
                             break
-                        t = threading.Thread(target=lambda: _run_stream(stream), daemon=True)
+                        t = threading.Thread(target=lambda s=stream: _run_stream(s), daemon=True)
                         t.start()
                         join_interruptible([t], self._stop_event)
 
                     for stream in audio_streams:
                         if self._stop_check():
                             break
-                        t = threading.Thread(target=lambda: _run_stream(stream), daemon=True)
+                        t = threading.Thread(target=lambda s=stream: _run_stream(s), daemon=True)
                         t.start()
                         join_interruptible([t], self._stop_event)
 
                     for stream in sub_streams:
                         if self._stop_check():
                             break
-                        t = threading.Thread(target=lambda: _run_stream(stream), daemon=True)
+                        t = threading.Thread(target=lambda s=stream: _run_stream(s), daemon=True)
                         t.start()
                         join_interruptible([t], self._stop_event)
 
@@ -219,9 +222,6 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         self.status = self._build_status(ext_subs, ext_auds)
         return self.status
 
-    # ------------------------------------------------------------------
-    # Loop management
-    # ------------------------------------------------------------------
     def _register_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         with self._loops_lock:
             self._active_loops.append(loop)
@@ -247,9 +247,11 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
     def _stream_task_key(self, stream) -> str:
         if stream.type == "video":
             return self._video_task_key
+        
         if stream.type == "subtitle":
             lang = (stream.resolved_language or stream.language or "und").lower()
             return f"sub_{lang.split('-')[0]}"
+        
         lang = (stream.resolved_language or stream.language or "und").lower()
         return f"aud_{lang.split('-')[0]}"
 
@@ -260,6 +262,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             name = f"s_{safe_name((stream.language or 'und').lower())}"
         else:
             name = f"a_{safe_name((stream.language or 'und').lower())}"
+        
         d = self._tmp_dir / name
         d.mkdir(parents=True, exist_ok=True)
         return d
@@ -276,11 +279,13 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                 all_headers = self._build_headers()
                 first_content: Optional[str] = None
                 base_url: Optional[str] = None
+
                 try:
                     with create_client(headers=all_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
                         resp = c.get(playlist_url)
                         resp.raise_for_status()
                         first_content = resp.text
+                    
                     base_url = hls_base_url(playlist_url)
                 except Exception as exc:
                     logger.error(f"Failed to fetch HLS playlist for live detection: {exc}")
@@ -298,9 +303,6 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         if self.manifest_type == "ISM":
             self._download_ism_stream(stream, bar_manager)
 
-    # ------------------------------------------------------------------
-    # HLS stream download
-    # ------------------------------------------------------------------
     def _download_hls_stream(self, stream, bar_manager: DownloadBarManager, live_decryption: bool = False) -> None:
         playlist_url = stream.playlist_url
         if not playlist_url:
@@ -327,6 +329,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         dl_segs: List[Dict] = []
         if init_url:
             dl_segs.append({"url": init_url, "number": 0, "seg_type": "init", "enc": {"method": "NONE"}})
+        
         offset = len(dl_segs)
         for seg in media_segs:
             dl_segs.append({
@@ -343,9 +346,6 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
 
         self._download_stream_generic(dl_segs, stream, "hls", "ts", bar_manager, live_decryption=live_decryption)
 
-    # ------------------------------------------------------------------
-    # DASH stream download
-    # ------------------------------------------------------------------
     def _download_dash_stream(self, stream, bar_manager: DownloadBarManager, live_decryption: bool = False) -> None:
         if not stream.segments:
             logger.error(f"DASH stream has no segments: {stream}")
@@ -368,6 +368,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                     "headers":  {"Range": f"bytes={seg.byte_range}"},
                 })
                 next_num += 1
+            
             elif is_single_file and seg.seg_type == "media":
                 ranged = build_dash_ranged_segments(seg.url, all_headers, chunk_size, REQUEST_TIMEOUT)
                 if ranged:
@@ -376,6 +377,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                         part["seg_type"] = seg.seg_type
                         dl_segs.append(part)
                         next_num += 1
+                    
                     continue
                 else:
                     dl_segs.append({"url": seg.url, "number": next_num, "seg_type": seg.seg_type, "enc": {"method": "NONE"}})
@@ -398,9 +400,6 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
 
         self._download_stream_generic(dl_segs, stream, "dash", "mp4", bar_manager, live_decryption=live_decryption)
 
-    # ------------------------------------------------------------------
-    # ISM stream download
-    # ------------------------------------------------------------------
     def _download_ism_stream(self, stream, bar_manager: DownloadBarManager) -> None:
         if not stream.segments:
             logger.error(f"ISM stream has no segments: {stream}")
@@ -439,6 +438,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                         part["enc"] = ism_enc_dict
                         dl_segs.append(part)
                         next_num += 1
+                    
                     continue
                 else:
                     dl_segs.append({"url": seg.url, "number": next_num, "seg_type": seg.seg_type, "enc": ism_enc_dict})
@@ -462,9 +462,6 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         # Force live_decryption=False → no per-segment decrypt worker
         self._download_stream_generic(dl_segs, stream, "ism", "mp4", bar_manager, live_decryption=False)
 
-    # ------------------------------------------------------------------
-    # Helper to locate mp4fragment
-    # ------------------------------------------------------------------
     @staticmethod
     def _get_mp4fragment_path() -> Optional[str]:
         decrypt_path = get_bento4_decrypt_path()
@@ -478,10 +475,6 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         print(f"mp4fragment: {shutil.which('mp4fragment')}")
         return shutil.which("mp4fragment")
 
-    # ------------------------------------------------------------------
-    # ISM init-segment construction
-    # (delegated to _ism_init for a correct CENC fragmented MP4 layout)
-    # ------------------------------------------------------------------
     @staticmethod
     def _build_ism_init(stream, kid_hex: str) -> bytes:
         """Build a valid ftyp + moov for the encrypted ISM stream."""
@@ -545,9 +538,6 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
 
         raise ValueError(f"Unsupported ISM stream type: {stream.type!r}")
 
-    # ------------------------------------------------------------------
-    # ISM post‑processing (corretta: init + concat + decrypt)
-    # ------------------------------------------------------------------
     def _ism_postproc(self, seg_paths: List[Path], out_path: Path, stream, bar_manager, task_key: str, total: int) -> bool:
         audio_codec = (getattr(stream, "codecs", "") or "").lower()
         codec_private_optional = audio_codec in ("ec-3", "eac3", "ac-3", "ac3")
@@ -565,6 +555,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
 
         # 2. Concatenate init + media segments into a single file (in the correct order, skipping invalid segments)
         encrypted_temp = out_path.with_suffix(".enc.mp4")
+
         try:
             from VibraVid.core.muxing.helper.video import _segment_number
             valid_segs = [(p, _segment_number(p)) for p in seg_paths if p.exists() and p.stat().st_size > 0]
@@ -572,6 +563,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             if not valid_segs:
                 logger.error("Nessun segmento ISM valido trovato per la concatenazione")
                 return False
+            
             with open(encrypted_temp, "wb") as out:
                 out.write(init_data)
                 for seg_path, _ in valid_segs:
@@ -580,7 +572,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             logger.error(f"Creazione file unificato ISM fallita: {exc}")
             return False
         
-        logger.debug(f"File ISM cifrato pronto: {encrypted_temp} ({encrypted_temp.stat().st_size} bytes)")
+        logger.info(f"ISM file: {encrypted_temp} ({encrypted_temp.stat().st_size} bytes)")
         decryptor = Decryptor()
         ok = decryptor.decrypt(
             str(encrypted_temp),
@@ -603,7 +595,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         if not verify_ok:
             logger.error(f"Verifica post-mux fallita per {out_path.name}: {verify_msg}")
             return False
-        logger.debug(f"Verifica post-mux OK per {out_path.name}: {verify_msg}")
+        logger.info(f"Check post-mux OK for{out_path.name}: {verify_msg}")
 
         bar_manager.handle_progress_line({
             "task_key": task_key,
@@ -614,10 +606,6 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         })
         return True
 
-
-    # ------------------------------------------------------------------
-    # Generic stream download (handles ISM hook)
-    # ------------------------------------------------------------------
     def _download_stream_generic(self, dl_segs: List[Dict], stream, protocol: str, default_ext: str, bar_manager: DownloadBarManager, live_decryption: bool = False) -> None:
         task_key = self._stream_task_key(stream)
         total = len(dl_segs)
@@ -652,15 +640,19 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             nonlocal probe_done
             if probe_done or not target_path:
                 return
+            
             if not target_path.exists() or target_path.stat().st_size <= 0:
                 return
+            
             with probe_lock:
                 if probe_done:
                     return
+                
                 if not target_path.exists() or target_path.stat().st_size <= 0:
                     return
                 probe_done = True
-            logger.debug(f"{protocol.upper()} probe starting -> {target_path.name} ({reason})")
+            
+            logger.info(f"{protocol.upper()} probe starting -> {target_path.name} ({reason})")
             self._probe_media_file(target_path)
 
         def _replace_segment_file(source_path: Path, target_path: Path, reason: str) -> None:
@@ -672,16 +664,20 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                             target_path.unlink()
                         except Exception:
                             pass
+
                     source_path.replace(target_path)
                     return
                 except OSError as exc:
                     last_exc = exc
                     if attempt >= 8:
                         raise
+
                     if getattr(exc, "winerror", None) not in (5, 32) and not isinstance(exc, PermissionError):
                         raise
+
                     logger.debug(f"{reason} replace retry {attempt}/8 for {source_path.name} -> {target_path.name}: {exc}")
                     time.sleep(0.05 * attempt)
+            
             if last_exc:
                 raise last_exc
 
@@ -690,10 +686,12 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             estimated_total = _estimate_total_size(total_bytes, done, total_) if done > 0 else total_bytes
             size_display = (f"{_fmt_size(total_bytes)}/{_fmt_size(estimated_total)}" if done < total_ else f"{_fmt_size(total_bytes)}/{_fmt_size(total_bytes)}")
             duration_display = ""
+
             if _total_duration > 0:
                 media_done = max(0, done - (1 if any(s.get("seg_type") == "init" for s in dl_segs) else 0))
                 elapsed_dur = _seg_dur_cumulative[media_done - 1] if media_done > 0 and media_done <= len(_seg_dur_cumulative) else 0.0
                 duration_display = f"{_fmt_dur(elapsed_dur)}/{_fmt_dur(_total_duration)}"
+
             bar_manager.handle_progress_line({
                 "task_key": task_key,
                 "pct":      pct,
@@ -708,23 +706,28 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             method = str(enc.get("method") or "NONE").upper()
             if method != "AES-128":
                 return
+            
             key_url = enc.get("key_url")
             if not key_url:
                 raise RuntimeError(f"Missing AES-128 key URL for {fp.name}")
+            
             key_data = key_cache.get(key_url)
             if key_data is None:
                 with create_client(headers=all_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
                     r = c.get(key_url)
                     r.raise_for_status()
                     key_data = r.content
+
                 if len(key_data) != 16:
                     logger.warning(f"HLS AES-128 key length is {len(key_data)} bytes for {key_url}")
+
                 key_cache[key_url] = key_data
             logger.debug(f"AES-128 LIVE decrypt path={fp} with key={describe_key_for_log(key_data)}")
             decrypted = decrypt_aes128(fp.read_bytes(), key_data, enc.get("iv"), int(seg.get("number", 0) or 0))
             tmp_path = fp.with_suffix(fp.suffix + ".dec")
             tmp_path.write_bytes(decrypted)
             _replace_segment_file(tmp_path, fp, "HLS AES-128")
+
             logger.debug(f"HLS AES-128 decrypted -> {fp.name}")
             _probe_once(fp, "hls-first-decrypted-segment")
 
@@ -732,16 +735,20 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             if seg.get("seg_type") == "init":
                 logger.info(f"DASH init segment ready -> {fp.name}")
                 return
+            
             dec_tmp = fp.with_suffix(fp.suffix + ".dec")
             logger.debug(f'CENC LIVE decrypt path={fp} init={init_path if init_path and init_path.exists() else "None"} with key={describe_key_for_log(self.key)}')
             ok, message, _data = dash_decryptor.decrypt_segment_live(
                 encrypted_path=str(fp), decrypted_path=str(dec_tmp), raw_keys=self.key,
                 init_path=str(init_path) if init_path and init_path.exists() else None,
             )
+
             if not ok:
                 raise RuntimeError(f"DASH live decrypt failed for {fp.name}: {message}")
+            
             if not dec_tmp.exists():
                 raise RuntimeError(f"DASH live decrypt produced no output for {fp.name}")
+            
             _replace_segment_file(dec_tmp, fp, "DASH live")
             logger.debug(f"DASH live decrypted -> {fp.name}")
             _probe_once(fp, "dash-first-decrypted-segment")
@@ -794,7 +801,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         needs_dash_live = protocol_lower == "dash" and live_decryption and bool(self.key)
 
         if needs_hls_decrypt or needs_dash_live:
-            logger.debug(f'{protocol.upper()} decrypt worker started ({"AES-128" if needs_hls_decrypt else "live DASH"})')
+            logger.info(f'{protocol.upper()} decrypt worker started ({"AES-128" if needs_hls_decrypt else "live DASH"})')
             decrypt_thread = threading.Thread(target=_decrypt_worker, daemon=True)
             decrypt_thread.start()
 
@@ -802,11 +809,14 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             event_name = (event.get("event") or "").lower()
             if event_name in {"start", "summary", "retry", "error", "cancelled"}:
                 return
+            
             path_value = event.get("path")
             if not path_value:
                 return
+            
             if event.get("skipped"):
                 return
+            
             seg = segment_meta_by_path.get(normalize_path_key(str(path_value)))
             should_probe_now = (
                 seg
@@ -814,8 +824,10 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                 and not decrypt_thread
                 and not ((not live_decryption) and bool(self.key))
             )
+
             if should_probe_now:
                 _probe_once(Path(path_value), f"{protocol.upper()}-first-media-segment")
+
             if decrypt_thread:
                 decrypt_queue.put(dict(event))
 
@@ -861,7 +873,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
 
         # Standard merge for HLS/DASH
         merge_total_size = sum(p.stat().st_size for p in paths if p.exists())
-        logger.debug(f"{protocol.upper()} binary merge starting -> {out_path.name} ({len(paths)} segs, {_fmt_size(merge_total_size)})")
+        logger.info(f"{protocol.upper()} binary merge starting -> {out_path.name} ({len(paths)} segs, {_fmt_size(merge_total_size)})")
         bar_manager.handle_progress_line({
             "task_key": task_key,
             "pct": 100,
@@ -869,6 +881,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             "size": f"{_fmt_size(merge_total_size)}/{_fmt_size(merge_total_size)}",
             "speed": "Merge",
         })
+
         binary_merge_segments(paths, out_path, merge_logger=logger)
         logger.info(f"{protocol.upper()} binary merge completed -> {out_path.name}")
 
@@ -911,24 +924,24 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
         else:
             logger.error(f"{protocol.upper()} binary merge produced empty file: {out_path}")
 
-    # ------------------------------------------------------------------
-    # Velora download dispatch
-    # ------------------------------------------------------------------
     def _run_dl(self, segs: List[Dict], out_dir: Path, headers: Dict, progress_cb, stream=None, event_cb=None, default_ext: str = "ts") -> List[Path]:
         try:
             plan_task_key = self._stream_task_key(stream) if stream else "download"
             if stream and stream.type == "video":
                 plan_label = self._video_label
+
             elif stream and stream.type == "audio":
                 plan_label = self._audio_labels.get((stream.language or "und").lower(), "")
+
             elif stream and stream.type == "subtitle":
                 lang_raw  = (stream.language or "und").lower()
                 task_lang = lang_raw.split("-")[0]
                 plan_label = (self._sub_labels.get(lang_raw) or self._sub_labels.get(task_lang) or "")
+
             else:
                 plan_label = ""
 
-            logger.debug(f"Starting download plan for {plan_task_key} with {len(segs)} segments")
+            logger.info(f"Starting download plan for {plan_task_key} with {len(segs)} segments")
             plan = {
                 "project": "Velora",
                 "version": 1,
@@ -957,6 +970,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             }
             results = run_download_plan(plan, progress_cb=progress_cb, event_cb=event_cb, stop_check=self._stop_check)
             return [Path(item["path"]) for item in results if item.get("path")]
+        
         except Exception as exc:
             logger.error(f"_run_dl failed: {exc}", exc_info=True)
             return []
@@ -966,6 +980,7 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
             if not target_path.exists() or target_path.stat().st_size <= 0:
                 logger.warning(f"[PROBE] Probe target not found or empty: {target_path}")
                 return
+            
             try:
                 from VibraVid.setup import get_ffprobe_path
                 from VibraVid.core.muxing.util.info import Mediainfo
@@ -973,19 +988,23 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
                 asyncio.run(Mediainfo.from_file_async(ffprobe_path, str(target_path)))
             except Exception as exc:
                 logger.warning(f"[PROBE] Could not probe media file: {exc}")
+
         except Exception as exc:
             logger.error(f"[PROBE] Error: {exc}")
 
     def _build_headers(self) -> Dict:
         h = dict(self.headers)
+
         if self.cookies:
             h["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+
         if "Referer" not in h and "referer" not in h:
             try:
                 parsed = urlparse(self.url)
                 h["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
             except Exception:
                 pass
+
         h.setdefault("Accept", "*/*")
         h.setdefault("Accept-Encoding", "gzip, deflate")
         return h
@@ -993,13 +1012,17 @@ class MediaDownloader(LiveDownloadMixin, BaseMediaDownloader):
     def _out_filename(self, stream, ext: str) -> str:
         if stream.type == "video":
             return f"{self.filename}.{ext}"
+        
         lang = re.sub(r"[^\w\-]", "_", (stream.language or "und").lower())
         if stream.type == "subtitle":
             if getattr(stream, "is_wvtt_mp4", False):
                 return f"{self.filename}.{lang}.wvtt"
+            
             sub_ext = (stream.format or ext or "vtt").lower().strip()
             if sub_ext in ("dash", "mp4", "m4s", ""):
                 sub_ext = "vtt"
+
             return f"{self.filename}.{lang}.{sub_ext}"
+        
         audio_ext = "webm" if ext == "webm" else "m4a"
         return f"{self.filename}.{lang}.{audio_ext}"
