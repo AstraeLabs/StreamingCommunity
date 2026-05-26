@@ -17,6 +17,7 @@ _SYSTEMS_DATA = {
     "ITTIAM":      ("80a6be7e14484c379e70d5aebe04c8d2", "Ittiam", "IT"),
     "SECUREMEDIA": ("3ea8778f77424bf9b18be834b2356d01", "SecureMedia", "SM"),
     "MARLIN":      ("5e629af538da4332a621485ea588cb3f", "Marlin", "ML"),
+    "MARLIN_MSB":  ("29701fe43cc74a348c5bae90c7439a47", "Marlin", "ML"),
 }
 
 
@@ -33,6 +34,7 @@ class _DRMSystems(dict):
     ITTIAM = _SYSTEMS_DATA["ITTIAM"][0]
     SECUREMEDIA = _SYSTEMS_DATA["SECUREMEDIA"][0]
     MARLIN = _SYSTEMS_DATA["MARLIN"][0]
+    MARLIN_MSB = _SYSTEMS_DATA["MARLIN_MSB"][0]
 
     def __init__(self):
         super().__init__((name, data[0]) for name, data in _SYSTEMS_DATA.items())
