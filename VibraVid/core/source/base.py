@@ -295,6 +295,7 @@ class BaseMediaDownloader:
                     track_flags.add("sdh")
                 if not req_flags.issubset(track_flags):
                     continue
+            
             return True
 
         return False
@@ -331,15 +332,18 @@ class BaseMediaDownloader:
             lang = s.resolved_language or s.language or "und"
             codec = s.get_short_codec() or s.codecs or ""
             parts = []
+
             if codec:
                 parts.append(f"[yellow]\\[{codec}][/yellow]")
+
             parts.append(f"[bold white]{lang}[/bold white]")
             if s.bitrate:
                 parts.append(f"[blue]{s.bitrate_display}[/blue]")
+
             if s.default:
                 parts.append("[bold red][DEFAULT][/bold red]")
+            
             label = " ".join(parts)
-
             raw = (s.language or "und").lower()
             normalized = resolve_locale(raw) if raw else ""
             task_lang = normalized.split("-")[0].lower() if normalized else raw
@@ -397,6 +401,7 @@ class BaseMediaDownloader:
             lang = s.resolved_language or lang_raw or "und"
             parts = [f"[bold white]{lang}[/bold white]"]
             flags = []
+
             if forced:
                 flags.append("[FORCED]")
             if sdh:
@@ -408,12 +413,9 @@ class BaseMediaDownloader:
             if flags:
                 parts.append(f"[bold red]{' '.join(flags)}[/bold red]")
  
-            # ── ext tag: derive the real format, never show "dash" ────────────
             if getattr(s, "is_wvtt_mp4", False):
                 ext_tag = "WVTT"
             else:
-                # s.format is set by the parser; "dash" is the uninitialised
-                # placeholder — ignore it and fall back to codec or "VTT"
                 fmt = (s.format or "").lower().strip()
                 _IGNORE = {"dash", ""}
                 if fmt not in _IGNORE:
