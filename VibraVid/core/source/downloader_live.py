@@ -109,10 +109,12 @@ class LiveDownloadMixin:
         def _fetch_key(key_url: str) -> bytes:
             if key_url in key_cache:
                 return key_cache[key_url]
+            
             with create_client(headers=all_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
                 r = c.get(key_url)
                 r.raise_for_status()
                 key_data = r.content
+
             if len(key_data) != 16:
                 logger.warning(f"AES-128 key length {len(key_data)} bytes (expected 16) for {key_url}")
             key_cache[key_url] = key_data
@@ -123,15 +125,19 @@ class LiveDownloadMixin:
             enc = seg_meta.get("enc") or {}
             if str(enc.get("method") or "NONE").upper() != "AES-128":
                 return
+            
             key_url = enc.get("key_url")
             if not key_url:
                 raise RuntimeError(f"Missing AES-128 key URL for {fp.name}")
+            
             key_data   = _fetch_key(key_url)
             seg_number = int(seg_meta.get("number", 0))
             logger.debug(f'AES-128 live-decrypt seg={fp.name} iv={enc.get("iv")}')
+
             decrypted = decrypt_aes128(fp.read_bytes(), key_data, enc.get("iv"), seg_number)
             tmp = fp.with_suffix(fp.suffix + ".dec")
             tmp.write_bytes(decrypted)
+
             for attempt in range(1, 6):
                 try:
                     if fp.exists():
@@ -148,9 +154,11 @@ class LiveDownloadMixin:
             nonlocal probe_done
             if probe_done:
                 return
+            
             with probe_lock:
                 if probe_done:
                     return
+                
                 if fp.exists() and fp.stat().st_size > 0:
                     logger.info(f"Live HLS probe -> {fp.name}")
                     self._probe_media_file(fp)
@@ -163,6 +171,7 @@ class LiveDownloadMixin:
             """
             nonlocal seg_done, total_bytes
             batch_bytes = 0
+
             for fp, seg_meta in zip(batch_paths, dl_batch):
                 if not fp.exists() or fp.stat().st_size == 0:
                     logger.warning(f"Live HLS: empty or missing segment {fp.name}")
@@ -171,12 +180,14 @@ class LiveDownloadMixin:
                     _decrypt_segment(fp, seg_meta)
                 except Exception as exc:
                     logger.error(f"Live HLS decrypt error for {fp.name}: {exc}")
+                
                 _probe_first(fp)
                 sz           = fp.stat().st_size if fp.exists() else 0
                 batch_bytes += sz
                 total_bytes += sz
                 all_paths.append(fp)
                 seg_done    += 1
+            
             return batch_bytes
 
         if base_url is None:
@@ -211,6 +222,7 @@ class LiveDownloadMixin:
                     "seg_type": "init",
                     "enc":      {"method": "NONE"},
                 }]
+
                 init_paths = self._live_download_batch(init_batch, stream_dir, all_headers, stream)
                 if init_paths and init_paths[0].exists() and init_paths[0].stat().st_size > 0:
                     all_paths.append(init_paths[0])
@@ -243,8 +255,6 @@ class LiveDownloadMixin:
                     fresh_segs = fresh_segs[:remaining]
 
                 # Assign stable global numbers to every segment in this batch.
-                # _run_dl will use these numbers to build the file paths, so
-                # seg_00001.mp4 … seg_0000N.mp4 are unique across all batches.
                 dl_batch: List[Dict] = []
                 for seg in fresh_segs:
                     dl_batch.append({
@@ -303,15 +313,7 @@ class LiveDownloadMixin:
         else:
             logger.error(f"Live HLS binary merge produced an empty file: {out_path}")
 
-    def _download_dash_live_stream(
-        self,
-        stream,
-        bar_manager,
-        live_decryption: bool = False,
-        *,
-        mpd_url: str,
-        headers: Dict,
-    ) -> None:
+    def _download_dash_live_stream(self, stream, bar_manager, live_decryption: bool = False, *, mpd_url: str, headers: Dict) -> None:
         """
         Download a live DASH stream by polling the dynamic MPD and downloading each new batch of segments as they appear.
         """
@@ -357,8 +359,10 @@ class LiveDownloadMixin:
                 init_path = fp
                 logger.info(f"Live DASH: init segment cached -> {fp.name}")
                 return
+            
             if not _decryptor or not self.key:
                 return
+            
             dec_tmp = fp.with_suffix(fp.suffix + ".dec")
             try:
                 ok, message, _data = _decryptor.decrypt_segment_live(
@@ -367,13 +371,16 @@ class LiveDownloadMixin:
                     raw_keys=self.key,
                     init_path=str(init_path) if init_path and init_path.exists() else None,
                 )
+
                 if not ok:
                     logger.error(f"Live DASH: decrypt failed for {fp.name}: {message}")
                     dec_tmp.unlink(missing_ok=True)
                     return
+                
                 if not dec_tmp.exists():
                     logger.error(f"Live DASH: decrypt produced no output for {fp.name}")
                     return
+                
                 for attempt in range(1, 6):
                     try:
                         fp.unlink(missing_ok=True)
@@ -384,6 +391,7 @@ class LiveDownloadMixin:
                             raise
                         time.sleep(0.05 * attempt)
                 logger.debug(f"Live DASH: CENC decrypted -> {fp.name}")
+            
             except Exception as exc:
                 logger.error(f"Live DASH: decrypt error for {fp.name}: {exc}")
                 dec_tmp.unlink(missing_ok=True)
@@ -405,6 +413,7 @@ class LiveDownloadMixin:
                 seg_ext = detect_seg_ext(seg.get("url", ""), default="mp4")
                 if seg_ext == "m4s":
                     seg_ext = "mp4"
+                
                 ordered.append(stream_dir / f"seg_{seg['number']:05d}.{seg_ext}")
             return ordered
 
@@ -414,20 +423,25 @@ class LiveDownloadMixin:
                 parser = DashParser(mpd_url, headers=headers)
                 if not parser.fetch_manifest():
                     return None, min_update_period, False
+                
                 streams    = parser.parse_streams()
                 meta       = parser.live_meta
                 upd_period = meta["min_update_period"]
                 is_static  = meta["is_ended"]
+
                 for s in streams:
                     if s.type == stream.type and s.id == stream.id:
                         return s.segments, upd_period, is_static
+                
                 candidates = [s for s in streams if s.type == stream.type]
                 if candidates:
                     best = min(candidates, key=lambda s: abs((s.bitrate or 0) - (stream.bitrate or 0)))
                     logger.debug(f"Live DASH: id mismatch — falling back to bitrate match id={best.id} bw={best.bitrate}")
                     return best.segments, upd_period, is_static
+                
                 logger.warning("Live DASH: no matching representation in refreshed MPD")
                 return None, upd_period, is_static
+            
             except Exception as exc:
                 logger.error(f"Live DASH: MPD fetch/parse failed: {exc}")
                 return None, min_update_period, False
@@ -438,7 +452,6 @@ class LiveDownloadMixin:
         logger.info(f"Live DASH download started | stream={stream} | url={mpd_url}")
 
         while not self._stop_check():
-
             if current_segments is None:
                 segs, min_update_period, is_ended = _fetch_and_parse_mpd()
                 if segs is None:
@@ -446,6 +459,7 @@ class LiveDownloadMixin:
                     _sleep_interruptible(min_update_period or 4.0, self._stop_check)
                     current_segments = None
                     continue
+
                 current_segments = segs
 
             init_segs  = [s for s in current_segments if s.seg_type == "init"]
@@ -461,14 +475,17 @@ class LiveDownloadMixin:
                         "seg_type": "init",
                         "enc":      {"method": "NONE"},
                     }
+
                     if init_seg.byte_range:
                         init_entry["headers"] = {"Range": f"bytes={init_seg.byte_range}"}
+
                     init_paths = _download_batch([init_entry])
                     if init_paths:
                         _decrypt_seg(init_paths[0], is_init=True)
                         all_paths.extend(init_paths)
                         seg_index = 1
                         logger.info(f"Live DASH: init segment ready | {init_paths[0].name}")
+
                     seen_urls.add(init_seg.url)
                 init_downloaded = True
 
@@ -537,7 +554,6 @@ class LiveDownloadMixin:
             _sleep_interruptible(poll_sleep, self._stop_check)
             current_segments = None
 
-        # ── Merge ─────────────────────────────────────────────────────────────
         if not all_paths:
             logger.error("Live DASH: no segments were downloaded — nothing to merge")
             return
