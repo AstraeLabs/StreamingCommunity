@@ -430,6 +430,14 @@ class ContextTracker:
         self.local.episode_name = value
 
     @property
+    def output_path(self):
+        return getattr(self.local, 'output_path', None)
+
+    @output_path.setter
+    def output_path(self, value):
+        self.local.output_path = value
+
+    @property
     def should_print(self) -> bool:
         """Returns False when console output should be suppressed (parallel CLI or GUI)."""
         return not self.is_gui and not self.is_parallel_cli

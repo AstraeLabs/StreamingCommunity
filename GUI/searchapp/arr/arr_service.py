@@ -152,6 +152,23 @@ def _build_clients(cfg: dict):
     return sonarr, radarr
 
 
+def _extract_provider_from_tags(client, tag_ids: list) -> str:
+    """Return provider override from provider-<service> tags, or empty for config order."""
+    if not client or not tag_ids:
+        return ""
+    try:
+        tags_map = client.get_tags_map()
+    except Exception as exc:
+        logger.warning(f"Could not read ARR tags map for provider selection: {exc}")
+        return ""
+
+    for tag_id in tag_ids:
+        label = (tags_map.get(tag_id, "") or "").strip().lower()
+        if label.startswith("provider-"):
+            return label.replace("provider-", "", 1).strip()
+    return ""
+
+
 def _dedup_key(item: dict, season_num: Optional[int] = None, ep_num: Optional[int] = None) -> str:
     """Build a dedup key for an ARR item."""
     content_type = item.get("content_type", "unknown")
@@ -226,7 +243,7 @@ def _enqueue_if_new(item: dict, sync_source: str, season_num: Optional[int] = No
                     episode_number=ep_num,
                     episode_id=episode_id,
                     year=item.get("year"),
-                    provider=item.get("provider", "streamingcommunity"),
+                    provider=item.get("provider", ""),
                     status=ArrMediaRequest.Status.PENDING,
                     sync_source=sync_source,
                     tmdb_id=str(item.get("tmdbId", "")) or None,
@@ -523,12 +540,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
             logger.info(f"[trigger_webhook_sync] Movie '{matched['title']}' on hold/pause, skipping webhook")
             return -1  # signal to stop retrying
 
-        # Extract provider from tags
-        provider = "streamingcommunity"
-        for t_name in tag_names:
-            if t_name.startswith("provider-"):
-                provider = t_name.replace("provider-", "").strip()
-                break
+        provider = _extract_provider_from_tags(radarr, matched.get("tags", []))
         logger.info(f"[trigger_webhook_sync] Using provider: {provider}")
 
         item = {
@@ -641,7 +653,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
             "path": matched.get("path", ""),
             "tags": matched.get("tags", []),
             "tmdbId": matched.get("tmdbId"),
-            "provider": "streamingcommunity",
+            "provider": _extract_provider_from_tags(sonarr, matched.get("tags", [])),
         }
 
         if not processor._check_tags_validity(serie_item["title"], serie_item["tags"]):
@@ -770,7 +782,7 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
         "path": series.get("path", ""),
         "tags": series.get("tags", []),
         "tmdbId": series.get("tmdbId"),
-        "provider": "streamingcommunity",
+        "provider": _extract_provider_from_tags(sonarr, series.get("tags", [])),
     }
 
     # Apply tag filtering
@@ -958,7 +970,7 @@ def trigger_radarr_webhook_sync(event_data: dict) -> int:
         "path": movie.get("path", ""),
         "tags": movie.get("tags", []),
         "tmdbId": movie.get("tmdbId"),
-        "provider": "streamingcommunity",
+        "provider": _extract_provider_from_tags(radarr, movie.get("tags", [])),
     }
 
     # Apply tag filtering

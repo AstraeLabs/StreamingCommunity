@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, start_message
-from VibraVid.services._base import site_constants, Entries
+from VibraVid.services._base import site_constants, Entries, movie_folder, series_folder
 from VibraVid.services._base.tv_display_manager import map_movie_path, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 from VibraVid.provider.tmdb import tmdb_client
@@ -64,7 +64,7 @@ def download_film(select_title: Entries) -> str:
 
     # Define the filename and path for the downloaded film
     path_components, filename = map_movie_path(select_title.name, select_title.year)
-    movie_path = os.path.join(site_constants.MOVIE_FOLDER, *path_components) if path_components else site_constants.MOVIE_FOLDER
+    movie_path = movie_folder(*path_components)
     movie_name = f"{filename}.{extension_output}"
 
     return HLS_Downloader(m3u8_url=master_playlist, output_path=os.path.join(movie_path, movie_name)).start()
@@ -80,7 +80,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
 
     # Define filename and path for the downloaded video
     path_components, filename = map_episode_path(series_display, getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
-    episode_path = os.path.join(site_constants.SERIES_FOLDER, *path_components)
+    episode_path = series_folder(*path_components)
     episode_name = f"{filename}.{extension_output}"
 
     if tmdb_client.api_key is not None:

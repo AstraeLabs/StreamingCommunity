@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, start_message
-from VibraVid.services._base import site_constants, Entries
+from VibraVid.services._base import site_constants, Entries, series_folder
 from VibraVid.services._base.tv_display_manager import map_episode_title, map_season_name, map_series_name
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 
@@ -31,7 +31,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
 
     # Define filename and path for the downloaded video
     episode_name = f"{map_episode_title(scrape_serie.series_name, index_season_selected, index_episode_selected, obj_episode.name)}.{extension_output}"
-    episode_path = os.path.join(site_constants.SERIES_FOLDER, series_folder_name, map_season_name(index_season_selected))
+    episode_path = series_folder(series_folder_name, map_season_name(index_season_selected))
 
     # Get m3u8 playlist
     bearer_token = get_bearer_token()

@@ -448,6 +448,8 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
             context_tracker.media_type = media_type
             context_tracker.is_gui = True
             context_tracker.is_cancelled_callback = _is_scheduled_cancelled
+            context_tracker.season = season
+            context_tracker.episode = episodes
 
             api = get_api(site)
 
@@ -488,6 +490,11 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
                 print(f"[Error] Failed to update download tracker: {tracker_err}")
             raise
         finally:
+            context_tracker.output_path = None
+            context_tracker.season = 0
+            context_tracker.episode = 0
+            context_tracker.episode_name = None
+            context_tracker.is_cancelled_callback = None
             _release_download_slot()
 
     return download_executor.submit(_task)

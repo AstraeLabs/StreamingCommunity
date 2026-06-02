@@ -7,7 +7,7 @@ import logging
 from rich.console import Console
 
 from VibraVid.utils import config_manager, start_message, os_manager
-from VibraVid.services._base import site_constants, Entries
+from VibraVid.services._base import site_constants, Entries, movie_folder, series_folder
 from VibraVid.services._base.tv_display_manager import map_movie_path, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 from VibraVid.core.downloader import HLS_Downloader, MP4_Downloader
@@ -34,7 +34,7 @@ def download_film(select_title: Entries):
     console.print(f"[cyan]Stream: {m3u8_url[:70]}...\n")
 
     path_components, filename = map_movie_path(select_title.name, select_title.year)
-    out_dir = os_manager.get_sanitize_path(os.path.join(site_constants.MOVIE_FOLDER, *path_components) if path_components else site_constants.MOVIE_FOLDER)
+    out_dir = os_manager.get_sanitize_path(movie_folder(*path_components))
     out_path = os.path.join(out_dir, f"{filename}.{extension_output}")
 
     if "/mp4/" in m3u8_url:
@@ -71,8 +71,7 @@ def download_episode(obj_episode, index: int, scrape_serie: GetSerieInfo, season
         episode_number = int(obj_episode.number),
         episode_name = obj_episode.name,
     )
-    out_dir  = os_manager.get_sanitize_path(
-        os.path.join(site_constants.SERIES_FOLDER, *path_components))
+    out_dir  = os_manager.get_sanitize_path(series_folder(*path_components))
     out_path = os.path.join(out_dir, f"{filename}.{extension_output}")
 
     if "/mp4/" in m3u8_url:

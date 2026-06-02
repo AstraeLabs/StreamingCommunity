@@ -6,8 +6,9 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import os_manager, config_manager, start_message
-from VibraVid.services._base import site_constants, Entries
+from VibraVid.services._base import site_constants, Entries, movie_folder, anime_folder
 from VibraVid.services._base.tv_display_manager import manage_selection, map_episode_path, map_movie_path
+from VibraVid.core.ui.tracker import context_tracker
 
 from VibraVid.core.downloader import MP4_Downloader, HLS_Downloader
 
@@ -57,12 +58,17 @@ def download_episode(obj_episode, index_select, scrape_serie, video_source):
             episode_number = 1
         episode_name = f"Episode {obj_episode.number}"
 
-        path_components, filename = map_episode_path(series_name=scrape_serie.series_name, series_year=None, season_number=1, episode_number=episode_number, episode_name=episode_name)
-        mp4_path = os_manager.get_sanitize_path(os.path.join(site_constants.ANIME_FOLDER, *path_components))
+        season_number = getattr(context_tracker, "season", None) or 1
+        try:
+            season_number = int(season_number)
+        except (TypeError, ValueError):
+            season_number = 1
+        path_components, filename = map_episode_path(series_name=scrape_serie.series_name, series_year=None, season_number=season_number, episode_number=episode_number, episode_name=episode_name)
+        mp4_path = os_manager.get_sanitize_path(anime_folder(*path_components))
         mp4_name = filename
     else:
         path_components, filename = map_movie_path(scrape_serie.series_name, None)
-        mp4_path = os_manager.get_sanitize_path(os.path.join(site_constants.MOVIE_FOLDER, *path_components) if path_components else site_constants.MOVIE_FOLDER)
+        mp4_path = os_manager.get_sanitize_path(movie_folder(*path_components))
         mp4_name = filename
 
     # Create output folder

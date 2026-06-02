@@ -7,7 +7,7 @@ import logging
 from rich.console import Console
 
 from VibraVid.utils import config_manager, start_message, os_manager
-from VibraVid.services._base import site_constants, Entries
+from VibraVid.services._base import site_constants, Entries, series_folder
 from VibraVid.services._base.tv_display_manager import map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 from VibraVid.core.downloader import HLS_Downloader
@@ -50,7 +50,7 @@ def _download_episode(obj_episode, season_number: int, episode_number: int, scra
         return None
 
     path_components, filename = map_episode_path(scrape_serie.series_display_name, scrape_serie.year, season_number, episode_number, obj_episode.name,)
-    out_dir = os_manager.get_sanitize_path(os.path.join(site_constants.SERIES_FOLDER, *path_components))
+    out_dir = os_manager.get_sanitize_path(series_folder(*path_components))
     out_path = os.path.join(out_dir, f"{filename}.{extension_output}")
 
     return HLS_Downloader(

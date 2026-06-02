@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import os_manager, start_message
-from VibraVid.services._base import site_constants, Entries
+from VibraVid.services._base import site_constants, Entries, anime_folder
 from VibraVid.services._base.tv_display_manager import manage_selection, map_episode_path
 
 from VibraVid.core.downloader import MP4_Downloader
@@ -35,7 +35,7 @@ def download_film(select_title: Entries):
     # Define filename and path for the downloaded video
     serie_name_with_year = os_manager.get_sanitize_file(scrape_serie.get_name(), select_title.year)
     mp4_name = f"{serie_name_with_year}.mp4"
-    mp4_path = os.path.join(site_constants.ANIME_FOLDER, serie_name_with_year.replace('.mp4', ''))
+    mp4_path = anime_folder(serie_name_with_year.replace('.mp4', ''))
 
     # Create output folder
     os_manager.create_path(mp4_path)
@@ -64,7 +64,7 @@ def download_episode(episode_data, index_select, scrape_serie):
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{series_name} ([cyan]E{episode_number}) \n")
 
     path_components, filename = map_episode_path(series_name=series_name, series_year=None, season_number=1, episode_number=episode_number, episode_name=episode_name)
-    episode_path = os.path.join(site_constants.ANIME_FOLDER, *path_components)
+    episode_path = anime_folder(*path_components)
     episode_filename = f"{filename}.mp4"
 
     # Create output folder

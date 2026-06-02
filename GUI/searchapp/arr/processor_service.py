@@ -197,4 +197,4 @@ class ArrProcessorService:
             label = tags_map.get(t_id, "")
             if label.startswith("provider-"):
                 return label.replace("provider-", "").strip()
-        return "streamingcommunity"
+        return ""

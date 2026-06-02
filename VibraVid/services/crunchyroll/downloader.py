@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.utils import config_manager, os_manager, start_message
-from VibraVid.services._base import site_constants, Entries
+from VibraVid.services._base import site_constants, Entries, movie_folder, anime_folder
 from VibraVid.services._base.tv_display_manager import map_movie_path, map_episode_path
 from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 from VibraVid.core.utils.language import resolve_locale
@@ -138,7 +138,7 @@ def download_film(select_title: Entries) -> str:
 
     # Define filename and path
     path_components, filename = map_movie_path(select_title.name, select_title.year)
-    movie_path = os.path.join(site_constants.MOVIE_FOLDER, *path_components) if path_components else site_constants.MOVIE_FOLDER
+    movie_path = movie_folder(*path_components)
     movie_name = f"{filename}.{extension_output}"
 
     # Extract media ID
@@ -197,7 +197,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} → [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
 
     path_components, filename = map_episode_path(scrape_serie.series_name, getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
-    title_path = os_manager.get_sanitize_path(os.path.join(site_constants.ANIME_FOLDER, *path_components))
+    title_path = os_manager.get_sanitize_path(anime_folder(*path_components))
     title_name = f"{filename}.{extension_output}"
 
     # Get media ID and main_guid

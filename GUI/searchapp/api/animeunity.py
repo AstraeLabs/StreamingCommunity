@@ -122,6 +122,8 @@ class AnimeUnityAPI(BaseStreamingAPI):
         selections = None
         if is_series_like:
             selections = {'episode': episodes or '*'}
+            if season:
+                selections['season'] = season
         
         scrape_serie = self.get_cached_scraper(media_item)
         search_fn(direct_item=media_item.raw_data, selections=selections, scrape_serie=scrape_serie)
