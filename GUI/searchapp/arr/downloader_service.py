@@ -104,14 +104,18 @@ class ArrDownloaderService:
                 target_folder = str(pathlib.Path(series_root).joinpath(f"S{season_num:02d}"))
                 logger.info(f"[S{season_num}E{ep_num}] Target folder (Sonarr's path): '{target_folder}'")
 
-                # Download directly to Sonarr's path
+                download_folder = self._translate_path(target_folder, reverse=True)
+                if download_folder != target_folder:
+                    logger.info(f"[S{season_num}E{ep_num}] Download folder (VibraVid path): '{download_folder}'")
+
+                # Download directly to VibraVid's equivalent path
                 future = _run_download_in_thread(
                     site=provider,
                     item_payload=item_payload,
                     season=str(season_num),
                     episodes=str(ep_num),
                     media_type="Serie",
-                    output_path=target_folder,
+                    output_path=download_folder,
                 )
                 any_success = True
 
@@ -226,13 +230,17 @@ class ArrDownloaderService:
             target_folder = self._fallback_movie_root(title)
         logger.info(f"[_process_movie] Target folder (Radarr's path): '{target_folder}'")
 
+        download_folder = self._translate_path(target_folder, reverse=True)
+        if download_folder != target_folder:
+            logger.info(f"[_process_movie] Download folder (VibraVid path): '{download_folder}'")
+
         future = _run_download_in_thread(
             site=provider,
             item_payload=item_payload,
             season=None,
             episodes=None,
             media_type="Film",
-            output_path=target_folder,
+            output_path=download_folder,
         )
 
         try:
@@ -299,8 +307,8 @@ class ArrDownloaderService:
     # ── helpers ──────────────────────────────────────────
 
     @staticmethod
-    def _translate_path(path: str) -> str:
-        """Translate a VibraVid host path to the equivalent path inside Radarr/Sonarr Docker containers.
+    def _translate_path(path: str, reverse: bool = False) -> str:
+        """Translate paths between VibraVid and Radarr/Sonarr Docker containers.
 
         Reads path_mapping from ARR config. Each entry maps a host prefix to a container prefix.
         Example: {"/media/Media/Film": "/media/Film"}
@@ -310,14 +318,23 @@ class ArrDownloaderService:
         conf_path = pathlib.Path(__file__).parent.parent.parent.parent / "Conf" / "config.json"
         try:
             with open(conf_path, encoding="utf-8") as _f:
-                mapping: dict = json.load(_f).get("ARR", {}).get("path_mapping", {})
+                mapping = json.load(_f).get("ARR", {}).get("path_mapping", {})
+                if not isinstance(mapping, dict):
+                    return path
         except Exception:
             return path
-        for host_prefix, container_prefix in mapping.items():
-            if path.startswith(host_prefix):
-                translated = container_prefix + path[len(host_prefix):]
+
+        sort_index = 1 if reverse else 0
+        for host_prefix, container_prefix in sorted(mapping.items(), key=lambda item: len(item[sort_index]), reverse=True):
+            source_prefix, target_prefix = (container_prefix, host_prefix) if reverse else (host_prefix, container_prefix)
+            source_prefix = source_prefix.rstrip("/\\")
+            target_prefix = target_prefix.rstrip("/\\")
+            if path == source_prefix or path.startswith(source_prefix + "/") or path.startswith(source_prefix + "\\"):
+                translated = target_prefix + path[len(source_prefix):]
                 logger.info(f"[path_map] '{path}' → '{translated}'")
                 return translated
+        if reverse:
+            logger.info(f"[path_map] No reverse mapping matched '{path}', leaving it unchanged")
         return path
 
     @staticmethod

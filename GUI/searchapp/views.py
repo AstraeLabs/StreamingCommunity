@@ -448,8 +448,8 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
             context_tracker.media_type = media_type
             context_tracker.is_gui = True
             context_tracker.is_cancelled_callback = _is_scheduled_cancelled
-            context_tracker.season = season
-            context_tracker.episode = episodes
+            context_tracker.season = int(season) if str(season or "").isdigit() else 0
+            context_tracker.episode = int(episodes) if str(episodes or "").isdigit() else 0
 
             api = get_api(site)
 
