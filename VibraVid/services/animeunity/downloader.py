@@ -81,6 +81,30 @@ def download_episode(obj_episode, index_select, scrape_serie, video_source):
     else:
         return HLS_Downloader(m3u8_url=video_source.master_playlist, output_path=os.path.join(mp4_path, f"{mp4_name}.{extension_output}")).start()
 
+
+def _get_episode_by_number_or_index(scrape_serie, episode_number: int):
+    """Return the episode whose provider number matches, falling back to list index.
+
+    AnimeUnity episode lists can contain entries whose displayed episode number
+    does not match their zero-based position, so ARR's explicit episode number
+    should be matched against the provider metadata first.
+    """
+    if getattr(scrape_serie, "episodes_cache", None) is None:
+        scrape_serie._fetch_all_episodes()
+
+    for index, episode in enumerate(scrape_serie.episodes_cache or []):
+        raw_number = episode.get("number")
+        try:
+            current_number = int(float(str(raw_number).split("-")[0]))
+        except (TypeError, ValueError):
+            continue
+        if current_number == episode_number:
+            return scrape_serie.get_info_episode(index), index
+
+    fallback_index = episode_number - 1
+    return scrape_serie.get_info_episode(fallback_index), fallback_index
+
+
 def download_series(select_title: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie = None):
     """
     Handle downloading a complete series.
@@ -121,8 +145,10 @@ def download_series(select_title: Entries, season_selection: str = None, episode
 
     # Download selected episodes
     if len(list_episode_select) == 1 and last_command != "*":
-        obj_episode = scrape_serie.get_info_episode(list_episode_select[0]-1)
-        path, _, msg_error = unpack_download_result(download_episode(obj_episode, list_episode_select[0]-1, scrape_serie, video_source))
+        obj_episode, index_select = _get_episode_by_number_or_index(scrape_serie, list_episode_select[0])
+        if obj_episode is None:
+            return None, False, f"Episode {list_episode_select[0]} not found"
+        path, _, msg_error = unpack_download_result(download_episode(obj_episode, index_select, scrape_serie, video_source))
 
         if msg_error:
             console.print(f"[red]{msg_error}")
@@ -136,8 +162,13 @@ def download_series(select_title: Entries, season_selection: str = None, episode
             if kill_handler:
                 break
             
-            obj_episode = scrape_serie.get_info_episode(i_episode-1)
-            _, kill_handler, msg_error = unpack_download_result(download_episode(obj_episode, i_episode-1, scrape_serie, video_source))
+            obj_episode, index_select = _get_episode_by_number_or_index(scrape_serie, i_episode)
+            if obj_episode is None:
+                console.print(f"[red]Episode {i_episode} not found")
+                kill_handler = True
+                continue
+
+            _, kill_handler, msg_error = unpack_download_result(download_episode(obj_episode, index_select, scrape_serie, video_source))
 
             if msg_error:
                 console.print(f"[red]{msg_error}")
