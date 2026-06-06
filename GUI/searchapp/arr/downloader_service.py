@@ -561,6 +561,7 @@ class ArrDownloaderService:
                         (
                             r for r in results
                             if self._normalize_title(r.name or "") == expected_season_title
+                            or self._normalize_title(r.name or "").startswith(expected_season_title + " ")
                         ),
                         None,
                     )
@@ -570,6 +571,12 @@ class ArrDownloaderService:
                             f"[search] ACCEPT '{season_best.name}' — "
                             f"season-specific anime match for S{season_int}"
                         )
+                    else:
+                        logger.warning(
+                            f"[search] No season-specific anime result for S{season_int} "
+                            f"on '{provider}', rejecting generic results"
+                        )
+                        return None
 
             for r in results:
                 if best is not None:
@@ -706,6 +713,7 @@ class ArrDownloaderService:
                      and (
                          expected_season_title is None
                          or self._normalize_title((r.name or "").replace("(ITA)", "")) == expected_season_title
+                         or self._normalize_title((r.name or "").replace("(ITA)", "")).startswith(expected_season_title + " ")
                      )),
                     None,
                 )
