@@ -15,6 +15,7 @@ import importlib
 import concurrent.futures
 from typing import Any, Dict, List, Optional
 
+from django.db.models import Q
 from django.shortcuts import render, redirect
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -24,7 +25,7 @@ from django.utils import timezone
 
 
 from .forms import SearchForm, DownloadForm
-from .models import WatchlistItem
+from .models import ArrMediaRequest, ArrProcessingQueue, WatchlistItem
 from .watchlist_auto import _get_interval_seconds
 from GUI.searchapp.api import get_api, get_available_sites, get_site_categories
 from GUI.searchapp.api.base import Entries
@@ -1617,6 +1618,62 @@ def save_settings(request: HttpRequest) -> JsonResponse:
 # ─────────────────────────────────────────────────────
 # ARR Integration Views
 # ─────────────────────────────────────────────────────
+
+@require_http_methods(["GET"])
+def arr_stack(request: HttpRequest) -> HttpResponse:
+    """Display VibraVid's internal queue for media accepted from ARR."""
+    from .arr.arr_service import _load_arr_config
+
+    cfg = _load_arr_config()
+    status_filter = request.GET.get("status", "all")
+    source_filter = request.GET.get("source", "all")
+    sync_filter = request.GET.get("sync", "all")
+    query = request.GET.get("q", "").strip()
+
+    queue_entries = ArrProcessingQueue.objects.select_related("media_request").order_by("-enqueued_at")
+    if status_filter != "all":
+        queue_entries = queue_entries.filter(media_request__status=status_filter)
+    if source_filter != "all":
+        queue_entries = queue_entries.filter(media_request__arr_source=source_filter)
+    if sync_filter != "all":
+        queue_entries = queue_entries.filter(media_request__sync_source=sync_filter)
+    if query:
+        queue_entries = queue_entries.filter(
+            Q(media_request__title__icontains=query)
+            | Q(dedup_key__icontains=query)
+            | Q(media_request__provider__icontains=query)
+            | Q(media_request__tmdb_id__icontains=query)
+            | Q(media_request__imdb_id__icontains=query)
+            | Q(media_request__tvdb_id__icontains=query)
+        )
+
+    status_counts = {
+        status: ArrMediaRequest.objects.filter(status=status).count()
+        for status, _ in ArrMediaRequest.Status.choices
+    }
+    active_count = ArrProcessingQueue.objects.filter(completed_at__isnull=True).count()
+    total_count = ArrProcessingQueue.objects.count()
+    filtered_count = queue_entries.count()
+
+    return render(request, "searchapp/arr_stack.html", {
+        "arr_enabled": cfg.get("enabled", False),
+        "polling_enabled": cfg.get("enable_polling", False),
+        "entries": queue_entries[:300],
+        "shown_count": min(filtered_count, 300),
+        "filtered_count": filtered_count,
+        "total_count": total_count,
+        "active_count": active_count,
+        "status_counts": status_counts,
+        "status_choices": ArrMediaRequest.Status.choices,
+        "sync_choices": ArrMediaRequest.SyncSource.choices,
+        "filters": {
+            "q": request.GET.get("q", "").strip(),
+            "status": request.GET.get("status", "all"),
+            "source": request.GET.get("source", "all"),
+            "sync": request.GET.get("sync", "all"),
+        },
+    })
+
 
 @csrf_exempt
 @require_http_methods(["POST"])

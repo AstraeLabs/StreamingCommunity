@@ -228,6 +228,27 @@
 						</svg>
 						Watchlist
 					</a>
+					{% if show_arr_stack_nav %}
+					<a
+						href="{% url 'arr_stack' %}"
+						class="text-sm font-medium text-gray-300 hover:text-white transition-colors flex items-center gap-2"
+					>
+						<svg
+							class="w-4 h-4"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M5 8h14M5 12h14M5 16h10"
+							></path>
+						</svg>
+						Coda ARR
+					</a>
+					{% endif %}
 					<a
 						href="{% url 'settings_editor' %}"
 						class="text-sm font-medium text-gray-300 hover:text-white transition-colors flex items-center gap-2"
@@ -351,6 +372,27 @@
 						</svg>
 						Watchlist
 					</a>
+					{% if show_arr_stack_nav %}
+					<a
+						href="{% url 'arr_stack' %}"
+						class="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+					>
+						<svg
+							class="w-5 h-5"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M5 8h14M5 12h14M5 16h10"
+							></path>
+						</svg>
+						Coda ARR
+					</a>
+					{% endif %}
 					<a
 						href="{% url 'settings_editor' %}"
 						class="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
