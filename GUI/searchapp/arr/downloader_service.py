@@ -76,6 +76,11 @@ class ArrDownloaderService:
                     logger.info(f"S{season_num}E{ep_num} of '{title}' already in Sonarr queue, skipping")
                     continue
 
+                if not self._is_sonarr_episode_still_monitored(series_id, ep_id):
+                    logger.info(f"S{season_num}E{ep_num} of '{title}' is now unmonitored in Sonarr, skipping")
+                    self.last_error = "sonarr_unmonitored"
+                    continue
+
                 display_title = f"{titles[0]} - S{season_num} E{ep_num}"
                 logger.info(f"⏳ Downloading '{display_title}' via {provider or 'configured fallback order'}")
 
@@ -199,6 +204,11 @@ class ArrDownloaderService:
             logger.info(f"'{title}' already in Radarr queue, skipping")
             return False
 
+        if not self._is_radarr_movie_still_monitored(movie_id):
+            logger.info(f"'{title}' is now unmonitored in Radarr, skipping")
+            self.last_error = "radarr_unmonitored"
+            return False
+
         titles = self._resolve_radarr_title(title, movie_id, tmdb_id) or [title]
 
         year = movie.get("year")
@@ -302,6 +312,34 @@ class ArrDownloaderService:
             return False
 
     # ── helpers ──────────────────────────────────────────
+
+    def _is_radarr_movie_still_monitored(self, movie_id: Optional[int]) -> bool:
+        """Read Radarr live state before starting a movie download."""
+        if not self.radarr or not movie_id:
+            return True
+        try:
+            movie = self.radarr.get_movie_by_id(movie_id)
+            return movie.get("monitored", True) is not False
+        except Exception as exc:
+            logger.warning(f"Could not verify Radarr monitored state before download: {exc}")
+            return True
+
+    def _is_sonarr_episode_still_monitored(self, series_id: Optional[int], episode_id: Optional[int]) -> bool:
+        """Read Sonarr live state before starting an episode download."""
+        if not self.sonarr:
+            return True
+        try:
+            if series_id:
+                series = self.sonarr.get_series_by_id(series_id)
+                if series.get("monitored", True) is False:
+                    return False
+            if episode_id:
+                episode = self.sonarr.get_episode(episode_id)
+                if episode.get("monitored", True) is False:
+                    return False
+        except Exception as exc:
+            logger.warning(f"Could not verify Sonarr monitored state before download: {exc}")
+        return True
 
     @staticmethod
     def _translate_path(path: str, reverse: bool = False) -> str:

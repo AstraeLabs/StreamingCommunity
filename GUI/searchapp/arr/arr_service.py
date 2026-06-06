@@ -331,6 +331,13 @@ def _is_sonarr_episode_monitored(sonarr, item: dict, episode: dict) -> bool:
     """Return False when Sonarr currently marks the series/episode as unmonitored."""
     if item.get("monitored") is False or episode.get("monitored") is False:
         return False
+    if sonarr and item.get("id"):
+        try:
+            series = sonarr.get_series_by_id(item["id"])
+            if series.get("monitored", True) is False:
+                return False
+        except Exception as exc:
+            logger.warning(f"Could not verify Sonarr monitored state for series {item.get('id')}: {exc}")
     episode_id = episode.get("id")
     if not sonarr or not episode_id:
         return True
