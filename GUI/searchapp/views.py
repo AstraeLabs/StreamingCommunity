@@ -472,6 +472,15 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
                 api.start_download(media_item, season=season, episodes=episodes, audio_format=audio_format)
             except TypeError:
                 api.start_download(media_item, season=season, episodes=episodes)
+
+            final_state = next(
+                (item for item in download_tracker.get_history() if item.get("id") == download_id),
+                None,
+            )
+            if final_state and final_state.get("status") in {"failed", "cancelled", "timed_out"}:
+                error_msg = final_state.get("error") or final_state.get("status") or "download_failed"
+                raise RuntimeError(error_msg)
+
             print("[_task] ✓ Download completed successfully")
         except Exception as e:
             error_msg = str(e) or "Errore sconosciuto"
@@ -482,11 +491,18 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
             try:
                 _remove_scheduled_download(download_id)
 
-                # start it briefly just to mark it as failed in the history.
-                if download_id not in download_tracker.downloads:
+                already_in_history = any(
+                    item.get("id") == download_id
+                    for item in download_tracker.get_history()
+                )
+
+                # Start it briefly only when nothing downstream already wrote
+                # the final state to the tracker.
+                if download_id not in download_tracker.downloads and not already_in_history:
                     download_tracker.start_download(download_id, title, site, media_type)
 
-                download_tracker.complete_download(download_id, success=False, error=error_msg)
+                if not already_in_history:
+                    download_tracker.complete_download(download_id, success=False, error=error_msg)
             except Exception as tracker_err:
                 print(f"[Error] Failed to update download tracker: {tracker_err}")
             raise
