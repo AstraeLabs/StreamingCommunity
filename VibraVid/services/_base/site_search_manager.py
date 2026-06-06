@@ -330,43 +330,73 @@ def base_search(title_search_func: Callable[[str], int], process_result_func: Ca
         select_title = Entries(**direct_item)
         result = process_result_func(select_title, selections, scrape_serie)
         return result
-    
-    # Get the user input for the search term
-    actual_search_query = None
-    if string_to_search is not None:
-        logger.info(f"Using provided search string: {string_to_search}")
-        actual_search_query = string_to_search.strip()
-    else:
-        logger.info("Prompting user for search input.")
-        actual_search_query = msg.ask(f"\n[purple]Insert a word to search in [green]{site_name}").strip()
 
-    # Search on database
-    len_database = title_search_func(str(actual_search_query).strip())
-    
-    # Sort results by fuzzy score
-    logger.info(f"Sorting {len_database} results by fuzzy score for query: '{actual_search_query}'")
-    media_search_manager.sort_by_fuzzy_score(actual_search_query)
-    
-    # Apply year filter if provided
-    if selections and 'year' in selections:
-        year_filter = selections.get('year')
-        logger.info(f"Applying year filter: {year_filter}")
-        len_database = _apply_year_filter(media_search_manager, year_filter)
-    
-    # Handle empty input
-    if not actual_search_query:
-        logger.error("Empty search query provided.")
-        return False
-    
-    # If only the database is needed, return the manager
-    if get_onlyDatabase:
-        return media_search_manager
-    
-    # Process results
-    if len_database > 0:
-        select_title = get_select_title(table_show_manager, media_search_manager)
-        result = process_result_func(select_title, selections, scrape_serie)
-        return result
-    else:
+    # On a CLI search (string_to_search provided) we do one pass; in interactive
+    # mode we loop so the user can retry or switch site on no-results.
+    while True:
+        # Get the user input for the search term
+        actual_search_query = None
+        if string_to_search is not None:
+            logger.info(f"Using provided search string: {string_to_search}")
+            actual_search_query = string_to_search.strip()
+        else:
+            logger.info("Prompting user for search input.")
+            actual_search_query = msg.ask(f"\n[purple]Insert a word to search in [green]{site_name}").strip()
+
+        # Handle empty input
+        if not actual_search_query:
+            logger.error("Empty search query provided.")
+            return False
+
+        # Search on database
+        len_database = title_search_func(str(actual_search_query).strip())
+        
+        # Sort results by fuzzy score
+        logger.info(f"Sorting {len_database} results by fuzzy score for query: '{actual_search_query}'")
+        media_search_manager.sort_by_fuzzy_score(actual_search_query)
+        
+        # Apply year filter if provided
+        if selections and 'year' in selections:
+            year_filter = selections.get('year')
+            logger.info(f"Applying year filter: {year_filter}")
+            len_database = _apply_year_filter(media_search_manager, year_filter)
+        
+        # If only the database is needed, return the manager
+        if get_onlyDatabase:
+            return media_search_manager
+        
+        # Process results
+        if len_database > 0:
+            select_title = get_select_title(table_show_manager, media_search_manager)
+            result = process_result_func(select_title, selections, scrape_serie)
+            return result
+
+        # No results — prompt user for next action
         console.print(f"\n[red]Nothing matching was found for[white]: [purple]{actual_search_query}")
-        return False
+        logger.info(f"No results found for query: '{actual_search_query}' on site: '{site_name}'")
+
+        action = msg.ask(
+            "\n[cyan]What would you like to do?[/cyan]\n"
+            "  [green]r[/green] - search again on [green]{site}[/green]\n"
+            "  [yellow]s[/yellow] - go back to site selection\n"
+            "  [red]q[/red] - quit".format(site=site_name),
+            choices=["r", "s", "q"],
+            default="r",
+            show_choices=False,
+            show_default=False,
+        )
+
+        if action == "r":
+            # Clear previous (empty) results and retry on same site
+            media_search_manager.clear()
+            string_to_search = None
+            continue
+
+        elif action == "s":
+            # Signal caller to re-show the site-selection menu
+            logger.info("User chose to switch site after no results.")
+            return "switch_site"
+
+        else:  # q
+            logger.info("User chose to quit after no results.")
+            return False

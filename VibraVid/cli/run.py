@@ -35,9 +35,9 @@ PERSISTENT_ARGS = {'use_proxy', 'extension', 'close_console'}
 def run_function(func: Callable[..., None], search_terms: str = None, selections: dict = None) -> None:
     """Run function once or indefinitely based on close_console flag."""
     if selections:
-        func(search_terms, selections=selections)
+        return func(search_terms, selections=selections)
     else:
-        func(search_terms)
+        return func(search_terms)
 
 
 def force_exit():
@@ -361,7 +361,12 @@ def main():
 
                 if category in input_to_function:
                     logger.info(f"User selected site '{category}' from interactive menu.")
-                    run_function(input_to_function[category], search_terms=args.search, selections=selections)
+                    result = run_function(input_to_function[category], search_terms=args.search, selections=selections)
+
+                    # Site module returned "switch_site" (no results, user wants to change site)
+                    if result == "switch_site":
+                        console.print("\n[cyan]Returning to site selection...\n")
+                        continue
 
                 user_response = msg.ask("\n[cyan]Do you want to perform another search? (y/n)", choices=["y", "n"], default="n")
                 if user_response.lower() != 'y':
@@ -370,13 +375,20 @@ def main():
             force_exit()
 
         else:
-            category = get_user_site_selection(args, choice_labels)
+            while True:
+                category = get_user_site_selection(args, choice_labels)
 
-            if category == "global":
-                call_global_search(args.search)
+                if category == "global":
+                    call_global_search(args.search)
 
-            if category in input_to_function:
-                run_function(input_to_function[category], search_terms=args.search, selections=selections)
+                if category in input_to_function:
+                    result = run_function(input_to_function[category], search_terms=args.search, selections=selections)
+
+                    if result == "switch_site":
+                        console.print("\n[cyan]Returning to site selection...\n")
+                        continue
+
+                break
 
             force_exit()
 
