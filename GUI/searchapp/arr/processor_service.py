@@ -117,6 +117,7 @@ class ArrProcessorService:
                 "tags": elem["series"]["tags"],
                 "year": elem["series"].get("year"),
                 "tmdbId": elem["series"].get("tmdbId"),
+                "monitored": elem["series"].get("monitored", True),
                 "seasons": [],
             }
             base.append(serie)
@@ -132,6 +133,7 @@ class ArrProcessorService:
             "seasonNumber": elem["seasonNumber"],
             "episodeNumber": elem["episodeNumber"],
             "absoluteEpisodeNumber": elem.get("absoluteEpisodeNumber"),
+            "monitored": elem.get("monitored", True),
         })
 
     # ── Radarr ───────────────────────────────────────────
@@ -150,6 +152,7 @@ class ArrProcessorService:
                     "path": elem["path"],
                     "tags": elem["tags"],
                     "tmdbId": elem.get("tmdbId"),
+                    "monitored": elem.get("monitored", True),
                     "provider": self._extract_provider(elem["tags"], "radarr"),
                 })
 

@@ -262,6 +262,170 @@ def _enqueue_if_new(item: dict, sync_source: str, season_num: Optional[int] = No
         return True
 
 
+def _mark_downloading(item: dict, season_num=None, ep_num=None) -> None:
+    """Mark an active queue row as started so unmonitor cleanup leaves it alone."""
+    from searchapp.models import ArrMediaRequest, ArrProcessingQueue
+
+    key = _dedup_key(item, season_num, ep_num)
+    try:
+        queue_entry = ArrProcessingQueue.objects.filter(dedup_key=key, completed_at__isnull=True).first()
+        if queue_entry:
+            update_fields = []
+            if queue_entry.started_at is None:
+                queue_entry.started_at = timezone.now()
+                update_fields.append("started_at")
+            if update_fields:
+                queue_entry.save(update_fields=update_fields)
+            queue_entry.media_request.status = ArrMediaRequest.Status.DOWNLOADING
+            queue_entry.media_request.save(update_fields=["status"])
+    except Exception as exc:
+        logger.error(f"Failed to mark downloading {key}: {exc}")
+
+
+def _skip_pending_queue_entry(queue_entry, reason: str) -> bool:
+    """Close a not-yet-started queue row as skipped."""
+    from searchapp.models import ArrMediaRequest
+
+    if queue_entry.started_at or queue_entry.completed_at:
+        return False
+
+    queue_entry.completed_at = timezone.now()
+    queue_entry.success = False
+    queue_entry.save(update_fields=["completed_at", "success"])
+    queue_entry.media_request.status = ArrMediaRequest.Status.SKIPPED
+    queue_entry.media_request.save(update_fields=["status"])
+    logger.info(f"Skipped pending ARR queue '{queue_entry.dedup_key}': {reason}")
+    return True
+
+
+def _skip_pending_queue(item: dict, reason: str, season_num=None, ep_num=None) -> bool:
+    """Skip a matching pending queue row if it has not started yet."""
+    from searchapp.models import ArrProcessingQueue
+
+    key = _dedup_key(item, season_num, ep_num)
+    queue_entry = ArrProcessingQueue.objects.filter(
+        dedup_key=key,
+        completed_at__isnull=True,
+        started_at__isnull=True,
+    ).select_related("media_request").first()
+    if not queue_entry:
+        return False
+    return _skip_pending_queue_entry(queue_entry, reason)
+
+
+def _is_radarr_movie_monitored(radarr, item: dict) -> bool:
+    """Return False when Radarr currently marks the movie as unmonitored."""
+    if item.get("monitored") is False:
+        return False
+    if not radarr or not item.get("id"):
+        return True
+    try:
+        movie = radarr.get_movie_by_id(item["id"])
+        return movie.get("monitored", True) is not False
+    except Exception as exc:
+        logger.warning(f"Could not verify Radarr monitored state for movie {item.get('id')}: {exc}")
+        return True
+
+
+def _is_sonarr_episode_monitored(sonarr, item: dict, episode: dict) -> bool:
+    """Return False when Sonarr currently marks the series/episode as unmonitored."""
+    if item.get("monitored") is False or episode.get("monitored") is False:
+        return False
+    episode_id = episode.get("id")
+    if not sonarr or not episode_id:
+        return True
+    try:
+        current = sonarr.get_episode(episode_id)
+        return current.get("monitored", True) is not False
+    except Exception as exc:
+        logger.warning(f"Could not verify Sonarr monitored state for episode {episode_id}: {exc}")
+        return True
+
+
+def _skip_unmonitored_movie(radarr, item: dict, context: str) -> bool:
+    """Skip a pending movie queue row if Radarr currently marks it unmonitored."""
+    if _is_radarr_movie_monitored(radarr, item):
+        return False
+
+    _skip_pending_queue(item, "Radarr movie is unmonitored")
+    logger.info(f"{context} Movie '{item.get('title')}' is unmonitored in Radarr, skipping")
+    return True
+
+
+def _skip_unmonitored_episode(sonarr, item: dict, season: dict, episode: dict, context: str) -> bool:
+    """Skip a pending episode queue row if Sonarr currently marks it unmonitored."""
+    if _is_sonarr_episode_monitored(sonarr, item, episode):
+        return False
+
+    _skip_pending_queue(
+        item,
+        "Sonarr episode is unmonitored",
+        season["number"],
+        episode["episodeNumber"],
+    )
+    logger.info(
+        f"{context} Skipping '{item.get('title')}' S{season['number']}E{episode['episodeNumber']} "
+        "because Sonarr marks it unmonitored"
+    )
+    return True
+
+
+def _reconcile_unmonitored_pending(sonarr=None, radarr=None) -> int:
+    """Skip pending queue rows whose ARR item is now unmonitored.
+
+    Rows already marked as started are intentionally left untouched so an
+    in-flight download can finish.
+    """
+    from searchapp.models import ArrMediaRequest, ArrProcessingQueue
+
+    candidates = ArrProcessingQueue.objects.filter(
+        completed_at__isnull=True,
+        started_at__isnull=True,
+        media_request__status=ArrMediaRequest.Status.PENDING,
+    ).select_related("media_request")
+
+    skipped = 0
+    series_cache = {}
+    for queue_entry in candidates:
+        req = queue_entry.media_request
+        try:
+            if req.arr_source == "radarr" and radarr:
+                movie = radarr.get_movie_by_id(req.arr_id)
+                if movie.get("monitored", True) is False:
+                    skipped += int(_skip_pending_queue_entry(queue_entry, "Radarr movie is unmonitored"))
+
+            elif req.arr_source == "sonarr" and sonarr:
+                series = series_cache.get(req.arr_id)
+                if series is None:
+                    series = sonarr.get_series_by_id(req.arr_id)
+                    series_cache[req.arr_id] = series
+                if series.get("monitored", True) is False:
+                    skipped += int(_skip_pending_queue_entry(queue_entry, "Sonarr series is unmonitored"))
+                    continue
+
+                episode = None
+                if req.episode_id:
+                    episode = sonarr.get_episode(req.episode_id)
+                elif req.season_number is not None and req.episode_number is not None:
+                    episodes = sonarr.get_episodes_for_series(req.arr_id)
+                    episode = next(
+                        (
+                            ep for ep in episodes
+                            if ep.get("seasonNumber") == req.season_number
+                            and ep.get("episodeNumber") == req.episode_number
+                        ),
+                        None,
+                    )
+                if episode and episode.get("monitored", True) is False:
+                    skipped += int(_skip_pending_queue_entry(queue_entry, "Sonarr episode is unmonitored"))
+        except Exception as exc:
+            logger.warning(f"Could not reconcile monitored state for '{queue_entry.dedup_key}': {exc}")
+
+    if skipped:
+        logger.info(f"Skipped {skipped} pending ARR queue item(s) now marked unmonitored")
+    return skipped
+
+
 def _should_skip_seerr_event(event_data: dict, cfg: dict) -> bool:
     """Native webhook priority: Sonarr/Radarr events win over Seerr."""
     from searchapp.models import ArrWebhookEvent
@@ -345,6 +509,7 @@ def trigger_polling_sync(full_resync: bool = False) -> int:
     from .processor_service import ArrProcessorService
     from .downloader_service import ArrDownloaderService
     _reconcile_recent_import_failures()
+    _reconcile_unmonitored_pending(sonarr=sonarr, radarr=radarr)
 
     processor = ArrProcessorService(
         sonarr=sonarr,
@@ -366,9 +531,12 @@ def trigger_polling_sync(full_resync: bool = False) -> int:
         content_type = item.get("content_type")
 
         if content_type == "movie":
+            if _skip_unmonitored_movie(radarr, item, "[polling]"):
+                continue
             if _enqueue_if_new(item, "polling"):
                 enqueued += 1
                 try:
+                    _mark_downloading(item)
                     if downloader._process_movie(item):
                         _mark_completed(item)
                     else:
@@ -381,6 +549,8 @@ def trigger_polling_sync(full_resync: bool = False) -> int:
             for season in item.get("seasons", []):
                 for episode in season.get("episodes", []):
                     ep_item = {**item, "seasons": [{"number": season["number"], "episodes": [episode]}]}
+                    if _skip_unmonitored_episode(sonarr, item, season, episode, "[polling]"):
+                        continue
                     if _enqueue_if_new(
                         item, "polling",
                         season_num=season["number"],
@@ -389,6 +559,7 @@ def trigger_polling_sync(full_resync: bool = False) -> int:
                     ):
                         enqueued += 1
                         try:
+                            _mark_downloading(item, season["number"], episode["episodeNumber"])
                             if downloader._process_serie(ep_item):
                                 _mark_completed(item, season["number"], episode["episodeNumber"])
                             else:
@@ -470,6 +641,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
     if not sonarr and not radarr:
         logger.warning("[trigger_webhook_sync] No Sonarr/Radarr clients configured, skipping")
         return 0
+    _reconcile_unmonitored_pending(sonarr=sonarr, radarr=radarr)
 
     import searchapp.views as arr_views_mod
     arr_views_mod.set_max_download_slots(cfg.get("max_concurrent_downloads", 1))
@@ -551,8 +723,12 @@ def trigger_webhook_sync(event_data: dict) -> int:
             "path": matched.get("path", ""),
             "tags": matched.get("tags", []),
             "tmdbId": matched.get("tmdbId"),
+            "monitored": matched.get("monitored", True),
             "provider": provider,
         }
+
+        if _skip_unmonitored_movie(radarr, item, "[trigger_webhook_sync]"):
+            return -1
 
         if not _enqueue_if_new(item, "webhook"):
             logger.info(f"[trigger_webhook_sync] Movie '{matched['title']}' already enqueued, skipping")
@@ -560,6 +736,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
 
         logger.info(f"[trigger_webhook_sync] Starting download for movie '{matched['title']}'")
         downloader = ArrDownloaderService(sonarr, radarr)
+        _mark_downloading(item)
         if downloader._process_movie(item):
             _mark_completed(item)
             logger.info(f"[trigger_webhook_sync] Movie '{matched['title']}' processed successfully")
@@ -653,8 +830,13 @@ def trigger_webhook_sync(event_data: dict) -> int:
             "path": matched.get("path", ""),
             "tags": matched.get("tags", []),
             "tmdbId": matched.get("tmdbId"),
+            "monitored": matched.get("monitored", True),
             "provider": _extract_provider_from_tags(sonarr, matched.get("tags", [])),
         }
+
+        if serie_item.get("monitored") is False:
+            logger.info(f"[trigger_webhook_sync] Series '{matched['title']}' is unmonitored in Sonarr, skipping")
+            return -1
 
         if not processor._check_tags_validity(serie_item["title"], serie_item["tags"]):
             logger.info(f"[trigger_webhook_sync] Series '{matched['title']}' filtered out by tag rules, skipping")
@@ -690,6 +872,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
                 "title": ep.get("title", ""),
                 "seasonNumber": s_num,
                 "episodeNumber": ep["episodeNumber"],
+                "monitored": ep.get("monitored", True),
             })
 
         serie_item["seasons"] = list(seasons_dict.values())
@@ -699,6 +882,8 @@ def trigger_webhook_sync(event_data: dict) -> int:
         for season in serie_item.get("seasons", []):
             for episode in season.get("episodes", []):
                 ep_item = {**serie_item, "seasons": [{"number": season["number"], "episodes": [episode]}]}
+                if _skip_unmonitored_episode(sonarr, serie_item, season, episode, "[trigger_webhook_sync]"):
+                    continue
                 if _enqueue_if_new(
                     serie_item, "webhook",
                     season_num=season["number"],
@@ -708,6 +893,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
                     local_enqueued += 1
                     try:
                         logger.info(f"[trigger_webhook_sync] Processing S{season['number']}E{episode['episodeNumber']}")
+                        _mark_downloading(serie_item, season["number"], episode["episodeNumber"])
                         if downloader._process_serie(ep_item):
                             _mark_completed(serie_item, season["number"], episode["episodeNumber"])
                         else:
@@ -749,6 +935,7 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
     if not sonarr:
         logger.warning("[Sonarr WH] Sonarr not configured, ignoring webhook")
         return 0
+    _reconcile_unmonitored_pending(sonarr=sonarr, radarr=None)
 
     import searchapp.views as arr_views_mod
     arr_views_mod.set_max_download_slots(cfg.get("max_concurrent_downloads", 1))
@@ -782,8 +969,13 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
         "path": series.get("path", ""),
         "tags": series.get("tags", []),
         "tmdbId": series.get("tmdbId"),
+        "monitored": series.get("monitored", True),
         "provider": _extract_provider_from_tags(sonarr, series.get("tags", [])),
     }
+
+    if serie.get("monitored") is False:
+        logger.info(f"[Sonarr WH] Series '{serie['title']}' is unmonitored, skipping")
+        return -1
 
     # Apply tag filtering
     from .processor_service import ArrProcessorService
@@ -836,6 +1028,7 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
                 "title": ep.get("title", ""),
                 "seasonNumber": s_num,
                 "episodeNumber": ep["episodeNumber"],
+                "monitored": ep.get("monitored", True),
             })
 
         serie["seasons"] = list(seasons_dict.values())
@@ -844,6 +1037,8 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
         for season in serie.get("seasons", []):
             for episode in season.get("episodes", []):
                 ep_item = {**serie, "seasons": [{"number": season["number"], "episodes": [episode]}]}
+                if _skip_unmonitored_episode(sonarr, serie, season, episode, "[Sonarr WH]"):
+                    continue
                 if _enqueue_if_new(
                     serie, "webhook",
                     season_num=season["number"],
@@ -853,6 +1048,7 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
                     enqueued += 1
                     try:
                         logger.info(f"[Sonarr WH] Processing S{season['number']}E{episode['episodeNumber']}")
+                        _mark_downloading(serie, season["number"], episode["episodeNumber"])
                         if downloader._process_serie(ep_item):
                             _mark_completed(serie, season["number"], episode["episodeNumber"])
                         else:
@@ -887,6 +1083,7 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
             "title": ep.get("title", ""),
             "seasonNumber": s_num,
             "episodeNumber": ep.get("episodeNumber"),
+            "monitored": ep.get("monitored", True),
         })
 
     serie["seasons"] = list(seasons_dict.values())
@@ -898,6 +1095,8 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
     for season in serie.get("seasons", []):
         for episode in season.get("episodes", []):
             ep_item = {**serie, "seasons": [{"number": season["number"], "episodes": [episode]}]}
+            if _skip_unmonitored_episode(sonarr, serie, season, episode, "[Sonarr WH]"):
+                continue
             if _enqueue_if_new(
                 serie, "webhook",
                 season_num=season["number"],
@@ -906,6 +1105,7 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
             ):
                 enqueued += 1
                 try:
+                    _mark_downloading(serie, season["number"], episode["episodeNumber"])
                     if downloader._process_serie(ep_item):
                         _mark_completed(serie, season["number"], episode["episodeNumber"])
                     else:
@@ -937,6 +1137,7 @@ def trigger_radarr_webhook_sync(event_data: dict) -> int:
     if not radarr:
         logger.warning("[Radarr WH] Radarr not configured, ignoring webhook")
         return 0
+    _reconcile_unmonitored_pending(sonarr=None, radarr=radarr)
 
     import searchapp.views as arr_views_mod
     arr_views_mod.set_max_download_slots(cfg.get("max_concurrent_downloads", 1))
@@ -970,8 +1171,12 @@ def trigger_radarr_webhook_sync(event_data: dict) -> int:
         "path": movie.get("path", ""),
         "tags": movie.get("tags", []),
         "tmdbId": movie.get("tmdbId"),
+        "monitored": movie.get("monitored", True),
         "provider": _extract_provider_from_tags(radarr, movie.get("tags", [])),
     }
+
+    if _skip_unmonitored_movie(radarr, movie_item, "[Radarr WH]"):
+        return -1
 
     # Apply tag filtering
     from .processor_service import ArrProcessorService
@@ -993,6 +1198,7 @@ def trigger_radarr_webhook_sync(event_data: dict) -> int:
     from .downloader_service import ArrDownloaderService
     downloader = ArrDownloaderService(None, radarr)
     try:
+        _mark_downloading(movie_item)
         if downloader._process_movie(movie_item):
             _mark_completed(movie_item)
             logger.info(f"[Radarr WH] Movie '{movie_item['title']}' processed successfully")
