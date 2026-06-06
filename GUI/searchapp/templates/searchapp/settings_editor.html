@@ -632,6 +632,22 @@
     };
   }
 
+  function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function deepMergeConfig(base, updates) {
+    const merged = { ...(isPlainObject(base) ? base : {}) };
+    Object.entries(updates || {}).forEach(([key, value]) => {
+      if (isPlainObject(value) && isPlainObject(merged[key])) {
+        merged[key] = deepMergeConfig(merged[key], value);
+      } else {
+        merged[key] = value;
+      }
+    });
+    return merged;
+  }
+
   function resetArrForm() {
     populateArrForm(originalArrConfig);
     showMessage('arr', 'ARR settings ripristinati', 'info');
@@ -645,7 +661,7 @@
       try { fullConfig = JSON.parse(configEditor.value); } catch (e) {
         showMessage('arr', 'config.json non valido. Correggi prima.', 'error'); return;
       }
-      fullConfig.ARR = readArrForm();
+      fullConfig.ARR = deepMergeConfig(fullConfig.ARR, readArrForm());
       const content = JSON.stringify(fullConfig, null, 4);
       const response = await fetch('{% url "save_settings" %}', {
         method: 'POST',
