@@ -13,7 +13,7 @@ import json
 import logging
 import pathlib
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .clients.sonarr_client import SonarrClient
 from .clients.radarr_client import RadarrClient
@@ -53,11 +53,9 @@ class ArrDownloaderService:
         provider = (serie.get("provider") or "").strip()
         any_success = False
 
-        # Resolve original title from Sonarr or TMDB
         tmdb_id = serie.get("tmdbId")
-        original_title = self._resolve_sonarr_title(title, series_id, tmdb_id)
-        search_title = original_title or title
-        logger.info(f"[_process_serie] Title='{title}', Original='{original_title}', Search='{search_title}', TMDB ID='{tmdb_id}'")
+        titles = self._resolve_sonarr_title(title, series_id, tmdb_id) or [title]
+        logger.info(f"[_process_serie] Title='{title}', Title candidates={titles}, TMDB ID='{tmdb_id}'")
 
         year = serie.get("year")
         year_range = self._build_year_range(year)
@@ -78,20 +76,19 @@ class ArrDownloaderService:
                     logger.info(f"S{season_num}E{ep_num} of '{title}' already in Sonarr queue, skipping")
                     continue
 
-                display_title = f"{search_title} - S{season_num} E{ep_num}"
+                display_title = f"{titles[0]} - S{season_num} E{ep_num}"
                 logger.info(f"⏳ Downloading '{display_title}' via {provider or 'configured fallback order'}")
 
-                item_payload, provider = self._search_with_fallback(
-                    search_title, provider,
+                item_payload, provider, matched_title = self._search_with_fallback_titles(
+                    titles, provider,
                     year_range=year_range,
-                    expected_title=search_title,
                     expected_year=year,
                     tmdb_id=serie.get("tmdbId"),
                     media_type="tv",
                     season_number=season_num,
                 )
                 if not item_payload:
-                    logger.error(f"✖️ Could not find '{search_title}' on any provider")
+                    logger.error(f"✖️ Could not find '{title}' using candidates: {titles}")
                     self.last_error = "search_no_results"
                     continue
 
@@ -150,7 +147,7 @@ class ArrDownloaderService:
                             logger.warning(f"Failed to verify Sonarr episode import: {exc}")
                         time.sleep(5)
                     if not imported:
-                        result_name = item_payload.get("name", search_title)
+                        result_name = item_payload.get("name", matched_title)
                         result_year = item_payload.get("year", year)
                         fallback_folder = self._get_vibrativo_serie_output(series_root, result_name, season_num, result_year)
                         if fallback_folder and fallback_folder != target_folder:
@@ -202,25 +199,25 @@ class ArrDownloaderService:
             logger.info(f"'{title}' already in Radarr queue, skipping")
             return False
 
-        # Resolve original title from Radarr (passes tmdb_id for non-ASCII fallback)
-        original_title = self._resolve_radarr_title(movie_id, tmdb_id)
-        search_title = original_title or title
+        titles = self._resolve_radarr_title(title, movie_id, tmdb_id) or [title]
 
         year = movie.get("year")
         year_range = self._build_year_range(year)
 
-        logger.info(f"⏳ Downloading movie '{search_title}' ({year}) via {provider or 'configured fallback order'}")
+        logger.info(
+            f"⏳ Downloading movie '{titles[0]}' ({year}) "
+            f"via {provider or 'configured fallback order'}; candidates={titles}"
+        )
 
-        item_payload, provider = self._search_with_fallback(
-            search_title, provider,
+        item_payload, provider, matched_title = self._search_with_fallback_titles(
+            titles, provider,
             year_range=year_range,
-            expected_title=search_title,
             expected_year=year,
             tmdb_id=tmdb_id,
             media_type="movie",
         )
         if not item_payload:
-            logger.error(f"Could not find movie '{search_title}' on any provider")
+            logger.error(f"Could not find movie '{title}' using candidates: {titles}")
             self.last_error = "search_no_results"
             return False
 
@@ -247,7 +244,7 @@ class ArrDownloaderService:
             future.result(timeout=7200)  # wait for download to actually finish
             time.sleep(2)
 
-            result_name = item_payload.get("name", search_title)
+            result_name = item_payload.get("name", matched_title)
             result_year = item_payload.get("year", year)
             fallback_folder = self._get_vibrativo_movie_output(target_folder, result_name, result_year)
 
@@ -347,8 +344,8 @@ class ArrDownloaderService:
         )
 
     @staticmethod
-    def _titles_are_compatible(search_title: str, result_name: str) -> bool:
-        """Check that result_name shares enough significant words with search_title.
+    def _titles_are_compatible(title: str, result_name: str) -> bool:
+        """Check that result_name shares enough significant words with title.
 
         Guards against accepting completely unrelated titles that happen to match
         the year range (e.g. 'My Teacher' when searching 'My Hero Academia').
@@ -362,7 +359,7 @@ class ArrDownloaderService:
             s = ArrDownloaderService._strip_accents(s)
             return {w.lower() for w in re.split(r'\W+', s) if len(w) > 3}
 
-        sw = sig_words(search_title)
+        sw = sig_words(title)
         if not sw:
             # Non-ASCII title (e.g. Japanese/Korean) — can't verify by word match,
             # reject to force TMDB ID check or fallback providers
@@ -429,21 +426,7 @@ class ArrDownloaderService:
 
         Returns (payload, used_provider). payload is None if nothing found anywhere.
         """
-        conf_path = pathlib.Path(__file__).parent.parent.parent.parent / "Conf" / "config.json"
-        try:
-            with open(conf_path, encoding="utf-8") as _f:
-                fallback_list: list = json.load(_f).get("ARR", {}).get("provider_fallback", [])
-        except Exception as _exc:
-            logger.warning(f"[fallback] Could not read provider_fallback from config: {_exc}")
-            fallback_list = []
-
-        providers = []
-        if primary_provider:
-            providers.append(primary_provider)
-        providers.extend(provider for provider in fallback_list if provider and provider not in providers)
-        if not providers:
-            providers = ["streamingcommunity"]
-
+        providers = self._provider_order(primary_provider)
         logger.info(f"[fallback] Search '{title}' — provider order: {providers}")
         for index, provider in enumerate(providers):
             label = "primary" if index == 0 else "fallback"
@@ -461,6 +444,59 @@ class ArrDownloaderService:
         logger.error(f"[fallback] '{title}' not found on any provider (tried: {providers})")
         return None, primary_provider or (providers[0] if providers else "")
 
+    def _provider_order(self, primary_provider: str) -> List[str]:
+        """Return primary provider followed by configured ARR provider fallbacks."""
+        conf_path = pathlib.Path(__file__).parent.parent.parent.parent / "Conf" / "config.json"
+        try:
+            with open(conf_path, encoding="utf-8") as _f:
+                fallback_list: list = json.load(_f).get("ARR", {}).get("provider_fallback", [])
+        except Exception as _exc:
+            logger.warning(f"[fallback] Could not read provider_fallback from config: {_exc}")
+            fallback_list = []
+
+        providers = []
+        if primary_provider:
+            providers.append(primary_provider)
+        providers.extend(provider for provider in fallback_list if provider and provider not in providers)
+        if not providers:
+            providers = ["streamingcommunity"]
+        return providers
+
+    def _search_with_fallback_titles(
+        self,
+        titles: List[str],
+        primary_provider: str,
+        **kwargs,
+    ) -> Tuple[Optional[Dict[str, Any]], str, str]:
+        """Try title candidates inside each provider, preserving provider order.
+
+        Returns the accepted payload, provider, and title that produced the
+        match. If every candidate fails, payload is None and the returned title
+        is the first candidate for logging/path fallback purposes.
+        """
+        candidates = self._unique_titles(titles)
+        providers = self._provider_order(primary_provider)
+        logger.info(f"[title_fallback] Provider order: {providers}; title candidates: {candidates}")
+
+        for provider_index, provider in enumerate(providers):
+            label = "primary" if provider_index == 0 else "fallback"
+            for title in candidates:
+                logger.info(f"[title_fallback] Trying {label} '{provider}' with title '{title}'")
+                payload = self._search_and_build_payload(
+                    title,
+                    provider,
+                    expected_title=title,
+                    **kwargs,
+                )
+                if payload:
+                    logger.info(f"[title_fallback] Accepted title '{title}' on {label} '{provider}'")
+                    return payload, provider, title
+
+                logger.warning(f"[title_fallback] No match for title '{title}' on '{provider}'")
+
+        fallback_provider = primary_provider or (providers[0] if providers else "")
+        return None, fallback_provider, candidates[0] if candidates else ""
+
     def _search_and_build_payload(self, title: str, provider: str,
                                   year_range: Optional[str] = None,
                                   expected_title: Optional[str] = None,
@@ -470,30 +506,13 @@ class ArrDownloaderService:
                                   season_number: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Search VibraVid's streaming API for a title and return an item_payload dict.
 
-        Uses TMDB API to get alternative titles for verification when tmdb_id is provided.
-        This handles translations (e.g., "Born Again" vs "Rinascita") correctly.
+        Verifies candidate results using TMDB id, media type, title compatibility,
+        and year range. Localized title fallback is handled before this method.
         """
         try:
             from searchapp.api import get_api
 
             api = get_api(provider)
-
-            # Get alternative titles from TMDB if tmdb_id is available
-            tmdb_titles = []
-            if tmdb_id:
-                try:
-                    from VibraVid.provider.tmdb import tmdb_client as tmdb
-
-                    # Get titles in Italian (for streamingcommunity) and English
-                    for lang in ["it", "en"]:
-                        alt_titles = tmdb.get_alternative_titles(tmdb_id, media_type, lang)
-                        tmdb_titles.extend(alt_titles)
-
-                    # Deduplicate
-                    tmdb_titles = list(set(t.strip() for t in tmdb_titles if t.strip()))
-                    logger.info(f"TMDB alternative titles for {tmdb_id}: {tmdb_titles[:5]}")
-                except Exception as tmdb_exc:
-                    logger.debug(f"Failed to get TMDB alternative titles: {tmdb_exc}")
 
             # Strip accents from search query: à→a, è→e, ì→i, ò→o, ù→u …
             search_query = self._strip_accents(title).strip()
@@ -707,99 +726,122 @@ class ArrDownloaderService:
             logger.error(f"Search failed for '{title}' on {provider}: {exc}")
             return None
 
-    def _resolve_sonarr_title(self, title: str, series_id: Optional[int], tmdb_id: Optional[int] = None) -> Optional[str]:
-        """Try to get the original title from Sonarr for better search results.
+    @staticmethod
+    def _unique_titles(titles: List[Optional[str]]) -> List[str]:
+        """Return non-empty title candidates deduplicated by normalized title.
 
-        First tries Sonarr's originalTitle. If not set, falls back to TMDB API
-        to get the Italian title directly from tmdbId.
+        Preserves the first occurrence so caller-provided priority order remains
+        intact while removing case/accent/punctuation-equivalent duplicates.
         """
-        sonarr_original = None
+        unique: List[str] = []
+        seen = set()
+        for raw_title in titles:
+            candidate = str(raw_title or "").strip()
+            if not candidate:
+                continue
+            key = ArrDownloaderService._normalize_title(candidate)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(candidate)
+        return unique
 
-        # Primary: fast lookup by ID
+    def _get_tmdb_title_candidates(self, tmdb_id: Optional[int], media_type: str) -> List[str]:
+        """Return localized and alternative TMDB titles for search fallback.
+
+        Includes Italian and English details plus TMDB alternative titles, then
+        normalizes/deduplicates them while preserving priority order.
+        """
+        if not tmdb_id:
+            return []
+
+        titles: List[str] = []
+        try:
+            from VibraVid.provider.tmdb import tmdb_client as tmdb
+
+            endpoint = "movie" if media_type == "movie" else "tv"
+            detail_key = "title" if media_type == "movie" else "name"
+            for lang in ["it", "en"]:
+                try:
+                    details = tmdb._make_request(f"{endpoint}/{tmdb_id}", {"language": lang})
+                    titles.append(details.get(detail_key, ""))
+                except Exception as details_exc:
+                    logger.debug(f"Failed to get TMDB {lang} title for {media_type}/{tmdb_id}: {details_exc}")
+
+                try:
+                    titles.extend(tmdb.get_alternative_titles(tmdb_id, media_type, lang))
+                except Exception as alt_exc:
+                    logger.debug(f"Failed to get TMDB {lang} alternative titles for {media_type}/{tmdb_id}: {alt_exc}")
+        except Exception as tmdb_exc:
+            logger.debug(f"Failed to collect TMDB title candidates for {media_type}/{tmdb_id}: {tmdb_exc}")
+
+        return self._unique_titles(titles)
+
+    def _resolve_sonarr_title(self, title: str, series_id: Optional[int], tmdb_id: Optional[int] = None) -> List[str]:
+        """Build ordered Sonarr title candidates for VibraVid searches.
+
+        Starts with Sonarr's originalTitle and localized title, then adds TMDB
+        localized/alternative titles, a secondary Sonarr list lookup by
+        title/slug/originalTitle, and finally the title from the ARR item.
+        """
+        titles: List[Optional[str]] = []
+
         if series_id:
             try:
                 series = self.sonarr.get_series_by_id(series_id)
                 sonarr_title = series.get("title", "")
                 sonarr_original = series.get("originalTitle", "")
-                logger.info(f"[_resolve_sonarr_title] Sonarr title='{sonarr_title}', originalTitle='{sonarr_original}'")
-
-                if sonarr_original and sonarr_original.lower() != title.lower():
-                    logger.info(f"Using original title from Sonarr: '{sonarr_original}'")
-                    return sonarr_original
+                logger.info(
+                    f"[_resolve_sonarr_title] Sonarr title='{sonarr_title}', "
+                    f"originalTitle='{sonarr_original}'"
+                )
+                titles.extend([sonarr_original, sonarr_title])
             except Exception as exc:
                 logger.debug(f"Sonarr series lookup by ID {series_id} failed: {exc}")
 
-        # Fallback: get Italian title from TMDB if originalTitle is not set
-        if tmdb_id and (not sonarr_original or sonarr_original.lower() == title.lower()):
+        titles.extend(self._get_tmdb_title_candidates(tmdb_id, "tv"))
+
+        if not self._unique_titles(titles):
+            # Secondary lookup: if direct lookup by ID and TMDB lookup are
+            # unavailable, scan Sonarr's series list and match by title/slug/originalTitle.
             try:
-                from VibraVid.provider.tmdb import tmdb_client as tmdb
-                details = tmdb._make_request(f"tv/{tmdb_id}", {"language": "it"})
-                it_title = details.get("name", "")
+                series_list = self.sonarr.get_series()
+                title_lower = title.lower()
+                for s in series_list:
+                    s_title = s.get("title", "").lower()
+                    s_slug = s.get("titleSlug", "").lower()
+                    s_original = s.get("originalTitle", "").lower()
+                    if title_lower in (s_title, s_slug, s_original):
+                        titles.extend([s.get("originalTitle"), s.get("title")])
+                        break
+            except Exception as exc:
+                logger.debug(f"Sonarr series list fallback failed: {exc}")
 
-                if it_title and it_title.lower() != title.lower():
-                    logger.info(f"Using Italian title from TMDB: '{it_title}'")
-                    return it_title
+        titles.append(title)
+        return self._unique_titles(titles)
 
-            except Exception as tmdb_exc:
-                logger.debug(f"Failed to get Italian title from TMDB: {tmdb_exc}")
+    def _resolve_radarr_title(self, title: str, movie_id: int, tmdb_id: Optional[int] = None) -> List[str]:
+        """Build ordered Radarr title candidates for VibraVid searches.
 
-        # Fallback: search all series by title (mirrors old Downloader.py)
-        try:
-            series_list = self.sonarr.get_series()
-            title_lower = title.lower()
-            for s in series_list:
-                s_title = s.get("title", "").lower()
-                s_slug = s.get("titleSlug", "").lower()
-                s_original = s.get("originalTitle", "").lower()
-                if title_lower in (s_title, s_slug, s_original):
-                    original = s.get("originalTitle")
-                    if original and original.lower() != title_lower:
-                        logger.info(f"Using original title from Sonarr (fallback): '{original}'")
-                        return original
-                    break
-        except Exception as exc:
-            logger.debug(f"Sonarr series list fallback failed: {exc}")
-
-        return None
-
-    def _resolve_radarr_title(self, movie_id: int, tmdb_id: Optional[int] = None) -> Optional[str]:
-        """Try to get the original title from Radarr.
-
-        If the original title is non-ASCII (e.g. Japanese/Korean/Chinese),
-        falls back to the Italian then English title from TMDB so that
-        StreamingCommunity can find it by a localized name.
+        Starts with Radarr's originalTitle and localized title, then adds TMDB
+        localized/alternative titles and finally the title from the ARR item.
+        This replaces the old single-title behavior while keeping the original
+        resolver name for callers.
         """
-        import re
-        import unicodedata
+        titles: List[Optional[str]] = []
 
-        original = None
         try:
             movie = self.radarr.get_movie_by_id(movie_id)
             original = movie.get("originalTitle")
-            if original:
-                logger.info(f"Using original title from Radarr: '{original}'")
+            radarr_title = movie.get("title")
+            logger.info(f"[_resolve_radarr_title] Radarr title='{radarr_title}', originalTitle='{original}'")
+            titles.extend([original, radarr_title])
         except Exception as exc:
             logger.debug(f"Radarr movie lookup by ID {movie_id} failed: {exc}")
 
-        # If original is fully non-ASCII, get a localised title from TMDB
-        if original and tmdb_id:
-            ascii_part = re.sub(r'\s+', '', unicodedata.normalize('NFKD', original)
-                                .encode('ascii', 'ignore').decode('ascii'))
-            if not ascii_part:
-                try:
-                    from VibraVid.provider.tmdb import tmdb_client as tmdb
-                    for lang in ["it", "en"]:
-                        details = tmdb._make_request(f"movie/{tmdb_id}", {"language": lang})
-                        loc_title = details.get("title", "")
-
-                        if loc_title and loc_title != original:
-                            logger.info(f"Non-ASCII original '{original}' → using {lang.upper()} TMDB title: '{loc_title}'")
-                            return loc_title
-
-                except Exception as tmdb_exc:
-                    logger.debug(f"TMDB localised title fallback failed: {tmdb_exc}")
-
-        return original
+        titles.extend(self._get_tmdb_title_candidates(tmdb_id, "movie"))
+        titles.append(title)
+        return self._unique_titles(titles)
 
     @staticmethod
     def _build_year_range(year) -> Optional[str]:
@@ -827,7 +869,7 @@ class ArrDownloaderService:
         folder = config_manager.config.get("OUTPUT", "movie_folder_name")
         return str(pathlib.Path(base).joinpath(folder, title))
 
-    def _get_vibrativo_serie_output(self, arr_series_path: str, search_title: str, season_num: int, year: Optional[int] = None) -> str:
+    def _get_vibrativo_serie_output(self, arr_series_path: str, title: str, season_num: int, year: Optional[int] = None) -> str:
         """Compute the VibraVid output path relative to Sonarr's root folder."""
         if not arr_series_path:
             return ""
@@ -837,7 +879,7 @@ class ArrDownloaderService:
 
             # Pass the year as string if available to match VibraVid's exact logic
             series_year = str(year) if year else None
-            path_components, _ = map_episode_path(series_name=search_title, series_year=series_year, season_number=season_num)
+            path_components, _ = map_episode_path(series_name=title, series_year=series_year, season_number=season_num)
 
             if "\\" in arr_series_path:
                 root = pathlib.PureWindowsPath(arr_series_path).parent
@@ -853,7 +895,7 @@ class ArrDownloaderService:
             logger.debug(f"Could not compute VibraVid serie output path: {exc}")
         return ""
 
-    def _get_vibrativo_movie_output(self, arr_movie_path: str, search_title: str, year: Optional[int] = None) -> str:
+    def _get_vibrativo_movie_output(self, arr_movie_path: str, title: str, year: Optional[int] = None) -> str:
         """Compute the VibraVid output path relative to Radarr's root folder."""
         if not arr_movie_path:
             return ""
@@ -863,7 +905,7 @@ class ArrDownloaderService:
 
             # Pass the year as string if available
             title_year = str(year) if year else None
-            path_components, _ = map_movie_path(title_name=search_title, title_year=title_year)
+            path_components, _ = map_movie_path(title_name=title, title_year=title_year)
 
             if "\\" in arr_movie_path:
                 root = pathlib.PureWindowsPath(arr_movie_path).parent
