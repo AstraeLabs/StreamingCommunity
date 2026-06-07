@@ -3,172 +3,164 @@
 import logging
 import os
 import shutil
-from typing import Any, Callable, Dict, Optional
+import subprocess
+from typing import Callable, Dict, Any, Optional
 
-from VibraVid.setup import (get_bento4_decrypt_path, get_ffmpeg_path, get_mp4dump_path, get_shaka_packager_path,)
 from VibraVid.core.ui.bar_manager import console
-
-from ._models import SCHEME_TO_MODE
-from .keys_manager import normalize_keys, is_zero_kid, resolve_fixed_key_if_needed
-from ._mp4_inspector import detect_encryption_info
-from ._backends import (decrypt_bento4_nonlive, decrypt_bento4_live, decrypt_shaka_nonlive)
+from ._subprocess_runner import run_with_progress
 
 
 logger = logging.getLogger(__name__)
 
 
-class Decryptor:
-    def __init__(self, license_url: str = None, drm_type: str = None, **_kwargs) -> None:
-        logger.debug(f"Initializing Decryptor license_url={license_url!r} drm_type={drm_type!r}")
-        self.mp4decrypt_path = get_bento4_decrypt_path()
-        self.mp4dump_path = get_mp4dump_path()
-        self.shaka_packager_path = get_shaka_packager_path()
-        self.ffmpeg_path = get_ffmpeg_path()
-        self.license_url = license_url
-        self.drm_type = drm_type
+def _redacted_cmd(cmd: list[str]) -> str:
+    redacted = []
+    hide_next = False
+    for token in cmd:
+        if hide_next:
+            redacted.append("<redacted>")
+            hide_next = False
+            continue
 
-    def detect_encryption(self, file_path: str) -> tuple:
-        """
-        Probe *file_path* and return ``(mode, kid, pssh_b64, codec, enc_method)``.
-        All values are ``None`` when the file is unencrypted.
-        """
-        logger.debug(f"Detecting encryption: {os.path.basename(file_path)}")
-        info = detect_encryption_info(self.mp4dump_path, file_path)
+        if token in {"--key", "--keys"}:
+            redacted.append(token)
+            hide_next = True
+            continue
 
-        if not info.encrypted:
-            logger.info("No encryption indicators found")
-            return None, None, None, None, None
+        redacted.append(token)
 
-        mode = SCHEME_TO_MODE.get(info.scheme or "")
-        if mode is None:
-            mode = "ctr"
-            console.print("[dim]Encryption detected (no explicit scheme). Defaulting to CTR mode.")
+    return " ".join(redacted)
 
-        logger.debug(f"Encryption finalized: scheme={info.scheme}, mode={mode}, kid={info.kid}, codec={info.video_codec}, enc_method={info.encryption_method}")
-        return mode, info.kid, info.pssh_b64, info.video_codec, info.encryption_method
 
-    def decrypt(self, encrypted_path: str, keys, output_path: str, stream_type: str = "video", progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
-        """
-        Decrypt *encrypted_path* → *output_path* after download is complete.
+# ---------------------------------------------------------------------------
+# Bento4
+# ---------------------------------------------------------------------------
+def decrypt_bento4_nonlive(mp4decrypt_path: str, encrypted_path: str, normalized_keys: list[tuple[str, str]], output_path: str, label: str, is_fixed_key: bool = False, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
+    """
+    Decrypt *encrypted_path* with ``mp4decrypt``.
 
-        Automatically picks Shaka (for SAMPLE-AES/CBCS) or Bento4 (CENC/CTR).
-        Returns ``True`` on success.
-        """
-        logger.info(f"decrypt(): {os.path.basename(encrypted_path)} stream={stream_type} keys={keys} [NON-LIVE]")
-        try:
-            mode, kid, _pssh, _codec, enc_method = self.detect_encryption(encrypted_path)
-            norm_keys = normalize_keys(keys)
+    When *is_fixed_key* is ``True``, the KID is zeroed out so Bento4 treats
+    it as a fixed (keyid-less) stream.
 
-            if mode is None:
-                if not norm_keys:
-                    logger.info("File appears clear and no keys provided: copying")
-                    shutil.copy(encrypted_path, output_path)
-                    return True
-                mode = "unknown"
+    Returns ``True`` on success.
+    """
+    cmd = [mp4decrypt_path]
 
-            norm_keys = resolve_fixed_key_if_needed(encrypted_path, kid, norm_keys)
-            if not norm_keys:
-                logger.error("No valid keys available for decryption")
-                return False
+    pairs = normalized_keys
+    if is_fixed_key and normalized_keys:
+        _, key_hex = normalized_keys[0]
+        pairs = [("00000000000000000000000000000000", key_hex)]
 
-            method_display = (enc_method or mode or "unknown").upper().replace("_", "-")
-            filename = os.path.basename(encrypted_path)
-            use_shaka = bool((enc_method and "sample" in enc_method.lower()) or mode == "cbc")
+    for kid, key in pairs:
+        cmd.extend(["--key", f"{kid.lower()}:{key.lower()}"])
+    cmd.extend([encrypted_path, output_path])
 
-            if use_shaka and self.shaka_packager_path:
-                label = f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]Shaka[/yellow]"
-                ok = decrypt_shaka_nonlive(
-                    self.shaka_packager_path,
-                    encrypted_path,
-                    norm_keys,
-                    output_path,
-                    stream_type,
-                    label,
-                    is_fixed_key=is_zero_kid(kid),
-                    progress_cb=progress_cb,
-                )
-            elif use_shaka:
-                logger.warning("CBCS/SAMPLE-AES detected but Shaka Packager not available — falling back to Bento4")
-                label = f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]Bento4[/yellow]"
-                ok = decrypt_bento4_nonlive(
-                    self.mp4decrypt_path,
-                    encrypted_path,
-                    norm_keys,
-                    output_path,
-                    label,
-                    is_fixed_key=is_zero_kid(kid),
-                    progress_cb=progress_cb,
-                )
-            else:
-                label = f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]Bento4[/yellow]"
-                ok = decrypt_bento4_nonlive(
-                    self.mp4decrypt_path,
-                    encrypted_path,
-                    norm_keys,
-                    output_path,
-                    label,
-                    is_fixed_key=is_zero_kid(kid),
-                    progress_cb=progress_cb,
-                )
-
-            if ok:
-                logger.info(f"Decryption successful: {os.path.basename(output_path)}")
-                return True
-
-            if mode == "unknown":
-                logger.error("Forced decryption failed in unknown mode; refusing to copy encrypted content as decrypted output.")
-                return False
-
+    logger.info(f"Bento4 cmd: {_redacted_cmd(cmd)}")
+    result = run_with_progress(cmd, label, encrypted_path, output_path, progress_cb=progress_cb)
+    if result is True:
+        if not os.path.exists(output_path) or os.path.getsize(output_path) <= 0:
+            logger.error("Bento4 reported success but output is missing/empty")
             return False
+        return True
 
-        except Exception as exc:
-            logger.error(f"Decryption error: {exc}")
-            console.print(f"[red]Decryption error: {exc}")
-            return False
+    logger.error(f"Bento4 failed: {result}")
+    console.print(f"[red]Bento4 failed: {result}")
+    return False
 
-    def decrypt_file(self, encrypted_path: str, decrypted_path: str, keys, label: str, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None) -> tuple:
-        """
-        Manual-downloader API.  Returns ``(success: bool, error_message: str | None)``.
-        """
-        norm_keys = normalize_keys(keys)
-        if not norm_keys:
-            return False, "Could not parse any keys."
 
-        mode, kid, _pssh, _codec, _enc_method = self.detect_encryption(encrypted_path)
-        norm_keys = resolve_fixed_key_if_needed(encrypted_path, kid, norm_keys)
+def decrypt_bento4_live(mp4decrypt_path: str, encrypted_path: str, decrypted_path: str, normalized_keys: list[tuple[str, str]], init_path: Optional[str] = None) -> tuple:
+    """
+    Decrypt a single live DASH fragment with ``mp4decrypt``.
 
-        method_display = (_enc_method or mode or "unknown").upper().replace("_", "-")
-        filename = os.path.basename(encrypted_path)
-        rich_label = f"[bold cyan]Dec[/bold cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]Bento4[/yellow]"
+    Returns ``(ok: bool, message: str, data: bytes | None)``.
+    """
+    logger.debug(f"decrypt_bento4_live(): {os.path.basename(encrypted_path)} -> {os.path.basename(decrypted_path)}")
+    try:
+        cmd = [mp4decrypt_path]
+        if init_path and os.path.exists(init_path):
+            cmd.extend(["--fragments-info", init_path])
 
-        ok = decrypt_bento4_nonlive(
-            self.mp4decrypt_path,
-            encrypted_path,
-            norm_keys,
-            decrypted_path,
-            rich_label,
-            is_fixed_key=is_zero_kid(kid),
-            progress_cb=progress_cb,
-        )
+        if not normalized_keys:
+            logger.error("Bento4 live decryption requested without usable keys")
+            return False, "Error Bento4: no usable keys", None
 
-        if ok:
-            return True, None
-
-        return False, f"Bento4 decryption failed for {filename}"
-
-    def decrypt_segment_live(self, encrypted_path: str, decrypted_path: str, raw_keys, init_path: Optional[str] = None) -> tuple:
-        """
-        Decrypt one live DASH fragment.
-
-        Returns ``(ok: bool, message: str, data: bytes | None)``.
-        """
-        logger.debug(f"decrypt_segment_live(): {os.path.basename(encrypted_path)} -> {os.path.basename(decrypted_path)} [LIVE -> BENTO4]")
-        norm_keys = normalize_keys(raw_keys)
+        for kid, raw_key in normalized_keys:
+            cmd.extend(["--key", f"{kid}:{raw_key}"])
         
-        return decrypt_bento4_live(
-            self.mp4decrypt_path,
-            encrypted_path,
-            decrypted_path,
-            norm_keys,
-            init_path=init_path,
-        )
+        cmd.extend([encrypted_path, decrypted_path])
+        logger.debug(f"Bento4 live cmd: {_redacted_cmd(cmd)}")
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if result.returncode != 0:
+            msg = result.stderr.strip() if result.stderr else "Unknown error"
+            logger.error(f"Bento4 live decryption failed: {msg}")
+            return False, f"Error Bento4: {msg}", None
+
+        if not os.path.exists(decrypted_path):
+            return False, "Error Bento4: output file missing", None
+
+        with open(decrypted_path, "rb") as f:
+            data = f.read()
+        
+        if not data:
+            return False, "Error Bento4: empty output", None
+
+        logger.debug(f"Bento4 live segment decrypted successfully: {len(data)} bytes")
+        return True, "Bento4 live segment decrypted", data
+
+    except Exception as exc:
+        logger.error(f"Exception Bento4 live: {exc}")
+        return False, f"Exception Bento4: {exc}", None
+
+
+# ---------------------------------------------------------------------------
+# Shaka Packager
+# ---------------------------------------------------------------------------
+def decrypt_shaka_nonlive(shaka_packager_path: str, encrypted_path: str, normalized_keys: list[tuple[str, str]], output_path: str, _stream_type: str, label: str, is_fixed_key: bool = False, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
+    """
+    Decrypt *encrypted_path* with Shaka Packager (handles SAMPLE-AES / CBCS).
+
+    Returns ``True`` on success.
+    """
+    keys_arg: list[str] = []
+    for idx, (kid, key) in enumerate(normalized_keys, start=1):
+        shaka_kid = "00000000000000000000000000000000" if is_fixed_key else kid
+        keys_arg.append(f"label={idx}:key_id={shaka_kid.lower()}:key={key.lower()}")
+
+    shaka_output = output_path
+    if not output_path.lower().endswith((".mp4", ".m4v", ".mpd")):
+        shaka_output = output_path + ".tmp.mp4"
+
+    stream_name = _stream_type if _stream_type in ("video", "audio", "text") else "0"
+    stream_spec = f"input={encrypted_path},stream={stream_name},output={shaka_output}"
+    cmd = [
+        shaka_packager_path,
+        stream_spec,
+        "--enable_raw_key_decryption",
+        "--keys",
+        ",".join(keys_arg),
+    ]
+
+    logger.info(f"Shaka cmd: {_redacted_cmd(cmd)}")
+    result = run_with_progress(cmd, label, encrypted_path, shaka_output, progress_cb=progress_cb)
+    if result is True:
+        if shaka_output != output_path and os.path.exists(shaka_output):
+            try:
+                os.replace(shaka_output, output_path)
+            except OSError:
+                try:
+                    shutil.copy2(shaka_output, output_path)
+                    os.remove(shaka_output)
+                except Exception as exc:
+                    logger.error(f"Shaka output move failed: {exc}")
+                    return False
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) <= 0:
+            logger.error("Shaka reported success but output is missing/empty")
+            return False
+        return True
+
+    stderr_msg = result[1] if isinstance(result, tuple) else "Unknown error"
+    logger.error(f"Shaka failed: {stderr_msg}")
+    console.print(f"[red]Shaka failed: {stderr_msg}")
+    return False
