@@ -600,6 +600,13 @@ class DashParser:
         for cp in element.findall(".//mpd:ContentProtection", _NS):
             scheme = (cp.get("schemeIdUri") or "").lower()
             info.set_method(scheme)
+            
+            # Also check the `value` attribute for encryption mode (e.g. value="cbcs")
+            # when schemeIdUri is the generic mp4protection URI.
+            cp_value = (cp.get("value") or "").lower()
+            if cp_value and cp_value in ("cbcs", "cbc1", "cens", "cenc"):
+                info.method = cp_value
+
             drm_hint = _drm_hint_from_scheme(scheme)
             
             # Try to find PSSH in multiple locations:
