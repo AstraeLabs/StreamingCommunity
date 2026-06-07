@@ -615,6 +615,13 @@ class DASH_Downloader(BaseDownloader):
             drm_psshs = self._collect_drm_from_mpd(raw_mpd)
             is_protected = bool(drm_psshs.get(DRMType.WIDEVINE) or drm_psshs.get(DRMType.PLAYREADY))
 
+        # Raw-key / Clear-key manifests
+        if not is_protected and self.key:
+            streams_encrypted = any(getattr(s, "drm", None) is not None and s.drm.is_encrypted() for s in streams)
+            if streams_encrypted:
+                self.decryption_keys = [self.key] if isinstance(self.key, str) else list(self.key)
+                logger.info(f"DASH: encrypted streams without WV/PR PSSH — using {len(self.decryption_keys)} manual key(s)")
+
         if is_protected:
             self._warn_drm_mismatch(drm_psshs)
             if not self.license_url and not self.key:
