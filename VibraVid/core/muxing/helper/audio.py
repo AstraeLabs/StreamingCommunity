@@ -1,6 +1,7 @@
 # 16.04.24
 
 import os
+import base64
 import json
 import logging
 import subprocess
@@ -10,6 +11,7 @@ from typing import List, Optional
 
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.flac import FLAC, Picture
+from mutagen.oggopus import OggOpus
 from mutagen.id3 import (
     ID3, ID3NoHeaderError,
     TIT2, TPE1, TALB, TDRC, TRCK, APIC, TCON,
@@ -230,6 +232,39 @@ def _tag_mp4(path: Path, title: str, artist: str, album: str, year: str, track_n
     audio.save()
 
 
+def _tag_opus(path: Path, title: str, artist: str, album: str, year: str, track_number: Optional[int], genre: str, cover_url: Optional[str]) -> None:
+    """Write Vorbis comment tags + cover art to an Opus file."""
+    audio = OggOpus(str(path))
+    if audio.tags is None:
+        audio.add_tags()
+
+    audio['title'] = [title]
+    audio['artist'] = [artist]
+    if album:
+        audio['album'] = [album]
+    if year:
+        audio['date'] = [str(year)]
+    if track_number is not None:
+        audio['tracknumber'] = [str(track_number)]
+    if genre:
+        audio['genre'] = [genre]
+
+    if cover_url:
+        cover_data = _fetch_cover(cover_url)
+        if cover_data:
+            pic = Picture()
+            pic.type = 3
+            pic.mime = 'image/jpeg'
+            pic.desc = 'Cover'
+            pic.data = cover_data
+            audio['metadata_block_picture'] = [base64.b64encode(pic.write()).decode('ascii')]
+            logger.info("Cover art embedded (Opus): %s", cover_url)
+        else:
+            logger.warning("Cover download returned empty bytes (Opus)")
+
+    audio.save()
+
+
 def _tag_mp3(path: Path, title: str, artist: str, album: str, year: str, track_number: Optional[int], genre: str, cover_url: Optional[str]) -> None:
     """Write ID3 tags + cover art to an MP3 file."""
     try:
@@ -297,6 +332,9 @@ def tag_track(file_path: str, title: str, artist: str, album: str = "", year: st
 
         elif suffix == '.mp3':
             _tag_mp3(path, title, artist, album, year, track_number, genre, cover_url)
+
+        elif suffix == '.opus':
+            _tag_opus(path, title, artist, album, year, track_number, genre, cover_url)
 
         else:
             # .m4a, .mp4, .aac, …
@@ -421,6 +459,13 @@ def process_song(file_path: str, title: str, artist: str, album: str = "", year:
             logger.info(f"Removed original file: {path}")
         except Exception as e:
             logger.warning(f"Could not remove original file: {e}")
+
+        # Re-tag converted file: ffmpeg transfers text tags but not picture blocks (e.g. opus)
+        tag_track(
+            file_path=converted,
+            title=title, artist=artist, album=album, year=year,
+            track_number=track_number, genre=genre, cover_url=cover_url,
+        )
 
     print("\n")
     return converted
