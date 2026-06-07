@@ -1,59 +1,63 @@
 # 13.03.26
 
 VIDEO_CODEC_MAP: dict[str, str] = {
-    "avc1": "H.264",
-    "h264": "H.264",
-    "x264": "H.264",
-    "hvc1": "H.265",
-    "hev1": "H.265",
-    "hevc": "H.265",
-    "h265": "H.265",
-    "x265": "H.265",
-    "vp8":  "VP8",
-    "vp80": "VP8",
-    "vp9":  "VP9",
-    "vp09": "VP9",
-    "vp90": "VP9",
-    "av1":  "AV1",
-    "av01": "AV1",
-    "dvhe": "Dolby Vision",
-    "dvh1": "Dolby Vision",
-    "dvav": "Dolby Vision",
-    "dav1": "Dolby Vision",
-    "mp4v": "MPEG-4",
-    "mpeg4": "MPEG-4",
-    "vc1":   "VC-1",
-    "wmv3":  "WMV",
-    "mjpeg": "MJPEG",
-    "prores": "ProRes",
+    "avc1":     "H.264",
+    "h264":     "H.264",
+    "x264":     "H.264",
+    "hvc1":     "H.265",
+    "hev1":     "H.265",
+    "hevc":     "H.265",
+    "h265":     "H.265",
+    "x265":     "H.265",
+    "vp8":      "VP8",
+    "vp80":     "VP8",
+    "vp9":      "VP9",
+    "vp09":     "VP9",
+    "vp90":     "VP9",
+    "av1":      "AV1",
+    "av01":     "AV1",
+    "dvhe":     "Dolby Vision",
+    "dvh1":     "Dolby Vision",
+    "dvav":     "Dolby Vision",
+    "dav1":     "Dolby Vision",
+    "mp4v":     "MPEG-4",
+    "mpeg4":    "MPEG-4",
+    "vc1":      "VC-1",
+    "wmv3":     "WMV",
+    "mjpeg":    "MJPEG",
+    "prores":   "ProRes",
 }
 
 AUDIO_CODEC_MAP: dict[str, str] = {
-    "mp4a":      "AAC",
-    "aac":       "AAC",
-    "mp3":       "MP3",
-    "mp4a.69":   "MP3",
-    "mp4a.6b":   "MP3",
-    "opus":      "Opus",
-    "vorbis":    "Vorbis",
-    "vorb":      "Vorbis",
-    "ac3":       "AC-3",
-    "ac-3":      "AC-3",
-    "eac3":      "E-AC-3",
-    "ec-3":      "E-AC-3",
-    "dts":       "DTS",
-    "dtsc":      "DTS",
-    "dtse":      "DTS",
-    "dtsh":      "DTS",
-    "flac":      "FLAC",
-    "alac":      "ALAC",
-    "pcm":       "PCM",
-    "lpcm":      "PCM",
-    "pcm_s16le": "PCM",
-    "wma":       "WMA",
-    "wmav2":     "WMA",
-    "amr":       "AMR",
-    "speex":     "Speex",
+    "mp4a":          "AAC",
+    "aac":           "AAC",
+    "mp3":           "MP3",
+    "mp4a.69":       "MP3",
+    "mp4a.6b":       "MP3",
+    "opus":          "Opus",
+    "vorbis":        "Vorbis",
+    "vorb":          "Vorbis",
+    "ac3":           "AC-3",
+    "ac-3":          "AC-3",
+    "eac3":          "E-AC-3",
+    "ec-3":          "E-AC-3",
+    "dts":           "DTS",
+    "dtsc":          "DTS",
+    "dtse":          "DTS",
+    "dtsh":          "DTS",
+    "flac":          "FLAC",
+    "alac":          "ALAC",
+    "pcm":           "PCM",
+    "lpcm":          "PCM",
+    "pcm_s16le":     "PCM",
+    "wma":           "WMA",
+    "wmav2":         "WMA",
+    "amr":           "AMR",
+    "speex":         "Speex",
+    "ac-4":          "AC-4",
+    "ac4":           "AC-4",
+    "ac-4.02.02.00": "AC-4",
+    "mp4a.ac-4":     "AC-4",
 }
 
 SUBTITLE_CODEC_MAP: dict[str, str] = {
@@ -77,7 +81,6 @@ CHANNEL_MAP: dict[str, str] = {
     "4":    "4.0",
     "6":    "5.1",
     "8":    "7.1",
-    # DASH AudioChannelConfiguration hex codes
     "A000": "Stereo",
     "A001": "Mono",
     "A002": "2.1",
@@ -89,22 +92,24 @@ CHANNEL_MAP: dict[str, str] = {
 
 
 SUBTITLE_CODEC_PREFIXES: tuple[str, ...] = (
-    "wvtt",        # WebVTT in ISOBMFF
-    "stpp",        # TTML (Synchronized Timed Text)
-    "ttml",        # TTML plain
-    "vtt",         # WebVTT plain
-    "webvtt",      # WebVTT variant
-    "srt",         # SubRip
-    "tx3g",        # QuickTime/MP4 text
-    "ass",         # Advanced SubStation Alpha
-    "ssa",         # SubStation Alpha
-    "dfxp",        # Distribution Format Exchange Profile (TTML)
+    "wvtt",
+    "stpp",
+    "ttml",
+    "vtt",
+    "webvtt",
+    "srt",
+    "tx3g",
+    "ass",
+    "ssa",
+    "dfxp"
 )
 
 AUDIO_CODEC_PREFIXES: tuple[str, ...] = (
-    "mp4a",    # AAC variants
-    "ec-3",    # E-AC-3 / Dolby Digital Plus
-    "ac-3",    # AC-3 / Dolby Digital
+    "mp4a",
+    "ec-3",
+    "ac-4",
+    "ac4",
+    "ac-3",
     "ac3",
     "eac3",
     "opus",
@@ -112,28 +117,28 @@ AUDIO_CODEC_PREFIXES: tuple[str, ...] = (
     "vorb",
     "flac",
     "alac",
-    "dtsc",    # DTS Core
-    "dtse",    # DTS Express
-    "dtsh",    # DTS-HD
+    "dtsc",
+    "dtse",
+    "dtsh",
     "dts",
     "pcm",
     "lpcm",
-    "wma",
+    "wma"
 )
 
 VIDEO_CODEC_PREFIXES: tuple[str, ...] = (
-    "avc",     # H.264 / AVC  (also matches avc1.*)
-    "hvc",     # H.265 / HEVC (hvc1.*)
-    "hev",     # H.265 variant (hev1.*)
+    "avc",
+    "hvc",
+    "hev",
     "hevc",
-    "av01",    # AV1
-    "vp09",    # VP9
-    "vp08",    # VP8
-    "dvhe",    # Dolby Vision HEVC
-    "dvh1",    # Dolby Vision HEVC (HVCL)
-    "dvav",    # Dolby Vision AVC
-    "dav1",    # Dolby Vision AV1
-    "mp4v",    # MPEG-4 Visual
+    "av01",
+    "vp09",
+    "vp08",
+    "dvhe",
+    "dvh1",
+    "dvav",
+    "dav1",
+    "mp4v",
     "vc-1",
     "vc1",
 )
@@ -193,6 +198,7 @@ CODEC_EXTENSION_MAP: dict[str, str] = {
     "mp4a":  "m4a",
     "ec-3":  "m4a",
     "ac-3":  "m4a",
+    "ac-4":  "m4a",
     "opus":  "webm",
     "flac":  "flac",
     "alac":  "m4a",
@@ -259,6 +265,8 @@ _AUDIO_CODEC_TOKEN: dict[str, str] = {
     "flac":     "flac",
     "alac":     "alac",
     "dts":      "dtsc",
+    "ac4":      "ac-4",
+    "ac-4":     "ac-4",
 }
 
 
@@ -290,18 +298,18 @@ def get_short_codec(stream_type: str, codec_str: str) -> str:
     """Return human-readable codec name given a stream type and codec string."""
     if not codec_str:
         return ""
-    
+
     # Check if it's a composite codec string (contains comma)
     if ',' in codec_str:
         codec_parts = [part.strip() for part in codec_str.split(',')]
-        
+
         # Convert each codec based on its detected type
         converted: list[str] = []
         seen_set: set[str] = set()
-        
+
         for part in codec_parts:
             detected_type = detect_stream_type(part)
-            
+
             # Choose the appropriate codec map
             if detected_type == "video":
                 codec_map = VIDEO_CODEC_MAP
@@ -320,20 +328,20 @@ def get_short_codec(stream_type: str, codec_str: str) -> str:
                     codec_map = SUBTITLE_CODEC_MAP
                 else:
                     codec_map = VIDEO_CODEC_MAP
-            
+
             # Translate the codec
             translated = _lookup(codec_map, part)
-            
+
             # Avoid duplicates (e.g., multiple "H.265" entries)
             if translated and translated not in seen_set:
                 converted.append(translated)
                 seen_set.add(translated)
-        
+
         # If all conversions succeeded, return joined result
         if converted:
             return ", ".join(converted)
         return codec_str
-    
+
     # Single codec - use original logic
     t = stream_type.lower()
     if t == "video":
