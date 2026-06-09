@@ -227,7 +227,7 @@ def check_dovi_tool() -> Optional[str]:
             console.print("[cyan]Cargo detected. Attempting to build dovi_tool from source...[/cyan]")
             binary_dir = binary_paths.ensure_binary_directory()
             try:
-                cmd = ["cargo", "install", "--git", "https://github.com/quietvoid/dovi_tool", "--root", os.path.dirname(binary_dir)]
+                cmd = ["cargo", "install", "--quiet", "--git", "https://github.com/quietvoid/dovi_tool", "--root", os.path.dirname(binary_dir)]
                 subprocess.run(cmd, check=True)
                 cargo_bin = os.path.join(os.path.dirname(binary_dir), "bin", "dovi_tool")
                 dest_bin = os.path.join(binary_dir, "dovi_tool")
@@ -321,7 +321,7 @@ def check_velora() -> Optional[str]:
             console.print("[cyan]Cargo detected. Attempting to build Velora from source...[/cyan]")
             binary_dir = binary_paths.ensure_binary_directory()
             try:
-                cmd = ["cargo", "install", "--git", "https://github.com/AstraeLabs/Velora", "--root", os.path.dirname(binary_dir)]
+                cmd = ["cargo", "install", "--quiet", "--git", "https://github.com/AstraeLabs/Velora", "--root", os.path.dirname(binary_dir)]
                 subprocess.run(cmd, check=True)
                 cargo_bin = os.path.join(os.path.dirname(binary_dir), "bin", "Velora")
                 dest_bin = os.path.join(binary_dir, "velora")

@@ -114,7 +114,7 @@ if [ -f "$HOME/.local/bin/binary/velora" ]; then
     echo -e "${GREEN}Velora è già installato in local binary directory.${NC_REG}"
 else
     echo -e "${BLUE}Compilazione di Velora da sorgente tramite Cargo (potrebbe richiedere qualche minuto)...${NC_REG}"
-    cargo install --git https://github.com/AstraeLabs/Velora --root "$HOME/.local" < /dev/null || {
+    cargo install --quiet --git https://github.com/AstraeLabs/Velora --root "$HOME/.local" < /dev/null || {
         echo -e "${RED}Errore durante la compilazione di Velora!${NC_REG}"
         exit 1
     }
@@ -126,6 +126,24 @@ else
     fi
     chmod +x "$HOME/.local/bin/binary/velora"
     echo -e "${GREEN}Velora compilato ed installato correttamente in ~/.local/bin/binary/velora${NC_REG}"
+fi
+
+# 5b. Compile dovi_tool
+echo -e "\n${YELLOW}[4b/5] Installazione e compilazione di dovi_tool...${NC_REG}"
+if [ -f "$HOME/.local/bin/binary/dovi_tool" ]; then
+    echo -e "${GREEN}dovi_tool è già installato in local binary directory.${NC_REG}"
+else
+    echo -e "${BLUE}Compilazione di dovi_tool da sorgente tramite Cargo (potrebbe richiedere qualche minuto)...${NC_REG}"
+    cargo install --quiet --git https://github.com/quietvoid/dovi_tool --root "$HOME/.local" < /dev/null || {
+        echo -e "${RED}Errore durante la compilazione di dovi_tool!${NC_REG}"
+        exit 1
+    }
+    
+    if [ -f "$HOME/.local/bin/dovi_tool" ]; then
+        mv "$HOME/.local/bin/dovi_tool" "$HOME/.local/bin/binary/dovi_tool"
+    fi
+    chmod +x "$HOME/.local/bin/binary/dovi_tool"
+    echo -e "${GREEN}dovi_tool compilato ed installato correttamente in ~/.local/bin/binary/dovi_tool${NC_REG}"
 fi
 
 # 6. Install VibraVid Python Package
