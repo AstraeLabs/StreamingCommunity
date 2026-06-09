@@ -23,7 +23,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Helper functions for non-interactive apt-get calls
 apt_update() {
-    apt-get update -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" < /dev/null
+    apt-get update -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" < /dev/null && \
+    apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" < /dev/null
 }
 
 apt_install() {
