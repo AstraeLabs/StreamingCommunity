@@ -55,7 +55,7 @@ if [ ! -d "$HOME/storage" ]; then
     echo -e "${BLUE}Richiesta permessi di archiviazione Android. Controlla il popup a schermo...${NC_REG}"
     termux-setup-storage
     echo -e "${YELLOW}Premi INVIO dopo aver concesso i permessi per continuare...${NC_REG}"
-    read -r
+    read -r < /dev/tty
 fi
 
 # Ensure /sdcard/Movies exists
@@ -138,7 +138,7 @@ export ANDROID_API_LEVEL=24
 pip install --upgrade pip setuptools wheel
 
 # Ask if user wants developer mode (editable)
-read -p "Vuoi installare VibraVid in modalità sviluppatore (-e)? [y/N]: " dev_mode
+read -p "Vuoi installare VibraVid in modalità sviluppatore (-e)? [y/N]: " dev_mode < /dev/tty
 if [[ $dev_mode =~ ^[Yy]$ ]]; then
     pip install -e .
 else
