@@ -81,6 +81,14 @@ uv sync --upgrade    # aggiorna dipendenze
 Puoi trovare l'applicazione nella Community Application
 ```
 
+### Opzione 5 — Android/Termux (automatica)
+
+Puoi installare automaticamente VibraVid, compilare tutte le dipendenze native (compreso Velora) e configurare l'archiviazione su Android/Termux eseguendo:
+
+```bash
+git clone https://github.com/AstraeLabs/VibraVid.git && cd VibraVid && bash termux_install.sh
+```
+
 ### Documentazione aggiuntiva
 
 - 📝 [Guida al login](../../.github/doc/login.md) — Autenticazione per i servizi supportati
