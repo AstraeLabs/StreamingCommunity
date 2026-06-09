@@ -21,15 +21,16 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 
-# Helper functions for non-interactive apt-get calls
-apt_update() {
-    apt-get update -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" < /dev/null && \
-    apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" < /dev/null
-}
+# Force dpkg to use default actions for config file prompts and never ask questions
+mkdir -p "$PREFIX/etc/apt/apt.conf.d"
+echo 'Dpkg::Options { "--force-confdef"; "--force-confold"; };' > "$PREFIX/etc/apt/apt.conf.d/99force-conf"
 
-apt_install() {
-    apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "$@" < /dev/null
+# Helper function to clean up our custom apt config
+cleanup_apt_config() {
+    rm -f "$PREFIX/etc/apt/apt.conf.d/99force-conf"
 }
+# Set trap to run cleanup on script exit (successful or error)
+trap cleanup_apt_config EXIT
 
 # Check if we need to clone the repository (in case run via curl)
 if [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
@@ -38,7 +39,7 @@ if [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
     # Ensure git is installed to perform the clone
     if ! command -v git &> /dev/null; then
         echo -e "${BLUE}Installazione di Git...${NC_REG}"
-        apt_update && apt_install git || {
+        pkg update -y < /dev/null && pkg install -y git < /dev/null || {
             echo -e "${RED}Impossibile installare Git!${NC_REG}"
             exit 1
         }
@@ -82,13 +83,13 @@ fi
 
 # 3. Package Updates
 echo -e "\n${YELLOW}[2/5] Aggiornamento dei repository di Termux...${NC_REG}"
-apt_update
+pkg update -y < /dev/null
 
 # 4. Install system packages and repositories
 echo -e "\n${YELLOW}[3/5] Installazione delle dipendenze di sistema...${NC_REG}"
 # Enable X11 repo for mkvtoolnix
-apt_install x11-repo
-apt_install python ffmpeg mkvtoolnix rust clang git cmake make || {
+pkg install -y x11-repo < /dev/null
+pkg install -y python ffmpeg mkvtoolnix rust clang git cmake make < /dev/null || {
     echo -e "${RED}Errore durante l'installazione dei pacchetti di sistema!${NC_REG}"
     exit 1
 }
