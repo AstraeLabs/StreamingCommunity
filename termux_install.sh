@@ -63,12 +63,40 @@ fi
 echo -e "\n${YELLOW}[2/5] Aggiornamento dei repository di Termux...${NC_REG}"
 pkg update -y
 
-# 4. Install system packages
-echo -e "\n${YELLOW}[3/5] Installazione delle dipendenze di sistema (Python, FFmpeg, Bento4, MKVToolNix)...${NC_REG}"
-pkg install -y python ffmpeg bento4 mkvtoolnix rust clang git || {
+# 4. Install system packages and repositories
+echo -e "\n${YELLOW}[3/5] Installazione delle dipendenze di sistema...${NC_REG}"
+# Enable X11 repo for mkvtoolnix
+pkg install -y x11-repo
+pkg install -y python ffmpeg mkvtoolnix rust clang git cmake make || {
     echo -e "${RED}Errore durante l'installazione dei pacchetti di sistema!${NC_REG}"
     exit 1
 }
+
+# 4b. Compile Bento4 (mp4decrypt and mp4dump) from source
+echo -e "\n${YELLOW}[3b/5] Compilazione di Bento4 (mp4decrypt/mp4dump) da sorgente...${NC_REG}"
+if [ -f "$HOME/.local/bin/binary/mp4decrypt" ] && [ -f "$HOME/.local/bin/binary/mp4dump" ]; then
+    echo -e "${GREEN}Bento4 (mp4decrypt/mp4dump) è già compilato e presente.${NC_REG}"
+else
+    echo -e "${BLUE}Clonazione e compilazione di Bento4 (axiomatic-systems/Bento4)...${NC_REG}"
+    git clone https://github.com/axiomatic-systems/Bento4.git "$HOME/Bento4_src" || {
+        echo -e "${RED}Errore nel clonare Bento4!${NC_REG}"
+        exit 1
+    }
+    cd "$HOME/Bento4_src" || exit 1
+    mkdir cmakebuild
+    cd cmakebuild || exit 1
+    cmake -DCMAKE_BUILD_TYPE=Release ..
+    make -j$(nproc 2>/dev/null || echo 2) || {
+        echo -e "${RED}Errore durante la compilazione di Bento4!${NC_REG}"
+        exit 1
+    }
+    mkdir -p "$HOME/.local/bin/binary"
+    cp mp4decrypt mp4dump "$HOME/.local/bin/binary/"
+    chmod +x "$HOME/.local/bin/binary/mp4decrypt" "$HOME/.local/bin/binary/mp4dump"
+    cd "$HOME" || exit 1
+    rm -rf "$HOME/Bento4_src"
+    echo -e "${GREEN}Bento4 compilato con successo!${NC_REG}"
+fi
 
 # 5. Compile Velora
 echo -e "\n${YELLOW}[4/5] Installazione e compilazione di Velora...${NC_REG}"
