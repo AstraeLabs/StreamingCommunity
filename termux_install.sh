@@ -19,6 +19,17 @@ if [ -z "$TERMUX_VERSION" ] && [ ! -d "/data/data/com.termux/files/usr" ]; then
     exit 1
 fi
 
+export DEBIAN_FRONTEND=noninteractive
+
+# Helper functions for non-interactive apt-get calls
+apt_update() {
+    apt-get update -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" < /dev/null
+}
+
+apt_install() {
+    apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "$@" < /dev/null
+}
+
 # Check if we need to clone the repository (in case run via curl)
 if [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
     echo -e "${YELLOW}VibraVid non rilevato nella cartella corrente. Preparazione installazione...${NC_REG}"
@@ -26,7 +37,7 @@ if [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
     # Ensure git is installed to perform the clone
     if ! command -v git &> /dev/null; then
         echo -e "${BLUE}Installazione di Git...${NC_REG}"
-        pkg update -y < /dev/null && pkg install -y git < /dev/null || {
+        apt_update && apt_install git || {
             echo -e "${RED}Impossibile installare Git!${NC_REG}"
             exit 1
         }
@@ -70,13 +81,13 @@ fi
 
 # 3. Package Updates
 echo -e "\n${YELLOW}[2/5] Aggiornamento dei repository di Termux...${NC_REG}"
-pkg update -y < /dev/null
+apt_update
 
 # 4. Install system packages and repositories
 echo -e "\n${YELLOW}[3/5] Installazione delle dipendenze di sistema...${NC_REG}"
 # Enable X11 repo for mkvtoolnix
-pkg install -y x11-repo < /dev/null
-pkg install -y python ffmpeg mkvtoolnix rust clang git cmake make < /dev/null || {
+apt_install x11-repo
+apt_install python ffmpeg mkvtoolnix rust clang git cmake make || {
     echo -e "${RED}Errore durante l'installazione dei pacchetti di sistema!${NC_REG}"
     exit 1
 }
