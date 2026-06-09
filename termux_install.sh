@@ -19,6 +19,27 @@ if [ -z "$TERMUX_VERSION" ] && [ ! -d "/data/data/com.termux/files/usr" ]; then
     exit 1
 fi
 
+# Check if we need to clone the repository (in case run via curl)
+if [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
+    echo -e "${YELLOW}VibraVid non rilevato nella cartella corrente. Preparazione installazione...${NC_REG}"
+    
+    # Ensure git is installed to perform the clone
+    if ! command -v git &> /dev/null; then
+        echo -e "${BLUE}Installazione di Git...${NC_REG}"
+        pkg update -y && pkg install -y git || {
+            echo -e "${RED}Impossibile installare Git!${NC_REG}"
+            exit 1
+        }
+    fi
+    
+    echo -e "${BLUE}Clonazione del repository da ManoloZocco/StreamingCommunity...${NC_REG}"
+    git clone https://github.com/ManoloZocco/StreamingCommunity.git || {
+        echo -e "${RED}Errore durante il clone del repository!${NC_REG}"
+        exit 1
+    }
+    cd StreamingCommunity || exit 1
+fi
+
 # 2. Storage permission setup
 echo -e "\n${YELLOW}[1/5] Verifica permessi di archiviazione...${NC_REG}"
 if [ ! -d "$HOME/storage" ]; then

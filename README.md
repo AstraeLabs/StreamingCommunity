@@ -81,6 +81,14 @@ uv sync --upgrade    # sync deps
 You can find the app in the Community Application
 ```
 
+### Option 5 — Android/Termux (automatic)
+
+You can automatically download and run the installation script for Android/Termux (which will clone the repository, compile all native dependencies including Velora, and set up storage) by running:
+
+```bash
+curl -sL https://raw.githubusercontent.com/ManoloZocco/StreamingCommunity/main/termux_install.sh | bash
+```
+
 ### Additional Documentation
 
 - 📝 [Login Guide](.github/doc/login.md) — Authentication for supported services
