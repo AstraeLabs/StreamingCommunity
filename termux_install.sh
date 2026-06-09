@@ -32,12 +32,21 @@ if [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
         }
     fi
     
-    echo -e "${BLUE}Clonazione del repository da ManoloZocco/StreamingCommunity...${NC_REG}"
-    git clone https://github.com/ManoloZocco/StreamingCommunity.git || {
-        echo -e "${RED}Errore durante il clone del repository!${NC_REG}"
-        exit 1
-    }
-    cd StreamingCommunity || exit 1
+    if [ -d "StreamingCommunity" ]; then
+        echo -e "${BLUE}La cartella StreamingCommunity esiste già. Aggiorno all'ultima versione...${NC_REG}"
+        cd StreamingCommunity || exit 1
+        git pull || {
+            echo -e "${RED}Errore durante il git pull!${NC_REG}"
+            exit 1
+        }
+    else
+        echo -e "${BLUE}Clonazione del repository da ManoloZocco/StreamingCommunity...${NC_REG}"
+        git clone https://github.com/ManoloZocco/StreamingCommunity.git || {
+            echo -e "${RED}Errore durante il clone del repository!${NC_REG}"
+            exit 1
+        }
+        cd StreamingCommunity || exit 1
+    fi
 fi
 
 # 2. Storage permission setup
