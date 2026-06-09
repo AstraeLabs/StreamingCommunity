@@ -26,7 +26,7 @@ if [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
     # Ensure git is installed to perform the clone
     if ! command -v git &> /dev/null; then
         echo -e "${BLUE}Installazione di Git...${NC_REG}"
-        pkg update -y && pkg install -y git || {
+        pkg update -y < /dev/null && pkg install -y git < /dev/null || {
             echo -e "${RED}Impossibile installare Git!${NC_REG}"
             exit 1
         }
@@ -35,13 +35,13 @@ if [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
     if [ -d "StreamingCommunity" ]; then
         echo -e "${BLUE}La cartella StreamingCommunity esiste già. Aggiorno all'ultima versione...${NC_REG}"
         cd StreamingCommunity || exit 1
-        git pull || {
+        git pull < /dev/null || {
             echo -e "${RED}Errore durante il git pull!${NC_REG}"
             exit 1
         }
     else
         echo -e "${BLUE}Clonazione del repository da ManoloZocco/StreamingCommunity...${NC_REG}"
-        git clone https://github.com/ManoloZocco/StreamingCommunity.git || {
+        git clone https://github.com/ManoloZocco/StreamingCommunity.git < /dev/null || {
             echo -e "${RED}Errore durante il clone del repository!${NC_REG}"
             exit 1
         }
@@ -53,7 +53,7 @@ fi
 echo -e "\n${YELLOW}[1/5] Verifica permessi di archiviazione...${NC_REG}"
 if [ ! -d "$HOME/storage" ]; then
     echo -e "${BLUE}Richiesta permessi di archiviazione Android. Controlla il popup a schermo...${NC_REG}"
-    termux-setup-storage
+    termux-setup-storage < /dev/null
     echo -e "${YELLOW}Premi INVIO dopo aver concesso i permessi per continuare...${NC_REG}"
     read -r < /dev/tty
 fi
@@ -70,13 +70,13 @@ fi
 
 # 3. Package Updates
 echo -e "\n${YELLOW}[2/5] Aggiornamento dei repository di Termux...${NC_REG}"
-pkg update -y
+pkg update -y < /dev/null
 
 # 4. Install system packages and repositories
 echo -e "\n${YELLOW}[3/5] Installazione delle dipendenze di sistema...${NC_REG}"
 # Enable X11 repo for mkvtoolnix
-pkg install -y x11-repo
-pkg install -y python ffmpeg mkvtoolnix rust clang git cmake make || {
+pkg install -y x11-repo < /dev/null
+pkg install -y python ffmpeg mkvtoolnix rust clang git cmake make < /dev/null || {
     echo -e "${RED}Errore durante l'installazione dei pacchetti di sistema!${NC_REG}"
     exit 1
 }
@@ -87,15 +87,15 @@ if [ -f "$HOME/.local/bin/binary/mp4decrypt" ] && [ -f "$HOME/.local/bin/binary/
     echo -e "${GREEN}Bento4 (mp4decrypt/mp4dump) è già compilato e presente.${NC_REG}"
 else
     echo -e "${BLUE}Clonazione e compilazione di Bento4 (axiomatic-systems/Bento4)...${NC_REG}"
-    git clone https://github.com/axiomatic-systems/Bento4.git "$HOME/Bento4_src" || {
+    git clone https://github.com/axiomatic-systems/Bento4.git "$HOME/Bento4_src" < /dev/null || {
         echo -e "${RED}Errore nel clonare Bento4!${NC_REG}"
         exit 1
     }
     cd "$HOME/Bento4_src" || exit 1
     mkdir cmakebuild
     cd cmakebuild || exit 1
-    cmake -DCMAKE_BUILD_TYPE=Release ..
-    make -j$(nproc 2>/dev/null || echo 2) || {
+    cmake -DCMAKE_BUILD_TYPE=Release .. < /dev/null
+    make -j$(nproc 2>/dev/null || echo 2) < /dev/null || {
         echo -e "${RED}Errore durante la compilazione di Bento4!${NC_REG}"
         exit 1
     }
@@ -114,7 +114,7 @@ if [ -f "$HOME/.local/bin/binary/velora" ]; then
     echo -e "${GREEN}Velora è già installato in local binary directory.${NC_REG}"
 else
     echo -e "${BLUE}Compilazione di Velora da sorgente tramite Cargo (potrebbe richiedere qualche minuto)...${NC_REG}"
-    cargo install --git https://github.com/AstraeLabs/Velora --root "$HOME/.local" || {
+    cargo install --git https://github.com/AstraeLabs/Velora --root "$HOME/.local" < /dev/null || {
         echo -e "${RED}Errore durante la compilazione di Velora!${NC_REG}"
         exit 1
     }
@@ -135,14 +135,14 @@ echo -e "\n${YELLOW}[5/5] Installazione del pacchetto Python VibraVid...${NC_REG
 export ANDROID_API_LEVEL=24
 
 # Upgrade core python packages
-pip install --upgrade pip setuptools wheel
+pip install --upgrade pip setuptools wheel < /dev/null
 
 # Ask if user wants developer mode (editable)
 read -p "Vuoi installare VibraVid in modalità sviluppatore (-e)? [y/N]: " dev_mode < /dev/tty
 if [[ $dev_mode =~ ^[Yy]$ ]]; then
-    pip install -e .
+    pip install -e . < /dev/null
 else
-    pip install .
+    pip install . < /dev/null
 fi
 
 # Create lowercase symlink for command availability
