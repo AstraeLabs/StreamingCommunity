@@ -62,6 +62,8 @@ if [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
     fi
 fi
 
+VIBRAVID_DIR=$(pwd)
+
 # 2. Storage permission setup
 echo -e "\n${YELLOW}[1/5] Verifica permessi di archiviazione...${NC_REG}"
 if [ ! -d "$HOME/storage" ]; then
@@ -161,6 +163,7 @@ fi
 
 # 6. Install VibraVid Python Package
 echo -e "\n${YELLOW}[5/5] Installazione del pacchetto Python VibraVid...${NC_REG}"
+cd "$VIBRAVID_DIR" || exit 1
 
 # Set Android API Level to prevent cryptography compilation errors
 export ANDROID_API_LEVEL=24
