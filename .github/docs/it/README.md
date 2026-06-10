@@ -88,7 +88,7 @@ Puoi trovare l'applicazione nella Community Application
 > - 📥 [F-Droid](https://f-droid.org/packages/com.termux/)
 > - 📥 [GitHub Releases](https://github.com/termux/termux-app/releases)
 
-Dopo aver installato la versione corretta di Termux, puoi scaricare ed eseguire automaticamente lo script di installazione (che si occuperà di clonare il repository, compilare tutte le dipendenze native compreso Velora, e configurare lo storage) eseguendo:
+Una volta installato Termux, apri l'applicazione, copia il comando qui sotto, incollalo nel terminale e premi **Invio** per avviare l'installazione automatica (lo script scaricherà VibraVid, compilerà tutti i componenti necessari compreso Velora, e configurerà la cartella dei video):
 
 ```bash
 curl -sL https://raw.githubusercontent.com/ManoloZocco/StreamingCommunity/main/termux_install.sh | bash
