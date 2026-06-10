@@ -83,7 +83,12 @@ Puoi trovare l'applicazione nella Community Application
 
 ### Opzione 5 — Android/Termux (automatica)
 
-Puoi scaricare ed eseguire automaticamente lo script di installazione per Android/Termux (che si occuperà di clonare il repository, compilare tutte le dipendenze native compreso Velora, e configurare lo storage) eseguendo:
+> [!IMPORTANT]
+> Questo script richiede **Termux**. **NON** installare Termux dal Google Play Store, poiché quella versione è obsoleta e abbandonata a causa delle restrizioni di sicurezza di Android. Scarica invece l'ultima versione ufficiale da:
+> - 📥 [F-Droid](https://f-droid.org/packages/com.termux/)
+> - 📥 [GitHub Releases](https://github.com/termux/termux-app/releases)
+
+Dopo aver installato la versione corretta di Termux, puoi scaricare ed eseguire automaticamente lo script di installazione (che si occuperà di clonare il repository, compilare tutte le dipendenze native compreso Velora, e configurare lo storage) eseguendo:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/ManoloZocco/StreamingCommunity/main/termux_install.sh | bash
