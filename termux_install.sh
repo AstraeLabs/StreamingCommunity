@@ -171,13 +171,7 @@ export ANDROID_API_LEVEL=24
 # Upgrade core python packages
 pip install --upgrade pip setuptools wheel < /dev/null
 
-# Ask if user wants developer mode (editable)
-read -p "Vuoi installare VibraVid in modalità sviluppatore (-e)? [y/N]: " dev_mode < /dev/tty
-if [[ $dev_mode =~ ^[Yy]$ ]]; then
-    pip install -e . < /dev/null
-else
-    pip install . < /dev/null
-fi
+pip install . < /dev/null
 
 # Create lowercase symlink for command availability
 usr_bin="/data/data/com.termux/files/usr/bin"
