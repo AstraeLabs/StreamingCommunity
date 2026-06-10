@@ -94,6 +94,12 @@ Once you have installed Termux, open the app, copy the command below, paste it i
 curl -sL https://raw.githubusercontent.com/ManoloZocco/StreamingCommunity/main/termux_install.sh | bash
 ```
 
+Once the installation is complete, you can launch the app at any time by simply typing:
+
+```bash
+vibravid
+```
+
 ### Additional Documentation
 
 - 📝 [Login Guide](.github/doc/login.md) — Authentication for supported services

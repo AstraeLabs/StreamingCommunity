@@ -94,6 +94,12 @@ Una volta installato Termux, apri l'applicazione, copia il comando qui sotto, in
 curl -sL https://raw.githubusercontent.com/ManoloZocco/StreamingCommunity/main/termux_install.sh | bash
 ```
 
+Una volta completata l'installazione, potrai avviare l'applicazione in qualsiasi momento scrivendo semplicemente nel terminale:
+
+```bash
+vibravid
+```
+
 ### Documentazione aggiuntiva
 
 - 📝 [Guida al login](../../.github/doc/login.md) — Autenticazione per i servizi supportati
