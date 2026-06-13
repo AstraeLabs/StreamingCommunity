@@ -1,4 +1,4 @@
-# 17.04.26
+# 13.06.26
 # by @nu00
 
 import json
@@ -19,22 +19,24 @@ console = Console()
 # Servers extracted from player.cinezo.live JS bundle (API endpoint deprecated)
 SUBS_API_URL = "https://player.cinezo.live/api/subtitles"
 HARDCODED_SERVERS = [
-    {"name": "Alpha",        "movieApiUrl": "https://api.tulnex.com/111movies/Alpha/movie/{id}",          "tvApiUrl": "https://api.tulnex.com/111movies/Alpha/tv/{id}/{season}/{episode}"},
-    {"name": "Bravo",        "movieApiUrl": "https://api.tulnex.com/111movies/Bravo/movie/{id}",          "tvApiUrl": "https://api.tulnex.com/111movies/Bravo/tv/{id}/{season}/{episode}"},
-    {"name": "NgFlix",       "movieApiUrl": "https://api.tulnex.com/111movies/NgFlix/movie/{id}",         "tvApiUrl": "https://api.tulnex.com/111movies/NgFlix/tv/{id}/{season}/{episode}"},
-    {"name": "Icefy",        "movieApiUrl": "https://api.tulnex.com/icefy/movie/{id}",                    "tvApiUrl": "https://api.tulnex.com/icefy/tv/{id}/{season}/{episode}"},
-    {"name": "MovieBox",     "movieApiUrl": "https://api.tulnex.com/moviebox/movie/{id}",                 "tvApiUrl": "https://api.tulnex.com/moviebox/tv/{id}/{season}/{episode}"},
-    {"name": "Onion",        "movieApiUrl": "https://api.tulnex.com/onion/movie/{id}",                    "tvApiUrl": "https://api.tulnex.com/onion/tv/{id}/{season}/{episode}"},
-    {"name": "AllMovies",    "movieApiUrl": "https://api.tulnex.com/provider/allmovies/movie/{id}?lang=english", "tvApiUrl": "https://api.tulnex.com/provider/allmovies/tv/{id}/{season}/{episode}?lang=english"},
-    {"name": "VidLink",      "movieApiUrl": "https://api.tulnex.com/provider/vidlink/movie/{id}",         "tvApiUrl": "https://api.tulnex.com/provider/vidlink/tv/{id}/{season}/{episode}"},
-    {"name": "Tik",          "movieApiUrl": "https://api.tulnex.com/tik/movie/{id}",                      "tvApiUrl": "https://api.tulnex.com/tik/tv/{id}/{season}/{episode}"},
-    {"name": "UniqueStream", "movieApiUrl": "https://api.tulnex.com/uniquestream/movie/{id}",             "tvApiUrl": "https://api.tulnex.com/uniquestream/tv/{id}/{season}/{episode}"},
-    {"name": "VaPlayer",     "movieApiUrl": "https://api.tulnex.com/vaplayer/movie/{id}",                 "tvApiUrl": "https://api.tulnex.com/vaplayer/tv/{id}/{season}/{episode}"},
-    {"name": "Neon",         "movieApiUrl": "https://api.tulnex.com/ve/server/Neon/movie/{id}",           "tvApiUrl": "https://api.tulnex.com/ve/server/Neon/tv/{id}/{season}/{episode}"},
-    {"name": "Yoru",         "movieApiUrl": "https://api.tulnex.com/ve/server/Yoru/movie/{id}",           "tvApiUrl": "https://api.tulnex.com/ve/server/Yoru/tv/{id}/{season}/{episode}"},
-    {"name": "VEdge",        "movieApiUrl": "https://api.tulnex.com/vidfast/movie/vedge/{id}",            "tvApiUrl": "https://api.tulnex.com/vidfast/tv/vedge/{id}/{season}/{episode}"},
-    {"name": "VFast",        "movieApiUrl": "https://api.tulnex.com/vidfast/movie/vfast/{id}",            "tvApiUrl": "https://api.tulnex.com/vidfast/tv/vfast/{id}/{season}/{episode}"},
-    {"name": "VidZee",       "movieApiUrl": "https://api.tulnex.com/vidzee/movie/{id}?server=0",          "tvApiUrl": "https://api.tulnex.com/vidzee/tv/{id}/{season}/{episode}?server=0"},
+    {"name": "4k",       "movieApiUrl": "https://leavemealone.tulnex.com/4k/movie/{id}",       "tvApiUrl": "https://leavemealone.tulnex.com/4k/tv/{id}/{season}/{episode}"},
+    {"name": "Cline",    "movieApiUrl": "https://leavemealone.tulnex.com/cline/movie/{id}",    "tvApiUrl": "https://leavemealone.tulnex.com/cline/tv/{id}/{season}/{episode}"},
+    {"name": "Fabric",   "movieApiUrl": "https://leavemealone.tulnex.com/fabric/movie/{id}",   "tvApiUrl": "https://leavemealone.tulnex.com/fabric/tv/{id}/{season}/{episode}"},
+    {"name": "Flax",     "movieApiUrl": "https://leavemealone.tulnex.com/flax/movie/{id}",     "tvApiUrl": "https://leavemealone.tulnex.com/flax/tv/{id}/{season}/{episode}"},
+    {"name": "Flix",     "movieApiUrl": "https://leavemealone.tulnex.com/flix/movie/{id}",      "tvApiUrl": "https://leavemealone.tulnex.com/flix/tv/{id}/{season}/{episode}"},
+    {"name": "Fucklink", "movieApiUrl": "https://leavemealone.tulnex.com/Fucklink/movie/{id}", "tvApiUrl": "https://leavemealone.tulnex.com/Fucklink/tv/{id}/{season}/{episode}"},
+    {"name": "Hi",       "movieApiUrl": "https://leavemealone.tulnex.com/hi/movie/{id}",       "tvApiUrl": "https://leavemealone.tulnex.com/hi/tv/{id}/{season}/{episode}"},
+    {"name": "Kilo",     "movieApiUrl": "https://leavemealone.tulnex.com/kilo/movie/{id}",     "tvApiUrl": "https://leavemealone.tulnex.com/kilo/tv/{id}/{season}/{episode}"},
+    {"name": "Lux",      "movieApiUrl": "https://leavemealone.tulnex.com/lux/movie/{id}",      "tvApiUrl": ""},
+    {"name": "Max",      "movieApiUrl": "https://leavemealone.tulnex.com/max/movie/{id}",      "tvApiUrl": "https://leavemealone.tulnex.com/max/tv/{id}/{season}/{episode}"},
+    {"name": "Mom",      "movieApiUrl": "https://leavemealone.tulnex.com/mom/movie/{id}",      "tvApiUrl": "https://leavemealone.tulnex.com/mom/tv/{id}/{season}/{episode}"},
+    {"name": "Netamp4",  "movieApiUrl": "https://leavemealone.tulnex.com/netamp4/movie/{id}",  "tvApiUrl": "https://leavemealone.tulnex.com/netamp4/tv/{id}/{season}/{episode}"},
+    {"name": "NgFlix",   "movieApiUrl": "https://leavemealone.tulnex.com/Ngflix/movie/{id}",   "tvApiUrl": "https://leavemealone.tulnex.com/Ngflix/tv/{id}/{season}/{episode}"},
+    {"name": "Orion",    "movieApiUrl": "https://leavemealone.tulnex.com/orion/movie/{id}",    "tvApiUrl": "https://leavemealone.tulnex.com/orion/tv/{id}/{season}/{episode}"},
+    {"name": "Rido",     "movieApiUrl": "https://leavemealone.tulnex.com/rido/movie/{id}",     "tvApiUrl": "https://leavemealone.tulnex.com/rido/tv/{id}/{season}/{episode}"},
+    {"name": "Tulnex1",  "movieApiUrl": "https://leavemealone.tulnex.com/tulnex1/movie/{id}",  "tvApiUrl": "https://leavemealone.tulnex.com/tulnex1/tv/{id}/{season}/{episode}"},
+    {"name": "Youtube",  "movieApiUrl": "https://leavemealone.tulnex.com/youtube/movie/{id}",  "tvApiUrl": "https://leavemealone.tulnex.com/youtube/tv/{id}/{season}/{episode}"},
+    {"name": "Zebra",    "movieApiUrl": "https://leavemealone.tulnex.com/zebra/movie/{id}",    "tvApiUrl": "https://leavemealone.tulnex.com/zebra/tv/{id}/{season}/{episode}"},
 ]
 
 
@@ -61,7 +63,7 @@ def _b64decode_safe(s: str) -> bytes:
 
 def decode_payload(payload: str) -> str:
     """
-    Decodes the 4-layer encrypted payload from api.tulnex.com.
+    Decodes the 4-layer encrypted payload from tulnex.com.
 
     Layer 4 (v): split on '|', base64-decode data part -> L3 string
     Layer 3 (h): AES-CBC decrypt with PBKDF2-SHA512 key
@@ -92,7 +94,7 @@ def decode_payload(payload: str) -> str:
     )
 
     # L1: XOR with PBKDF2-SHA256 key
-    xor_key  = _pbkdf2("Sn00pD0g#L1_X0R_M4st3rK3y!2026sex", "xK9!mR2@pL5#nQ8sex", 50_000, 32, 'sha256')
+    xor_key  = _pbkdf2("Sn00pD0g#L1_X0R_M4st3rK3y!2026sexx", "xK9!mR2@pL5#nQ8sex", 50_000, 32, 'sha256')
     raw_bytes = bytes.fromhex(hex_str)
     final    = bytes(raw_bytes[i] ^ xor_key[i % len(xor_key)] for i in range(len(raw_bytes)))
 
@@ -212,8 +214,9 @@ def _try_server(server, tmdb_id, media_type, season, episode, api_headers, found
             console.print(f"[yellow][Cinezo] {name}: no URL template")
             return None
 
-        with create_client(headers=api_headers) as client:
-            r = client.get(url, timeout=20)
+        client = create_client(headers=api_headers)
+        r = client.get(url, timeout=20)
+        client.close()
         if not r.ok or found_event.is_set():
             console.print(f"[yellow][Cinezo] {name}: HTTP {r.status_code}")
             return None
