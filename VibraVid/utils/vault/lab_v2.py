@@ -147,17 +147,6 @@ class LabDBVault:
                     if k == kid:
                         results.append(f"{kid}:{v}")
 
-        if results:
-            if pssh:
-                pssh_display = f"{pssh[:30]}..." if len(pssh) > 30 else pssh
-            else:
-                pssh_display = f"{kids[0][:30]}..." if kids else "..."
-            
-            console.print(f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])")
-            for r in results:
-                kid_val, key_val = r.split(":", 1)
-                console.print(f"    - [red]{kid_val}[white]:[green]{key_val} [cyan]| [#a855f7]lab")
-
         return results
 
     def get_keys_by_kid(self, license_url: Optional[str], kid: str, drm_type: str) -> List[str]:
