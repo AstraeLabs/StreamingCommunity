@@ -260,11 +260,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
                 console.print(f"[red]Error extracting keys for PSSH {pssh[:30]}...: {e}")
                 continue
 
-        if all_content_keys:
-            for i, k in enumerate(all_content_keys):
-                kid, key_val = k.split(":")
-                console.print(f"    - [red]{kid}[white]:[green]{key_val}")
-        else:
+        if not all_content_keys:
             console.print("[yellow]No keys extracted")
 
         return KeysManager(all_content_keys) if all_content_keys else None
