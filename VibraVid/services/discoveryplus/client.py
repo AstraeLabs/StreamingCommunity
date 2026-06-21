@@ -18,11 +18,12 @@ class DiscoveryPlus:
         """
         self.device_id = str(uuid.uuid1())
         self.client_id = "b6746ddc-7bc7-471f-a16c-f6aaf0c34d26"
+        accept_language = config_manager.config.get("DISCOVERYPLUS", "accept_language", default="en-US,en;q=0.9")
 
         # Base headers for Android TV client (will be updated after auth)
         self.base_headers = {
             'accept': '*/*',
-            'accept-language': 'it,it-IT;q=0.9,en;q=0.8',
+            'accept-language': accept_language,
             'user-agent': 'androidtv dplus/20.8.1.2 (android/9; en-US; SHIELD Android TV-NVIDIA; Build/1)',
             'x-disco-client': 'ANDROIDTV:9:dplus:20.8.1.2',
             'x-disco-params': 'realm=bolt,bid=dplus,features=ar',
@@ -60,9 +61,14 @@ class DiscoveryPlus:
             response = client.post(bootstrap_url)
         response.raise_for_status()
         config = response.json()
-        tenant = config['routing']['tenant']
-        market = config['routing']['homeMarket']
-        self.base_url = f"https://default.{tenant}-{market}.prd.api.discoveryplus.com"
+
+        # Build the market-specific content base_url from the bootstrap's own apiGroups template
+        routing = config['routing']
+        try:
+            template = config['apiGroups']['bolt-tenant-homemarket']['baseUrl']
+            self.base_url = template.format(**routing)
+        except (KeyError, TypeError):
+            self.base_url = (f"https://default.{routing['tenant']}-{routing['homeMarket']}.{routing.get('env', 'prd')}.{routing.get('domain', 'api.discomax.com')}")
 
         # Final headers for all subsequent requests
         self.headers = self.base_headers.copy()
