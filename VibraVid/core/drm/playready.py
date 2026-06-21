@@ -176,11 +176,7 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
                 console.print(f"[red]Error extracting keys: {e}")
                 continue
 
-        if all_content_keys:
-            for k in all_content_keys:
-                kid, key_val = k.split(":")
-                console.print(f"    - [red]{kid}[white]:[green]{key_val}")
-        else:
+        if not all_content_keys:
             console.print("[yellow]No keys extracted")
 
         return KeysManager(all_content_keys) if all_content_keys else None
