@@ -25,6 +25,10 @@ class DRMManager:
         ("lab",     lab_vault),
         ("supa",    supa_vault),
     ]
+    _VAULT_LABELS = {
+        "supa": "claudio", 
+        "lab": "lab"
+    }
 
     def __init__(self, widevine_device_path: str = None, playready_device_path: str = None, widevine_remote_cdm_api: list[str] = None, playready_remote_cdm_api: list[str] = None, prefer_remote_cdm: bool = True):
         """Initialize DRM Manager with CDM paths and database connections."""
@@ -34,6 +38,25 @@ class DRMManager:
         self.playready_remote_cdm_api = playready_remote_cdm_api
         self.prefer_remote_cdm = prefer_remote_cdm
         self._vaults: list[tuple[str, object]] = [(name, obj) for name, obj in self._VAULT_REGISTRY if obj is not None]
+
+    def _display_keys(self, resolved: list[str], vault_keys: list[str], drm_type: str, pssh_val: Optional[str], source: Optional[str], header: bool) -> None:
+        """Display resolved keys in the console, indicating which came from vaults and which were newly extracted"""
+        if not resolved:
+            return
+
+        if header:
+            pssh_disp = f"{pssh_val[:30]}..." if pssh_val and len(pssh_val) > 30 else (pssh_val or "...")
+            console.print(f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_disp}[cyan])")
+
+        label = self._VAULT_LABELS.get(source, source)
+        vault_kids = {k.split(":")[0].strip().lower() for k in vault_keys}
+        plain  = [k for k in resolved if k.split(":")[0].strip().lower() not in vault_kids]
+        tagged = [k for k in resolved if k.split(":")[0].strip().lower() in vault_kids]
+        
+        for k in plain + tagged:
+            kid_val, key_val = k.split(":", 1)
+            suffix = f" [cyan]| [#a855f7]{label}" if k in tagged else ""
+            console.print(f"    - [red]{kid_val}[white]:[green]{key_val}{suffix}")
 
     def _missing_kids(self, all_kids: list[str], found_keys: list[str]) -> list[str]:
         """Return list of KIDs that are in all_kids but not yet covered by found_keys."""
@@ -109,6 +132,7 @@ class DRMManager:
                 } or None
 
                 self._store_keys(manual_keys, drm_type, base_license_url, pssh_val, kid_to_label, source=None)
+                self._display_keys(manual_keys, [], drm_type, pssh_val, None, header=True)
                 return KeysManager(manual_keys)
 
         base_license_url = clean_license_url(license_url)
@@ -133,6 +157,7 @@ class DRMManager:
 
             if set(all_kids).issubset({k.split(":")[0].strip().lower() for k in vault_keys}):
                 logger.info(f"{drm_type} keys found in vault(s): {len(vault_keys)} key(s)")
+                self._display_keys(vault_keys, vault_keys, drm_type, pssh_val, vault_source, header=True)
                 return KeysManager(vault_keys)
 
         # Step 2: If no license_url but DRM detected → try generic lookup in database
@@ -143,6 +168,7 @@ class DRMManager:
 
             if vault_keys and set(all_kids).issubset({k.split(":")[0].strip().lower() for k in vault_keys}):
                 logger.info(f"{drm_type} keys found in vault(s) via generic lookup: {len(vault_keys)} key(s)")
+                self._display_keys(vault_keys, vault_keys, drm_type, pssh_val, vault_source, header=True)
                 return KeysManager(vault_keys)
             
             elif vault_keys:
@@ -173,11 +199,13 @@ class DRMManager:
                     all_keys = list({k.split(":")[0]: k for k in vault_keys + cdm_keys}.values())
                     logger.info(f"{drm_type} CDM extraction successful: {len(cdm_keys)} new key(s), {len(all_keys)} total")
                     self._store_keys(all_keys, drm_type, base_license_url, pssh_val, kid_to_label, source=None)
+                    self._display_keys(all_keys, vault_keys, drm_type, pssh_val, vault_source, header=False)
                     return KeysManager(all_keys)
-                
+
                 elif vault_keys:
                     # CDM returned nothing new but we have partial vault keys — return those
                     logger.warning(f"{drm_type} CDM returned no new keys; returning {len(vault_keys)} vault key(s)")
+                    self._display_keys(vault_keys, vault_keys, drm_type, pssh_val, vault_source, header=False)
                     return KeysManager(vault_keys)
 
                 logger.error(f"{drm_type} CDM extraction returned no keys")
