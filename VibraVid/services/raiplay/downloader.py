@@ -75,26 +75,28 @@ def download_film(select_title: Entries) -> Tuple[str, bool]:
     movie_path = movie_folder(*path_components)
     movie_name = f"{filename}.{extension_output}"
 
+    # Extract the content ID for license generation
+    content_id = _extract_film_content_id(first_item_path)
+    full_license_url = generate_license_url(content_id)
+
     # HLS
     if ".mpd" not in master_playlist:
         return HLS_Downloader(
             m3u8_url=fix_manifest_url(master_playlist),
-            license_url=generate_license_url(select_title.mpd_id),
+            license_url=full_license_url,
             output_path=os.path.join(movie_path, movie_name)
         ).start()
 
     # MPD
     else:
-        mpd_id = _extract_film_content_id(first_item_path)
-        full_license_url = generate_license_url(mpd_id)
         license_headers = {
             'nv-authorizations': full_license_url.split("?")[1].split("=")[1],
             'user-agent': get_userAgent(),
-        }
+        } if full_license_url else {}
 
         return DASH_Downloader(
             mpd_url=master_playlist,
-            license_url=full_license_url.split("?")[0],
+            license_url=full_license_url.split("?")[0] if full_license_url else None,
             license_headers=license_headers,
             output_path=os.path.join(movie_path, movie_name),
         ).start()
@@ -132,11 +134,11 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
         license_headers = {
             'nv-authorizations': full_license_url.split("?")[1].split("=")[1],
             'user-agent': get_userAgent(),
-        }
+        } if full_license_url else {}
 
         return DASH_Downloader(
             mpd_url=master_playlist,
-            license_url=full_license_url.split("?")[0],
+            license_url=full_license_url.split("?")[0] if full_license_url else None,
             license_headers=license_headers,
             output_path=os.path.join(episode_path, episode_name),
         ).start()
