@@ -159,15 +159,7 @@ class ExternalSupaDBVault:
         if result is None:
             return []
 
-        keys = result.get("keys", [])
-        if keys:
-            pssh_display = f"{pssh[:30]}..." if len(pssh) > 30 else pssh
-            console.print(f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])")
-            for k in keys:
-                kid_val, key_val = k["kid_key"].split(":", 1)
-                console.print(f"    - [red]{kid_val}[white]:[green]{key_val} [cyan]| [#a855f7]claudio")
-
-        return [k["kid_key"] for k in keys]
+        return [k["kid_key"] for k in result.get("keys", [])]
 
     def get_keys_by_kids(self, license_url: Optional[str], kids: List[str], drm_type: str, pssh: str = None) -> List[str]:
         """
@@ -193,18 +185,7 @@ class ExternalSupaDBVault:
         if result is None:
             return []
 
-        keys = result.get("keys", [])
-        if keys:
-            if pssh:
-                pssh_display = f"{pssh[:30]}..." if len(pssh) > 30 else pssh
-            else:
-                pssh_display = f"{normalized_kids[0][:30]}..." if normalized_kids else "..."
-            console.print(f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_display}[cyan])")
-            for k in keys:
-                kid_val, key_val = k["kid_key"].split(":", 1)
-                console.print(f"    - [red]{kid_val}[white]:[green]{key_val} [cyan]| [#a855f7]claudio")
-
-        return [k["kid_key"] for k in keys]
+        return [k["kid_key"] for k in result.get("keys", [])]
 
     def get_keys_by_kid(self, license_url: Optional[str], kid: str, drm_type: str) -> List[str]:
         """Convenience wrapper for a single KID lookup."""
