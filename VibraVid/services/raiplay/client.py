@@ -1,31 +1,44 @@
 # 16.03.25
 
 import json
+import logging
 
 from VibraVid.utils.http_client import create_client, get_headers
 
 
-def generate_license_url(mpd_id: str):
+logger = logging.getLogger(__name__)
+
+
+def generate_license_url(content_id: str):
     """
-    Generates the URL to obtain the Widevine license.
+    Resolve the Widevine license URL for a RaiPlay content id via the relinker.
 
     Args:
-        mpd_id (str): The ID of the MPD (Media Presentation Description) file.
+        content_id (str): The relinker content id (the ``cont`` value).
 
     Returns:
-        str: The full license URL.
+        str | None: The license URL, or None when the id is missing/invalid or the content is clear
     """
+    if not content_id:
+        return None
+
     params = {
-        'cont': mpd_id,
+        'cont': content_id,
         'output': '62',
     }
-    
+
     with create_client(headers=get_headers()) as client:
         response = client.get('https://mediapolisvod.rai.it/relinker/relinkerServlet.htm', params=params)
     response.raise_for_status()
 
-    # Extract the license URL from the response in two lines
-    json_data = json.loads(response.content.decode('latin-1'))
-    license_url = json_data.get('licence_server_map').get('drmLicenseUrlValues')[0].get('licenceUrl')
+    try:
+        json_data = json.loads(response.content.decode('latin-1'))
+    except json.JSONDecodeError:
+        logger.warning(f"RaiPlay relinker returned non-JSON for cont={content_id}: {response.content[:80]!r}")
+        return None
 
-    return license_url
+    drm_values = (json_data.get('licence_server_map') or {}).get('drmLicenseUrlValues') or []
+    if not drm_values:
+        return None  # clear / non-DRM content
+
+    return drm_values[0].get('licenceUrl')
