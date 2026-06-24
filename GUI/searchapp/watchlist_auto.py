@@ -99,6 +99,9 @@ def _process_item(item: WatchlistItem, force: bool = False) -> None:
             item.auto_last_downloaded_at = now
             item.has_new_episodes = True
 
+        # Keep display fields in sync with the live metadata already fetched
+        item.num_seasons = len(seasons)
+        item.last_season_episodes = seasons[-1].episode_count
         item.auto_last_checked_at = now
         item.last_checked_at = now
         item.save(
@@ -108,6 +111,8 @@ def _process_item(item: WatchlistItem, force: bool = False) -> None:
                 "auto_last_downloaded_at",
                 "has_new_episodes",
                 "last_checked_at",
+                "num_seasons",
+                "last_season_episodes",
             ]
         )
     except Exception as exc:
