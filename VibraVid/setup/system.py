@@ -3,7 +3,7 @@
 import sys
 import threading
 
-from .checker import check_bento4, check_mp4dump, check_ffmpeg, check_shaka_packager, check_dovi_tool, check_mkvmerge, check_velora
+from .checker import check_bento4, check_mp4dump, check_ffmpeg, check_shaka_packager, check_dovi_tool, check_mkvmerge, check_mkvpropedit, check_velora
 from .device_install import check_device_wvd_path, check_device_prd_path
 
 
@@ -18,6 +18,7 @@ _velora_path = None
 _shaka_packager_path = None
 _dovi_tool_path = None
 _mkvmerge_path = None
+_mkvpropedit_path = None
 _initialized = False
 _init_lock = threading.Lock()
 
@@ -32,7 +33,7 @@ def _initialize_paths():
     """
     global _ffmpeg_path, _ffprobe_path, _bento4_decrypt_path, _mp4dump_path
     global _wvd_path, _prd_path, _velora_path, _shaka_packager_path
-    global _dovi_tool_path, _mkvmerge_path
+    global _dovi_tool_path, _mkvmerge_path, _mkvpropedit_path
     global _initialized
 
     # Fast path: already initialized, return immediately.
@@ -53,6 +54,7 @@ def _initialize_paths():
         _shaka_packager_path = check_shaka_packager()
         _dovi_tool_path = check_dovi_tool()
         _mkvmerge_path = check_mkvmerge()
+        _mkvpropedit_path = check_mkvpropedit()
         _initialized = True
 
 
@@ -115,6 +117,11 @@ def get_mkvmerge_path() -> str:
     if not _initialized:
         _initialize_paths()
     return _mkvmerge_path
+
+def get_mkvpropedit_path() -> str:
+    if not _initialized:
+        _initialize_paths()
+    return _mkvpropedit_path
 
 def get_info_wvd(cdm_device_path):
     if cdm_device_path is None:
