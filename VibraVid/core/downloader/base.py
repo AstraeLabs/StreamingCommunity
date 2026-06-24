@@ -2,6 +2,7 @@
 
 import os
 import re
+import glob
 import json
 import shutil
 import logging
@@ -87,7 +88,7 @@ class BaseDownloader:
         self.output_dir = os.path.join(
             os.path.dirname(self.output_path), self.filename_base + temp_suffix
         )
-        self.file_already_exists = os.path.exists(self.output_path)
+        self.file_already_exists = self._finished_file_exists()
 
         self.download_id = context_tracker.download_id
         self.site_name = context_tracker.site_name
@@ -98,6 +99,21 @@ class BaseDownloader:
         self.copied_subtitles = []
         self.copied_audios = []
         self.audio_only = False
+
+    def _finished_file_exists(self) -> bool:
+        """True if the final file already exists, INCLUDING media-token variants
+        like '<name> [1080p].mkv' (the quality suffix is only added after muxing,
+        so the plain stripped path may not match an already-downloaded episode)."""
+        
+        if os.path.exists(self.output_path):
+            return True
+        
+        directory = os.path.dirname(self.output_path) or "."
+        if not os.path.isdir(directory):
+            return False
+        
+        pattern = os.path.join(directory, glob.escape(self.filename_base) + f"*.{EXTENSION_OUTPUT}")
+        return any(os.path.isfile(p) for p in glob.glob(pattern))
 
     @property
     def error(self) -> Optional[str]:
