@@ -454,6 +454,14 @@ class ContextTracker:
         self.local.max_time = value
 
     @property
+    def chapters(self):
+        return getattr(self.local, 'chapters', None)
+
+    @chapters.setter
+    def chapters(self, value):
+        self.local.chapters = value
+
+    @property
     def should_print(self) -> bool:
         """Returns False when console output should be suppressed (parallel CLI or GUI)."""
         return not self.is_gui and not self.is_parallel_cli
