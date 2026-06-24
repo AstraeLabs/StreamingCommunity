@@ -19,7 +19,7 @@ from VibraVid.services._base import load_search_functions
 from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
 from VibraVid.upload import git_update, binary_update
 from VibraVid.setup.system import _initialize_paths
-from VibraVid.setup.system import (get_ffmpeg_path, get_ffprobe_path, get_bento4_decrypt_path, get_mp4dump_path, get_wvd_path, get_prd_path, get_shaka_packager_path, get_dovi_tool_path, get_mkvmerge_path, get_velora_path)
+from VibraVid.setup.system import (get_ffmpeg_path, get_ffprobe_path, get_bento4_decrypt_path, get_mp4dump_path, get_wvd_path, get_prd_path, get_shaka_packager_path, get_dovi_tool_path, get_mkvmerge_path, get_mkvpropedit_path, get_velora_path)
 from VibraVid.setup.binary_paths import binary_paths
 from VibraVid.upload.version import __version__, __title__
 
@@ -54,6 +54,7 @@ _VERSION_FLAGS = {
     "Shaka Packager": ["--version"],
     "dovi_tool": ["--version"],
     "mkvmerge": ["--version"],
+    "mkvpropedit": ["--version"],
     "Bento4 (mp4decrypt)": [],
     "Bento4 (mp4dump)": [],
 }
@@ -305,6 +306,7 @@ def show_dependencies(search_functions):
         "Shaka Packager": get_shaka_packager_path(),
         "dovi_tool": get_dovi_tool_path(),
         "mkvmerge": get_mkvmerge_path(),
+        "mkvpropedit": get_mkvpropedit_path(),
         "Velora": get_velora_path(),
     }
 
