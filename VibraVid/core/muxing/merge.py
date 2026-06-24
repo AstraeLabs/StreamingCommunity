@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import tempfile
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -294,6 +295,30 @@ def _strip_drm_boxes(src_path: str) -> str:
 
 
 
+def _write_ffmetadata_chapters(chapters: list) -> str:
+    sorted_chs = sorted(chapters, key=lambda c: c["seconds"])
+    lines = [";FFMETADATA1", ""]
+    for i, ch in enumerate(sorted_chs):
+        start_ms = ch["seconds"] * 1000
+        end_ms = sorted_chs[i + 1]["seconds"] * 1000 - 1 if i + 1 < len(sorted_chs) else start_ms + 999999000
+        lines += ["[CHAPTER]", "TIMEBASE=1/1000", f"START={start_ms}", f"END={end_ms}", f"title={ch['name']}", ""]
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".ffmeta", delete=False, encoding="utf-8") as f:
+        f.write("\n".join(lines))
+        return f.name
+
+
+def _write_ogm_chapters(chapters: list) -> str:
+    sorted_chs = sorted(chapters, key=lambda c: c["seconds"])
+    lines = []
+    for i, ch in enumerate(sorted_chs, 1):
+        h, rem = divmod(ch["seconds"], 3600)
+        m, s = divmod(rem, 60)
+        lines += [f"CHAPTER{i:02d}={h:02d}:{m:02d}:{s:02d}.000", f"CHAPTER{i:02d}NAME={ch['name']}"]
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".ogm", delete=False, encoding="utf-8") as f:
+        f.write("\n".join(lines))
+        return f.name
+
+
 def join_video(video_path: str, out_path: str):
     """
     Mux video file using FFmpeg.
@@ -328,7 +353,14 @@ def join_video(video_path: str, out_path: str):
         ffmpeg_cmd.extend(['-f', 'mpegts'])
 
     ffmpeg_cmd.extend(['-i', video_path])
+    chapter_file = None
+    if context_tracker.chapters:
+        chapter_file = _write_ffmetadata_chapters(context_tracker.chapters)
+        ffmpeg_cmd.extend(['-f', 'ffmetadata', '-i', chapter_file])
     add_encoding_params(ffmpeg_cmd)
+    
+    if chapter_file:
+        ffmpeg_cmd.extend(['-map_metadata', '1'])
     ffmpeg_cmd.extend(_build_global_metadata_flags())
     ffmpeg_cmd.extend([out_path, '-y'])
 
@@ -337,6 +369,12 @@ def join_video(video_path: str, out_path: str):
     result_json = capture_ffmpeg_real_time(ffmpeg_cmd, '[yellow]FFMPEG [cyan]Join video', total_duration)
     if context_tracker.should_print:
         print()
+
+    if chapter_file:
+        try:
+            os.unlink(chapter_file)
+        except OSError:
+            pass
 
     return out_path, result_json
 
@@ -351,6 +389,11 @@ def _join_video_mkvmerge(video_path: str, out_path: str):
     if title:
         cmd += ["--title", title]
 
+    chapter_file = None
+    if context_tracker.chapters:
+        chapter_file = _write_ogm_chapters(context_tracker.chapters)
+        cmd += ["--chapters", chapter_file]
+
     cmd += [
         "--no-audio",
         "--no-subtitles",
@@ -361,6 +404,12 @@ def _join_video_mkvmerge(video_path: str, out_path: str):
     logger.info(f"Running Join Video (mkvmerge) command: {' '.join(cmd)}")
     total_duration = get_video_duration(video_path)
     result_json = capture_ffmpeg_real_time(cmd, '[yellow]MKVMERGE [cyan]Join video', total_duration)
+    
+    if chapter_file:
+        try:
+            os.unlink(chapter_file)
+        except OSError:
+            pass
 
     return out_path, result_json
 
