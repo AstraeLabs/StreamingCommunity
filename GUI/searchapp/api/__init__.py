@@ -15,6 +15,7 @@ _PREFERRED_ORDER = [
     'animeunity',
     'animeworld',
     'crunchyroll',
+    'primevideo',
     'mediasetinfinity',
     'raiplay',
     'discoveryplus',
@@ -28,6 +29,7 @@ _PREFERRED_ORDER = [
     'cinezo',
     'mostraguarda',
     'eurostreaming',
+    'amazon_music'
 ]
 _SITE_CATEGORIES: Dict[str, str] = {}
 
@@ -40,7 +42,7 @@ def _initialize_registry():
     package_dir = os.path.dirname(__file__)
     api_files = [
         f[:-3] for f in os.listdir(package_dir)
-        if f.endswith('.py') and f not in ('base.py', '__init__.py')
+        if f.endswith('.py') and f not in ('base.py', '__init__.py', 'generic.py')
     ]
 
     # Use preferred order first, then any remaining files
@@ -63,11 +65,14 @@ def _initialize_registry():
             for name, obj in module.__dict__.items():
                 if (isinstance(obj, type) and
                     issubclass(obj, BaseStreamingAPI) and
-                    obj is not BaseStreamingAPI):
+                    obj is not BaseStreamingAPI and
+                    obj.__module__ == module.__name__):
                     api_cls = obj
                     break
+
             if api_cls is None:
                 raise RuntimeError("no BaseStreamingAPI subclass found in module")
+            
             api_cls._indice = idx
             new_registry[module_name] = api_cls
         except Exception as e:
