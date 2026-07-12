@@ -175,6 +175,7 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     dl_opts.add_argument('--proxy-scope', dest='proxy_scope', type=str, choices=['scrap', 'down', 'scrap+down'], metavar='scrap|down|scrap+down', help='Where to apply the proxy: scraping only, downloads only, or both')
     dl_opts.add_argument('--skip-ts', dest='skip_ts', action='store_const', const=True, default=None, help='Skip TS/CAM releases (StreamingCommunity)')
     dl_opts.add_argument('--close-console', dest='close_console', type=str, choices=['true', 'false'], metavar='true|false', help='Exit after last download (overrides config)')
+    dl_opts.add_argument('--no-vault-cache', dest='bypass_vault_cache', action='store_const', const=True, default=None, help='Bypass DRM key vault cache; force a fresh CDM license request every run (for dynamic/time-sensitive tokens)')
 
     # ── Direct download
     dl_group = parser.add_argument_group('Direct download (--down)')
@@ -513,6 +514,7 @@ def main():
         # Propagate CLI download limits to the service flow
         context_tracker.max_segments = getattr(args, 'max_segments', None)
         context_tracker.max_time = getattr(args, 'max_time', None)
+        context_tracker.bypass_vault_cache = getattr(args, 'bypass_vault_cache', None)
         site_options = {'drm': getattr(args, 'drm', None)}
         site_options.update({dest: getattr(args, dest, None) for dest in site_option_dests})
         context_tracker.site_options = site_options
