@@ -21,6 +21,7 @@ from VibraVid.core.decryptor._models import detect_encryption_info
 from .base import BaseMediaDownloader
 from .downloader_live import LiveDownloadMixin
 from ._stream_vod import VodStreamMixin
+from ._multiperiod import MultiPeriodMixin
 from ._decrypt_pipeline import DecryptPipelineMixin
 from ._ism_postproc import IsmPostprocMixin
 from .util._stream_helpers import detect_seg_ext, join_interruptible, print_failed_segments_report, SilentDownloadBarManager
@@ -33,9 +34,11 @@ RETRY_COUNT = config_manager.config.get_int("REQUESTS",  "max_retry")
 REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS",  "timeout")
 VERIFY_TLS = config_manager.config.get_bool("REQUESTS", "verify")
 REALTIME_DECRYPT = config_manager.config.get_bool("DOWNLOAD", "realtime_decrypt")
+SEGMENT_DELAY_SECONDS = max(0.0, config_manager.config.get_float("DOWNLOAD", "segment_delay_seconds"))
+SEGMENT_DELAY_JITTER_SECONDS = max(0.0, config_manager.config.get_float("DOWNLOAD", "segment_delay_jitter_seconds"))
 
 
-class MediaDownloader(LiveDownloadMixin, VodStreamMixin, DecryptPipelineMixin, IsmPostprocMixin, BaseMediaDownloader):
+class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, DecryptPipelineMixin, IsmPostprocMixin, BaseMediaDownloader):
     def __init__(self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, max_segments: Optional[int] = None, max_time: Optional[float] = None, manifest_content: Optional[str] = None, manifest_protocol: Optional[str] = None, manifest_refresh_fn=None) -> None:
         super().__init__(
             url=url,
@@ -283,6 +286,8 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, DecryptPipelineMixin, I
                 "retry_base_delay_seconds": 1.0,
                 "retry_max_delay_seconds": 4.0,
                 "retry_jitter_seconds": 0.25,
+                "segment_delay_seconds": SEGMENT_DELAY_SECONDS,
+                "segment_delay_jitter_seconds": SEGMENT_DELAY_JITTER_SECONDS,
                 "proxy_url": get_proxy_url(),
                 "verify_tls": VERIFY_TLS,
                 "headers": headers,
@@ -333,7 +338,8 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, DecryptPipelineMixin, I
         # every DRM system (Widevine/PlayReady/FairPlay) protecting it.
         kid = info.kid or "N/A"
         scheme = info.scheme or "unknown"
-        logger.info(f"[PROBE][{target_path.name}] Scheme: {scheme}, KID: {kid}")
+        track_ids = info.track_ids or []
+        logger.info(f"[PROBE][{target_path.name}] Scheme: {scheme}, KID: {kid}, Track IDs: {track_ids}")
 
     def _build_headers(self) -> Dict:
         h = dict(self.headers)
