@@ -76,7 +76,7 @@ class ArrDownloaderService:
         logger.info(f"[_process_serie] Title='{title}', Title candidates={titles}, TMDB ID='{tmdb_id}'")
 
         year = serie.get("year")
-        year_range = self._build_year_range(year)
+        year_range = self._build_year_range(year, media_type="tv")
 
         for season in serie.get("seasons", []):
             season_num = season["number"]
@@ -903,12 +903,14 @@ class ArrDownloaderService:
         return self._unique_titles(titles)
 
     @staticmethod
-    def _build_year_range(year) -> Optional[str]:
+    def _build_year_range(year, media_type: str = "movie") -> Optional[str]:
         if not year:
             return None
         try:
             y = int(year)
             now = datetime.datetime.now().year
+            if media_type == "tv":
+                return f"{max(0, y - 1)}-{now + 1}"
             if y >= (now - 1):
                 return f"{y}-9999"
             else:
