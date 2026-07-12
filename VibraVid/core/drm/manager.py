@@ -153,7 +153,7 @@ class DRMManager:
         vault_keys: list[str] = []
         vault_source = None
 
-        if self._vaults and base_license_url and all_kids:
+        if False:  # FORCED BYPASS: self._vaults and base_license_url and all_kids:
             found_keys, vault_source = self._db_lookup(all_kids, base_license_url, drm_type, pssh_val)
             vault_keys = list(set(found_keys))
 
@@ -166,7 +166,7 @@ class DRMManager:
                 return KeysManager(vault_keys)
 
         # Step 2: If no license_url but DRM detected → try generic lookup in database
-        if not license_url and all_kids and self._vaults:
+        if False:  # FORCED BYPASS: not license_url and all_kids and self._vaults:
             logger.warning(f"DRM detected but missing license_url. Searching database for {len(all_kids)} {drm_type} KID(s) using 'generic' lookup")
             found_keys, vault_source = self._db_lookup(all_kids, "generic", drm_type, pssh_val)
             vault_keys = list(set(found_keys))
