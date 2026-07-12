@@ -9,6 +9,7 @@ from VibraVid.utils import config_manager
 from VibraVid.utils.vault._url_utils import clean_license_url
 from VibraVid.utils.vault import supa_vault, lab_vault
 from VibraVid.core.decryptor import KeysManager
+from VibraVid.core.ui.tracker import context_tracker
 from VibraVid.setup import binary_paths
 
 from .playready import get_playready_keys
@@ -18,6 +19,7 @@ from .widevine import get_widevine_keys
 console = Console()
 logger = logging.getLogger(__name__)
 USE_CDM = config_manager.config.get_bool("DRM", "use_cdm")
+BYPASS_VAULT_CACHE = config_manager.config.get_bool("DRM", "bypass_vault_cache")
 
 
 class DRMManager:
@@ -57,6 +59,29 @@ class DRMManager:
             kid_val, key_val = k.split(":", 1)
             suffix = f" [cyan]| [#a855f7]{label}" if k in tagged else ""
             console.print(f"    - [red]{kid_val}[white]:[green]{key_val}{suffix}")
+
+    def _bypass_cache(self) -> bool:
+        """Effective bypass-vault-cache flag: per-run CLI override wins over config default."""
+        override = getattr(context_tracker, 'bypass_vault_cache', None)
+        return BYPASS_VAULT_CACHE if override is None else bool(override)
+
+    def _announce_bypass(self, all_kids: list[str], base_license_url: str, pssh_val: str, drm_type: str) -> None:
+        """When the cache is bypassed, query every configured vault only to report which cached keys would have been used, without actually using them."""
+        if not all_kids or not self._vaults:
+            return
+
+        for name, vdb in self._vaults:
+            try:
+                keys = list(vdb.get_keys_by_kids(base_license_url or None, all_kids, pssh_val) or [])
+            except Exception as e:
+                logger.debug(f"Bypass announce lookup failed for {name} vault (non-fatal): {e}")
+                continue
+
+            label = self._VAULT_LABELS.get(name, name)
+            for k in keys:
+                kid_val, _, key_val = k.partition(":")
+                logger.info(f"Bypassing cached {drm_type} key {kid_val}:{key_val} from {label} vault")
+                console.print(f"[#a855f7]Bypassing [red]{kid_val}[white]:[green]{key_val}[#a855f7] from [cyan]{label}[#a855f7] vault")
 
     def _missing_kids(self, all_kids: list[str], found_keys: list[str]) -> list[str]:
         """Return list of KIDs that are in all_kids but not yet covered by found_keys."""
@@ -149,11 +174,20 @@ class DRMManager:
             if i.get("kid") and i["kid"] != "N/A" and i.get("label")
         } or None
 
+        bypass = self._bypass_cache()
+        if bypass:
+            logger.info(f"Vault cache bypassed by config/CLI; forcing fresh CDM extraction for {drm_type}")
+            self._announce_bypass(all_kids, base_license_url, pssh_val, drm_type)
+            if not USE_CDM:
+                msg = "bypass_vault_cache is enabled but use_cdm is disabled — no keys can be produced (vault reads skipped, CDM extraction off)."
+                logger.warning(msg)
+                console.print(f"[bold yellow]WARNING: {msg}[/bold yellow]")
+
         # Step 1: vault lookup with license_url
         vault_keys: list[str] = []
         vault_source = None
 
-        if False:  # FORCED BYPASS: self._vaults and base_license_url and all_kids:
+        if self._vaults and base_license_url and all_kids and not bypass:
             found_keys, vault_source = self._db_lookup(all_kids, base_license_url, drm_type, pssh_val)
             vault_keys = list(set(found_keys))
 
@@ -166,7 +200,7 @@ class DRMManager:
                 return KeysManager(vault_keys)
 
         # Step 2: If no license_url but DRM detected → try generic lookup in database
-        if False:  # FORCED BYPASS: not license_url and all_kids and self._vaults:
+        if not license_url and all_kids and self._vaults and not bypass:
             logger.warning(f"DRM detected but missing license_url. Searching database for {len(all_kids)} {drm_type} KID(s) using 'generic' lookup")
             found_keys, vault_source = self._db_lookup(all_kids, "generic", drm_type, pssh_val)
             vault_keys = list(set(found_keys))
