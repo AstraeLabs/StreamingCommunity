@@ -333,6 +333,14 @@ class DashParser:
                     if s is None:
                         continue
 
+                    # Tag every segment with its Period so the downloader can process
+                    # multi-period tracks (distinct source files / mixed clear+encrypted
+                    # per Period) one Period at a time instead of blindly concatenating.
+                    period_encrypted = bool(s.drm and s.drm.is_encrypted())
+                    for seg in s.segments:
+                        seg.period_idx = period_idx
+                        seg.encrypted = period_encrypted
+
                     dedup_key = _stream_dedup_key(s)
 
                     if dedup_key in period_seen_keys:
@@ -347,7 +355,14 @@ class DashParser:
                         for existing_stream in streams:
                             if _stream_dedup_key(existing_stream) == dedup_key:
                                 existing_stream.segments.extend(s.segments)
+
+                                # A later Period may be encrypted while the first (e.g. a
+                                # clear intro) was not: adopt the encrypted DRM so keys are
+                                # fetched and the encrypted Period actually gets decrypted.
+                                if period_encrypted and not existing_stream.drm.is_encrypted():
+                                    existing_stream.drm = s.drm
                                 break
+
                         continue
 
                     global_seen_keys.add(dedup_key)
@@ -865,7 +880,11 @@ class DashParser:
         if init_el is not None:
             src = init_el.get("sourceURL", "")
             if src:
-                stream.add_segment(Segment(self._inherit_query(urljoin(base_url, src), self._mpd_query_suffix), 0, "init"))
+                # A sourceURL may still carry a byte range:
+                # honour it, otherwise the whole multi-rep init file is fetched and
+                # the wrong (first/lowest) moov ends up describing the track.
+                init_range = init_el.get("range", "")
+                stream.add_segment(Segment(self._inherit_query(urljoin(base_url, src), self._mpd_query_suffix), 0, "init", byte_range=init_range))
             else:
                 init_range = init_el.get("range", "")
                 if init_range:
