@@ -229,6 +229,16 @@ class VodStreamMixin:
             logger.error(f"DASH stream has no segments: {stream}")
             return
 
+        # Multi-period tracks (same representation id spread across Periods that use
+        # distinct source files and/or mix clear + encrypted content) can't be
+        # concatenated into one file: each Period has its own init/moov and DRM.
+        # Hand them to the Period-aware path (merge + decrypt + concat per Period).
+        media_periods = {s.period_idx for s in stream.segments if s.seg_type == "media"}
+        if len(media_periods) > 1:
+            logger.info(f"DASH multi-period stream detected ({len(media_periods)} periods) — using per-period pipeline | {stream.type} {stream.resolution or stream.language}")
+            self._download_dash_multiperiod(stream, bar_manager, live_decryption)
+            return
+
         all_headers = self._build_headers()
         chunk_size = max(8 * 1024 * 1024, 1 * 1024 * 1024)
         media_segments = [s for s in stream.segments if s.seg_type == "media"]
