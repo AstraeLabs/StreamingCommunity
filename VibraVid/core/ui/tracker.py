@@ -494,6 +494,14 @@ class ContextTracker:
         self.local.max_time = value
 
     @property
+    def bypass_vault_cache(self):
+        return getattr(self.local, 'bypass_vault_cache', None)
+
+    @bypass_vault_cache.setter
+    def bypass_vault_cache(self, value):
+        self.local.bypass_vault_cache = value
+
+    @property
     def site_options(self):
         return getattr(self.local, 'site_options', None) or {}
 
