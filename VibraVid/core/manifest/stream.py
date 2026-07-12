@@ -240,6 +240,8 @@ class Segment:
     byte_range: str = ""  # e.g. "12132-31195" for byte-range requests
     duration: float = 0.0          # seconds; set by parser when known (e.g. #EXTINF or <S d=…/>)
     estimated_size: int = 0        # bytes; computed from stream bitrate × duration when size == 0
+    period_idx: int = 0            # DASH Period this segment belongs to (multi-period manifests)
+    encrypted: bool = False        # True when this segment's Period is DRM-protected
 
     def get_effective_size(self) -> int:
         """Return real size if downloaded/known, otherwise the estimate."""
