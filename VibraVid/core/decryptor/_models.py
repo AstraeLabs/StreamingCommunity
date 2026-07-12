@@ -44,6 +44,7 @@ class EncryptionInfo:
     pssh_b64: Optional[str] = None                      # selected PSSH system-id (populated by _finalize)
     video_codec: Optional[str] = None                   # e.g. "H.264", "HEVC"
     encryption_method: Optional[str] = None             # e.g. "SAMPLE_AES"
+    track_ids: Optional[list[str]] = None               # list of track IDs (if available)
     pssh_boxes: list[dict] = field(default_factory=list)
 
 
@@ -86,6 +87,7 @@ def detect_encryption_info(file_path: str) -> EncryptionInfo:
     sinf_boxes = _find_all(atoms, "sinf")
     saio_boxes = _find_all(atoms, "saio")
     saiz_boxes = _find_all(atoms, "saiz")
+    trak_boxes = _find_all(atoms, "trak")
 
     for tenc in tenc_boxes:
         kid = tenc.data.get("default_KID")
@@ -111,6 +113,26 @@ def detect_encryption_info(file_path: str) -> EncryptionInfo:
         sid = pssh.data.get("system_id", b"")
         sid = sid.hex() if isinstance(sid, (bytes, bytearray)) else str(sid).replace(" ", "").lower()
         info.pssh_boxes.append({"system_id": sid, "data_size": pssh.data.get("data_size", 0)})
+
+    track_ids = []
+    for trak in trak_boxes:
+        has_enc = bool(
+            _find_all([trak], "tenc")
+            or _find_all([trak], "schm")
+            or _find_all([trak], "sinf")
+            or _find_all([trak], "saio")
+            or _find_all([trak], "saiz")
+        )
+        if not has_enc:
+            continue
+        tkhd_boxes = _find_all([trak], "tkhd")
+        if tkhd_boxes:
+            tid = tkhd_boxes[0].data.get("track_id")
+            if tid is not None:
+                track_ids.append(str(tid))
+
+    if track_ids:
+        info.track_ids = track_ids
 
     if pssh_boxes or tenc_boxes or sinf_boxes or saio_boxes or saiz_boxes:
         info.encrypted = True
