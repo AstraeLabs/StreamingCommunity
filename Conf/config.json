@@ -27,6 +27,8 @@
         "delay_after_download": 0,
         "skip_download": false,
         "thread_count": 12,
+        "segment_delay_seconds": 0,
+        "segment_delay_jitter_seconds": 0,
         "decrypt_worker_count": 8,
         "subtitle_resolve_workers": 4,
         "realtime_decrypt": true,
@@ -75,6 +77,7 @@
     "DRM": {
         "use_cdm": true,
         "prefer_remote_cdm": false,
+        "bypass_vault_cache": false,
         "vault": {
             "supa": {
                 "url": "https://drm-db.server66.workers.dev",
