@@ -7,7 +7,9 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.services._base.tv_display_manager import manage_selection, validate_selection, display_episodes_list, display_seasons_list
+from VibraVid.services._base import tmdb_artwork
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
+from VibraVid.utils.vault_upload.hook import is_cached
 
 
 console = Console()
@@ -82,20 +84,39 @@ def process_season_selection(scrape_serie: Any, seasons_count: int, season_selec
                 console.print(f"[yellow]Warning: Selection {val} is neither a valid index nor a valid season number.")
     else:
         # Pre-selected mode (from GUI/CLI) - accept a 1-based index (position in the displayed list) first, then fall back to matching an actual season number.
-        for val in index_season_selected.split(','):
-            val = val.strip()
-            try:
-                num = int(val)
-            except ValueError:
-                console.print(f"[yellow]Warning: '{val}' is not a valid season number.")
-                continue
-
+        def _resolve_season_num(num: int) -> None:
             if 1 <= num <= len(seasons_list):
                 list_season_select.append(seasons_list[num - 1].number)
             elif num in available_numbers:
                 list_season_select.append(num)
             else:
                 console.print(f"[yellow]Warning: Season {num} is not available. Available: {available_numbers}")
+
+        for val in index_season_selected.split(','):
+            val = val.strip()
+            if val == "*":
+                list_season_select = list(available_numbers)
+                break
+
+            if "-" in val:
+                start_s, end_s = (p.strip() for p in val.split('-', 1))
+                try:
+                    start = int(start_s)
+                except ValueError:
+                    console.print(f"[yellow]Warning: '{val}' is not a valid season range.")
+                    continue
+                end = int(end_s) if end_s.isdigit() else len(seasons_list)
+                for num in range(start, end + 1):
+                    _resolve_season_num(num)
+                continue
+
+            try:
+                num = int(val)
+            except ValueError:
+                console.print(f"[yellow]Warning: '{val}' is not a valid season number.")
+                continue
+
+            _resolve_season_num(num)
 
     if not list_season_select:
         if is_manual_input:
@@ -156,6 +177,13 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
             context_tracker.episode = i_episode
             ep_obj = episodes[i_episode-1]
             context_tracker.episode_name = ep_obj.get('name') if isinstance(ep_obj, dict) else getattr(ep_obj, 'name', None)
+            context_tracker.poster_url = tmdb_artwork.resolve_episode_artwork_url(
+                context_tracker.series_tmdb_id, index_season_selected, i_episode
+            ) or context_tracker.fallback_poster_url
+
+            if is_cached():
+                console.print(f"[dim]Skipping episode {i_episode} of season {index_season_selected} — already in cache.")
+                continue
 
             # Trigger the download callback for the current episode
             try:
@@ -255,6 +283,13 @@ def process_episode_download(index_season_selected: int, scrape_serie: Any, down
             context_tracker.episode = i_episode
             ep_obj = episodes[i_episode-1]
             context_tracker.episode_name = ep_obj.get('name') if isinstance(ep_obj, dict) else getattr(ep_obj, 'name', None)
+            context_tracker.poster_url = tmdb_artwork.resolve_episode_artwork_url(
+                context_tracker.series_tmdb_id, index_season_selected, i_episode
+            ) or context_tracker.fallback_poster_url
+
+            if is_cached():
+                console.print(f"[dim]Skipping episode {i_episode} of season {index_season_selected} — already in cache.")
+                continue
 
             # Trigger the download callback for the current episode
             try:

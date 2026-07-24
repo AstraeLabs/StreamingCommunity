@@ -20,7 +20,8 @@ MOVIE_FORMAT = config_manager.config.get('OUTPUT', 'movie_format')
 EPISODE_FORMAT = config_manager.config.get('OUTPUT', 'episode_format')
 SONG_FORMAT = config_manager.config.get('OUTPUT', 'song_format', default=None)
 _MEDIA_TOKENS = {'quality', 'language', 'video_codec', 'audio_codec'}
-_TMDB_TOKENS = ('%(tmdb_id)', '%(imdb_id)', '%(original_title)', '%(original_language)')
+_TMDB_TOKENS = ('%(tmdb_id)', '%(imdb_id)', '%(original_title)', '%(original_language)', '%(tmdb_title)', '%(tmdb_episode_title)', '%(tmdb_season_name)', '%(tmdb_season_number')
+_DUB_TAG_RE = _re.compile(r'\s*\((?:ita|sub|sub\s*ita|dub|cr)\)\s*$', _re.IGNORECASE)
 
 
 def _apply_format_token(token: str, value: int) -> str:
@@ -77,13 +78,14 @@ def _replace_format_key(fmt_string: str, key: str, value) -> str:
     return pattern.sub(replacer, fmt_string)
 
 
-def _resolve_tmdb_tokens(fmt: str, title: str, year, media_type: str) -> str:
-    """Resolve TMDB-backed tokens (%(tmdb_id), %(imdb_id), %(original_title), %(original_language)) when present in the format string."""
+def _resolve_tmdb_tokens(fmt: str, title: str, year, media_type: str, season_number: int = None, episode_number: int = None) -> str:
+    """Resolve TMDB-backed tokens (%(tmdb_id), %(imdb_id), %(original_title), %(original_language), %(tmdb_title), %(tmdb_episode_title)) when present in the format string."""
     if not title or not any(tok in fmt for tok in _TMDB_TOKENS):
         return fmt
 
     try:
-        slug = tmdb_client._slugify(title)
+        lookup_title = _DUB_TAG_RE.sub('', title)
+        slug = tmdb_client._slugify(lookup_title)
         year_str = None
         if year is not None:
             y = str(year).split('-')[0].strip()
@@ -104,6 +106,11 @@ def _resolve_tmdb_tokens(fmt: str, title: str, year, media_type: str) -> str:
             if imdb_id:
                 fmt = fmt.replace("%(imdb_id)", str(imdb_id))
 
+        if "%(tmdb_title)" in fmt:
+            tmdb_title = tmdb_client.get_title(tmdb_id, resolved_type)
+            if tmdb_title:
+                fmt = fmt.replace("%(tmdb_title)", os_manager.get_sanitize_file(tmdb_title))
+
         if "%(original_title)" in fmt:
             original_title = tmdb_client.get_original_title(tmdb_id, resolved_type)
             if original_title:
@@ -113,6 +120,25 @@ def _resolve_tmdb_tokens(fmt: str, title: str, year, media_type: str) -> str:
             original_language = tmdb_client.get_original_language(tmdb_id, resolved_type)
             if original_language:
                 fmt = fmt.replace("%(original_language)", str(original_language))
+
+        if "%(tmdb_episode_title)" in fmt and resolved_type == "tv" and season_number is not None and episode_number is not None:
+            real_season, real_episode = tmdb_client.resolve_actual_season_episode(tmdb_id, season_number, episode_number)
+            tmdb_episode_title = tmdb_client.get_episode_title(tmdb_id, real_season, real_episode)
+            if tmdb_episode_title:
+                fmt = fmt.replace("%(tmdb_episode_title)", os_manager.get_sanitize_file(tmdb_episode_title))
+
+        # Only mapped when explicitly requested — avoids extra TMDB calls for everyone else.
+        if ("%(tmdb_season_name)" in fmt or "%(tmdb_season_number" in fmt) and resolved_type == "tv" and season_number is not None and episode_number is not None:
+            real_season, _ = tmdb_client.resolve_actual_season_episode(tmdb_id, season_number, episode_number)
+
+            if "%(tmdb_season_name)" in fmt:
+                season_name = tmdb_client.get_season_name(tmdb_id, real_season)
+                if season_name:
+                    fmt = fmt.replace("%(tmdb_season_name)", os_manager.get_sanitize_file(season_name))
+
+            if "%(tmdb_season_number" in fmt:
+                fmt = fmt.replace("%(tmdb_season_number)", str(real_season))
+                fmt = _replace_format_key(fmt, 'tmdb_season_number', real_season)
 
     except Exception as e:
         logger.warning(f"TMDB token resolution failed for '{title}': {e}")
@@ -366,7 +392,7 @@ def map_episode_path(series_name: str, series_year: str = None, season_number: i
         map_episode_temp = _replace_format_key(map_episode_temp, 'absolute', absolute_number)
 
     # TMDB-backed tokens (best-effort)
-    map_episode_temp = _resolve_tmdb_tokens(map_episode_temp, series_name, series_year, "tv")
+    map_episode_temp = _resolve_tmdb_tokens(map_episode_temp, series_name, series_year, "tv", season_val, episode_val)
 
     # Drop any token left unresolved (media tokens survive for _finalize)
     map_episode_temp = _strip_unknown_tokens(map_episode_temp)

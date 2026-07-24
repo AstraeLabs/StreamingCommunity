@@ -56,7 +56,7 @@ def convert_audio(input_path: str, ffmpeg_params: List[str]) -> Optional[str]:
     return str(output_path)
 
 
-def process_song(file_path: str, title: str, artist: str, album: str = "", year: str = "", track_number: Optional[int] = None, genre: str = "", cover_url: Optional[str] = None) -> str:
+def process_song(file_path: str, title: str, artist: str, album: str = "", year: str = "", track_number: Optional[int] = None, genre: str = "", cover_url: Optional[str] = None, album_artist: str = "") -> str:
     """
     Full post-download pipeline for a music file.
 
@@ -80,6 +80,7 @@ def process_song(file_path: str, title: str, artist: str, album: str = "", year:
         track_number=track_number,
         genre=genre,
         cover_url=cover_url,
+        album_artist=album_artist,
     )
 
     # Step 2 — convert if the user configured ffmpeg params
@@ -107,6 +108,7 @@ def process_song(file_path: str, title: str, artist: str, album: str = "", year:
             file_path=converted,
             title=title, artist=artist, album=album, year=year,
             track_number=track_number, genre=genre, cover_url=cover_url,
+            album_artist=album_artist,
         )
 
     print("\n")

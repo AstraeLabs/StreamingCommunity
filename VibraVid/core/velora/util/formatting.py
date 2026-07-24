@@ -1,7 +1,7 @@
 # 01.04.24
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple, Union
 
 
 def normalize_path_key(path_value: str) -> str:
@@ -16,12 +16,12 @@ def normalize_path_key(path_value: str) -> str:
 def format_size(nb: int) -> str:
     """Format *nb* bytes as a compact human-readable string."""
     if nb >= 1_073_741_824:
-        return f"{nb / 1_073_741_824:.2f}GB"
+        return f"{nb / 1_073_741_824:.2f}G"
     if nb >= 1_048_576:
-        return f"{nb / 1_048_576:.1f}MB"
+        return f"{nb / 1_048_576:.1f}M"
     if nb >= 1_024:
-        return f"{nb / 1_024:.0f}KB"
-    return f"{nb}B"
+        return f"{nb / 1_024:.0f}K"
+    return f"{nb}"
 
 
 def format_speed(bps: float) -> str:
@@ -29,10 +29,10 @@ def format_speed(bps: float) -> str:
     if bps <= 0:
         return "---"
     if bps >= 1_048_576:
-        return f"{bps / 1_048_576:.2f}MB/s"
+        return f"{bps / 1_048_576:.2f}M/s"
     if bps >= 1_024:
-        return f"{bps / 1_024:.0f}KB/s"
-    return f"{bps:.0f}B/s"
+        return f"{bps / 1_024:.0f}K/s"
+    return f"{bps:.0f}/s"
 
 
 def estimate_total_size(completed_bytes: int, done_segs: int, total_segs: int) -> int:
@@ -50,13 +50,9 @@ def fmt_dur(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
 
 
-def parse_max_time(value) -> Optional[float]:
-    """Parse "HH:MM:SS", "MM:SS", int, or float → seconds. Returns None when falsy."""
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value) if value > 0 else None
-    s = str(value).strip()
+def parse_time_scalar(s: str) -> Optional[float]:
+    """Parse "HH:MM:SS", "MM:SS", or plain seconds → seconds. None on malformed input."""
+    s = s.strip()
     if not s:
         return None
     parts = s.split(":")
@@ -68,3 +64,56 @@ def parse_max_time(value) -> Optional[float]:
         return float(s)
     except ValueError:
         return None
+
+
+def parse_max_time(value: Union[None, int, float, str, Tuple[float, Optional[float]]]) -> Tuple[float, Optional[float]]:
+    """Parse a "--max-time" value into a ``(start_seconds, end_seconds)`` range."""
+    if isinstance(value, tuple):
+        return value
+    if value is None:
+        return (0.0, None)
+    if isinstance(value, (int, float)):
+        return (0.0, float(value)) if value > 0 else (0.0, None)
+
+    s = str(value).strip()
+    if not s:
+        return (0.0, None)
+
+    if "-" in s:
+        start_s, end_s = s.split("-", 1)
+        start = parse_time_scalar(start_s) or 0.0
+        end = parse_time_scalar(end_s)
+        if end is not None and end <= start:
+            return (0.0, None)
+        return (start, end)
+
+    end = parse_time_scalar(s)
+    return (0.0, end) if end and end > 0 else (0.0, None)
+
+
+def parse_max_segments(value: Union[None, int, str, Tuple[int, Optional[int]]]) -> Tuple[int, Optional[int]]:
+    """Parse a "--max-segments" value into a ``(start_index, end_index)`` range."""
+    if isinstance(value, tuple):
+        return value
+    if value is None:
+        return (0, None)
+    if isinstance(value, int):
+        return (0, value) if value > 0 else (0, None)
+
+    s = str(value).strip()
+    if not s:
+        return (0, None)
+
+    try:
+        if "-" in s:
+            start_s, end_s = s.split("-", 1)
+            start = int(start_s.strip()) if start_s.strip() else 0
+            end = int(end_s.strip()) if end_s.strip() else None
+            if end is not None and end <= start:
+                return (0, None)
+            return (max(start, 0), end)
+
+        end = int(s)
+        return (0, end) if end > 0 else (0, None)
+    except ValueError:
+        return (0, None)

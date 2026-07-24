@@ -286,17 +286,15 @@ def update():
         pass
     
     logger.info(f"Execution mode: {get_execution_mode()}, System: {binary_paths._detect_system()}, Version: {current_version}, Latest: {last_version}, Country: {country_code}")
-    console.print(f"      [green]{get_execution_mode()} [white]\\ [red]{current_version} [white]\\ [purple]{country_code if country_code else 'None'}")
+    console.print(f"      [green]{get_execution_mode()} [dim]·[/] [red]{current_version} [dim]·[/] [cyan]{binary_paths.system} {binary_paths.arch} [dim]·[/] [purple]{country_code if country_code else 'None'} [dim]·[/] [link=https://discord.com/invite/8vV68UGRc7][#5865F2]Discord[/link] [dim]·[/] [link=https://ko-fi.com/arrowar][#ea4aaa]Donate[/link]")
 
     if str(current_version).lower().replace("v.", "").replace("v", "") != str(last_version).lower().replace("v.", "").replace("v", ""):
         if last_version == "Unknown" or last_version == "Beta Build":
             return
 
         tag_url = last_version if last_version.startswith("v") else f"v{last_version}"
-        console.print(f"\n[#E63946]New version available: [#FFD60A]{last_version} | [#FFD60A]https://github.com/AstraeLabs/VibraVid/releases/tag/{tag_url}")
-
         mode = get_execution_mode()
         if mode == "installer":
-            console.print("[#00BCD4]Run with [#FFD60A]-UP [#00BCD4]to auto-update")
+            console.print(f"\n[red]New [#00BCD4]version available: [#FFD60A][link=https://github.com/AstraeLabs/VibraVid/releases/tag/{tag_url}]{last_version}[/link] [dim]·[/] [#00BCD4]Run with [#FFD60A]-UP [#00BCD4]to auto-update")
         elif mode == "source_code":
-            console.print("[#00BCD4]Run [#FFD60A]git pull [#00BCD4]to update")
+            console.print(f"\n[red]New [#00BCD4]version available: [#FFD60A][link=https://github.com/AstraeLabs/VibraVid/releases/tag/{tag_url}]{last_version}[/link] [dim]·[/] [#00BCD4]Run [#FFD60A]git pull [#00BCD4]to update")

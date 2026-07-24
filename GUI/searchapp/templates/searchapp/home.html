@@ -11,7 +11,7 @@
   <div class="max-w-4xl mx-auto">
 
     <!-- Search Form Card -->
-    <form action="{% url 'search' %}" method="post" class="bg-gradient-to-br from-gray-900/80 to-gray-900/40 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 sm:p-10 shadow-2xl animate-zoom-in">
+    <form action="{% url 'search' %}" method="post" class="panel p-6 sm:p-10 shadow-2xl animate-zoom-in">
       {% csrf_token %}
       
       <div class="space-y-6">
@@ -23,7 +23,7 @@
             id="id_query" 
             required 
             placeholder="e.g. Breaking Bad, The Matrix, Stranger Things..."
-            class="w-full h-16 bg-black/50 border-2 border-gray-800 rounded-xl px-6 text-white text-lg placeholder-gray-600 focus:border-red-600 focus:outline-none focus:ring-4 focus:ring-red-600/20 transition-all"
+            class="w-full h-16 bg-scrim/50 border-2 border-line-1 rounded-xl px-6 text-fg text-lg placeholder-fg-faint focus:border-red-600 focus:outline-none focus:ring-4 focus:ring-red-600/20 transition-all"
             autofocus
           >
         </div>
@@ -33,7 +33,7 @@
           <div class="relative">
             {{ form.site }}
             <div class="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
-              <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
               </svg>
             </div>
@@ -43,7 +43,7 @@
         <!-- Search Button -->
         <button 
           type="submit" 
-          class="w-full h-14 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold text-lg rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl hover:shadow-2xl hover:shadow-red-600/20 flex items-center justify-center gap-3"
+          class="w-full h-14 btn-primary text-lg rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl hover:shadow-2xl hover:shadow-red-600/20 flex items-center justify-center gap-3"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>

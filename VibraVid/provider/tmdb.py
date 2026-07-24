@@ -5,6 +5,7 @@ import time
 import logging
 import unicodedata
 from difflib import SequenceMatcher
+from typing import Optional
 
 from rich.console import Console
 
@@ -33,6 +34,11 @@ class TMDBClient:
         if self.api_key is None or self.api_key == "":
             if not self._warned_no_api_key:
                 logger.error("TMDB API key is not set. Please provide a valid API key.")
+                console.print(
+                    "\n[yellow]Warning: TMDB API key is not set, search will return no results for this site.\n"
+                    "[yellow]Create a free key at [cyan]https://www.themoviedb.org/settings/api[/cyan] "
+                    "and set it in [cyan]Conf/login.json[/cyan] under [cyan]Provider.tmdb[/cyan]."
+                )
                 self._warned_no_api_key = True
             return {}
 
@@ -124,54 +130,94 @@ class TMDBClient:
 
         return results
 
+    def _match_movie_result(self, movie_results, slug: str, year):
+        """Return the TMDB id of the most popular movie result whose title/original_title slug-matches, honouring year if given."""
+        candidates = []
+        for movie in movie_results:
+            title = movie.get('title')
+            original_title = movie.get('original_title')
+            release_date = movie.get('release_date')
+            logger.debug(f"Candidate movie: title='{title}', original='{original_title}', year={release_date}")
+
+            if release_date:
+                movie_year = int(release_date[:4])
+            else:
+                continue
+
+            movie_slug = self._slugify(title)
+            original_slug = self._slugify(original_title) if original_title else None
+
+            if (self._slugs_match(movie_slug, slug) or (original_slug and self._slugs_match(original_slug, slug))) and (not year or movie_year == year):
+                candidates.append((movie.get('popularity') or 0, movie['id']))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        return candidates[0][1]
+
+    def _match_tv_result(self, tv_results, slug: str, year):
+        """Return the TMDB id of the most popular TV result whose name/original_name slug-matches, honouring year if given."""
+        candidates = []
+        for show in tv_results:
+            name = show.get('name')
+            original_name = show.get('original_name')
+            first_air_date = show.get('first_air_date')
+            logger.debug(f"Candidate TV: name='{name}', original='{original_name}', year={first_air_date}")
+
+            if first_air_date:
+                show_year = int(first_air_date[:4])
+            else:
+                continue
+
+            show_slug = self._slugify(name)
+            original_slug = self._slugify(original_name) if original_name else None
+
+            if (self._slugs_match(show_slug, slug) or (original_slug and self._slugs_match(original_slug, slug))) and (not year or show_year == year):
+                candidates.append((show.get('popularity') or 0, show['id']))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        return candidates[0][1]
+
     def get_type_and_id_by_slug_year(self, slug: str, year: str = None, media_type: str = None, language_preference: str = "it"):
         """Get the type (movie or tv) and ID from TMDB based on slug and year."""
         if year:
             year = int(year)
 
+        query = slug.replace('-', ' ')
+
         if media_type == "movie":
-            movie_results = self._search_movie_with_fallback(slug.replace('-', ' '), language_preference)
+            movie_results = self._search_movie_with_fallback(query, language_preference)
             logger.info(f"Found {len(movie_results)} movie results for slug '{slug}' and year '{year}'")
 
-            for movie in movie_results:
-                title = movie.get('title')
-                original_title = movie.get('original_title')
-                release_date = movie.get('release_date')
-                logger.debug(f"Candidate movie: title='{title}', original='{original_title}', year={release_date}")
+            movie_id = self._match_movie_result(movie_results, slug, year)
 
-                if release_date:
-                    movie_year = int(release_date[:4])
-                else:
-                    continue
+            if not movie_id and language_preference != "en-US":
+                # Preferred-language results may exist but not match (e.g. an Italian-only title) — retry in en-US.
+                en_results = self._make_request("search/movie", {"query": query, "language": "en-US", "include_adult": True}).get("results", [])
+                movie_id = self._match_movie_result(en_results, slug, year)
 
-                movie_slug = self._slugify(title)
-                original_slug = self._slugify(original_title) if original_title else None
-
-                if (self._slugs_match(movie_slug, slug) or (original_slug and self._slugs_match(original_slug, slug))) and (not year or movie_year == year):
-                    return {'type': "movie", 'id': movie['id']}
+            if movie_id:
+                return {'type': "movie", 'id': movie_id}
 
             logger.info(f"No movie result matched slug '{slug}' and year '{year}'")
 
         elif media_type == "tv":
-            tv_results = self._search_tv_with_fallback(slug.replace('-', ' '), language_preference)
+            tv_results = self._search_tv_with_fallback(query, language_preference)
             logger.info(f"Found {len(tv_results)} TV results for slug '{slug}' and year '{year}'")
 
-            for show in tv_results:
-                name = show.get('name')
-                original_name = show.get('original_name')
-                first_air_date = show.get('first_air_date')
-                logger.debug(f"Candidate TV: name='{name}', original='{original_name}', year={first_air_date}")
+            tv_id = self._match_tv_result(tv_results, slug, year)
 
-                if first_air_date:
-                    show_year = int(first_air_date[:4])
-                else:
-                    continue
+            if not tv_id and language_preference != "en-US":
+                # Preferred-language results may exist but not match (e.g. an Italian-only title) — retry in en-US.
+                en_results = self._make_request("search/tv", {"query": query, "language": "en-US", "include_adult": True}).get("results", [])
+                tv_id = self._match_tv_result(en_results, slug, year)
 
-                show_slug = self._slugify(name)
-                original_slug = self._slugify(original_name) if original_name else None
-
-                if (self._slugs_match(show_slug, slug) or (original_slug and self._slugs_match(original_slug, slug))) and (not year or show_year == year):
-                    return {'type': "tv", 'id': show['id']}
+            if tv_id:
+                return {'type': "tv", 'id': tv_id}
 
             logger.info(f"No TV result matched slug '{slug}' and year '{year}'")
 
@@ -223,20 +269,122 @@ class TMDBClient:
 
         return None
 
+    def _image_url(self, path: Optional[str], size: str) -> Optional[str]:
+        """Build a full TMDB image URL from an image path (e.g. poster_path/backdrop_path/still_path)."""
+        if not path:
+            return None
+        return f"https://image.tmdb.org/t/p/{size}{path}"
+
     def get_backdrop_url(self, media_type: str, tmdb_id: int, size: str = "w1280"):
         """Get the backdrop URL for a movie or TV show."""
         try:
             logger.info(f"Getting backdrop for {media_type} with TMDB ID {tmdb_id}")
             details = self._make_request(f"{media_type}/{tmdb_id}", {"language": "it"})
-            backdrop_path = details.get('backdrop_path')
-
-            if backdrop_path:
-                return f"https://image.tmdb.org/t/p/{size}{backdrop_path}"
+            return self._image_url(details.get('backdrop_path'), size)
 
         except Exception as e:
             logger.error(f"Error getting backdrop for {media_type} {tmdb_id}: {e}")
 
         return None
+
+    def get_poster_url(self, media_type: str, tmdb_id: int, size: str = "w780") -> Optional[str]:
+        """Get the poster URL for a movie or TV show."""
+        try:
+            details = self._make_request(f"{media_type}/{tmdb_id}", {"language": "it"})
+            return self._image_url(details.get('poster_path'), size)
+        except Exception as e:
+            logger.error(f"Error getting poster for {media_type} {tmdb_id}: {e}")
+        return None
+
+    def get_season_poster_url(self, tmdb_id: int, season_number: int, size: str = "w780") -> Optional[str]:
+        """Get the poster URL for a specific TV season."""
+        try:
+            details = self._make_request(f"tv/{tmdb_id}/season/{season_number}", {"language": "it"})
+            return self._image_url(details.get('poster_path'), size)
+        except Exception as e:
+            logger.error(f"Error getting season poster for tv {tmdb_id} season {season_number}: {e}")
+        return None
+
+    def get_episode_still_url(self, tmdb_id: int, season_number: int, episode_number: int, size: str = "w780") -> Optional[str]:
+        """Get the still (thumbnail) URL for a specific episode."""
+        try:
+            details = self._make_request(f"tv/{tmdb_id}/season/{season_number}/episode/{episode_number}", {"language": "it"})
+            return self._image_url(details.get('still_path'), size)
+        except Exception as e:
+            logger.error(f"Error getting episode still for tv {tmdb_id} S{season_number}E{episode_number}: {e}")
+        return None
+
+    def get_episode_title(self, tmdb_id: int, season_number: int, episode_number: int, language_preference: str = "it"):
+        """Return the TMDB episode title for a specific TV episode."""
+        details = self._make_request(f"tv/{tmdb_id}/season/{season_number}/episode/{episode_number}", {"language": language_preference})
+        name = details.get("name")
+        if name:
+            return name
+
+        logger.info(f"No episode title found for tv TMDB ID {tmdb_id} S{season_number}E{episode_number}")
+        return None
+
+    def get_season_name(self, tmdb_id: int, season_number: int, language_preference: str = "it"):
+        """Return the TMDB season name for a known, already-correct season number (no absolute remapping)."""
+        details = self._make_request(f"tv/{tmdb_id}", {"language": language_preference})
+        seasons = details.get("seasons") or []
+        season = next((s for s in seasons if s.get("season_number") == season_number), None)
+        return season.get("name") if season else None
+
+    def get_season_for_absolute_episode(self, tmdb_id: int, absolute_episode: int, language_preference: str = "it"):
+        """Map an absolute (cross-season) episode number to its real TMDB season."""
+        if not absolute_episode or absolute_episode < 1:
+            return None
+
+        details = self._make_request(f"tv/{tmdb_id}", {"language": language_preference})
+        seasons = details.get("seasons") or []
+
+        remaining = absolute_episode
+        for season in sorted(seasons, key=lambda s: s.get("season_number", 0)):
+            season_number = season.get("season_number")
+            if season_number is None or season_number == 0:
+                continue  # skip "Specials"
+
+            episode_count = season.get("episode_count") or 0
+            if remaining <= episode_count:
+                # Resolve the real in-season episode_number by position: some long-running shows
+                # (e.g. this Naruto entry) keep continuous numbering across seasons instead of
+                # restarting at 1 each season, so `remaining` itself is not always the right value.
+                season_details = self._make_request(f"tv/{tmdb_id}/season/{season_number}", {"language": language_preference})
+                episodes = season_details.get("episodes") or []
+                if 0 < remaining <= len(episodes):
+                    real_episode_number = episodes[remaining - 1].get("episode_number", remaining)
+                else:
+                    real_episode_number = remaining
+                return {"season_number": season_number, "episode_number": real_episode_number, "season_name": season.get("name")}
+
+            remaining -= episode_count
+
+        logger.info(f"Absolute episode {absolute_episode} exceeds known episode count for tv TMDB ID {tmdb_id}")
+        return None
+
+    def resolve_actual_season_episode(self, tmdb_id: int, season_number: int, episode_number: int, language_preference: str = "it"):
+        """Correct a possibly-flat/absolute (season_number, episode_number) pair against the show's real TMDB season structure."""
+        details = self._make_request(f"tv/{tmdb_id}", {"language": language_preference})
+        seasons = details.get("seasons") or []
+        target = next((s for s in seasons if s.get("season_number") == season_number), None)
+
+        if target and episode_number and episode_number <= (target.get("episode_count") or 0):
+            return season_number, episode_number
+
+        mapped = self.get_season_for_absolute_episode(tmdb_id, episode_number, language_preference)
+        if mapped:
+            return mapped["season_number"], mapped["episode_number"]
+
+        return season_number, episode_number
+
+    def get_episode_artwork_url(self, tmdb_id: int, season_number: int, episode_number: int) -> Optional[str]:
+        """Episode still -> season poster -> series poster fallback chain."""
+        return (
+            self.get_episode_still_url(tmdb_id, season_number, episode_number)
+            or self.get_season_poster_url(tmdb_id, season_number)
+            or self.get_poster_url('tv', tmdb_id)
+        )
 
     def get_imdb_id(self, tmdb_id: int, media_type: str, language_preference: str = "it"):
         """Return the IMDb ID associated with a TMDB movie or TV entry."""
@@ -262,6 +410,16 @@ class TMDBClient:
             return original
 
         logger.info(f"No original title found for {media_type} TMDB ID {tmdb_id}")
+        return None
+
+    def get_title(self, tmdb_id: int, media_type: str, language_preference: str = "it"):
+        """Return the TMDB title/name in language_preference for a movie or TV entry."""
+        details = self._make_request(f"{media_type}/{tmdb_id}", {"language": language_preference})
+        title = details.get("title") if media_type == "movie" else details.get("name")
+        if title:
+            return title
+
+        logger.info(f"No title found for {media_type} TMDB ID {tmdb_id}")
         return None
 
     def get_original_language(self, tmdb_id: int, media_type: str, language_preference: str = "it"):

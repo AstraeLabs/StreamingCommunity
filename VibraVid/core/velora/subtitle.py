@@ -258,7 +258,7 @@ async def _process_external_track(client: Any, headers: Dict, track: Dict, track
                 **subtitle_flags(lang_raw, track),
                 **language_variants(base_lang),
             }
-            logger.info(f"Downloaded {track_type} {lang_raw}: {size} bytes -> {out_path.name}")
+            logger.info(f"Downloaded {track_type} {lang_raw}: {size} bytes -> {out_path.name}" + (f" ({len(segments)} segments)" if is_multi_segment else ""))
             return track_type, entry
 
         logger.error(f"Failed to download {track_type} {lang_raw} (empty file)")

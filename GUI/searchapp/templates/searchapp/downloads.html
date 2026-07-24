@@ -9,15 +9,8 @@
   <!-- Page Header -->
   <div class="mb-8 sm:mb-12">
     <div class="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
-      <button 
-        onclick="window.history.back()" 
-        class="p-2 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
-      >
-        <svg class="w-5 h-5 sm:w-6 sm:h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-        </svg>
-      </button>
-      <h1 class="text-5xl font-black text-white leading-tight">
+{% include "searchapp/partials/_back_button.html" %}
+      <h1 class="text-5xl font-black text-fg leading-tight">
         Downloads
       </h1>
     </div>
@@ -31,7 +24,7 @@
         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
         <span class="relative inline-flex rounded-full h-full w-full bg-red-500"></span>
       </div>
-      <h2 class="text-2xl font-bold text-white">
+      <h2 class="text-2xl font-bold text-fg">
         Active Downloads
       </h2>
     </div>
@@ -40,13 +33,13 @@
     <div id="active-downloads-container" class="space-y-3 sm:space-y-4">
       
       <!-- Empty State -->
-      <div id="no-active-downloads" class="bg-gradient-to-br from-gray-900/60 to-gray-900/20 backdrop-blur-sm border border-dashed border-gray-700 rounded-2xl p-16 text-center">
+      <div id="no-active-downloads" class="panel-dashed p-16 text-center">
         <div class="w-20 h-20 bg-gradient-to-br from-red-600/20 to-purple-600/20 rounded-full flex items-center justify-center mx-auto mb-6">
-          <svg class="w-10 h-10 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-10 h-10 text-fg-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
           </svg>
         </div>
-        <p class="text-gray-500 font-semibold text-lg">
+        <p class="text-fg-muted font-semibold text-lg">
           No downloads in progress
         </p>
       </div>
@@ -59,19 +52,19 @@
       <div class="flex h-3 w-3 relative flex-shrink-0">
         <span class="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-70"></span>
       </div>
-      <h2 class="text-2xl font-bold text-white">
+      <h2 class="text-2xl font-bold text-fg">
         Scheduled Downloads
       </h2>
     </div>
 
     <div id="scheduled-downloads-container" class="space-y-3 sm:space-y-4">
-      <div id="no-scheduled-downloads" class="bg-gradient-to-br from-gray-900/60 to-gray-900/20 backdrop-blur-sm border border-dashed border-gray-700 rounded-2xl p-12 text-center">
+      <div id="no-scheduled-downloads" class="panel-dashed p-12 text-center">
         <div class="w-16 h-16 bg-gradient-to-br from-amber-500/20 to-orange-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-8 h-8 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"></path>
           </svg>
         </div>
-        <p class="text-gray-500 font-semibold text-lg">
+        <p class="text-fg-muted font-semibold text-lg">
           No scheduled downloads
         </p>
       </div>
@@ -82,13 +75,13 @@
   <div>
     <!-- Section Header -->
     <div class="flex items-center justify-between mb-6">
-      <h2 class="text-2xl font-bold text-white">
+      <h2 class="text-2xl font-bold text-fg">
         History
       </h2>
       <button
         id="clear-history-btn"
         onclick="window.clearHistory()"
-        class="px-3 py-2 sm:px-4 sm:py-2 bg-red-600/10 hover:bg-red-600 active:bg-red-700 text-red-500 hover:text-white border border-red-600/30 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 sm:gap-2 min-h-[36px]"
+        class="px-3 py-2 sm:px-4 sm:py-2 btn-danger text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 sm:gap-2 min-h-[36px]"
         title="Clear all history"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -100,27 +93,27 @@
     </div>
 
     <!-- History Table -->
-    <div class="bg-gradient-to-br from-gray-900/80 to-gray-900/40 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden">
+    <div class="panel overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="w-full">
+        <table class="table-vv">
           <thead>
-            <tr class="border-b border-gray-800">
-              <th class="px-6 py-5 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
+            <tr class="border-b border-line-1">
+              <th class="text-left">
                 Content
               </th>
-              <th class="px-6 py-5 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">
+              <th class="text-center">
                 Status
               </th>
-              <th class="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
+              <th class="text-right">
                 Completed
               </th>
             </tr>
           </thead>
-          <tbody id="history-body" class="divide-y divide-gray-800">
+          <tbody id="history-body">
             <tr>
-              <td colspan="3" class="px-6 py-12 text-center text-gray-500">
+              <td colspan="3" class="px-6 py-12 text-center text-fg-muted">
                 <div class="flex flex-col items-center gap-3">
-                  <svg class="w-8 h-8 text-gray-700 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-8 h-8 text-fg-faint animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                   </svg>
                   <span class="font-medium text-base">Loading history...</span>
@@ -244,7 +237,7 @@ function renderActiveDownloads(downloads) {
     
     if (!card) {
       card = document.createElement('div');
-      card.className = 'download-card bg-gradient-to-br from-gray-900/80 to-gray-900/40 backdrop-blur-xl border border-gray-800 rounded-xl sm:rounded-2xl overflow-hidden hover:border-gray-700 transition-all';
+      card.className = 'download-card panel overflow-hidden hover:border-line-2 transition-all';
       card.dataset.id = dl.id;
       container.appendChild(card);
     }
@@ -270,7 +263,7 @@ function renderScheduledDownloads(downloads) {
     let card = container.querySelector(`.scheduled-download-card[data-id="${dl.id}"]`);
     if (!card) {
       card = document.createElement('div');
-      card.className = 'scheduled-download-card bg-gradient-to-br from-gray-900/80 to-gray-900/40 backdrop-blur-xl border border-gray-800 rounded-xl sm:rounded-2xl p-4 sm:p-5';
+      card.className = 'scheduled-download-card panel p-4 sm:p-5';
       card.dataset.id = dl.id;
       container.appendChild(card);
     }
@@ -286,14 +279,14 @@ function renderScheduledDownloads(downloads) {
         <div class="min-w-0">
           <div class="flex items-center gap-2 mb-2">
             <span class="px-2.5 py-1 bg-amber-500/20 text-amber-300 text-[10px] sm:text-xs font-bold uppercase tracking-wider rounded">Pending</span>
-            <span class="px-2.5 py-1 bg-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold rounded">${escapeHtml(typeLabel)}</span>
-            <span class="px-2.5 py-1 bg-white/10 text-gray-400 text-[10px] sm:text-xs rounded">${escapeHtml(dl.site || '')}</span>
+            <span class="px-2.5 py-1 bg-overlay/10 text-fg-secondary text-[10px] sm:text-xs font-semibold rounded">${escapeHtml(typeLabel)}</span>
+            <span class="px-2.5 py-1 bg-overlay/10 text-fg-muted text-[10px] sm:text-xs rounded">${escapeHtml(dl.site || '')}</span>
           </div>
-          <p class="text-sm sm:text-base font-semibold text-white truncate">${escapeHtml(dl.title || 'Download')}</p>
-          ${details ? `<p class="text-xs text-gray-400 mt-1">${details}</p>` : ''}
+          <p class="text-sm sm:text-base font-semibold text-fg truncate">${escapeHtml(dl.title || 'Download')}</p>
+          ${details ? `<p class="text-xs text-fg-muted mt-1">${details}</p>` : ''}
         </div>
         <div class="flex items-center gap-3">
-          <div class="text-xs text-gray-500 font-mono whitespace-nowrap">${scheduleDate}</div>
+          <div class="text-xs text-fg-muted font-mono whitespace-nowrap">${scheduleDate}</div>
           <button onclick="window.killSeriesQueue('${dl.id}')" class="px-3 py-2 bg-red-600/10 hover:bg-red-600 active:bg-red-700 text-red-500 hover:text-white border border-red-600/30 rounded text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 min-h-[34px]" title="Cancel this scheduled download">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             Cancel
@@ -318,38 +311,42 @@ function generateDownloadCardHTML(dl) {
   else if (dl.progress > 50) progressColor = 'from-yellow-600 to-yellow-500';
   else if (dl.progress > 25) progressColor = 'from-orange-600 to-orange-500';
 
+  const thumbnailHTML = dl.poster
+    ? `<img src="${escapeHtml(dl.poster)}" class="w-20 h-[7.5rem] sm:w-24 sm:h-36 lg:w-32 lg:h-48 rounded-lg object-cover shadow-2xl shadow-red-600/30" alt="">`
+    : `<div class="w-20 h-[7.5rem] sm:w-24 sm:h-36 lg:w-32 lg:h-48 bg-gradient-to-br from-red-600 to-purple-600 rounded-lg flex items-center justify-center shadow-2xl shadow-red-600/30">
+        <svg class="w-10 h-10 sm:w-12 sm:h-12 lg:w-16 lg:h-16 text-white/90" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      </div>`;
+
   let html = `<div class="p-4 sm:p-6 lg:p-8"><div class="flex flex-col sm:flex-row gap-4 sm:gap-6">
     <div class="flex-shrink-0 mx-auto sm:mx-0">
-      <div class="w-20 h-30 sm:w-24 sm:h-36 lg:w-32 lg:h-48 bg-gradient-to-br from-red-600 to-purple-600 rounded-lg flex items-center justify-center shadow-2xl shadow-red-600/30">
-        <svg class="w-10 h-10 sm:w-12 sm:h-12 lg:w-16 lg:h-16 text-white/90" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-      </div>
+      ${thumbnailHTML}
     </div>
     <div class="flex-1 min-w-0">
       <div class="mb-4">
         <div class="flex flex-wrap items-center justify-center sm:justify-start gap-2 mb-3">
           <span class="px-2.5 py-1 sm:px-3 bg-red-600 text-white text-[10px] sm:text-xs font-bold uppercase tracking-wider rounded">${escapeHtml(typeLabel)}</span>
-          <span class="px-2.5 py-1 sm:px-3 bg-white/10 backdrop-blur-sm text-gray-300 text-[10px] sm:text-xs font-semibold rounded">${escapeHtml(dl.site)}</span>
+          <span class="px-2.5 py-1 sm:px-3 bg-overlay/10 backdrop-blur-sm text-fg-secondary text-[10px] sm:text-xs font-semibold rounded">${escapeHtml(dl.site)}</span>
           ${dl.series_name ? `<span class="max-w-full sm:max-w-[260px] px-2.5 py-1 sm:px-3 bg-blue-600/20 border border-blue-500/30 text-blue-200 text-[10px] sm:text-xs font-semibold rounded truncate" title="${escapeHtml(dl.series_name)}">${escapeHtml(dl.series_name)}</span>` : ''}
           <button onclick="window.killDownload('${dl.id}')" class="w-full sm:w-auto sm:ml-2 px-3 py-2 sm:px-2 sm:py-0.5 bg-red-600/10 hover:bg-red-600 active:bg-red-700 text-red-500 hover:text-white border border-red-600/30 rounded text-xs sm:text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 sm:gap-1 min-h-[36px] sm:min-h-0" title="Stop downloading"><svg class="w-4 h-4 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>CANCEL</button>
         </div>
-        <h3 class="text-lg sm:text-xl lg:text-2xl font-bold text-white mb-1 text-center sm:text-left">${escapeHtml(dl.title)}</h3>
-        <p class="text-xs sm:text-sm text-gray-400 text-center sm:text-left">${escapeHtml(dl.status)} • ${timeStr} elapsed</p>
-        ${dl.path ? `<p class="text-[10px] sm:text-xs text-gray-400 mt-1 truncate opacity-60 text-center sm:text-left" title="${escapeHtml(dl.path)}">${escapeHtml(dl.path)}</p>` : ''}
+        <h3 class="text-lg sm:text-xl lg:text-2xl font-bold text-fg mb-1 text-center sm:text-left">${escapeHtml(dl.title)}</h3>
+        <p class="text-xs sm:text-sm text-fg-muted text-center sm:text-left">${escapeHtml(dl.status)} • ${timeStr} elapsed</p>
+        ${dl.path ? `<p class="text-[10px] sm:text-xs text-fg-muted mt-1 truncate opacity-60 text-center sm:text-left" title="${escapeHtml(dl.path)}">${escapeHtml(dl.path)}</p>` : ''}
       </div>
       <div class="mb-4">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-xs sm:text-sm font-semibold text-gray-300">Progress</span>
-          <span class="text-base sm:text-lg font-bold text-white font-mono">${dl.progress.toFixed(1)}%</span>
+          <span class="text-xs sm:text-sm font-semibold text-fg-secondary">Progress</span>
+          <span class="text-base sm:text-lg font-bold text-fg font-mono">${dl.progress.toFixed(1)}%</span>
         </div>
-        <div class="h-2 sm:h-2.5 w-full bg-gray-800 rounded-full overflow-hidden">
+        <div class="h-2 sm:h-2.5 w-full bg-surface-2 rounded-full overflow-hidden">
           <div class="h-full bg-gradient-to-r ${progressColor} rounded-full transition-all duration-1000 shadow-lg" style="width: ${dl.progress}%"></div>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-6">
-        <div class="bg-black/30 rounded-lg p-3 sm:p-4"><p class="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wider mb-1">Size</p><p class="text-sm sm:text-base font-bold text-white font-mono truncate">${escapeHtml(dl.size)}</p></div>
-        <div class="bg-black/30 rounded-lg p-3 sm:p-4"><p class="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wider mb-1">Speed</p><p class="text-sm sm:text-base font-bold text-green-400 font-mono truncate">${escapeHtml(dl.speed)}</p></div>
+        <div class="bg-scrim/30 rounded-lg p-3 sm:p-4"><p class="text-[10px] sm:text-xs text-fg-muted uppercase tracking-wider mb-1">Size</p><p class="text-sm sm:text-base font-bold text-fg font-mono truncate">${escapeHtml(dl.size)}</p></div>
+        <div class="bg-scrim/30 rounded-lg p-3 sm:p-4"><p class="text-[10px] sm:text-xs text-fg-muted uppercase tracking-wider mb-1">Speed</p><p class="text-sm sm:text-base font-bold text-green-400 font-mono truncate">${escapeHtml(dl.speed)}</p></div>
       </div>
-      ${hasTasks ? `<button onclick="window.toggleTasks('${dl.id}')" class="w-full sm:w-auto flex items-center justify-center sm:justify-start gap-2 text-xs sm:text-sm text-gray-400 hover:text-white transition-colors group py-2" id="btn-${dl.id}">
+      ${hasTasks ? `<button onclick="window.toggleTasks('${dl.id}')" class="w-full sm:w-auto flex items-center justify-center sm:justify-start gap-2 text-xs sm:text-sm text-fg-muted hover:text-fg transition-colors group py-2" id="btn-${dl.id}">
         <svg class="w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
         <span class="font-semibold">${isExpanded ? 'Hide' : 'Show'} details (${Object.keys(dl.tasks).length})</span>
       </button>` : ''}
@@ -358,17 +355,17 @@ function generateDownloadCardHTML(dl) {
   
   if (hasTasks) {
     const tasksArray = Object.entries(dl.tasks);
-    html += `<div class="tasks-section mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-700 ${isExpanded ? '' : 'hidden'}" id="tasks-${dl.id}">
-      <h4 class="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 sm:mb-4">Streams</h4>
+    html += `<div class="tasks-section mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-line-2 ${isExpanded ? '' : 'hidden'}" id="tasks-${dl.id}">
+      <h4 class="text-xs sm:text-sm font-bold text-fg-muted uppercase tracking-wider mb-3 sm:mb-4">Streams</h4>
       <div class="space-y-2 sm:space-y-3">`;
     
     tasksArray.forEach(([name, task]) => {
-      html += `<div class="bg-black/40 rounded-lg sm:rounded-xl p-3 sm:p-4">
+      html += `<div class="task-row bg-scrim/40 rounded-lg sm:rounded-xl p-3 sm:p-4">
         <div class="flex justify-between mb-2 text-xs sm:text-sm">
-          <span class="text-white font-semibold truncate">${escapeHtml(name.replace(/_/g, ' '))}</span>
+          <span class="text-fg font-semibold truncate">${escapeHtml(name.replace(/_/g, ' '))}</span>
           <span class="text-blue-400 font-bold">${task.progress.toFixed(1)}%</span>
         </div>
-        <div class="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden">
+        <div class="h-1.5 w-full bg-surface-2 rounded-full overflow-hidden">
           <div class="h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full transition-all duration-1000" style="width: ${task.progress}%"></div>
         </div>
       </div>`;
@@ -386,7 +383,7 @@ function renderHistory(history) {
   if (!body) return;
   
   if (history.length === 0) {
-    body.innerHTML = `<tr><td colspan="3" class="px-6 py-12 text-center text-gray-500"><div class="flex flex-col items-center gap-3"><svg class="w-10 h-10 sm:w-12 sm:h-12 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg><span class="text-gray-500 font-medium">No completed downloads</span></div></td></tr>`;
+    body.innerHTML = `<tr><td colspan="3" class="px-6 py-12 text-center text-fg-muted"><div class="flex flex-col items-center gap-3"><svg class="w-10 h-10 sm:w-12 sm:h-12 text-fg-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg><span class="text-fg-muted font-medium">No completed downloads</span></div></td></tr>`;
     return;
   }
 
@@ -395,18 +392,18 @@ function renderHistory(history) {
     const normalizedStatus = String(item.status || '').toLowerCase();
     const isSuccess = normalizedStatus === 'completed' || normalizedStatus === 'success';
     
-    return `<tr class="hover:bg-white/5 transition-colors group">
+    return `<tr class="hover:bg-overlay/5 transition-colors group">
       <td class="px-4 sm:px-6 py-4 sm:py-5">
         <div class="flex items-center gap-3 sm:gap-4">
           <div class="w-10 h-10 sm:w-12 sm:h-12 flex-shrink-0 bg-gradient-to-br ${isSuccess ? 'from-green-600 to-green-700' : 'from-red-600 to-red-700'} rounded-lg flex items-center justify-center shadow-lg">
-            <svg class="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-5 h-5 sm:w-6 sm:h-6 text-fg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               ${isSuccess ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>' : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>'}
             </svg>
           </div>
           <div class="flex-1 min-w-0">
-            <h4 class="text-xs sm:text-sm font-semibold text-white mb-0.5 sm:mb-1 truncate">${escapeHtml(item.title)}</h4>
-            <p class="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide">${escapeHtml(item.site)}</p>
-            ${item.path ? `<p class="text-[10px] sm:text-xs text-gray-400 mt-1 truncate"><span class="text-gray-600">Path:</span> ${escapeHtml(item.path)}</p>` : ''}
+            <h4 class="text-xs sm:text-sm font-semibold text-fg mb-0.5 sm:mb-1 truncate">${escapeHtml(item.title)}</h4>
+            <p class="text-[10px] sm:text-xs text-fg-muted uppercase tracking-wide">${escapeHtml(item.site)}</p>
+            ${item.path ? `<p class="text-[10px] sm:text-xs text-fg-muted mt-1 truncate"><span class="text-fg-faint">Path:</span> ${escapeHtml(item.path)}</p>` : ''}
           </div>
         </div>
       </td>
@@ -415,7 +412,7 @@ function renderHistory(history) {
           ${isSuccess ? 'OK' : 'NO'}
         </span>
       </td>
-      <td class="px-4 sm:px-6 py-4 sm:py-5 text-right text-[10px] sm:text-sm text-gray-400 font-mono whitespace-nowrap">${date}</td>
+      <td class="px-4 sm:px-6 py-4 sm:py-5 text-right text-[10px] sm:text-sm text-fg-muted font-mono whitespace-nowrap">${date}</td>
     </tr>`;
   }).join('');
 }
@@ -451,7 +448,7 @@ function toggleTasks(id) {
   
   if (btn && tasks) {
     btn.querySelector('svg').classList.toggle('rotate-180');
-    const taskCount = tasks.querySelectorAll('.bg-black\\/40').length;
+    const taskCount = tasks.querySelectorAll('.task-row').length;
     btn.querySelector('span').textContent = expandedRows.has(id) 
       ? `Hide details (${taskCount})`
       : `Show details (${taskCount})`;
@@ -477,14 +474,14 @@ async function killDownload(id) {
   try {
     const response = await fetch(window.KILL_DOWNLOAD_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': VV.csrf() },
       body: JSON.stringify({ download_id: id })
     });
     if (response.ok) {
       console.log(`Download ${id} stopped`);
       updateProgress();
     } else {
-      alert('Unable to stop the download.');
+      VV.alert('Impossibile fermare il download.');
     }
   } catch (error) {
     console.error('Error stopping download:', error);
@@ -492,18 +489,18 @@ async function killDownload(id) {
 }
 
 async function killAndClearQueue(id) {
-  if (!confirm('Stop this download and clear the queue?')) return;
+  if (!(await VV.confirm({ title: 'Fermare questo download e svuotare la coda?', confirmLabel: 'Ferma e svuota' }))) return;
   try {
     const response = await fetch(window.KILL_AND_CLEAR_QUEUE_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': VV.csrf() },
       body: JSON.stringify({ download_id: id })
     });
     if (response.ok) {
       console.log(`Download queue cleared`);
       updateProgress();
     } else {
-      alert('Unable to clear the queue.');
+      VV.alert('Impossibile svuotare la coda.');
     }
   } catch (error) {
     console.error('Error clearing queue:', error);
@@ -511,17 +508,17 @@ async function killAndClearQueue(id) {
 }
 
 async function killSeriesQueue(id) {
-  if (!confirm('Cancel all pending downloads?')) return;
+  if (!(await VV.confirm({ title: 'Annullare tutti i download in coda?', confirmLabel: 'Annulla tutti' }))) return;
   try {
     const response = await fetch(window.KILL_AND_CLEAR_QUEUE_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': VV.csrf() },
       body: JSON.stringify({ download_id: id })
     });
     if (response.ok) {
       updateProgress();
     } else {
-      alert('Unable to cancel the queue.');
+      VV.alert('Impossibile annullare la coda.');
     }
   } catch (error) {
     console.error('Error:', error);
@@ -529,16 +526,16 @@ async function killSeriesQueue(id) {
 }
 
 async function clearHistory() {
-  if (!confirm('Clear the entire history?')) return;
+  if (!(await VV.confirm({ title: 'Svuotare tutta la cronologia?', body: "L'operazione non e' reversibile.", confirmLabel: 'Svuota' }))) return;
   try {
     const response = await fetch(window.CLEAR_HISTORY_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': VV.csrf() }
     });
     if (response.ok) {
       updateProgress();
     } else {
-      alert('Unable to clear.');
+      VV.alert('Impossibile svuotare la cronologia.');
     }
   } catch (error) {
     console.error('Error:', error);
@@ -556,10 +553,8 @@ window.clearHistory = clearHistory;
 document.addEventListener('visibilitychange', function() {
   isPageVisible = !document.hidden;
   if (isPageVisible) {
-    // Page became visible again, update immediately and restart polling
     updateProgress();
   } else {
-    // Page hidden, stop polling to save resources
     if (updateIntervalId) {
       clearInterval(updateIntervalId);
       updateIntervalId = null;
@@ -572,7 +567,7 @@ document.addEventListener('DOMContentLoaded', function() {
   console.log('[DOWNLOADS] Initializing smart updates...');
   isPageVisible = !document.hidden;
   updateProgress(); // This will schedule the next update with appropriate interval
-  console.log('[DOWNLOADS] OK Smart updates started (2s active, 15s idle, pauses when hidden)');
+  console.log(`[DOWNLOADS] Smart updates started (${UPDATE_INTERVAL_ACTIVE}ms active, ${UPDATE_INTERVAL_IDLE}ms idle, pauses when hidden)`);
 });
 </script>
 {% endblock %}

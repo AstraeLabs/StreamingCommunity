@@ -1,0 +1,19 @@
+
+<div class="panel-dashed flex flex-col items-center justify-center text-center px-6 py-14">
+	<svg class="w-12 h-12 mb-4 text-fg-faint" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+		{% if icon == "download" %}
+		<path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+		{% elif icon == "bookmark" %}
+		<path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+		{% elif icon == "queue" %}
+		<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+		{% else %}
+		<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+		{% endif %}
+	</svg>
+
+	<p class="text-base font-bold text-fg-secondary">{{ title }}</p>
+	{% if message %}
+	<p class="mt-1 text-sm text-fg-muted max-w-md">{{ message }}</p>
+	{% endif %}
+</div>

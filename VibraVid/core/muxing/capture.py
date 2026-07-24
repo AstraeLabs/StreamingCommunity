@@ -9,7 +9,7 @@ from typing import Optional
 from VibraVid.utils.os import internet_manager
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
 from VibraVid.core.ui.bar_manager import console
-from VibraVid.core.velora.util.formatting import parse_max_time
+from VibraVid.core.velora.util.formatting import parse_time_scalar
 
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ def capture_output(process: subprocess.Popen, description: str, progress_data: P
                         # Compute ETA from total_duration and time already processed
                         eta_str = 'N/A'
                         if total_duration and total_duration > 0:
-                            processed_sec = parse_max_time(time_processed)
+                            processed_sec = parse_time_scalar(time_processed)
                             if processed_sec is not None and processed_sec > 0:
                                 remaining_sec = total_duration - processed_sec
                                 eta_str = _format_eta(remaining_sec)

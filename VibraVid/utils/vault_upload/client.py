@@ -1,25 +1,21 @@
 # 12.06.26
 
 import os
-import struct
+import re
+import time
+import hashlib
 import base64
 import logging
-from concurrent.futures import ThreadPoolExecutor
-from typing import List, Tuple, Optional, Callable
+from urllib.parse import urljoin
+from typing import Optional, Callable, Tuple
 
+import httpx
 from Cryptodome.Cipher import AES
-from Cryptodome.Util import Counter
 
 logger = logging.getLogger(__name__)
 
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 
-def a32_to_bytes(a: List[int]) -> bytes:
-    return struct.pack(f">{len(a)}I", *[x & 0xFFFFFFFF for x in a])
-
-def bytes_to_a32(b: bytes) -> List[int]:
-    if len(b) % 4:
-        b += b"\0" * (4 - len(b) % 4)
-    return list(struct.unpack(f">{len(b) // 4}I", b))
 
 def b64_encode(b: bytes) -> str:
     return base64.b64encode(b).decode().replace("+", "-").replace("/", "_").rstrip("=")
@@ -29,148 +25,205 @@ def b64_decode(s: str) -> bytes:
     s += "=" * (-len(s) % 4)
     return base64.b64decode(s)
 
-def b64_to_a32(s: str) -> List[int]:
-    return bytes_to_a32(b64_decode(s))
+def new_file_key() -> Tuple[bytes, bytes]:
+    return os.urandom(32), os.urandom(8)
 
-def rand_a32(n: int) -> List[int]:
-    return bytes_to_a32(os.urandom(n * 4))
+def pack_key(key: bytes, nonce: bytes) -> str:
+    return b64_encode(key + nonce)
 
-def attr_key(k: List[int]) -> List[int]:
-    return [k[0] ^ k[4], k[1] ^ k[5], k[2] ^ k[6], k[3] ^ k[7]]
+def unpack_key(s: str) -> Tuple[bytes, bytes]:
+    raw = b64_decode(s)
+    return raw[:32], raw[32:40]
 
-def _nonce8(ul_key: List[int]) -> bytes:
-    return a32_to_bytes([ul_key[4], ul_key[5]])
 
-def get_chunks(size: int) -> List[Tuple[int, int]]:
-    chunks: List[Tuple[int, int]] = []
-    pos = 0
-    for s in (0x20000, 0x40000, 0x60000, 0x80000, 0xA0000, 0xC0000, 0xE0000, 0x100000):
-        if pos >= size:
-            return chunks
-        ln = min(s, size - pos)
-        chunks.append((pos, ln))
-        pos += ln
-    while pos < size:
-        ln = min(0x100000, size - pos)
-        chunks.append((pos, ln))
-        pos += ln
-    return chunks
+class _EncryptingReader:
+    def __init__(self, path: str, key: bytes, nonce: bytes, on_progress: Optional[Callable[[int, int], None]] = None):
+        self._fh = open(path, "rb")
+        self._total = os.path.getsize(path)
+        self._cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
+        self._on_progress = on_progress
+        self._done = 0
 
-def ctr_encrypt(ul_key: List[int], pos: int, plaintext: bytes) -> bytes:
-    ctr = Counter.new(64, prefix=_nonce8(ul_key), initial_value=pos // 16)
-    return AES.new(a32_to_bytes(ul_key[:4]), AES.MODE_CTR, counter=ctr).encrypt(plaintext)
+    def read(self, size: int = -1) -> bytes:
+        chunk = self._fh.read(size)
+        if not chunk:
+            return b""
+        enc = self._cipher.encrypt(chunk)
+        self._done += len(chunk)
+        if self._on_progress:
+            self._on_progress(self._done, self._total)
+        return enc
 
-def chunk_mac(ul_key: List[int], plaintext: bytes) -> bytes:
-    pad_len = (len(plaintext) + 15) // 16 * 16 or 16
-    padded = plaintext + b"\0" * (pad_len - len(plaintext))
-    iv = _nonce8(ul_key) + _nonce8(ul_key)
-    return AES.new(a32_to_bytes(ul_key[:4]), AES.MODE_CBC, iv).encrypt(padded)[-16:]
+    def __len__(self) -> int:
+        return self._total
 
-def compute_file_key(ul_key: List[int], macs: List[bytes]) -> List[int]:
-    key16 = a32_to_bytes(ul_key[:4])
-    acc = [0, 0, 0, 0]
-    for mac in macs:
-        m = bytes_to_a32(mac)
-        acc = [acc[0] ^ m[0], acc[1] ^ m[1], acc[2] ^ m[2], acc[3] ^ m[3]]
-        acc = bytes_to_a32(AES.new(key16, AES.MODE_ECB).encrypt(a32_to_bytes(acc)))
-    mm0, mm1 = acc[0] ^ acc[1], acc[2] ^ acc[3]
-    return [
-        ul_key[0] ^ ul_key[4], ul_key[1] ^ ul_key[5],
-        ul_key[2] ^ mm0, ul_key[3] ^ mm1,
-        ul_key[4], ul_key[5], mm0, mm1,
-    ]
+    def __iter__(self):
+        return self
 
-def pick_pool_entry(pool: list, size: int) -> list:
-    for e in pool:
-        limit = e[2] if len(e) > 2 else None
-        if limit is None or size <= limit:
-            return e
-    return pool[-1]
+    def __next__(self) -> bytes:
+        chunk = self.read(1 << 20)
+        if not chunk:
+            raise StopIteration
+        return chunk
 
-def upload_file(session, file_path: str, pool: list, ul_key: List[int], concurrency: int = 4, on_progress: Optional[Callable[..., None]] = None) -> Tuple[bytes, List[bytes]]:
-    size = os.path.getsize(file_path)
-    entry = pick_pool_entry(pool, size)
-    base = f"https://{entry[0]}/{entry[1]}"
+    def fileno(self):
+        import io
+        raise io.UnsupportedOperation("_EncryptingReader has no fileno")
 
-    if size == 0:
-        r = session.post(f"{base}/0", data=b"")
-        return r.content, []
+    def close(self):
+        self._fh.close()
 
-    chunks = get_chunks(size)
-    macs: List[Optional[bytes]] = [None] * len(chunks)
-    token: Optional[bytes] = None
-    uploaded = {"n": 0}
-    _fh = {}
 
-    def _read(pos: int, ln: int) -> bytes:
-        import threading
-        tid = threading.get_ident()
-        fh = _fh.get(tid)
-        if fh is None:
-            fh = open(file_path, "rb")
-            _fh[tid] = fh
-        fh.seek(pos)
-        return fh.read(ln)
+def new_upload_client() -> httpx.Client:
+    return httpx.Client(timeout=httpx.Timeout(connect=30.0, read=300.0, write=60.0, pool=30.0))
 
-    def work(idx: int):
-        nonlocal token
-        pos, ln = chunks[idx]
-        plain = _read(pos, ln)
-        macs[idx] = chunk_mac(ul_key, plain)
-        enc = ctr_encrypt(ul_key, pos, plain)
-        r = session.post(f"{base}/{pos}", data=enc)
-        if r.status_code != 200:
-            raise RuntimeError(f"storage upload HTTP {r.status_code} at offset {pos}")
-        resp = r.content
-        if 0 < len(resp) < 16:
-            raise RuntimeError(f"storage upload error: {resp.decode(errors='replace')}")
-        if len(resp) >= 16:
-            token = resp
-        uploaded["n"] += ln
-        if on_progress:
-            on_progress(uploaded["n"], size)
 
+def upload_file(upload_client: httpx.Client, file_path: str, endpoint: str, key: bytes, nonce: bytes, filename: Optional[str] = None, on_progress: Optional[Callable[[int, Optional[int]], None]] = None) -> dict:
+    name = filename or os.path.basename(file_path)
+    reader = _EncryptingReader(file_path, key, nonce, on_progress=on_progress)
     try:
-        with ThreadPoolExecutor(max_workers=min(concurrency, len(chunks))) as ex:
-            list(ex.map(work, range(len(chunks))))
+        r = upload_client.post(endpoint, params={"filename": name}, content=reader, headers={"Content-Type": "application/octet-stream", "Content-Length": str(reader._total)})
     finally:
-        for fh in _fh.values():
-            try:
-                fh.close()
-            except Exception:
-                pass
+        reader.close()
+    r.raise_for_status()
+    data = r.json()
+    if not data.get("success"):
+        raise RuntimeError(f"storage upload failed: {data}")
+    return data
 
-    if not token:
-        raise RuntimeError("no completion token received")
-    return token, [m for m in macs if m is not None]
 
-def download_file(session, url: str, dest_path: str, node_key_a32: List[int], total: Optional[int] = None, on_progress: Optional[Callable[..., None]] = None, chunk_size: int = 1 << 20) -> str:
-    aes_key = a32_to_bytes(attr_key(node_key_a32))
-    nonce8 = a32_to_bytes([node_key_a32[4], node_key_a32[5]])
-    ctr = Counter.new(64, prefix=nonce8, initial_value=0)
-    cipher = AES.new(aes_key, AES.MODE_CTR, counter=ctr)
+def _solve_pow(text: str) -> Optional[dict]:
+    m_ch = re.search(r'name="pow_challenge"\s+value="([^"]*)"', text)
+    if not m_ch:
+        return None
+    challenge = m_ch.group(1)
+    ts = re.search(r'name="pow_ts"\s+value="([^"]*)"', text).group(1)
+    diff = int(re.search(r'name="pow_diff"\s+value="([^"]*)"', text).group(1))
+    sig = re.search(r'name="pow_sig"\s+value="([^"]*)"', text).group(1)
 
-    os.makedirs(os.path.dirname(os.path.abspath(dest_path)) or ".", exist_ok=True)
-    r = session.get(url, stream=True)
+    def leading_zero_bits(b, need):
+        full = need >> 3
+        rem = need & 7
+        for i in range(full):
+            if b[i] != 0:
+                return False
+        if rem and (b[full] & ((0xFF << (8 - rem)) & 0xFF)) != 0:
+            return False
+        return True
+
+    prefix = (challenge + ":").encode()
+    nonce = 0
+    while True:
+        hsh = hashlib.sha256(prefix + str(nonce).encode()).digest()
+        if leading_zero_bits(hsh, diff):
+            break
+        nonce += 1
+
+    return {
+        "orig_ref": "",
+        "pow_challenge": challenge,
+        "pow_ts": ts,
+        "pow_diff": diff,
+        "pow_sig": sig,
+        "pow_nonce": nonce,
+    }
+
+
+def _resolve_direct(session, landing_url: str, timeout: int = 60) -> Optional[str]:
+    headers = {"User-Agent": _UA}
     try:
-        r.raise_for_status()
-        if total is None:
-            try:
-                total = int(r.headers.get("Content-Length") or 0) or None
-            except (TypeError, ValueError):
-                total = None
-        written = 0
-        with open(dest_path, "wb") as out:
-            for chunk in r.iter_content(chunk_size=chunk_size):
+        r = session.get(landing_url, timeout=timeout, headers=headers, stream=True)
+        try:
+            head = b""
+            for chunk in r.iter_content(chunk_size=8192):
                 if not chunk:
                     continue
-                out.write(cipher.decrypt(chunk))
-                written += len(chunk)
-                if on_progress:
-                    on_progress(written, total)
-        return dest_path
-    finally:
-        try:
+                head += chunk
+                if len(head) >= 32768:
+                    break
+        finally:
             r.close()
+    except Exception:
+        return None
+    if not head.lstrip().startswith(b"<"):
+        return None
+    text = head.decode("utf-8", "replace")
+
+    pow_data = _solve_pow(text)
+    if pow_data is not None:
+        try:
+            r2 = session.post(landing_url, data=pow_data, timeout=timeout, headers=headers)
+            if r2.ok:
+                text = r2.text
         except Exception:
             pass
+
+    m = re.search(r'var\s+u\s*=\s*\[(.*?)\]\.join\(""\)', text, re.S)
+    if m:
+        frags = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
+        if frags:
+            joined = "".join(f.replace(r"\/", "/").replace(r"\"", '"').replace(r"\\", "\\") for f in frags)
+            if joined.startswith("http"):
+                return joined
+
+    m2 = re.search(r'<a[^>]+class="[^"]*\bbtn-main\b[^"]*"[^>]+href="([^"]+)"', text)
+    if not m2:
+        m2 = re.search(r'<a[^>]+class="[^"]*\bbtn\b[^"]*"[^>]+href="([^"]+)"', text)
+    if m2:
+        return urljoin(landing_url, m2.group(1))
+    return None
+
+
+class IncompleteDownloadError(IOError):
+    pass
+
+
+def download_decrypt(session, landing_url: str, dest_path: str, key: bytes, nonce: bytes, total: Optional[int] = None, on_progress: Optional[Callable[[int, int], None]] = None, chunk_size: int = 1 << 20, retries: int = 15, backoff: int = 4, incomplete_retries: int = 2, incomplete_backoff: int = 2) -> str:
+    direct_url = _resolve_direct(session, landing_url) or landing_url
+    os.makedirs(os.path.dirname(os.path.abspath(dest_path)) or ".", exist_ok=True)
+    headers = {"User-Agent": _UA}
+
+    last_exc = None
+    incomplete_attempts = 0
+    for attempt in range(1, retries + 1):
+        try:
+            cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
+            with session.get(direct_url, stream=True, timeout=300, headers=headers) as r:
+                r.raise_for_status()
+                dl_total = total
+                if dl_total is None:
+                    try:
+                        dl_total = int(r.headers.get("Content-Length") or 0) or None
+                    except (TypeError, ValueError):
+                        dl_total = None
+                written = 0
+                tmp_path = dest_path + ".part"
+                with open(tmp_path, "wb") as out:
+                    for chunk in r.iter_content(chunk_size=chunk_size):
+                        if not chunk:
+                            continue
+                        out.write(cipher.decrypt(chunk))
+                        written += len(chunk)
+                        if on_progress:
+                            on_progress(written, dl_total)
+                if dl_total is not None and written != dl_total:
+                    os.remove(tmp_path)
+                    raise IncompleteDownloadError(f"incomplete download: got {written} of {dl_total} bytes")
+                os.replace(tmp_path, dest_path)
+            return dest_path
+        except IncompleteDownloadError as exc:
+            last_exc = exc
+            incomplete_attempts += 1
+            if incomplete_attempts < incomplete_retries:
+                time.sleep(incomplete_backoff)
+                continue
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(backoff * attempt)
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    return dest_path

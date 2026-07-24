@@ -11,7 +11,7 @@ from rich.console import Console
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.http_client import get_headers
 from VibraVid.utils.vault_upload.hook import try_fetch
-from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time
+from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time, parse_max_segments as _parse_max_segments
 from VibraVid.setup import get_wvd_path, get_prd_path
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.ui.ui import build_table
@@ -147,7 +147,7 @@ class DASH_Downloader(BaseDownloader):
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None, license_data: Optional[str] = None,
         output_path: Optional[str] = None, drm_preference = DRMType.WIDEVINE, key: Optional[str] = None, cookies: Optional[Dict[str, str]] = None,
         max_segments: Optional[int] = None, max_time=None, other_tracks: Optional[list] = None,
-        license_request_fn: Optional[Callable[[bytes], bytes]] = None, chapters: Optional[list] = None,
+        license_request_fn: Optional[Callable[[bytes], bytes]] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None,
         sanitize_path: bool = True
     ):
         """
@@ -167,8 +167,10 @@ class DASH_Downloader(BaseDownloader):
             - max_segments: Maximum number of segments to download (for testing). Default: None (all).
             - max_time: Maximum content duration to download, e.g. "01:00:00" or 3600 seconds. Default: None (all).
             - chapters: Chapter markers to inject into the muxed output, e.g. [{"name": str, "seconds": int}]. Default: context_tracker.chapters.
+            - poster_url: Poster/still image URL to embed in the muxed output. Default: context_tracker.poster_url.
         """
         self.chapters = chapters if chapters is not None else context_tracker.chapters
+        self.poster_url = poster_url if poster_url is not None else context_tracker.poster_url
         self.mpd_url = self._resolve_url(str(mpd_url).strip()) if mpd_url else None
         self.mpd_content = mpd_content
         self.mpd_headers = mpd_headers or get_headers()
@@ -199,7 +201,7 @@ class DASH_Downloader(BaseDownloader):
         self.drm_preference = drm_preference
         self.key = key
         self.cookies = cookies or {}
-        self.max_segments = max_segments if max_segments is not None else context_tracker.max_segments
+        self.max_segments = _parse_max_segments(max_segments if max_segments is not None else context_tracker.max_segments)
         self.max_time = _parse_max_time(max_time if max_time is not None else context_tracker.max_time)
         self.drm_manager = DRMManager(
             get_wvd_path(),
@@ -556,7 +558,12 @@ class DASH_Downloader(BaseDownloader):
         if self.file_already_exists:
             console.print("[yellow]File already exists.")
             return self.output_path, False, None
-        
+
+        if context_tracker.resolve_only:
+            from VibraVid.cli.command.queue import enqueue_down_from_context
+            enqueue_down_from_context(self.mpd_url, self.output_path)
+            return self.output_path, False, None
+
         if try_fetch(self.output_path):
             return self.output_path, False, None
 

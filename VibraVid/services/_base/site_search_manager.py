@@ -9,6 +9,7 @@ from rich.prompt import Prompt
 from VibraVid.utils import TVShowManager
 from VibraVid.services._base import Entries, EntriesManager
 from VibraVid.services._base.site_costant import site_constants
+from VibraVid.services._base import tmdb_artwork
 from VibraVid.core.ui.tracker import context_tracker
 
 
@@ -207,7 +208,12 @@ def base_process_search_result(select_title: Optional[Entries], download_film_fu
             episode_selection = selections.get('episode')
             if not scrape_serie:
                 scrape_serie = selections.get('scrape_serie')
-        
+
+        context_tracker.series_tmdb_id = tmdb_artwork.resolve_series_tmdb_id(
+            tmdb_id=getattr(select_title, 'tmdb_id', None), name=getattr(select_title, 'name', None),
+            slug=getattr(select_title, 'slug', None), year=getattr(select_title, 'year', None),
+        )
+
         result = download_series_func(select_title, season_selection, episode_selection, scrape_serie)
         _handle_download_result(result)
         
@@ -226,15 +232,31 @@ def base_process_search_result(select_title: Optional[Entries], download_film_fu
             logger.error("download_film_func not provided for films")
             return False
             
-        download_film_func(select_title)
+        # Fall back to whatever artwork the caller already had (the site's own poster) instead of overwriting it with None
+        context_tracker.poster_url = tmdb_artwork.resolve_movie_poster_url(
+            tmdb_id=getattr(select_title, 'tmdb_id', None), name=getattr(select_title, 'name', None),
+            slug=getattr(select_title, 'slug', None), year=getattr(select_title, 'year', None),
+        ) or context_tracker.fallback_poster_url
+
         logger.info(f"Initiating download for film: {select_title}")
-        
+        film_result = download_film_func(select_title)
+
         # Clear managers if provided
         if table_show_manager:
             table_show_manager.clear()
-        
+
+        _handle_download_result(film_result)
+
+        # A (path, stopped, error) tuple is always truthy, so a plain `not film_result`
+        # check never catches a real failure — inspect the error element instead.
+        film_failed = film_result is None or (isinstance(film_result, tuple) and len(film_result) >= 3 and bool(film_result[2]))
+        if film_failed:
+            console.print(f"[red]Download failed for: {getattr(select_title, 'name', select_title)}")
+            logger.error(f"download_film_func failed for: {select_title} (result={film_result!r})")
+            return False
+
         return True
-    
+
     # Handle music
     elif str(select_title.type).lower() == 'song':
         download_func = download_film_func
@@ -242,13 +264,18 @@ def base_process_search_result(select_title: Optional[Entries], download_film_fu
             console.print("[red]Error: download_film_func not provided for song")
             logger.error("download_film_func not provided for song")
             return False
- 
-        download_func(select_title)
+
         logger.info(f"Initiating direct download for song: {select_title}")
- 
+        song_result = download_func(select_title)
+
         if table_show_manager:
             table_show_manager.clear()
- 
+
+        if not song_result:
+            console.print(f"[red]Download failed for: {getattr(select_title, 'name', select_title)}")
+            logger.error(f"download_film_func returned no result for song: {select_title}")
+            return False
+
         return True
  
     # Handle album (uses series pipeline with episode selection)

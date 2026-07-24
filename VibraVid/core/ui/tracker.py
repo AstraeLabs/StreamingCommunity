@@ -73,8 +73,9 @@ class DownloadTracker(metaclass=SingletonMeta):
         except Exception:
             pass
         
-    def start_download(self, download_id: str, title: str, site: str, media_type: str = "Film", path: str = None):
+    def start_download(self, download_id: str, title: str, site: str, media_type: str = "Film", path: str = None, poster: str = None):
         hook_context = None
+        poster = poster if poster is not None else context_tracker.poster_url
         with self._lock:
             self.stop_events[download_id] = threading.Event()
             self.active_processes[download_id] = []
@@ -85,6 +86,7 @@ class DownloadTracker(metaclass=SingletonMeta):
                 "type": media_type,
                 "status": "starting",
                 "path": path,
+                "poster": poster,
                 "progress": 0,
                 "speed": "0B/s",
                 "size": "0B/0B",
@@ -502,6 +504,15 @@ class ContextTracker:
         self.local.bypass_vault_cache = value
 
     @property
+    def resolve_only(self):
+        return getattr(self.local, 'resolve_only', False)
+
+    @resolve_only.setter
+    def resolve_only(self, value):
+        self.local.resolve_only = value
+
+
+    @property
     def site_options(self):
         return getattr(self.local, 'site_options', None) or {}
 
@@ -516,6 +527,30 @@ class ContextTracker:
     @chapters.setter
     def chapters(self, value):
         self.local.chapters = value
+
+    @property
+    def poster_url(self):
+        return getattr(self.local, 'poster_url', None)
+
+    @poster_url.setter
+    def poster_url(self, value):
+        self.local.poster_url = value
+
+    @property
+    def fallback_poster_url(self):
+        return getattr(self.local, 'fallback_poster_url', None)
+
+    @fallback_poster_url.setter
+    def fallback_poster_url(self, value):
+        self.local.fallback_poster_url = value
+
+    @property
+    def series_tmdb_id(self):
+        return getattr(self.local, 'series_tmdb_id', None)
+
+    @series_tmdb_id.setter
+    def series_tmdb_id(self, value):
+        self.local.series_tmdb_id = value
 
     @property
     def should_print(self) -> bool:

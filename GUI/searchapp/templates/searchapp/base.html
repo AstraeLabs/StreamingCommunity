@@ -5,15 +5,16 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="theme-color" content="#0a0a0a" id="theme-color-meta" />
-		<link rel="icon" type="image/png" href="https://avatars.githubusercontent.com/u/249468050?s=200&v=4" />
-		<link rel="shortcut icon" type="image/png" href="https://avatars.githubusercontent.com/u/249468050?s=200&v=4" />
-		<link rel="apple-touch-icon" href="https://avatars.githubusercontent.com/u/249468050?s=200&v=4" />
+		<link rel="icon" type="image/png" href="{% static 'searchapp/img/favicon.png' %}" />
+		<link rel="shortcut icon" type="image/png" href="{% static 'searchapp/img/favicon.png' %}" />
+		<link rel="apple-touch-icon" href="{% static 'searchapp/img/favicon.png' %}" />
 
 		<link rel="stylesheet" href="{% static 'searchapp/themes/default.css' %}" />
 		<link rel="stylesheet" href="{% static 'searchapp/themes/default-light.css' %}" />
 		<link rel="stylesheet" href="{% static 'searchapp/themes/abyss.css' %}" />
 		<link rel="stylesheet" href="{% static 'searchapp/themes/abyss-ocean.css' %}" />
 		<script src="{% static 'searchapp/themes/theme.js' %}"></script>
+		<script src="{% static 'searchapp/app.js' %}?v={{ app_version }}"></script>
 
 		<script src="https://cdn.tailwindcss.com"></script>
 		<script>
@@ -21,10 +22,48 @@
 				darkMode: "class",
 				theme: {
 					extend: {
+						screens: { xs: "480px", "3xl": "1920px" },
+
+						colors: {
+							surface: {
+								0: "var(--vv-surf-0)",
+								1: "var(--vv-surf-1)",
+								2: "var(--vv-surf-2)",
+								3: "var(--vv-surf-3)",
+								4: "var(--vv-surf-4)",
+								5: "var(--vv-surf-5)",
+								white: "var(--vv-surf-white)",
+								chip: "var(--vv-surf-chip)",
+							},
+							glass: {
+								1: "rgb(var(--vv-surf-1-rgb) / <alpha-value>)",
+								2: "rgb(var(--vv-surf-2-rgb) / <alpha-value>)",
+								3: "rgb(var(--vv-surf-3-rgb) / <alpha-value>)",
+								4: "rgb(var(--vv-surf-4-rgb) / <alpha-value>)",
+								5: "rgb(var(--vv-surf-5-rgb) / <alpha-value>)",
+							},
+							scrim: "rgb(var(--vv-scrim-rgb) / <alpha-value>)",
+							overlay: "rgb(var(--vv-overlay-rgb) / <alpha-value>)",
+							fg: {
+								DEFAULT: "var(--vv-text-primary)",
+								secondary: "var(--vv-text-secondary)",
+								muted: "var(--vv-text-muted)",
+								faint: "var(--vv-text-faint)",
+							},
+							line: {
+								1: "var(--vv-border-1)",
+								2: "var(--vv-border-2)",
+							},
+							grad: {
+								from: "var(--vv-grad-from)",
+								to: "var(--vv-grad-to)",
+							},
+						},
 						animation: {
 							"fade-in": "fadeIn 0.6s ease-out",
 							"slide-in": "slideIn 0.5s ease-out",
 							"zoom-in": "zoomIn 0.4s ease-out",
+							"toast-in": "toastIn 0.3s ease-out",
 						},
 						keyframes: {
 							fadeIn: {
@@ -48,13 +87,46 @@
 								},
 								"100%": { transform: "scale(1)", opacity: "1" },
 							},
+							toastIn: {
+								"0%": {
+									transform: "translateX(100%)",
+									opacity: "0",
+								},
+								"100%": {
+									transform: "translateX(0)",
+									opacity: "1",
+								},
+							},
 						},
 					},
 				},
 			};
 		</script>
 		<style>
-			@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap");
+			@font-face {
+				font-family: "Inter";
+				font-style: normal;
+				font-weight: 100 900;
+				font-display: swap;
+				src: url("{% static 'searchapp/fonts/inter-latin.woff2' %}")
+					format("woff2");
+				unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC,
+					U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+					U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+					U+FFFD;
+			}
+			@font-face {
+				font-family: "Inter";
+				font-style: normal;
+				font-weight: 100 900;
+				font-display: swap;
+				src: url("{% static 'searchapp/fonts/inter-latin-ext.woff2' %}")
+					format("woff2");
+				unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC,
+					U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+					U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+					U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+			}
 
 			:root {
 				--navbar-height: 4rem;
@@ -125,98 +197,106 @@
 				transform: rotate(180deg);
 				opacity: 0;
 			}
-		</style>
 
-		<style>
-			/* Solid surfaces */
-			:root:not([data-theme="default"]) [class~="bg-black"] { background-color: var(--vv-surf-0); }
-			:root:not([data-theme="default"]) [class~="bg-zinc-900"],
-			:root:not([data-theme="default"]) [class~="bg-gray-900"] { background-color: var(--vv-surf-1); }
-			:root:not([data-theme="default"]) [class~="bg-gray-800"] { background-color: var(--vv-surf-2); }
-			:root:not([data-theme="default"]) [class~="bg-gray-700"] { background-color: var(--vv-surf-3); }
-			:root:not([data-theme="default"]) [class~="bg-gray-600"] { background-color: var(--vv-surf-4); }
-			:root:not([data-theme="default"]) [class~="bg-gray-500"] { background-color: var(--vv-surf-5); }
-			:root:not([data-theme="default"]) [class~="bg-white"] { background-color: var(--vv-surf-white); }
-			:root:not([data-theme="default"]) [class~="bg-gray-200"] { background-color: var(--vv-surf-chip); }
-
-			/* Scrims: bg-black/NN */
-			:root:not([data-theme="default"]) [class~="bg-black/30"] { background-color: rgb(var(--vv-scrim-rgb) / 0.30); }
-			:root:not([data-theme="default"]) [class~="bg-black/40"] { background-color: rgb(var(--vv-scrim-rgb) / 0.40); }
-			:root:not([data-theme="default"]) [class~="bg-black/50"] { background-color: rgb(var(--vv-scrim-rgb) / 0.50); }
-			:root:not([data-theme="default"]) [class~="bg-black/60"] { background-color: rgb(var(--vv-scrim-rgb) / 0.60); }
-			:root:not([data-theme="default"]) [class~="bg-black/80"] { background-color: rgb(var(--vv-scrim-rgb) / 0.80); }
-
-			/* Translucent gray surfaces */
-			:root:not([data-theme="default"]) [class~="bg-gray-900/50"] { background-color: rgb(var(--vv-surf-1-rgb) / 0.50); }
-			:root:not([data-theme="default"]) [class~="bg-gray-900/60"] { background-color: rgb(var(--vv-surf-1-rgb) / 0.60); }
-			:root:not([data-theme="default"]) [class~="bg-gray-800/50"] { background-color: rgb(var(--vv-surf-2-rgb) / 0.50); }
-			:root:not([data-theme="default"]) [class~="bg-gray-800/60"] { background-color: rgb(var(--vv-surf-2-rgb) / 0.60); }
-			:root:not([data-theme="default"]) [class~="bg-gray-700/50"] { background-color: rgb(var(--vv-surf-3-rgb) / 0.50); }
-			:root:not([data-theme="default"]) [class~="bg-gray-700/70"] { background-color: rgb(var(--vv-surf-3-rgb) / 0.70); }
-			:root:not([data-theme="default"]) [class~="bg-gray-500/10"] { background-color: rgb(var(--vv-surf-5-rgb) / 0.10); }
-
-			/* Subtle overlays: bg-white/NN */
-			:root:not([data-theme="default"]) [class~="bg-white/5"] { background-color: rgb(var(--vv-overlay-rgb) / 0.05); }
-			:root:not([data-theme="default"]) [class~="bg-white/10"] { background-color: rgb(var(--vv-overlay-rgb) / 0.10); }
-			:root:not([data-theme="default"]) [class~="bg-white/15"] { background-color: rgb(var(--vv-overlay-rgb) / 0.15); }
-			:root:not([data-theme="default"]) [class~="bg-white/20"] { background-color: rgb(var(--vv-overlay-rgb) / 0.20); }
-
-			/* Text — text-white flips to theme text, but NOT on accent-colored
-			   elements (buttons/badges), where white must stay white. */
-			:root:not([data-theme="default"]) [class~="text-white"]:not([class*="bg-red"]):not([class*="bg-green"]):not([class*="bg-blue"]):not([class*="bg-emerald"]):not([class*="bg-orange"]):not([class*="bg-amber"]):not([class*="bg-indigo"]):not([class*="bg-purple"]):not([class*="bg-gradient"]) { color: var(--vv-text-primary); }
-			:root:not([data-theme="default"]) [class~="text-gray-200"],
-			:root:not([data-theme="default"]) [class~="text-gray-300"] { color: var(--vv-text-secondary); }
-			:root:not([data-theme="default"]) [class~="text-gray-400"],
-			:root:not([data-theme="default"]) [class~="text-gray-500"] { color: var(--vv-text-muted); }
-			:root:not([data-theme="default"]) [class~="text-gray-600"],
-			:root:not([data-theme="default"]) [class~="text-gray-700"] { color: var(--vv-text-faint); }
-
-			/* Borders */
-			:root:not([data-theme="default"]) [class~="border-gray-800"] { border-color: var(--vv-border-1); }
-			:root:not([data-theme="default"]) [class~="border-gray-700"],
-			:root:not([data-theme="default"]) [class~="border-gray-600"] { border-color: var(--vv-border-2); }
-			:root:not([data-theme="default"]) [class~="border-white/10"] { border-color: rgb(var(--vv-overlay-rgb) / 0.10); }
-			:root:not([data-theme="default"]) [class~="border-white/20"] { border-color: rgb(var(--vv-overlay-rgb) / 0.20); }
-			:root:not([data-theme="default"]) [class~="divide-gray-800"] > * + * { border-color: var(--vv-border-1); }
-
-			/* Gradients (from/to gray-900/800) */
-			:root:not([data-theme="default"]) [class~="from-gray-900"] {
-				--tw-gradient-from: var(--vv-grad-from) var(--tw-gradient-from-position, 0%);
-				--tw-gradient-to: rgb(var(--vv-surf-1-rgb) / 0) var(--tw-gradient-to-position, 100%);
-				--tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
-			}
-			:root:not([data-theme="default"]) [class~="to-gray-900"] { --tw-gradient-to: var(--vv-grad-to) var(--tw-gradient-to-position, 100%); }
-			:root:not([data-theme="default"]) [class~="to-gray-800"] { --tw-gradient-to: var(--vv-surf-2) var(--tw-gradient-to-position, 100%); }
-
-			/* Gradient opacity variants (translucent panel cards) */
-			:root:not([data-theme="default"]) [class~="from-gray-900/80"] {
-				--tw-gradient-from: rgb(var(--vv-surf-1-rgb) / 0.80) var(--tw-gradient-from-position, 0%);
-				--tw-gradient-to: rgb(var(--vv-surf-1-rgb) / 0) var(--tw-gradient-to-position, 100%);
-				--tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
-			}
-			:root:not([data-theme="default"]) [class~="from-gray-900/60"] {
-				--tw-gradient-from: rgb(var(--vv-surf-1-rgb) / 0.60) var(--tw-gradient-from-position, 0%);
-				--tw-gradient-to: rgb(var(--vv-surf-1-rgb) / 0) var(--tw-gradient-to-position, 100%);
-				--tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
-			}
-			:root:not([data-theme="default"]) [class~="to-gray-900/40"] { --tw-gradient-to: rgb(var(--vv-surf-1-rgb) / 0.40) var(--tw-gradient-to-position, 100%); }
-			:root:not([data-theme="default"]) [class~="to-gray-900/20"] { --tw-gradient-to: rgb(var(--vv-surf-1-rgb) / 0.20) var(--tw-gradient-to-position, 100%); }
-
-			/* Glass themes (Abyss): translucent cards get a backdrop blur so they read as frosted glass. */
-			:root[data-theme="abyss"] [class~="bg-gray-900"],
-			:root[data-theme="abyss"] [class~="bg-zinc-900"],
-			:root[data-theme="abyss"] [class~="bg-gray-800"],
-			:root[data-theme="abyss"] [class~="bg-gray-900/60"],
-			:root[data-theme="abyss"] [class~="bg-gray-900/50"],
-			:root[data-theme="abyss-ocean"] [class~="bg-gray-900"],
-			:root[data-theme="abyss-ocean"] [class~="bg-zinc-900"],
-			:root[data-theme="abyss-ocean"] [class~="bg-gray-800"],
-			:root[data-theme="abyss-ocean"] [class~="bg-gray-900/60"],
-			:root[data-theme="abyss-ocean"] [class~="bg-gray-900/50"] {
+			:root[data-theme="abyss"] [class~="bg-surface-1"],
+			:root[data-theme="abyss"] [class~="bg-surface-2"],
+			:root[data-theme="abyss"] [class~="bg-glass-1/50"],
+			:root[data-theme="abyss"] [class~="bg-glass-1/60"],
+			:root[data-theme="abyss-ocean"] [class~="bg-surface-1"],
+			:root[data-theme="abyss-ocean"] [class~="bg-surface-2"],
+			:root[data-theme="abyss-ocean"] [class~="bg-glass-1/50"],
+			:root[data-theme="abyss-ocean"] [class~="bg-glass-1/60"] {
 				backdrop-filter: blur(var(--vv-card-blur));
 				-webkit-backdrop-filter: blur(var(--vv-card-blur));
 			}
 		</style>
+
+		<style type="text/tailwindcss">
+			@layer components {
+				.panel {
+					@apply bg-gradient-to-br from-glass-1/80 to-glass-1/40 backdrop-blur-xl border border-line-1 rounded-2xl;
+				}
+				.panel-flat {
+					@apply bg-glass-1/60 border border-line-1 rounded-2xl;
+				}
+				.panel-dashed {
+					@apply bg-glass-1/60 border border-dashed border-line-2 rounded-2xl;
+				}
+				.btn {
+					@apply inline-flex items-center justify-center gap-2 h-10 px-5 rounded-lg
+						font-bold text-sm transition-all
+						focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60
+						disabled:opacity-60 disabled:cursor-not-allowed;
+				}
+				.btn-primary {
+					@apply btn bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg
+						hover:from-red-700 hover:to-red-800 hover:shadow-red-600/20;
+				}
+				.btn-secondary {
+					@apply btn bg-surface-white text-black hover:bg-surface-chip;
+				}
+				.btn-danger {
+					@apply btn bg-red-600/10 text-red-500 border border-red-600/30
+						hover:bg-red-600 hover:text-white active:bg-red-700;
+				}
+				.btn-ghost {
+					@apply btn bg-overlay/5 text-fg-secondary border border-line-2
+						hover:bg-overlay/10 hover:text-fg;
+				}
+				.btn-sm {
+					@apply h-8 px-3 text-xs gap-1.5;
+				}
+				.btn-icon {
+					@apply h-10 w-10 px-0 gap-0;
+				}
+
+				/* ---------- Form ---------- */
+				.input {
+					@apply w-full h-10 px-3 rounded-lg bg-scrim/40 border border-line-2 text-fg
+						placeholder-fg-faint transition-all
+						focus:border-red-600 focus:outline-none focus:ring-4 focus:ring-red-600/20;
+				}
+				.input-lg {
+					@apply input h-16 px-6 text-lg;
+				}
+				option {
+					background-color: var(--vv-surf-1);
+					color: var(--vv-text-primary);
+				}
+
+				/* ---------- Dati ---------- */
+				.badge {
+					@apply inline-flex items-center px-2 py-1 rounded-md text-[10px]
+						font-bold uppercase tracking-wider;
+				}
+				.table-vv {
+					@apply w-full;
+				}
+				.table-vv thead th {
+					@apply px-4 py-3 text-left text-[11px] font-bold uppercase
+						tracking-widest text-fg-muted;
+				}
+				.table-vv tbody td {
+					@apply px-4 py-4 align-top text-sm;
+				}
+				.table-vv tbody tr {
+					@apply border-t border-line-1 transition-colors hover:bg-overlay/5;
+				}
+
+				/* ---------- Pill / filtri / tab ---------- */
+				.pill-group {
+					@apply inline-flex rounded-lg bg-overlay/5 border border-overlay/10 p-1;
+				}
+				.pill {
+					@apply px-3 py-1.5 rounded-md text-xs font-bold text-fg-muted
+						transition-colors hover:text-fg;
+				}
+				.pill.active {
+					@apply bg-red-600 text-white;
+				}
+			}
+		</style>
+
 		{% block extra_head %}{% endblock %}
 	</head>
 
@@ -583,8 +663,8 @@
 			<span id="update-banner-text"></span>
 			<div class="flex items-center gap-3 flex-shrink-0">
 				<a id="update-release-link" href="#" target="_blank" rel="noopener" class="underline font-medium hover:text-blue-100">Release notes</a>
-				<button id="update-trigger-btn" class="bg-white text-blue-700 font-semibold px-3 py-1 rounded hover:bg-blue-50 transition-colors">Update now</button>
-				<button onclick="dismissUpdateBanner()" class="text-blue-200 hover:text-white transition-colors" aria-label="Dismiss">&times;</button>
+				<button id="update-trigger-btn" class="bg-surface-white text-blue-700 font-semibold px-3 py-1 rounded hover:bg-blue-50 transition-colors">Update now</button>
+				<button onclick="dismissUpdateBanner()" class="text-blue-200 hover:text-fg transition-colors" aria-label="Dismiss">&times;</button>
 			</div>
 		</div>
 		<script>
@@ -618,7 +698,7 @@
 					btn.addEventListener('click', function() {
 						btn.disabled = true;
 						btn.textContent = 'Updating ...';
-						fetch('/api/version/update/', {method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}})
+						fetch('/api/version/update/', {method: 'POST', headers: {'X-CSRFToken': VV.csrf()}})
 							.then(function(r) { return r.json(); })
 							.then(function(d) {
 								if (d && d.success) {
@@ -633,10 +713,6 @@
 				})
 				.catch(function() {});
 
-			function getCookie(name) {
-				var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
-				return v ? v[2] : '';
-			}
 		})();
 		</script>
 

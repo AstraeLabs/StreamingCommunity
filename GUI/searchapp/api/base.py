@@ -12,7 +12,7 @@ from VibraVid.utils import config_manager
 class Entries:
     """Standardized media item representation."""
     name: str
-    type: str  # 'film', 'series', 'ova', 'song', 'album', etc.
+    type: str
     slug: str = None
     id: Any = None
     path_id: Optional[str] = None
@@ -22,7 +22,8 @@ class Entries:
     provider_language: Optional[str] = None
     tmdb_id: Optional[str] = None
     raw_data: Optional[Dict[str, Any]] = None
-    audio_format: Optional[str] = None  # 'flac' | 'mp3' — set by GUI for music services
+    audio_format: Optional[str] = None
+    desc: Optional[str] = None 
 
     @property
     def is_movie(self) -> bool:
@@ -52,6 +53,7 @@ class Season:
     number: int
     episodes: List[Episode]
     name: Optional[str] = None
+    image: Optional[str] = None
     
     @property
     def episode_count(self) -> int:

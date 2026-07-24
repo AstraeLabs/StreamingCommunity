@@ -1,11 +1,13 @@
 # 09.06.24
 
 import gc
-import logging
 import os
-import signal
-import threading
 import time
+import uuid
+import signal
+import logging
+import threading
+from collections import deque
 from contextlib import nullcontext
 from functools import partial
 from typing import Any, Dict, Optional
@@ -15,9 +17,9 @@ from rich.progress import Progress, TextColumn
 from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.utils import config_manager, os_manager, internet_manager
 from VibraVid.utils.hooks import execute_hooks
-from VibraVid.utils.vault_upload.hook import try_fetch
+from VibraVid.utils.vault_upload.hook import try_fetch, upload_after
 from VibraVid.core.muxing.helper.video import get_media_metadata
-from VibraVid.core.muxing import inject_chapters
+from VibraVid.core.muxing import inject_chapters, embed_poster
 from VibraVid.core.ui.progress_bar import CustomBarColumn
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.ui.bar_manager import DownloadBarManager, console
@@ -32,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 SKIP_DOWNLOAD = config_manager.config.get_bool('DOWNLOAD', 'skip_download')
 DELAY_SS = config_manager.config.get_int('DOWNLOAD',  'delay_after_download')
+SPEED_WINDOW_SECONDS = 1.0
 
 
 class MP4FileDownloader:
@@ -39,7 +42,7 @@ class MP4FileDownloader:
     _decryptor = PostDownloadDecryptor()
     _tracker = SupaTracker()
 
-    def __init__(self,url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None, max_percentage: Optional[float] = None, chapters: Optional[list] = None, check_content_type: bool = True, sanitize_path: bool = True) -> None:
+    def __init__(self,url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None, max_percentage: Optional[float] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None, check_content_type: bool = True, sanitize_path: bool = True) -> None:
         """
         Initialize the MP4FileDownloader.
 
@@ -54,6 +57,7 @@ class MP4FileDownloader:
             key: The decryption key for the file.
             max_percentage: The maximum percentage of the file to download.
             chapters: A list of chapters to include in the download.
+            poster_url: Poster/still image URL to embed in the final file. Default: context_tracker.poster_url.
             check_content_type: Whether to check the content type of the response.
             sanitize_path: Whether to sanitize the local path.
 
@@ -69,9 +73,10 @@ class MP4FileDownloader:
         self.check_content_type = check_content_type
         self.max_percentage = self._normalize_max_percentage(max_percentage)
         self.chapters = chapters if chapters is not None else context_tracker.chapters
+        self.poster_url = poster_url if poster_url is not None else context_tracker.poster_url
 
         # Merge explicit args with context-level defaults
-        self.download_id = download_id or context_tracker.download_id
+        self.download_id = download_id or context_tracker.download_id or str(uuid.uuid4())
         self.site_name   = site_name   or context_tracker.site_name
         self.media_type  = context_tracker.media_type or "Film"
 
@@ -81,6 +86,7 @@ class MP4FileDownloader:
         self._total: Optional[int] = None
         self._downloaded: int = 0
         self._incomplete_err: Any = False
+        self._speed_window: "deque[tuple[float, int]]" = deque()
 
         # In-flight DRM probe state
         self._probe_buf: bytearray = bytearray()
@@ -414,10 +420,15 @@ class MP4FileDownloader:
         return (self._downloaded / self._total * 100.0) >= self.max_percentage
 
     def _tick_progress(self, progress_bars, start_time: float, bar_mgr: DownloadBarManager) -> None:
-        elapsed = time.time() - start_time
-        speed = self._downloaded / elapsed if elapsed > 0 else 0
+        now = time.time()
+        self._speed_window.append((now, self._downloaded))
+        while len(self._speed_window) > 1 and now - self._speed_window[0][0] > SPEED_WINDOW_SECONDS:
+            self._speed_window.popleft()
+        
+        window_start_at, window_start_bytes = self._speed_window[0]
+        speed = (self._downloaded - window_start_bytes) / max(now - window_start_at, 0.001)
         speed_str = internet_manager.format_transfer_speed(speed) if speed > 0 else "-- B/s"
-        dl_val, dl_unit = internet_manager.format_file_size(self._downloaded).split(" ")
+        downloaded_str = internet_manager.format_file_size(self._downloaded)
         percent = (self._downloaded / self._total * 100) if self._total else 0
         total_size_str = internet_manager.format_file_size(self._total) if self._total else "Unknown"
         pct_int = max(0, min(100, int(percent)))
@@ -426,7 +437,7 @@ class MP4FileDownloader:
             "task_key": "video",
             "pct": percent,
             "speed": speed_str,
-            "size": f"{dl_val} {dl_unit}/{total_size_str}",
+            "size": f"{downloaded_str}/{total_size_str}",
             "segments": f"{pct_int}/100",
             "label": self.label,
             "display_label": self.label,
@@ -513,8 +524,17 @@ class MP4FileDownloader:
         if self.chapters:
             self.path, _ = inject_chapters(self.path, self.chapters)
 
+        # Poster/still art, as the final muxing step (mirrors BaseDownloader._embed_poster).
+        # The flag is checked here, not at resolution time -- see that method.
+        from VibraVid.services._base.tmdb_artwork import embed_enabled
+        if self.poster_url and embed_enabled():
+            self.path, _ = embed_poster(self.path, self.poster_url)
+
         # Resolve media tokens (quality/codec/language) by probing the finished file.
         self._resolve_media_tokens()
+
+        # Vault upload - must run before complete_download()
+        upload_after(self.path)
 
         # GUI completion
         if self.download_id:
@@ -605,8 +625,13 @@ class MP4FileDownloader:
         return False
 
 
-def MP4_Downloader(url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None, max_percentage: Optional[float] = None, chapters: Optional[list] = None, check_content_type: bool = True, sanitize_path: bool = True) -> tuple:
+def MP4_Downloader(url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None, max_percentage: Optional[float] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None, check_content_type: bool = True, sanitize_path: bool = True) -> tuple:
     """Backward-compatible entry point — wraps ``MP4FileDownloader.download()``."""
+    if context_tracker.resolve_only:
+        from VibraVid.cli.command.queue import enqueue_down_from_context
+        enqueue_down_from_context(url, path)
+        return path, False, None
+
     if try_fetch(path):
         return path, False, None
 
@@ -621,12 +646,9 @@ def MP4_Downloader(url: str, path: str, referer: Optional[str] = None, headers_:
         key=key,
         max_percentage=max_percentage,
         chapters=chapters,
+        poster_url=poster_url,
         check_content_type=check_content_type,
         sanitize_path=sanitize_path,
     ).download()
-
-    if isinstance(result, tuple) and len(result) >= 3 and result[0] and not result[1] and not result[2]:
-        from VibraVid.utils.vault_upload.hook import upload_after
-        upload_after(result[0])
 
     return result

@@ -48,6 +48,11 @@ def stub_tmdb_found():
     tdm.tmdb_client.get_imdb_id = lambda *a, **k: "tt1234567"
     tdm.tmdb_client.get_original_title = lambda *a, **k: "Original Name"
     tdm.tmdb_client.get_original_language = lambda *a, **k: "ja"
+    tdm.tmdb_client.get_title = lambda *a, **k: "Titolo TMDB"
+    tdm.tmdb_client.get_episode_title = lambda *a, **k: "Titolo Episodio TMDB"
+    tdm.tmdb_client.get_season_for_absolute_episode = lambda *a, **k: {"season_number": 2, "episode_number": 1, "season_name": "Stagione 2"}
+    tdm.tmdb_client.resolve_actual_season_episode = lambda tmdb_id, season, episode, *a, **k: (2, 1) if episode == 53 else (season, episode)
+    tdm.tmdb_client.get_season_name = lambda tmdb_id, season_number, *a, **k: {1: "Stagione 1", 2: "Stagione 2", 3: "Stagione 3"}.get(season_number)
 
 
 def stub_tmdb_not_found():
@@ -123,19 +128,60 @@ def run_tmdb_tests():
     print("=" * 70)
 
     stub_tmdb_found()
-    pc, fn = episode("%(series_name) [%(imdb_id)] (%(tmdb_id))/%(episode_name) {%(original_title)} %(original_language)", episode=1)
+    pc, fn = episode("%(series_name) [%(imdb_id)] (%(tmdb_id))/%(episode_name) {%(original_title)} %(original_language) <%(tmdb_title)> [%(tmdb_episode_title)]", episode=1)
     check(
         "TMDB tokens resolved",
         (pc, fn),
-        (["Naruto [tt1234567] (999)"], "Il Test {Original Name} ja"),
+        (["Naruto [tt1234567] (999)"], "Il Test {Original Name} ja <Titolo TMDB> [Titolo Episodio TMDB]"),
     )
 
     stub_tmdb_not_found()
-    pc, fn = episode("%(series_name) [%(imdb_id)]/%(episode_name) (%(tmdb_id))", episode=1)
+    pc, fn = episode("%(series_name) [%(imdb_id)]/%(episode_name) (%(tmdb_id)) [%(tmdb_title)] [%(tmdb_episode_title)]", episode=1)
     check(
         "TMDB not found -> tokens+wrappers stripped",
         (pc, fn),
         (["Naruto"], "Il Test"),
+    )
+
+    # Dub-tag suffix (e.g. "(ITA)") must be stripped before the TMDB lookup, but the
+    # raw title is preserved in %(series_name)/%(title_name) itself.
+    seen_slugs = []
+    tdm.tmdb_client.get_type_and_id_by_slug_year = lambda slug, *a, **k: (seen_slugs.append(slug) or {"type": "tv", "id": 999})
+
+    pc, fn = episode("%(series_name) (%(tmdb_id))/%(episode_name)", series="Naruto (ITA)", episode=1)
+    check(
+        "dub-tag suffix stripped from TMDB lookup slug, kept in series_name",
+        (pc, fn, seen_slugs[-1]),
+        (["Naruto (ITA) (999)"], "Il Test", "naruto"),
+    )
+
+    # tmdb_season_name/tmdb_season_number map an absolute (flat) episode number to its real
+    # TMDB season — only triggers the extra lookup when one of these tokens is actually used.
+    stub_tmdb_found()
+    pc, fn = episode("%(series_name)/S%(tmdb_season_number) %(tmdb_season_name)/%(episode_name) E%(episode:d)", episode=53)
+    check(
+        "tmdb_season_name/tmdb_season_number resolved from absolute episode number",
+        (pc, fn),
+        (["Naruto", "S2 Stagione 2"], "Il Test E53"),
+    )
+
+    stub_tmdb_not_found()
+    pc, fn = episode("%(series_name)/[%(tmdb_season_name)] [%(tmdb_season_number)]/%(episode_name)", episode=53)
+    check(
+        "tmdb_season_name/tmdb_season_number stripped when show not found",
+        (pc, fn),
+        (["Naruto", ""], "Il Test"),
+    )
+
+    # Regression: a normal (non-anime) show whose season_number is already correct must NOT
+    # be remapped as if episode_number were an absolute/flat cross-season count (e.g. Breaking
+    # Bad S03E05 must resolve to season 3, not season 1 just because "5" fits within season 1).
+    stub_tmdb_found()
+    pc, fn = episode("%(series_name)/S%(tmdb_season_number:02d) - %(tmdb_season_name)/%(episode_name)", season=3, episode=5)
+    check(
+        "tmdb_season_number respects an already-correct season_number (no absolute remap)",
+        (pc, fn),
+        (["Naruto", "S03 - Stagione 3"], "Il Test"),
     )
 
 
@@ -149,6 +195,10 @@ def run_movie_tests():
 
     pc, fn = movie("%(title_name) (%(title_year))", year=None)
     check("movie year absent strips parens", (pc, fn), ([], "Inception"))
+
+    stub_tmdb_found()
+    pc, fn = movie("%(title_name) [%(tmdb_episode_title)]", year=None)
+    check("tmdb_episode_title never resolves for movies (media_type != tv)", (pc, fn), ([], "Inception"))
 
 
 if __name__ == "__main__":

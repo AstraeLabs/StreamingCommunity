@@ -21,27 +21,34 @@ REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
 
 class VodStreamMixin:
     def _apply_max_time(self, dl_segs: List[Dict]) -> List[Dict]:
-        if not self.max_time or self.max_time <= 0:
+        start, end = self.max_time if isinstance(self.max_time, tuple) else (0.0, self.max_time)
+        if (not start or start <= 0) and end is None:
             return dl_segs
-        
+
         acc = 0.0
         result = []
         for seg in dl_segs:
-            result.append(seg)
             if seg.get("seg_type") == "init":
+                result.append(seg)
                 continue
 
             acc += seg.get("duration", 0.0)
-            if acc >= self.max_time:
+            if acc <= start:
+                continue
+
+            result.append(seg)
+            if end is not None and acc >= end:
                 break
 
         if len(result) < len(dl_segs):
-            logger.info(f"Limiting download to {acc:.1f}s of content (max_time={self.max_time:.0f}s)")
+            end_label = f"{end:.0f}s" if end is not None else "end"
+            logger.info(f"Limiting download to [{start:.1f}s, {end_label}) of content")
         return result
 
     def _assign_segment_durations(self, stream, dl_segs: List[Dict], headers: Dict) -> None:
         """Populate each media segment's ``"duration"`` (seconds) for the ``--max-time``"""
-        if stream.is_live or not self.max_time:
+        start, end = self.max_time if isinstance(self.max_time, tuple) else (0.0, self.max_time)
+        if stream.is_live or ((not start or start <= 0) and end is None):
             return
 
         media = [s for s in dl_segs if s.get("seg_type") == "media"]
@@ -179,7 +186,7 @@ class VodStreamMixin:
             return
 
         base_url = hls_base_url(playlist_url)
-        media_segs, init_url = parse_hls_variant_playlist(playlist_content, base_url)
+        media_segs, init_url = parse_hls_variant_playlist(playlist_content, base_url, enc_override=getattr(self, "hls_enc_override", None))
 
         if not media_segs and not init_url:
             logger.error(f"HLS variant playlist has no segments: {playlist_url}")
@@ -199,9 +206,13 @@ class VodStreamMixin:
                 "duration": seg.get("duration", 0.0),
             })
 
-        if self.max_segments and self.max_segments > 0:
-            dl_segs = dl_segs[:1 + self.max_segments] if init_url else dl_segs[:self.max_segments]
-            logger.debug(f"Limiting HLS download to {len(dl_segs)} segments (max_segments={self.max_segments})")
+        seg_start, seg_end = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
+        if seg_start > 0 or seg_end is not None:
+            if init_url:
+                dl_segs = [dl_segs[0]] + dl_segs[1:][seg_start:seg_end]
+            else:
+                dl_segs = dl_segs[seg_start:seg_end]
+            logger.debug(f"Limiting HLS download to segments [{seg_start}:{seg_end}] ({len(dl_segs)} segments)")
 
         dl_segs = self._apply_max_time(dl_segs)
 
@@ -285,9 +296,10 @@ class VodStreamMixin:
 
         self._assign_segment_durations(stream, dl_segs, all_headers)
 
-        if self.max_segments and self.max_segments > 0:
-            dl_segs = dl_segs[:self.max_segments]
-            logger.debug(f"Limiting DASH download to {len(dl_segs)} segments (max_segments={self.max_segments})")
+        seg_start, seg_end = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
+        if seg_start > 0 or seg_end is not None:
+            dl_segs = dl_segs[seg_start:seg_end]
+            logger.debug(f"Limiting DASH download to segments [{seg_start}:{seg_end}] ({len(dl_segs)} segments)")
 
         dl_segs = self._apply_max_time(dl_segs)
 
@@ -375,9 +387,10 @@ class VodStreamMixin:
 
         self._assign_segment_durations(stream, dl_segs, all_headers)
 
-        if self.max_segments and self.max_segments > 0:
-            dl_segs = dl_segs[:self.max_segments]
-            logger.debug(f"Limiting ISM download to {len(dl_segs)} segments (max_segments={self.max_segments})")
+        seg_start, seg_end = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
+        if seg_start > 0 or seg_end is not None:
+            dl_segs = dl_segs[seg_start:seg_end]
+            logger.debug(f"Limiting ISM download to segments [{seg_start}:{seg_end}] ({len(dl_segs)} segments)")
 
         dl_segs = self._apply_max_time(dl_segs)
 

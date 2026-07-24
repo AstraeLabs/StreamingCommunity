@@ -7,22 +7,31 @@ from rich.console import Console
 
 from VibraVid.utils import config_manager
 from VibraVid.core.drm.system import DRMType
-from VibraVid.core.downloader.util._detect import (detect_stream_type, parse_headers, parse_keys, derive_output_path)
+from VibraVid.core.downloader.util._detect import (detect_stream_type, parse_headers, parse_keys, parse_raw_key, derive_output_path)
+from VibraVid.core.ui.tracker import context_tracker
 
 logger = logging.getLogger(__name__)
 console = Console()
 
 
 def handle_direct_download(args) -> bool:
-    """
-    Execute a direct URL download when --down is passed.
-    Returns True if handled (caller should return immediately), False otherwise.
-    """
+    """Execute a direct URL download when --down is passed."""
     url: Optional[str] = getattr(args, 'down', None)
     if not url:
-        return False
+        return False, False
 
     url = url.strip()
+    if getattr(args, 'meta_title', None):
+        context_tracker.title = args.meta_title
+    if getattr(args, 'meta_type', None):
+        context_tracker.media_type = args.meta_type
+    if getattr(args, 'meta_season', None) is not None:
+        context_tracker.season = args.meta_season
+    if getattr(args, 'meta_episode', None) is not None:
+        context_tracker.episode = args.meta_episode
+    if getattr(args, 'meta_site', None):
+        context_tracker.site_name = args.meta_site
+
     headers   = parse_headers(getattr(args, 'headers', None))
     keys      = parse_keys(getattr(args, 'key', None))
     output    = (getattr(args, 'output', None) or '').strip() or None
@@ -33,6 +42,21 @@ def handle_direct_download(args) -> bool:
     max_time  = getattr(args, 'max_time', None)
     skip_content_check = bool(getattr(args, 'skip_content_check', False))
     skip_sanitize = bool(getattr(args, 'skip_sanitize', False))
+
+    hls_method = (getattr(args, 'hls_method', None) or '').strip().upper() or None
+    try:
+        hls_key = parse_raw_key(getattr(args, 'hls_key', None))
+        hls_iv  = parse_raw_key(getattr(args, 'hls_iv', None))
+    except Exception as exc:
+        logger.error(f"Could not decode --hls-key/--hls-iv: {exc}")
+        console.print(f"[red]Could not decode --hls-key/--hls-iv: {exc}")
+        return True, False
+
+    for _name, _val in (('--hls-key', hls_key), ('--hls-iv', hls_iv)):
+        if _val is not None and len(_val) != 16:
+            logger.error(f"{_name} must decode to exactly 16 bytes (got {len(_val)})")
+            console.print(f"[red]{_name} must decode to exactly 16 bytes (got {len(_val)})")
+            return True, False
 
     # Map DRM string to DRMType constant (or None if not recognized)
     drm_choice = None
@@ -69,7 +93,7 @@ def handle_direct_download(args) -> bool:
             if error:
                 logger.error(f"MP4 download error: {error}")
                 console.print(f"[red]Download error: {error}")
-                return True
+                return True, False
 
         elif url_type == 'hls':
             dl = HLS_Downloader(
@@ -83,13 +107,16 @@ def handle_direct_download(args) -> bool:
                 max_segments=max_segs,
                 max_time=max_time,
                 sanitize_path=not skip_sanitize,
+                hls_method=hls_method,
+                hls_key=hls_key,
+                hls_iv=hls_iv,
             )
             path, cancelled, error = dl.start()
 
             if error:
                 logger.error(f"HLS download error: {error}")
                 console.print(f"[red]Download error: {error}")
-                return True
+                return True, False
 
         elif url_type == 'dash':
             effective_drm = drm_choice or DRMType.WIDEVINE
@@ -110,7 +137,7 @@ def handle_direct_download(args) -> bool:
             if error:
                 logger.error(f"DASH download error: {error}")
                 console.print(f"[red]Download error: {error}")
-                return True
+                return True, False
 
         elif url_type == 'ism':
             effective_drm = drm_choice or DRMType.PLAYREADY
@@ -131,23 +158,26 @@ def handle_direct_download(args) -> bool:
             if error:
                 logger.error(f"ISM download error: {error}")
                 console.print(f"[red]Download error: {error}")
-                return True
+                return True, False
 
         else:
             logger.error(f"Unsupported stream type for URL: {url}")
             console.print("[red]Unsupported: could not detect a valid stream (m3u8/dash/hls/ism).")
-            return True
+            return True, False
 
     except Exception as exc:
         logger.exception(f"Direct download failed: {exc}")
         console.print(f"[red]Download error: {exc}")
-        return True
+        return True, False
 
+    ok = True
     if cancelled:
         console.print("[yellow]Download cancelled.")
+        ok = False
     elif path:
         logger.info(f"Download completed: {path}")
     else:
         console.print("[red]Download failed.")
+        ok = False
 
-    return True
+    return True, ok

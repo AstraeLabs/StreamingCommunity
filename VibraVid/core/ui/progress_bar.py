@@ -96,7 +96,7 @@ class TransferStatsColumn(ProgressColumn):
             if "/" in size:
                 current, total = size.split("/", 1)
                 text.append(current, style="dim")
-                text.append("/", style="dim")
+                text.append(" / ", style="dim")
                 text.append(total, style="green")
             else:
                 text.append(size, style="green")
@@ -123,7 +123,7 @@ class TransferStatsColumn(ProgressColumn):
         if speed:
             if has_content:
                 text.append(" ")
-            text.append("@", style="dim")
+            text.append("·", style="dim")
             text.append(" ")
             text.append(speed, style="red")
 

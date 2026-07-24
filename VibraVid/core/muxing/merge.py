@@ -1,22 +1,25 @@
 # 31.01.24
 
 import os
+import shutil
+import logging
 import subprocess
 import tempfile
-import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from rich.console import Console
+from mutagen.mp4 import MP4, MP4Cover
 
 from VibraVid.utils import config_manager, internet_manager
+from VibraVid.utils.image_cache import get_cached_tmdb_image
 from VibraVid.setup import binary_paths, get_ffmpeg_path, get_mkvmerge_path
 from VibraVid.core.ui.tracker import context_tracker
 from VibraVid.core.utils.language import resolve_iso639_2, resolve_ietf
 
 from .helper.video import detect_ts_timestamp_issues, convert_ts_to_mp4, resolve_compatible_extension, is_mpegts_file, get_stream_codecs
 from .helper.audio import check_duration_v_a, has_audio, get_video_duration, detect_audio_offset
-from .helper.sub import convert_subtitle, extract_vtt_from_wvtt_mp4
+from .helper.sub import convert_subtitle, extract_vtt_from_wvtt_mp4, trim_subtitle_to_duration, get_subtitle_duration
 from .capture import capture_ffmpeg_real_time
 
 
@@ -453,6 +456,89 @@ def inject_chapters(file_path: str, chapters: Optional[list] = None):
     return file_path, result_json
 
 
+def embed_poster(file_path: str, image_url: Optional[str] = None):
+    """
+    Embeds a poster/still image into an already-muxed file, as the final muxing step.
+
+    Parameters:
+        - file_path (str): The path to the already-muxed media file.
+        - image_url (str): URL of the poster/still image to embed, or None to no-op.
+
+    Returns:
+        tuple: (file_path, result_json)
+    """
+    if not image_url:
+        return file_path, {}
+
+    image_bytes = get_cached_tmdb_image(image_url)
+    if not image_bytes:
+        logger.warning("[embed_poster] could not download image, skipping")
+        return file_path, {}
+
+    base, ext = os.path.splitext(file_path)
+    ext_lower = ext.lower()
+
+    if ext_lower in (".mp4", ".m4v"):
+        try:
+            audio = MP4(file_path)
+            if audio.tags is None:
+                audio.add_tags()
+            audio.tags['covr'] = [MP4Cover(image_bytes, imageformat=MP4Cover.FORMAT_JPEG)]
+            audio.save()
+            logger.info(f"Poster embedded (MP4 covr): {image_url}")
+        except Exception as e:
+            logger.warning(f"[embed_poster] MP4 tagging failed: {e}")
+        return file_path, {}
+
+    if ext_lower != ".mkv":
+        logger.debug(f"[embed_poster] poster embedding not supported for extension '{ext}', skipping")
+        return file_path, {}
+
+    # Fixed filename "cover.jpg" (not a random tempfile name)
+    tmp_cover_dir = tempfile.mkdtemp()
+    tmp_cover_path = os.path.join(tmp_cover_dir, "cover.jpg")
+    with open(tmp_cover_path, "wb") as f:
+        f.write(image_bytes)
+
+    tmp_out = f"{base}_poster{ext}"
+
+    try:
+        if MUX_ENGINE == "mkvmerge":
+            cmd = [
+                get_mkvmerge_path(), "-o", tmp_out,
+                "--attachment-mime-type", "image/jpeg", "--attachment-name", "cover.jpg", "--attach-file", tmp_cover_path,
+                file_path,
+            ]
+            logger.info(f"Running poster embedding (mkvmerge) command: {' '.join(cmd)}")
+            total_duration = get_video_duration(file_path)
+            result_json = capture_ffmpeg_real_time(cmd, '[yellow]MKVMERGE [cyan]Embed poster', total_duration)
+        else:
+            cmd = [
+                get_ffmpeg_path(), "-i", file_path,
+                "-attach", tmp_cover_path, "-metadata:s:t", "mimetype=image/jpeg", "-metadata:s:t", "filename=cover.jpg",
+                "-map", "0", "-c", "copy", tmp_out, "-y",
+            ]
+            logger.info(f"Running poster embedding (ffmpeg) command: {' '.join(cmd)}")
+            total_duration = get_video_duration(file_path)
+            result_json = capture_ffmpeg_real_time(cmd, '[yellow]FFMPEG [cyan]Embed poster', total_duration)
+            if context_tracker.should_print:
+                print()
+    finally:
+        shutil.rmtree(tmp_cover_dir, ignore_errors=True)
+
+    if not (os.path.exists(tmp_out) and os.path.getsize(tmp_out) > 0):
+        logger.warning("[embed_poster] poster embedding failed, keeping file without poster")
+        return file_path, result_json
+
+    try:
+        os.replace(tmp_out, file_path)
+    except OSError as e:
+        logger.warning(f"[embed_poster] could not replace original file: {e}")
+        return tmp_out, result_json
+
+    return file_path, result_json
+
+
 def join_video(video_path: str, out_path: str):
     """
     Mux video file using FFmpeg.
@@ -590,6 +676,8 @@ def join_audios(video_path: str, audio_tracks: List[Dict[str, str]], out_path: s
 
         if diff > limit_duration_diff:
             logger.warning(f"Duration difference for '{audio_lang}' exceeds limit ({diff:.2f}s > {limit_duration_diff}s). This track will be included with -shortest, but consider fixing the source files.")
+            shortest_dur = round(min(video_duration, audio_duration))
+            console.print(f'[yellow]      -> [cyan]shortest will be applied: output trimmed to ~{shortest_dur}s')
             use_shortest = True
 
         if reference_audio is None:
@@ -706,19 +794,23 @@ def _join_audios_mkvmerge(video_path: str, audio_tracks: List[Dict[str, str]], o
     return out_path, result_json
 
 
-def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_path: str):
+def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_path: str, limit_duration_diff: float = 3):
     """
     Joins subtitles with a video file using FFmpeg.
- 
+
     Parameters:
         - video_path (str): The path to the video file.
         - subtitles_list (list[dict[str, str]]): A list of dicts with 'path',
           'language', and optionally 'is_wvtt_mp4' keys.
         - out_path (str): The path to save the output file.
- 
+        - limit_duration_diff (float): Maximum duration a subtitle may exceed
+          the video by before it gets trimmed to match (same threshold used
+          for audio in join_audios).
+
     Returns:
         tuple: (out_path, result_json)
     """
+    video_duration = get_video_duration(video_path)
     subtitle_order = _get_subtitle_order()
     if subtitle_order:
         subtitles_list = _sort_tracks_by_order(subtitles_list, subtitle_order, ["language", "lang", "name"])
@@ -766,6 +858,20 @@ def join_subtitles(video_path: str, subtitles_list: List[Dict[str, str]], out_pa
     if not processed:
         logger.warning("join_subtitles: no valid subtitle tracks to mux after pre-processing")
         return join_video(video_path, out_path)
+
+    # Trim subtitles that overrun the video
+    if video_duration:
+        for subtitle in processed:
+            sub_path = subtitle["path"]
+            sub_duration = get_subtitle_duration(sub_path)
+            if not sub_duration:
+                continue
+
+            diff = sub_duration - video_duration
+            if diff > limit_duration_diff:
+                logger.warning(f"Subtitle '{subtitle.get('language', 'unknown')}' duration ({sub_duration:.2f}s) exceeds video ({video_duration:.2f}s) by {diff:.2f}s > {limit_duration_diff}s limit — trimming to match.")
+                console.print(f'[yellow]    - [cyan]Subtitle [red]{subtitle.get("language", "unknown")} [cyan]trimming to [red]~{round(video_duration)}s [cyan]to keep container duration accurate')
+                subtitle["path"] = trim_subtitle_to_duration(sub_path, video_duration)
 
     subtitles_list = processed
 

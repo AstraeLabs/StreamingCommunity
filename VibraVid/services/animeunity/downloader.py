@@ -35,7 +35,7 @@ def download_film(select_title: Entries):
     scrape_serie.setup(None, select_title.id, select_title.slug)
     scrape_serie.is_series = False
     obj_episode = scrape_serie.get_info_episode(0)
-    download_episode(obj_episode, 0, scrape_serie, video_source)
+    return download_episode(obj_episode, 0, scrape_serie, video_source)
 
 
 def download_episode(obj_episode, index_select, scrape_serie, video_source):
@@ -63,7 +63,12 @@ def download_episode(obj_episode, index_select, scrape_serie, video_source):
             season_number = int(season_number)
         except (TypeError, ValueError):
             season_number = 1
-        
+
+        # Add episode information to context tracker
+        context_tracker.season = season_number
+        context_tracker.episode = episode_number
+        context_tracker.episode_name = episode_name
+
         path_components, filename = map_episode_path(series_name=scrape_serie.series_name, series_year=None, season_number=season_number, episode_number=episode_number, episode_name=episode_name, absolute_number=episode_number)
         mp4_path = os_manager.get_sanitize_path(anime_folder(*path_components))
         mp4_name = filename
@@ -160,11 +165,11 @@ def download_series(select_title: Entries, season_selection: str = None, episode
             obj_episode, index_select = _get_episode_by_number_or_index(scrape_serie, i_episode)
             if obj_episode is None:
                 console.print(f"[red]Episode {i_episode} not found")
-                kill_handler = True
                 continue
 
-            _, kill_handler, msg_error = unpack_download_result(download_episode(obj_episode, index_select, scrape_serie, video_source))
+            _, stopped, msg_error = unpack_download_result(download_episode(obj_episode, index_select, scrape_serie, video_source))
 
             if msg_error:
                 console.print(f"[red]{msg_error}")
-                kill_handler = True
+                if msg_error == "cancelled":
+                    kill_handler = True

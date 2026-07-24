@@ -4,7 +4,7 @@
 {% block title %}{{ series.name }}{% endblock %}
 
 {% block content %}
-<div class="animate-fade-in">
+<div class="animate-fade-in" id="series-detail-root" data-series-tmdb-id="{{ series_tmdb_id|default:'' }}">
   
   <!-- Hero Banner -->
   <div class="relative h-[50vh] sm:h-[55vh] lg:h-[65vh] -mx-3 sm:-mx-5 lg:-mx-8 -mt-[var(--navbar-height)] mb-0 overflow-hidden" id="hero-banner">
@@ -18,19 +18,12 @@
     >
     
     <!-- Gradients -->
-    <div class="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent"></div>
-    <div class="absolute inset-0 bg-gradient-to-r from-black/80 via-transparent to-transparent"></div>
+    <div class="absolute inset-0 bg-gradient-to-t from-scrim via-scrim/60 to-transparent"></div>
+    <div class="absolute inset-0 bg-gradient-to-r from-scrim/80 via-transparent to-transparent"></div>
     
     <!-- Content -->
     <div class="relative h-full w-full px-4 sm:px-6 lg:px-10 flex flex-col justify-end pb-6 sm:pb-10">
-      <button 
-        onclick="window.history.back()" 
-        class="absolute top-20 sm:top-20 left-4 sm:left-6 lg:left-10 p-2.5 sm:p-3 bg-black/60 hover:bg-black/80 backdrop-blur-sm rounded-full transition-all z-10"
-      >
-        <svg class="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path>
-        </svg>
-      </button>
+{% include "searchapp/partials/_back_button.html" with variant="floating" %}
 
       <div class="max-w-3xl">
         <!-- Badges -->
@@ -38,11 +31,11 @@
           <span class="px-2.5 py-1 sm:px-4 sm:py-1.5 bg-red-600 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded shadow-xl">
             {% if series.is_album %}Album{% else %}TV Series{% endif %}
           </span>
-          <span class="px-2.5 py-1 sm:px-4 sm:py-1.5 bg-white/20 backdrop-blur-md text-white text-xs sm:text-sm font-semibold rounded">
+          <span class="px-2.5 py-1 sm:px-4 sm:py-1.5 bg-overlay/20 backdrop-blur-md text-fg text-xs sm:text-sm font-semibold rounded">
             {{ seasons|length }} {% if series.is_album %}Disc{% else %}Seasons{% endif %}
           </span>
           {% if series.year %}
-          <span class="px-2.5 py-1 sm:px-4 sm:py-1.5 bg-white/20 backdrop-blur-md text-white text-xs sm:text-sm font-semibold rounded">
+          <span class="px-2.5 py-1 sm:px-4 sm:py-1.5 bg-overlay/20 backdrop-blur-md text-fg text-xs sm:text-sm font-semibold rounded">
             {{ series.year }}
           </span>
           {% endif %}
@@ -54,7 +47,7 @@
             <input type="hidden" name="item_payload" value="{{ series.item_payload }}">
             <button 
               type="submit" 
-              class="px-2.5 py-1 sm:px-4 sm:py-1.5 bg-white hover:bg-gray-200 text-black text-xs sm:text-sm font-bold rounded flex items-center gap-1.5 sm:gap-2 transition-all shadow-xl"
+              class="px-2.5 py-1 sm:px-4 sm:py-1.5 bg-surface-white hover:bg-surface-chip text-black text-xs sm:text-sm font-bold rounded flex items-center gap-1.5 sm:gap-2 transition-all shadow-xl"
             >
               <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -65,7 +58,7 @@
         </div>
 
         <!-- Title -->
-        <h1 class="text-3xl sm:text-5xl lg:text-7xl font-black text-white mb-4 sm:mb-6 leading-tight drop-shadow-2xl">
+        <h1 class="text-3xl sm:text-5xl lg:text-7xl font-black text-fg mb-4 sm:mb-6 leading-tight drop-shadow-2xl">
           {{ series.name }}
         </h1>
 
@@ -79,8 +72,9 @@
             <input type="hidden" name="download_type" value="full_series">
             <button 
               type="submit" 
-              onclick="return confirm('{% if series.is_album %}Are you sure you want to download the ENTIRE album?{% else %}Are you sure you want to download ALL seasons of the series?{% endif %}')"
-              class="w-full px-5 py-3 sm:px-8 sm:py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold text-sm sm:text-base rounded-lg shadow-xl hover:shadow-2xl hover:shadow-red-600/20 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2 sm:gap-3">
+              onclick="confirmDownloadAll(event, this)"
+              data-confirm="{% if series.is_album %}Scaricare l'intero album?{% else %}Scaricare TUTTE le stagioni?{% endif %}"
+              class="w-full px-5 py-3 sm:px-8 sm:py-4 btn-primary text-sm sm:text-base rounded-lg shadow-xl hover:shadow-2xl hover:shadow-red-600/20 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2 sm:gap-3">
               <svg class="w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
               </svg>
@@ -114,18 +108,19 @@
   <!-- Seasons Section -->
   <div class="space-y-5 sm:space-y-8 py-6 sm:py-8">
     {% for season in seasons %}
-    <div class="bg-gradient-to-br from-gray-900/80 to-gray-900/40 backdrop-blur-xl border border-gray-800 rounded-xl sm:rounded-2xl overflow-hidden hover:border-gray-700 transition-all">
+    <div class="panel overflow-hidden hover:border-line-2 transition-all">
       
       <!-- Season Header -->
-      <div class="bg-gradient-to-r from-gray-900 to-gray-800 p-4 sm:p-6 lg:p-8 border-b border-gray-700">
+      <div class="bg-gradient-to-r from-grad-from to-surface-2 p-4 sm:p-6 lg:p-8 border-b border-line-2">
         <div class="flex items-center gap-3 sm:gap-5">
           <!-- Season Checkbox (Hidden, styled through label) -->
           <label class="cursor-pointer group flex-shrink-0 relative">
             <input type="checkbox" title="Select season {{ season.number }}" class="season-checkbox hidden" value="{{ season.number }}">
-            <div class="season-card w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 bg-gradient-to-br from-red-600 to-pink-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-2xl shadow-red-600/50 transition-all border-2 border-transparent">
-              <span class="season-number text-xl sm:text-2xl lg:text-3xl font-black text-white z-[1]">{{ season.number }}</span>
+            <div class="season-card w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 {% if not season.image %}bg-gradient-to-br from-red-600 to-pink-600{% endif %} rounded-lg sm:rounded-xl flex items-center justify-center shadow-2xl shadow-red-600/50 transition-all border-2 border-transparent relative overflow-hidden bg-cover bg-center"{% if season.image %} style="background-image: url('{{ season.image }}');"{% endif %}>
+              {% if season.image %}<div class="absolute inset-0 bg-scrim/30"></div>{% endif %}
+              <span class="season-number relative text-xl sm:text-2xl lg:text-3xl font-black text-fg z-[1] drop-shadow-lg">{{ season.number }}</span>
               <div class="season-check-overlay absolute inset-0 bg-red-800 opacity-0 transition-opacity flex items-center justify-center rounded-lg sm:rounded-xl">
-                <svg class="w-6 h-6 sm:w-8 sm:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-6 h-6 sm:w-8 sm:h-8 text-fg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
                 </svg>
               </div>
@@ -134,10 +129,10 @@
           
           <!-- Season Info -->
           <div class="flex-1 min-w-0">
-            <h2 class="text-lg sm:text-2xl lg:text-3xl font-bold text-white mb-0.5 sm:mb-1 truncate">
+            <h2 class="text-lg sm:text-2xl lg:text-3xl font-bold text-fg mb-0.5 sm:mb-1 truncate">
               {% if series.is_album %}{{ season.name }}{% else %}Season {{ season.number }}{% if season.name %} - {{ season.name }}{% endif %}{% endif %}
             </h2>
-            <p class="text-gray-400 text-xs sm:text-sm lg:text-base">
+            <p class="text-fg-muted text-xs sm:text-sm lg:text-base">
               {{ season.episode_count }} {% if series.is_album %}tracks{% else %}episodes available{% endif %}
             </p>
           </div>
@@ -172,21 +167,21 @@
 
           <!-- Controls Header -->
           <div class="flex items-center justify-between gap-3 mb-4 sm:mb-6">
-            <h3 class="text-sm sm:text-base lg:text-lg font-bold text-white">
+            <h3 class="text-sm sm:text-base lg:text-lg font-bold text-fg">
               {% if series.is_album %}Select Tracks{% else %}Select Episodes{% endif %}
             </h3>
             <div class="flex gap-2 sm:gap-3">
               <button 
                 type="button" 
                 onclick="window.selectAllEpisodes({{ season.number }})" 
-                class="px-3 py-1.5 sm:px-5 sm:py-2.5 bg-gray-800 hover:bg-gray-700 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors"
+                class="px-3 py-1.5 sm:px-5 sm:py-2.5 bg-surface-2 hover:bg-surface-3 text-fg text-xs sm:text-sm font-semibold rounded-lg transition-colors"
               >
                 All
               </button>
               <button 
                 type="button" 
                 onclick="window.deselectAllEpisodes({{ season.number }})" 
-                class="px-3 py-1.5 sm:px-5 sm:py-2.5 bg-gray-800 hover:bg-gray-700 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors"
+                class="px-3 py-1.5 sm:px-5 sm:py-2.5 bg-surface-2 hover:bg-surface-3 text-fg text-xs sm:text-sm font-semibold rounded-lg transition-colors"
               >
                 None
               </button>
@@ -203,19 +198,23 @@
                 data-season="{{ season.number }}" 
                 value="{{ episode.number }}"
               >
-              <div class="episode-card relative bg-gray-800/50 hover:bg-gray-700/50 border-2 border-gray-700 rounded-md sm:rounded-lg transition-all text-center overflow-hidden aspect-square flex flex-col items-center justify-center">
+              <div class="episode-card relative bg-glass-2/50 hover:bg-glass-3/50 border-2 border-line-2 rounded-md sm:rounded-lg transition-all text-center overflow-hidden aspect-square flex flex-col items-center justify-center">
 
                 <!-- Episode Image -->
-                <img src="{{ series.poster }}" alt="Episode {{ episode.number }}" class="absolute inset-0 w-full h-full object-cover rounded-md sm:rounded-lg" loading="lazy">
+                <img
+                  id="ep-img-{{ season.number }}-{{ episode.number }}"
+                  data-season="{{ season.number }}"
+                  data-episode="{{ episode.number }}"
+                  src="{{ series.poster }}" alt="Episode {{ episode.number }}" class="absolute inset-0 w-full h-full object-cover rounded-md sm:rounded-lg" loading="lazy">
 
                 <!-- Overlay -->
-                <div class="absolute inset-0 bg-black/40 rounded-md sm:rounded-lg"></div>
+                <div class="absolute inset-0 bg-scrim/40 rounded-md sm:rounded-lg"></div>
 
                 <!-- Language Badge -->
                 {% if episode.language %}
                 <div class="absolute top-0.5 right-0.5 sm:top-1 sm:right-1 z-[2] flex gap-0.5">
                   {% for lang in episode.language_list %}
-                  <span class="px-1 py-0.5 text-[7px] sm:text-[9px] font-bold uppercase rounded shadow-sm {% if lang == 'it' %}bg-green-600 text-white{% elif lang == 'en' %}bg-blue-600 text-white{% else %}bg-gray-600 text-white{% endif %}">
+                  <span class="px-1 py-0.5 text-[7px] sm:text-[9px] font-bold uppercase rounded shadow-sm {% if lang == 'it' %}bg-green-600 text-white{% elif lang == 'en' %}bg-blue-600 text-white{% else %}bg-surface-4 text-fg{% endif %}">
                     {{ lang }}
                   </span>
                   {% endfor %}
@@ -223,27 +222,27 @@
                 {% endif %}
 
                 <!-- Episode Number -->
-                <div class="episode-number relative text-sm sm:text-base lg:text-lg font-black text-white transition-colors z-[1]">
+                <div class="episode-number relative text-sm sm:text-base lg:text-lg font-black text-fg transition-colors z-[1]">
                   {{ episode.number }}
                 </div>
 
                 <!-- Episode Name -->
                 {% if episode.name %}
-                <div class="episode-name relative text-[8px] sm:text-[10px] font-medium text-gray-300 text-center leading-tight truncate w-full px-1 z-[1] hidden sm:block">
+                <div class="episode-name relative text-[8px] sm:text-[10px] font-medium text-fg-secondary text-center leading-tight truncate w-full px-1 z-[1] hidden sm:block">
                   {{ episode.name }}
                 </div>
                 {% endif %}
 
                 <!-- Selected Indicator -->
                 <div class="check-overlay absolute inset-0 bg-red-600 opacity-0 transition-opacity flex items-center justify-center rounded-md sm:rounded-lg">
-                  <svg class="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-5 h-5 sm:w-6 sm:h-6 text-fg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
                   </svg>
                 </div>
 
                 <!-- Play Icon on Hover (desktop only) -->
-                <div class="play-icon absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity items-center justify-center rounded-md sm:rounded-lg hidden sm:flex">
-                  <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                <div class="play-icon absolute inset-0 bg-scrim/60 opacity-0 group-hover:opacity-100 transition-opacity items-center justify-center rounded-md sm:rounded-lg hidden sm:flex">
+                  <svg class="w-5 h-5 text-fg" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 5v14l11-7z"/>
                   </svg>
                 </div>
@@ -255,7 +254,7 @@
           <!-- Submit Button -->
           <button 
             type="submit" 
-            class="w-full py-3.5 sm:py-4 lg:py-5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold text-sm sm:text-base rounded-lg sm:rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-2xl shadow-red-600/30 flex items-center justify-center gap-2 sm:gap-3"
+            class="w-full py-3.5 sm:py-4 lg:py-5 btn-primary text-sm sm:text-base rounded-lg sm:rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-2xl shadow-red-600/30 flex items-center justify-center gap-2 sm:gap-3"
           >
             <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
@@ -315,16 +314,21 @@
     label.textContent = isAlbum ? `SCARICA I DISC SELEZIONATI (${selectedCount})` : `SCARICA LE STAGIONI SELEZIONATE (${selectedCount})`;
   }
 
-  window.submitSelectedSeasons = function() {
+  window.submitSelectedSeasons = async function () {
     const checkboxes = document.querySelectorAll('.season-checkbox:checked');
     const selectedSeasons = Array.from(checkboxes).map(cb => cb.value);
     
     if (selectedSeasons.length === 0) {
-      alert('Select at least one season to download.');
+      VV.alert('Seleziona almeno una stagione da scaricare.');
       return;
     }
 
-    if (confirm(`Are you sure you want to download the selected seasons: ${selectedSeasons.join(', ')}?`)) {
+    if (await VV.confirm({
+      title: 'Scaricare le stagioni selezionate?',
+      body: selectedSeasons.join(', '),
+      confirmLabel: 'Scarica',
+      danger: false,
+    })) {
       document.getElementById('selected-seasons-input').value = selectedSeasons.join(',');
       document.getElementById('download-selected-seasons-form').submit();
     }
@@ -336,6 +340,18 @@
     });
     updateSelectedSeasonsButtonLabel();
   });
+
+  window.confirmDownloadAll = function (event, btn) {
+    event.preventDefault();
+    var form = btn.closest('form');
+    VV.confirm({
+      title: btn.dataset.confirm,
+      confirmLabel: 'Scarica',
+      danger: false,
+    }).then(function (ok) {
+      if (ok) form.submit();
+    });
+  };
 </script>
 
 <!-- ========== EPISODE SELECTION INLINE JAVASCRIPT ========== -->
@@ -462,12 +478,43 @@ function initFormValidation() {
       if (selectedEpisodesInput && !selectedEpisodesInput.value.trim()) {
         console.error(`[FORM SUBMIT] ERROR: No episodes selected!`);
         e.preventDefault();
-        alert('Select at least one episode before downloading.');
+        VV.alert('Seleziona almeno un episodio prima di scaricare.');
       } else {
         console.log(`[FORM SUBMIT] OK Form validation passed, submitting...`);
       }
     });
   });
+}
+
+function loadTmdbEpisodeStills() {
+  const root = document.getElementById('series-detail-root');
+  const seriesTmdbId = root && root.dataset.seriesTmdbId;
+  if (!seriesTmdbId) return;
+
+  const imgs = document.querySelectorAll('.episode-card img[data-season][data-episode]');
+  const episodes = Array.from(imgs).map(img => ({
+    id: img.id,
+    season: parseInt(img.dataset.season, 10),
+    episode: parseInt(img.dataset.episode, 10),
+  }));
+  if (!episodes.length) return;
+
+  fetch("{% url 'resolve_tmdb_episode_stills' %}", {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ series_tmdb_id: seriesTmdbId, episodes }),
+  })
+    .then(res => res.ok ? res.json() : null)
+    .then(data => {
+      if (!data || !data.stills) return;
+      Object.entries(data.stills).forEach(([id, stillUrl]) => {
+        const img = document.getElementById(id);
+        if (img && stillUrl) {
+          img.src = stillUrl;
+        }
+      });
+    })
+    .catch(() => { /* keep the site's own images on failure */ });
 }
 
 // Initialize on DOM ready
@@ -476,6 +523,7 @@ document.addEventListener('DOMContentLoaded', function() {
   initEpisodeSelection();
   initFormValidation();
   console.log(`========== EPISODE SELECTION INIT END ==========\n`);
+  loadTmdbEpisodeStills();
 });
 
 // Expose to window for onclick handlers

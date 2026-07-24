@@ -106,9 +106,10 @@ class MultiPeriodMixin:
 
         self._assign_segment_durations(stream, dl_segs, all_headers)
 
-        if self.max_segments and self.max_segments > 0:
-            dl_segs = dl_segs[:self.max_segments]
-            logger.debug(f"Limiting multi-period DASH download to {len(dl_segs)} segments (max_segments={self.max_segments})")
+        seg_start, seg_end = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
+        if seg_start > 0 or seg_end is not None:
+            dl_segs = dl_segs[seg_start:seg_end]
+            logger.debug(f"Limiting multi-period DASH download to segments [{seg_start}:{seg_end}] ({len(dl_segs)} segments)")
         dl_segs = self._apply_max_time(dl_segs)
 
         num_to_period = {e["number"]: e["period_idx"] for e in dl_segs}
@@ -207,7 +208,7 @@ class MultiPeriodMixin:
         bar_manager.handle_progress_line({"task_key": task_key, "pct": 100, "speed": "Concat"})
 
         if _ffmpeg_concat(part_files, out_path) and out_path.exists() and out_path.stat().st_size > 0:
-            logger.info(f"[multiperiod] {len(part_files)} Period(s) joined -> {out_path.name} ({out_path.stat().st_size // 1024} KB)")
+            logger.info(f"[multiperiod] {len(part_files)} Period(s), {len(dl_segs)} segs joined -> {out_path.name} ({out_path.stat().st_size // 1024} KB)")
             bar_manager.handle_progress_line({
                 "task_key": task_key, "pct": 100,
                 "segments": f"{total}/{total}",

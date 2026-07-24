@@ -9,19 +9,12 @@
   <!-- Page Header -->
   <div class="mb-8 sm:mb-12">
     <div class="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
-      <button 
-        onclick="window.history.back()" 
-        class="p-2 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
-      >
-        <svg class="w-5 h-5 sm:w-6 sm:h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-        </svg>
-      </button>
-      <h1 class="text-3xl sm:text-4xl font-black text-white leading-tight">
+{% include "searchapp/partials/_back_button.html" %}
+      <h1 class="text-3xl sm:text-4xl font-black text-fg leading-tight">
         Settings
       </h1>
     </div>
-    <p class="text-gray-400 ml-14">
+    <p class="text-fg-muted ml-14">
       Edit the application's configuration files
     </p>
   </div>
@@ -31,21 +24,21 @@
     <button
       id="config-tab-btn"
       onclick="switchTab('config')"
-      class="tab-btn px-4 sm:px-6 py-2 sm:py-3 text-white font-bold rounded-lg transition-all active"
+      class="tab-btn px-4 sm:px-6 py-2 sm:py-3 text-fg font-bold rounded-lg transition-all active"
     >
       Config
     </button>
     <button
       id="login-tab-btn"
       onclick="switchTab('login')"
-      class="tab-btn px-4 sm:px-6 py-2 sm:py-3 text-white font-bold rounded-lg transition-all"
+      class="tab-btn px-4 sm:px-6 py-2 sm:py-3 text-fg font-bold rounded-lg transition-all"
     >
       Login
     </button>
     <button
       id="arr-tab-btn"
       onclick="switchTab('arr')"
-      class="tab-btn px-4 sm:px-6 py-2 sm:py-3 text-white font-bold rounded-lg transition-all flex items-center gap-2"
+      class="tab-btn px-4 sm:px-6 py-2 sm:py-3 text-fg font-bold rounded-lg transition-all flex items-center gap-2"
     >
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
@@ -55,26 +48,26 @@
   </div>
 
   <!-- Editor Sections -->
-  <div class="bg-gradient-to-br from-gray-900/80 to-gray-900/40 backdrop-blur-xl border border-gray-800 rounded-xl overflow-hidden">
+  <div class="bg-gradient-to-br from-glass-1/80 to-glass-1/40 backdrop-blur-xl border border-line-1 rounded-xl overflow-hidden">
     
     <!-- Config Tab -->
     <div id="config-content" class="tab-content">
       <div class="p-4 sm:p-6">
         <textarea 
           id="config-editor"
-          class="w-full h-96 sm:h-[600px] bg-black/50 border border-gray-700 rounded-lg p-4 text-sm text-white font-mono focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600/30 resize-vertical"
+          class="w-full h-96 sm:h-[600px] bg-scrim/50 border border-line-2 rounded-lg p-4 text-sm text-fg font-mono focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600/30 resize-y"
           spellcheck="false"
         ></textarea>
         <div class="mt-4 flex gap-3 flex-wrap justify-end">
           <button 
             onclick="resetEditor('config')"
-            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-all"
+            class="px-4 py-2 bg-surface-3 hover:bg-surface-4 text-fg font-semibold rounded-lg transition-all"
           >
             Reset
           </button>
           <button
             onclick="reloadConfig()"
-            class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg transition-all"
+            class="px-4 py-2 bg-surface-2 hover:bg-surface-3 text-fg font-semibold rounded-lg transition-all"
           >
             Reload config
           </button>
@@ -85,7 +78,7 @@
             Save config.json
           </button>
         </div>
-        <p id="config-message" class="mt-3 text-sm text-gray-400"></p>
+        <p id="config-message" class="mt-3 text-sm text-fg-muted"></p>
       </div>
     </div>
 
@@ -94,19 +87,19 @@
       <div class="p-4 sm:p-6">
         <textarea 
           id="login-editor"
-          class="w-full h-96 sm:h-[600px] bg-black/50 border border-gray-700 rounded-lg p-4 text-sm text-white font-mono focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600/30 resize-vertical"
+          class="w-full h-96 sm:h-[600px] bg-scrim/50 border border-line-2 rounded-lg p-4 text-sm text-fg font-mono focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600/30 resize-y"
           spellcheck="false"
         ></textarea>
         <div class="mt-4 flex gap-3 flex-wrap justify-end">
           <button 
             onclick="resetEditor('login')"
-            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-all"
+            class="px-4 py-2 bg-surface-3 hover:bg-surface-4 text-fg font-semibold rounded-lg transition-all"
           >
             Reset
           </button>
           <button 
             onclick="reloadConfig(true, 'login')"
-            class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg transition-all"
+            class="px-4 py-2 bg-surface-2 hover:bg-surface-3 text-fg font-semibold rounded-lg transition-all"
           >
             Reload login
           </button>
@@ -117,7 +110,7 @@
             Save login.json
           </button>
         </div>
-        <p id="login-message" class="mt-3 text-sm text-gray-400"></p>
+        <p id="login-message" class="mt-3 text-sm text-fg-muted"></p>
       </div>
     </div>
 
@@ -126,10 +119,10 @@
       <div class="p-4 sm:p-6 space-y-8">
 
         <!-- Status Banner -->
-        <div id="arr-status-banner" class="bg-gray-800/60 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
+        <div id="arr-status-banner" class="bg-glass-2/60 border border-line-2 rounded-lg p-4 flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <div id="arr-status-dot" class="w-3 h-3 rounded-full bg-gray-500"></div>
-            <span id="arr-status-text" class="text-sm font-medium text-gray-300">Loading status...</span>
+            <div id="arr-status-dot" class="w-3 h-3 rounded-full bg-surface-5"></div>
+            <span id="arr-status-text" class="text-sm font-medium text-fg-secondary">Loading status...</span>
           </div>
           <button
             onclick="arrTriggerSync()"
@@ -141,156 +134,156 @@
         </div>
 
         <!-- General -->
-        <fieldset class="border border-gray-700 rounded-lg p-4">
+        <fieldset class="border border-line-2 rounded-lg p-4">
           <legend class="text-sm font-bold text-red-500 px-2">General</legend>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <label class="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" id="arr-enabled" class="w-4 h-4 accent-red-600 rounded">
-              <span class="text-sm text-gray-200">Enable ARR Services</span>
+              <span class="text-sm text-fg-secondary">Enable ARR Services</span>
             </label>
             <label class="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" id="arr-polling" class="w-4 h-4 accent-red-600 rounded">
-              <span class="text-sm text-gray-200">Enable ARR Polling</span>
+              <span class="text-sm text-fg-secondary">Enable ARR Polling</span>
             </label>
             <label class="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" id="arr-webhook" class="w-4 h-4 accent-red-600 rounded">
-              <span class="text-sm text-gray-200">Enable Seerr Webhook</span>
+              <span class="text-sm text-fg-secondary">Enable Seerr Webhook</span>
             </label>
             <label class="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" id="arr-sonarr-webhook" class="w-4 h-4 accent-blue-400 rounded">
-              <span class="text-sm text-gray-200">Enable Sonarr Webhook</span>
+              <span class="text-sm text-fg-secondary">Enable Sonarr Webhook</span>
             </label>
             <label class="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" id="arr-radarr-webhook" class="w-4 h-4 accent-orange-400 rounded">
-              <span class="text-sm text-gray-200">Enable Radarr Webhook</span>
+              <span class="text-sm text-fg-secondary">Enable Radarr Webhook</span>
             </label>
           </div>
         </fieldset>
 
         <!-- Intervals & Limits -->
-        <fieldset class="border border-gray-700 rounded-lg p-4">
+        <fieldset class="border border-line-2 rounded-lg p-4">
           <legend class="text-sm font-bold text-red-500 px-2">Intervals & Limits</legend>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Polling Interval (seconds)</label>
+              <label class="block text-xs text-fg-muted mb-1">Polling Interval (seconds)</label>
               <input type="number" id="arr-poll-interval" min="60" step="60"
-                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+                class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
             </div>
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Full Resync Interval (seconds)</label>
+              <label class="block text-xs text-fg-muted mb-1">Full Resync Interval (seconds)</label>
               <input type="number" id="arr-resync-interval" min="300" step="300"
-                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+                class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
             </div>
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Max Concurrent Downloads</label>
+              <label class="block text-xs text-fg-muted mb-1">Max Concurrent Downloads</label>
               <input type="number" id="arr-max-downloads" min="1" max="5" step="1"
-                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+                class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
             </div>
             <label class="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" id="arr-webhook-priority-enabled" class="w-4 h-4 accent-red-600 rounded">
-              <span class="text-sm text-gray-200">Native webhook priority</span>
+              <span class="text-sm text-fg-secondary">Native webhook priority</span>
             </label>
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Native webhook window (seconds)</label>
+              <label class="block text-xs text-fg-muted mb-1">Native webhook window (seconds)</label>
               <input type="number" id="arr-native-priority-window" min="0" step="5"
-                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+                class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
             </div>
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Seerr fallback delay (seconds)</label>
+              <label class="block text-xs text-fg-muted mb-1">Seerr fallback delay (seconds)</label>
               <input type="number" id="arr-seerr-fallback-delay" min="0" step="5"
-                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+                class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
             </div>
           </div>
         </fieldset>
 
         <!-- Sonarr -->
-        <fieldset class="border border-gray-700 rounded-lg p-4">
+        <fieldset class="border border-line-2 rounded-lg p-4">
           <legend class="text-sm font-bold text-blue-400 px-2">Sonarr</legend>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Sonarr URL</label>
+              <label class="block text-xs text-fg-muted mb-1">Sonarr URL</label>
               <input type="url" id="arr-sonarr-url" placeholder="http://localhost:8989"
-                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+                class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
             </div>
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Sonarr API Key</label>
+              <label class="block text-xs text-fg-muted mb-1">Sonarr API Key</label>
               <input type="password" id="arr-sonarr-key" placeholder="API Key"
-                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+                class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
             </div>
           </div>
         </fieldset>
 
         <!-- Radarr -->
-        <fieldset class="border border-gray-700 rounded-lg p-4">
+        <fieldset class="border border-line-2 rounded-lg p-4">
           <legend class="text-sm font-bold text-orange-400 px-2">Radarr</legend>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Radarr URL</label>
+              <label class="block text-xs text-fg-muted mb-1">Radarr URL</label>
               <input type="url" id="arr-radarr-url" placeholder="http://localhost:7878"
-                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+                class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
             </div>
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Radarr API Key</label>
+              <label class="block text-xs text-fg-muted mb-1">Radarr API Key</label>
               <input type="password" id="arr-radarr-key" placeholder="API Key"
-                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+                class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
             </div>
           </div>
         </fieldset>
 
         <!-- Sonarr Webhook -->
-        <fieldset class="border border-gray-700 rounded-lg p-4">
+        <fieldset class="border border-line-2 rounded-lg p-4">
           <legend class="text-sm font-bold text-blue-400 px-2">Sonarr Webhook</legend>
           <div>
-            <label class="block text-xs text-gray-400 mb-1">Webhook Secret</label>
+            <label class="block text-xs text-fg-muted mb-1">Webhook Secret</label>
             <input type="password" id="arr-sonarr-webhook-secret" placeholder="Shared secret for X-Webhook-Token"
-              class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+              class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
           </div>
-          <p class="text-xs text-gray-500 mt-2">
-            Webhook URL: <code class="text-gray-300">POST /api/arr/webhook/sonarr/</code>
+          <p class="text-xs text-fg-muted mt-2">
+            Webhook URL: <code class="text-fg-secondary">POST /api/arr/webhook/sonarr/</code>
           </p>
         </fieldset>
 
         <!-- Radarr Webhook -->
-        <fieldset class="border border-gray-700 rounded-lg p-4">
+        <fieldset class="border border-line-2 rounded-lg p-4">
           <legend class="text-sm font-bold text-orange-400 px-2">Radarr Webhook</legend>
           <div>
-            <label class="block text-xs text-gray-400 mb-1">Webhook Secret</label>
+            <label class="block text-xs text-fg-muted mb-1">Webhook Secret</label>
             <input type="password" id="arr-radarr-webhook-secret" placeholder="Shared secret for X-Webhook-Token"
-              class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+              class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
           </div>
-          <p class="text-xs text-gray-500 mt-2">
-            Webhook URL: <code class="text-gray-300">POST /api/arr/webhook/radarr/</code>
+          <p class="text-xs text-fg-muted mt-2">
+            Webhook URL: <code class="text-fg-secondary">POST /api/arr/webhook/radarr/</code>
           </p>
         </fieldset>
 
         <!-- Seerr / Webhook -->
-        <fieldset class="border border-gray-700 rounded-lg p-4">
+        <fieldset class="border border-line-2 rounded-lg p-4">
           <legend class="text-sm font-bold text-purple-400 px-2">Seerr / Webhook</legend>
           <div>
-            <label class="block text-xs text-gray-400 mb-1">Webhook Secret</label>
+            <label class="block text-xs text-fg-muted mb-1">Webhook Secret</label>
             <input type="password" id="arr-webhook-secret" placeholder="Shared secret for X-Webhook-Token"
-              class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-red-600 focus:outline-none">
+              class="w-full bg-scrim/50 border border-line-2 rounded-lg px-3 py-2 text-sm text-fg focus:border-red-600 focus:outline-none">
           </div>
-          <p class="text-xs text-gray-500 mt-2">
-            Webhook URL: <code class="text-gray-300">POST /api/arr/webhook/seerr/</code>
+          <p class="text-xs text-fg-muted mt-2">
+            Webhook URL: <code class="text-fg-secondary">POST /api/arr/webhook/seerr/</code>
           </p>
         </fieldset>
 
         <!-- Webhook Test Log -->
-        <fieldset class="border border-gray-700 rounded-lg p-4">
+        <fieldset class="border border-line-2 rounded-lg p-4">
           <legend class="text-sm font-bold text-green-400 px-2">Webhook Test Log</legend>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <span class="text-xs text-purple-400 font-semibold">Seerr</span>
-              <pre id="arr-test-seerr" class="text-xs text-gray-400 mt-1 bg-black/60 rounded p-2 max-h-32 overflow-auto">No test yet</pre>
+              <pre id="arr-test-seerr" class="text-xs text-fg-muted mt-1 bg-scrim/60 rounded p-2 max-h-32 overflow-auto">No test yet</pre>
             </div>
             <div>
               <span class="text-xs text-blue-400 font-semibold">Sonarr</span>
-              <pre id="arr-test-sonarr" class="text-xs text-gray-400 mt-1 bg-black/60 rounded p-2 max-h-32 overflow-auto">No test yet</pre>
+              <pre id="arr-test-sonarr" class="text-xs text-fg-muted mt-1 bg-scrim/60 rounded p-2 max-h-32 overflow-auto">No test yet</pre>
             </div>
             <div>
               <span class="text-xs text-orange-400 font-semibold">Radarr</span>
-              <pre id="arr-test-radarr" class="text-xs text-gray-400 mt-1 bg-black/60 rounded p-2 max-h-32 overflow-auto">No test yet</pre>
+              <pre id="arr-test-radarr" class="text-xs text-fg-muted mt-1 bg-scrim/60 rounded p-2 max-h-32 overflow-auto">No test yet</pre>
             </div>
           </div>
         </fieldset>
@@ -299,7 +292,7 @@
         <div class="flex gap-3 justify-end">
           <button
             onclick="resetArrForm()"
-            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-all"
+            class="px-4 py-2 bg-surface-3 hover:bg-surface-4 text-fg font-semibold rounded-lg transition-all"
           >
             Reset
           </button>
@@ -310,7 +303,7 @@
             Save ARR Settings
           </button>
         </div>
-        <p id="arr-message" class="text-sm text-gray-400"></p>
+        <p id="arr-message" class="text-sm text-fg-muted"></p>
 
       </div>
     </div>
@@ -323,21 +316,21 @@
       <svg class="w-6 h-6 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
       </svg>
-      <h2 class="text-2xl sm:text-3xl font-black text-white leading-tight">
+      <h2 class="text-2xl sm:text-3xl font-black text-fg leading-tight">
         Add Service
       </h2>
     </div>
-    <p class="text-gray-400 ml-10 mb-6">
-      Upload a ZIP file containing a new service (e.g. <code class="bg-gray-800 px-1.5 py-0.5 rounded text-sm">Spotify.zip</code> containing the folder <code class="bg-gray-800 px-1.5 py-0.5 rounded text-sm">Spotify/__init__.py</code>, <code class="bg-gray-800 px-1.5 py-0.5 rounded text-sm">downloader.py</code>, <code class="bg-gray-800 px-1.5 py-0.5 rounded text-sm">scrapper.py</code>)
+    <p class="text-fg-muted ml-10 mb-6">
+      Upload a ZIP file containing a new service (e.g. <code class="bg-surface-2 px-1.5 py-0.5 rounded text-sm">Spotify.zip</code> containing the folder <code class="bg-surface-2 px-1.5 py-0.5 rounded text-sm">Spotify/__init__.py</code>, <code class="bg-surface-2 px-1.5 py-0.5 rounded text-sm">downloader.py</code>, <code class="bg-surface-2 px-1.5 py-0.5 rounded text-sm">scrapper.py</code>)
     </p>
 
-    <div class="bg-gradient-to-br from-gray-900/80 to-gray-900/40 backdrop-blur-xl border border-gray-800 rounded-xl overflow-hidden">
+    <div class="bg-gradient-to-br from-glass-1/80 to-glass-1/40 backdrop-blur-xl border border-line-1 rounded-xl overflow-hidden">
       <div class="p-4 sm:p-6">
         
         <!-- Drop Zone -->
         <div 
           id="drop-zone"
-          class="relative border-2 border-dashed border-gray-600 hover:border-red-500 rounded-xl p-8 sm:p-12 text-center transition-all cursor-pointer"
+          class="relative border-2 border-dashed border-line-2 hover:border-red-500 rounded-xl p-8 sm:p-12 text-center transition-all cursor-pointer"
           onclick="document.getElementById('service-zip-input').click()"
         >
           <input 
@@ -349,30 +342,30 @@
           >
           
           <div id="drop-zone-idle">
-            <svg class="w-12 h-12 sm:w-16 sm:h-16 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-12 h-12 sm:w-16 sm:h-16 text-fg-muted mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
             </svg>
-            <p class="text-gray-300 text-lg font-semibold mb-1">Drag the ZIP file here</p>
-            <p class="text-gray-500 text-sm">or click to select</p>
+            <p class="text-fg-secondary text-lg font-semibold mb-1">Drag the ZIP file here</p>
+            <p class="text-fg-muted text-sm">or click to select</p>
           </div>
 
           <div id="drop-zone-selected" class="hidden">
             <svg class="w-12 h-12 text-red-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
             </svg>
-            <p id="selected-file-name" class="text-white text-lg font-bold mb-1"></p>
-            <p id="selected-file-size" class="text-gray-400 text-sm"></p>
+            <p id="selected-file-name" class="text-fg text-lg font-bold mb-1"></p>
+            <p id="selected-file-size" class="text-fg-muted text-sm"></p>
           </div>
         </div>
 
         <!-- Upload Button -->
         <div class="mt-4 flex gap-3 flex-wrap justify-end items-center">
-          <p id="upload-message" class="text-sm text-gray-400 flex-1"></p>
+          <p id="upload-message" class="text-sm text-fg-muted flex-1"></p>
           <button 
             id="upload-btn"
             onclick="uploadServiceZip()"
             disabled
-            class="px-6 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2"
+            class="px-6 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-surface-3 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
@@ -393,21 +386,21 @@
       <svg class="w-6 h-6 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
       </svg>
-      <h2 class="text-2xl sm:text-3xl font-black text-white leading-tight">
+      <h2 class="text-2xl sm:text-3xl font-black text-fg leading-tight">
         Velora
       </h2>
     </div>
-    <p class="text-gray-400 ml-10 mb-6">
+    <p class="text-fg-muted ml-10 mb-6">
       Velora is the binary used for downloads and is not managed by the app's self-update. Check GitHub for a newer version and re-download it if needed.
     </p>
 
-    <div class="bg-gradient-to-br from-gray-900/80 to-gray-900/40 backdrop-blur-xl border border-gray-800 rounded-xl overflow-hidden">
+    <div class="bg-gradient-to-br from-glass-1/80 to-glass-1/40 backdrop-blur-xl border border-line-1 rounded-xl overflow-hidden">
       <div class="p-4 sm:p-6 flex flex-wrap items-center justify-between gap-3">
-        <p id="velora-update-message" class="text-sm text-gray-400 flex-1"></p>
+        <p id="velora-update-message" class="text-sm text-fg-muted flex-1"></p>
         <button
           id="velora-update-btn"
           onclick="checkVeloraUpdate()"
-          class="px-6 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2"
+          class="px-6 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-surface-3 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
@@ -446,14 +439,6 @@
     display: block;
   }
 
-  @keyframes slide-in {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-  }
-
-  .animate-slide-in {
-    animation: slide-in 0.3s ease-out;
-  }
 </style>
 
 <script>
@@ -512,7 +497,7 @@
     if (type === 'success' || type === 'error') {
       setTimeout(() => {
         messageEl.textContent = '';
-        messageEl.className = 'mt-3 text-sm text-gray-400';
+        messageEl.className = 'mt-3 text-sm text-fg-muted';
       }, 5000);
     }
   }
@@ -529,7 +514,7 @@
     try {
       const response = await fetch('{% url "save_settings" %}', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': VV.csrf() },
         body: JSON.stringify({ file_type: fileType, content: content })
       });
       const data = await response.json();
@@ -559,7 +544,7 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRFToken': getCookie('csrftoken')
+          'X-CSRFToken': VV.csrf()
         },
         body: JSON.stringify({
           file_type: messageTarget
@@ -599,12 +584,12 @@
     const btn = document.getElementById('velora-update-btn');
     const msgEl = document.getElementById('velora-update-message');
     btn.disabled = true;
-    msgEl.className = 'text-sm text-gray-400 flex-1';
+    msgEl.className = 'text-sm text-fg-muted flex-1';
     msgEl.textContent = 'Checking Velora...';
     try {
       const response = await fetch('{% url "trigger_velora_update" %}', {
         method: 'POST',
-        headers: { 'X-CSRFToken': getCookie('csrftoken') }
+        headers: { 'X-CSRFToken': VV.csrf() }
       });
       const data = await response.json();
       msgEl.className = 'text-sm flex-1 ' + (data && data.success ? 'text-green-400' : 'text-red-400');
@@ -617,19 +602,6 @@
     }
   }
 
-  function getCookie(name) {
-    const cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-      const cookies = document.cookie.split(';');
-      for (let i = 0; i < cookies.length; i++) {
-        const cookie = cookies[i].trim();
-        if (cookie.substring(0, name.length + 1) === (name + '=')) {
-          return decodeURIComponent(cookie.substring(name.length + 1));
-        }
-      }
-    }
-    return cookieValue;
-  }
 
   // ── ARR logic ──────────────────────────────────────
 
@@ -720,7 +692,7 @@
       const content = JSON.stringify(fullConfig, null, 4);
       const response = await fetch('{% url "save_settings" %}', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': VV.csrf() },
         body: JSON.stringify({ file_type: 'config', content: content })
       });
       const data = await response.json();
@@ -755,7 +727,7 @@
         const mode = parts.length ? parts.join(' + ') : 'Enabled';
         text.textContent = `Active — ${mode} | P:${data.stats.pending} D:${data.stats.downloading} C:${data.stats.completed} F:${data.stats.failed}`;
       } else {
-        dot.className = 'w-3 h-3 rounded-full bg-gray-500';
+        dot.className = 'w-3 h-3 rounded-full bg-surface-5';
         text.textContent = 'Disabled';
       }
 
@@ -766,12 +738,17 @@
         if (el && data[key]) {
           const payloadStr = JSON.stringify(data[key], null, 2);
           el.textContent = payloadStr;
-          el.className = 'text-xs text-green-400 mt-1 bg-black/60 rounded p-2 max-h-32 overflow-auto';
+          el.className = 'text-xs text-green-400 mt-1 bg-scrim/60 rounded p-2 max-h-32 overflow-auto';
 
           // Show toast notification if this is a new payload
           const payloadHash = btoa(payloadStr).slice(0, 32);
           if (lastPayloads[src] !== payloadHash && lastPayloads[src] !== null) {
-            showWebhookToast(src, data[key]);
+            const wLabels = { seerr: 'Seerr', sonarr: 'Sonarr', radarr: 'Radarr' };
+            const wPayload = data[key] || {};
+            VV.toast(
+              `Webhook ${wLabels[src] || src}: ${wPayload.event || wPayload.eventType || 'evento ricevuto'}`,
+              { type: 'info' }
+            );
           }
           lastPayloads[src] = payloadHash;
         }
@@ -781,48 +758,6 @@
     }
   }
 
-  function showWebhookToast(source, payload) {
-    const colors = {
-      seerr: { bg: 'bg-purple-600', label: 'Seerr' },
-      sonarr: { bg: 'bg-blue-600', label: 'Sonarr' },
-      radarr: { bg: 'bg-orange-600', label: 'Radarr' }
-    };
-    const config = colors[source] || { bg: 'bg-gray-600', label: source };
-
-    const toast = document.createElement('div');
-    toast.className = `${config.bg} text-white px-4 py-3 rounded-lg shadow-xl flex items-start gap-3 max-w-sm animate-slide-in`;
-    toast.innerHTML = `
-      <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-      </svg>
-      <div class="flex-1 min-w-0">
-        <p class="font-bold text-sm">Webhook Test: ${config.label}</p>
-        <p class="text-xs opacity-90 truncate">${payload.event || payload.eventType || 'Event received'}</p>
-      </div>
-      <button onclick="this.parentElement.remove()" class="flex-shrink-0 hover:opacity-70">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-        </svg>
-      </button>
-    `;
-
-    let container = document.getElementById('toast-container');
-    if (!container) {
-      container = document.createElement('div');
-      container.id = 'toast-container';
-      container.className = 'fixed top-4 right-4 z-50 flex flex-col gap-2';
-      document.body.appendChild(container);
-    }
-    container.appendChild(toast);
-
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateX(100%)';
-      toast.style.transition = 'all 0.3s ease';
-      setTimeout(() => toast.remove(), 300);
-    }, 5000);
-  }
 
   async function arrTriggerSync() {
     const btn = document.getElementById('arr-sync-btn');
@@ -831,7 +766,7 @@
     try {
       await fetch('{% url "arr_trigger_sync" %}', {
         method: 'POST',
-        headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        headers: { 'X-CSRFToken': VV.csrf() },
       });
       showMessage('arr', 'Sync started in background', 'success');
     } catch (e) {
@@ -914,7 +849,7 @@
       const response = await fetch('{% url "upload_service_zip" %}', {
         method: 'POST',
         headers: {
-          'X-CSRFToken': getCookie('csrftoken')
+          'X-CSRFToken': VV.csrf()
         },
         body: formData
       });

@@ -55,6 +55,17 @@ def _infer_video_range_from_codecs(codecs: str) -> str:
     return infer_video_range(codecs)
 
 
+def _playlist_is_live(content: str) -> bool:
+    """A playlist is live unless it explicitly signals termination via #EXT-X-ENDLIST or #EXT-X-PLAYLIST-TYPE:VOD."""
+    if "#EXT-X-ENDLIST" in content:
+        return False
+    
+    if re.search(r"#EXT-X-PLAYLIST-TYPE:\s*VOD", content):
+        return False
+    
+    return True
+
+
 class HLSParser:
     def __init__(self, m3u8_url: str, headers: Dict[str, str] = None, content: Optional[str] = None):
         self.m3u8_url = m3u8_url
@@ -242,7 +253,7 @@ class HLSParser:
         with ThreadPoolExecutor(max_workers=min(8, len(targets))) as ex:
             for stream, variant_drm, variant_content in ex.map(_resolve, targets):
                 if variant_content is not None:
-                    stream.is_live = "#EXT-X-ENDLIST" not in variant_content
+                    stream.is_live = _playlist_is_live(variant_content)
 
                 if variant_drm and variant_drm.is_encrypted():
                     # Merge advertised systems so the table reflects every system
@@ -386,7 +397,7 @@ class HLSParser:
         s.drm = drm
         s.playlist_url = self.m3u8_url
         s.id = _make_video_id(s)
-        s.is_live = (total_dur > 0) and ("#EXT-X-ENDLIST" not in (self.raw_content or ""))
+        s.is_live = (total_dur > 0) and _playlist_is_live(self.raw_content or "")
         logger.info(f"HLS add | {s}")
         return [s] + existing
 

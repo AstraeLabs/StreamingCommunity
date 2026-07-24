@@ -2,6 +2,7 @@
 
 import os
 import re
+import uuid
 import glob
 import json
 import shutil
@@ -16,7 +17,7 @@ from rich.console import Console
 
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
-from VibraVid.core.muxing import join_video, join_audios, join_subtitles, inject_chapters, build_hybrid_output, probe_media_file
+from VibraVid.core.muxing import join_video, join_audios, join_subtitles, inject_chapters, embed_poster, build_hybrid_output, probe_media_file
 from VibraVid.core.muxing.helper.video import get_media_metadata
 from VibraVid.core.muxing.helper.audio import audio_ext_for_codec
 from VibraVid.utils.vault_upload.hook import upload_after
@@ -88,7 +89,7 @@ class BaseDownloader:
         self.output_dir = self._resolve_temp_dir(temp_suffix)
         self.file_already_exists = self._finished_file_exists()
 
-        self.download_id = context_tracker.download_id
+        self.download_id = context_tracker.download_id or str(uuid.uuid4())
         self.site_name = context_tracker.site_name
 
         self._error = None
@@ -381,7 +382,7 @@ class BaseDownloader:
                 self.last_merge_result = {"hybrid": True, "output": hybrid_file}
                 # hybrid_file include già audio e subtitle via mkvmerge:
                 # non chiamare join_audios/join_subtitles separatamente
-                return self._inject_chapters(hybrid_file)
+                return self._embed_poster(self._inject_chapters(hybrid_file))
 
 
         if not audio_tracks and not subtitle_tracks:
@@ -392,7 +393,7 @@ class BaseDownloader:
             self.last_merge_result = result_json
             if not self._merge_output_ok(merged_file):
                 return None
-            return self._inject_chapters(merged_file)
+            return self._embed_poster(self._inject_chapters(merged_file))
 
         current_file = video_path
 
@@ -402,7 +403,7 @@ class BaseDownloader:
             else:
                 self._track_audios_for_copy(audio_tracks)
 
-        subtitle_tracks = self._prepare_subtitle_tracks_for_merge(subtitle_tracks)
+        subtitle_tracks = self._prepare_subtitle_tracks_for_merge(subtitle_tracks, current_file)
         if subtitle_tracks:
             if MERGE_SUBTITLES:
                 current_file = self._merge_subtitle_tracks(
@@ -411,11 +412,22 @@ class BaseDownloader:
             else:
                 self._track_subtitles_for_copy(subtitle_tracks)
 
-        return self._inject_chapters(current_file)
+        return self._embed_poster(self._inject_chapters(current_file))
 
     def _inject_chapters(self, file_path: str) -> str:
         """Add this downloader's queued chapters (self.chapters) as the final muxing step."""
         merged_file, result_json = inject_chapters(file_path, getattr(self, "chapters", None))
+        if result_json:
+            self.last_merge_result = result_json
+        return merged_file
+
+    def _embed_poster(self, file_path: str) -> str:
+        """Embed this downloader's poster/still image (self.poster_url) as the final muxing step."""
+        from VibraVid.services._base.tmdb_artwork import embed_enabled
+        if not embed_enabled():
+            return file_path
+
+        merged_file, result_json = embed_poster(file_path, getattr(self, "poster_url", None))
         if result_json:
             self.last_merge_result = result_json
         return merged_file
@@ -444,7 +456,7 @@ class BaseDownloader:
         console.print("[yellow]Audio merge failed, continuing with video only")
         return current_file
 
-    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list) -> list:
+    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, current_file: Optional[str] = None) -> list:
         """Hook for subclasses to materialize subtitle assets right before subtitle merge."""
         return subtitle_tracks
 
@@ -660,13 +672,18 @@ class BaseDownloader:
         self._move_copied_audios()
         verified_ok = self._verify_output()
 
+        # Never publish a file that failed decryption or is missing segments.
+        if verified_ok:
+            missing = getattr(getattr(self, "media_downloader", None), "missing_segments_count", 0)
+            if missing:
+                logger.warning(f"Skipping vault upload for {os.path.basename(self.output_path or '')}: {missing} segment(s) missing")
+            else:
+                upload_after(self.output_path)
+
         if self.download_id:
             download_tracker.complete_download(self.download_id, success=verified_ok, path=os.path.abspath(self.output_path), error=None if verified_ok else LAST_DOWNLOADER_ERROR)
 
         if CLEANUP_TMP:
             shutil.rmtree(self.output_dir, ignore_errors=True)
 
-        # Never publish a file that failed decryption verification.
-        if verified_ok:
-            upload_after(self.output_path)
         execute_hooks("post_run")

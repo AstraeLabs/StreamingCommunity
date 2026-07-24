@@ -11,11 +11,12 @@ from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.http_client import get_headers
 from VibraVid.utils.vault_upload.hook import try_fetch
 from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
+from VibraVid.core.muxing.helper.sub import extract_embedded_cc
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.utils.media_players import MediaPlayers
 
 from VibraVid.core.velora.downloader import MediaDownloader
-from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time
+from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time, parse_max_segments as _parse_max_segments
 
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.drm.system import DRMType, _DRMSystems
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 SKIP_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "skip_download")
 DELAY_SS = config_manager.config.get_int('DOWNLOAD', 'delay_after_download')
+EXTRACT_EMBEDDED_CC = config_manager.config.get_bool("DOWNLOAD", "extract_embedded_cc", default=False)
 
 
 class HLS_Downloader(BaseDownloader):
@@ -38,7 +40,8 @@ class HLS_Downloader(BaseDownloader):
         license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None,
         output_path: Optional[str] = None, drm_preference = DRMType.WIDEVINE, key: Optional[str] = None,
         cookies: Optional[Dict[str, str]] = None, max_segments: Optional[int] = None, max_time=None,
-        other_tracks: Optional[list] = None, chapters: Optional[list] = None, sanitize_path: bool = True
+        other_tracks: Optional[list] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None, sanitize_path: bool = True,
+        hls_method: Optional[str] = None, hls_key: Optional[bytes] = None, hls_iv: Optional[bytes] = None,
     ):
         """
         Parameters:
@@ -55,6 +58,7 @@ class HLS_Downloader(BaseDownloader):
             - max_segments: Maximum number of segments to download (for testing). Default: None (all).
             - max_time: Maximum content duration to download, e.g. "01:00:00" or 3600 seconds. Default: None (all).
             - chapters: Chapter markers to inject into the muxed output, e.g. [{"name": str, "seconds": int}]. Default: context_tracker.chapters.
+            - poster_url: Poster/still image URL to embed in the muxed output. Default: context_tracker.poster_url.
         """
         self.m3u8_url = self._resolve_url(str(m3u8_url).strip())
         self.m3u8_content = m3u8_content
@@ -68,10 +72,22 @@ class HLS_Downloader(BaseDownloader):
         self.key = key
 
         self.cookies = cookies or {}
-        self.max_segments = max_segments if max_segments is not None else context_tracker.max_segments
+        self.max_segments = _parse_max_segments(max_segments if max_segments is not None else context_tracker.max_segments)
         self.max_time = _parse_max_time(max_time if max_time is not None else context_tracker.max_time)
         self.other_tracks = other_tracks or []
         self.chapters = chapters if chapters is not None else context_tracker.chapters
+        self.poster_url = poster_url if poster_url is not None else context_tracker.poster_url
+
+        # Manual override for HLS segment encryption (method/key/iv), bypassing manifest parsing. Useful for testing or non-standard streams.
+        self.hls_enc_override: Optional[Dict] = None
+        if hls_method or hls_key or hls_iv:
+            self.hls_enc_override = {}
+            if hls_method:
+                self.hls_enc_override["method"] = "AES-128" if hls_method == "AES_128" else "NONE"
+            if hls_key:
+                self.hls_enc_override["key_bytes"] = hls_key
+            if hls_iv:
+                self.hls_enc_override["iv"] = hls_iv.hex()
         logger.info(f"Initialized HLS_Downloader with URL: {self.m3u8_url}, License URL: {self.license_url}, DRM Pref: {self.drm_preference}, Max Segments: {self.max_segments}, Max Time: {self.max_time}")
 
         self.drm_manager = DRMManager(
@@ -215,6 +231,51 @@ class HLS_Downloader(BaseDownloader):
 
         return keys or []
 
+    def _collect_embedded_cc(self, streams: list) -> list:
+        """Find EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS renditions (CEA-608/708 baked into the video elementary stream, no separate playlist"""
+        if not EXTRACT_EMBEDDED_CC:
+            return []
+
+        matches = []
+        for s in streams:
+            if getattr(s, "type", "") != "subtitle" or not getattr(s, "is_cc", False):
+                continue
+            if getattr(s, "playlist_url", None) or getattr(s, "segments", None):
+                continue
+
+            lang = getattr(s, "resolved_language", "") or getattr(s, "language", "") or ""
+            if self.media_downloader._ext_lang_matches(lang, "subtitle"):
+                matches.append(s)
+
+        if matches:
+            langs = [getattr(s, "resolved_language", "") or getattr(s, "language", "") or "und" for s in matches]
+            logger.info(f"HLS: {len(matches)} embedded CLOSED-CAPTIONS stream(s) matched select_subtitle filter ({langs}) — will attempt extraction from merged video after download")
+        return matches
+
+    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, current_file: Optional[str] = None) -> list:
+        """Hook for subclasses to materialize subtitle assets right before subtitle merge."""
+        embedded = getattr(self, "_embedded_cc_streams", None)
+        if not embedded or not current_file or not os.path.exists(current_file):
+            return subtitle_tracks
+
+        for s in embedded:
+            lang = getattr(s, "resolved_language", "") or getattr(s, "language", "") or "und"
+            console.print(f"\n[cyan]Found CC in manifest for [red]{lang}[cyan], trying extraction...")
+            srt_path = os.path.join(self.output_dir, f"{self.filename_base}.{lang}_cc.srt")
+            result = extract_embedded_cc(current_file, srt_path)
+            if result:
+                console.print(f"[yellow]    Extracted embedded CC subtitle: [green]{lang}")
+                subtitle_tracks.append({
+                    "path": result,
+                    "name": f"{lang}_cc",
+                    "language": lang,
+                    "size": os.path.getsize(result),
+                })
+            else:
+                console.print(f"[yellow]    No embedded CC caption data found for '{lang}'")
+
+        return subtitle_tracks
+
     def start(self) -> tuple[Optional[str], bool, Optional[str]]:
         """
         Execute the full HLS download pipeline.
@@ -223,7 +284,12 @@ class HLS_Downloader(BaseDownloader):
         if self.file_already_exists:
             console.print("[yellow]File already exists.")
             return self.output_path, False, None
-        
+
+        if context_tracker.resolve_only:
+            from VibraVid.cli.command.queue import enqueue_down_from_context
+            enqueue_down_from_context(self.m3u8_url, self.output_path)
+            return self.output_path, False, None
+
         if try_fetch(self.output_path):
             return self.output_path, False, None
 
@@ -243,6 +309,7 @@ class HLS_Downloader(BaseDownloader):
             manifest_protocol="hls",
         )
         self.media_downloader.other_tracks = self.other_tracks
+        self.media_downloader.hls_enc_override = self.hls_enc_override
         other_videos, other_audios, other_subtitles = split_other_tracks(self.other_tracks)
 
         if other_subtitles:
@@ -258,6 +325,7 @@ class HLS_Downloader(BaseDownloader):
             download_tracker.update_status(self.download_id, "Parsing HLS ...")
 
         streams = self.media_downloader.parse_stream(show_table=context_tracker.should_print)
+        self._embedded_cc_streams = self._collect_embedded_cc(streams)
 
         # ── DRM key fetch ─────────────────────────────────────────────────────
         if self.license_url or self.key:

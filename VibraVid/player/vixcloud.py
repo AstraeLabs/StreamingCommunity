@@ -36,6 +36,7 @@ class VideoSource:
         self.window_video = None
         self.season_number = None
         self.episode_number = None
+        self.episode_id = None
 
         if tmdb_data is not None:
             self.tmdb_id = tmdb_data.get('id')
@@ -52,10 +53,11 @@ class VideoSource:
             episode_id (int): Unique identifier for episode
         """
         params = {}
+        self.episode_id = episode_id
 
         if self.is_series:
             params = {
-                'episode_id': episode_id, 
+                'episode_id': episode_id,
                 'next_episode': '1'
             }
 

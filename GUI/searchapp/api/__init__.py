@@ -7,6 +7,17 @@ from typing import Dict, List
 from .base import BaseStreamingAPI
 
 
+def _is_hidden(module_name: str) -> bool:
+    """Whether the underlying service module declares `_hide = True`."""
+    for candidate in (f"VibraVid.services.{module_name}", module_name):
+        try:
+            service_module = importlib.import_module(candidate)
+        except Exception:
+            continue
+        return bool(getattr(service_module, "_hide", False))
+    return False
+
+
 _API_REGISTRY: Dict[str, type] = {}
 _LOAD_ERRORS: List[str] = []
 _INITIALIZED = False
@@ -31,6 +42,9 @@ _PREFERRED_ORDER = [
     'eurostreaming',
     'amazon_music'
 ]
+_OPTIONAL_EXTERNAL = {
+    'primevideo'
+}
 _SITE_CATEGORIES: Dict[str, str] = {}
 
 
@@ -59,6 +73,9 @@ def _initialize_registry():
     _LOAD_ERRORS.clear()
 
     for idx, module_name in enumerate(sorted_files):
+        if _is_hidden(module_name):
+            continue
+
         try:
             module = importlib.import_module(f'.{module_name}', package=__package__)
             api_cls = None
@@ -76,6 +93,10 @@ def _initialize_registry():
             api_cls._indice = idx
             new_registry[module_name] = api_cls
         except Exception as e:
+            if module_name in _OPTIONAL_EXTERNAL and isinstance(e, ModuleNotFoundError):
+                print(f"[Info] '{module_name}' non disponibile in questo checkout (servizio esterno)")
+                continue
+
             err = f"{module_name}: {type(e).__name__}: {e}"
             load_errors.append(err)
             print(f"[Warning] Could not load API '{module_name}': {e}")
@@ -156,6 +177,16 @@ def get_site_categories() -> Dict[str, str]:
     return dict(result)
 
 
+def reset_site_categories_cache() -> None:
+    """Clear the cached site->category map so the next get_site_categories() call recomputes it.
+
+    Needed after a hot reload of the registry (e.g. GUI service upload): without this
+    the category grouping keeps referring to services that existed before the reload.
+    """
+    global _SITE_CATEGORIES
+    _SITE_CATEGORIES = {}
+
+
 def get_api(site: str) -> BaseStreamingAPI:
     """
     Get API instance for specified site.
@@ -197,4 +228,5 @@ __all__ = [
     'get_api',
     'is_site_available',
     'get_load_errors',
+    'reset_site_categories_cache',
 ]

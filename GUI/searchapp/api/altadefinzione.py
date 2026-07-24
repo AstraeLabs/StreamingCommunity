@@ -139,5 +139,4 @@ class AltadefinizioneApi(BaseStreamingAPI):
             }
 
         scrape_serie = self.get_cached_scraper(media_item)
-        search_fn(direct_item=media_item.__dict__.copy(), selections=selections, scrape_serie=scrape_serie)
-        return True
+        return bool(search_fn(direct_item=media_item.__dict__.copy(), selections=selections, scrape_serie=scrape_serie))

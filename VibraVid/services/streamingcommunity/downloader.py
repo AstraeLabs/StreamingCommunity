@@ -32,7 +32,7 @@ def download_film(select_title: Entries) -> str:
     start_message()
 
     scraper = None
-    if config_manager.config.get_bool('DEFAULT', 'skip_ts_versions') or tmdb_client.api_key is not None:
+    if config_manager.config.get_bool('DEFAULT', 'skip_ts_versions') or tmdb_client.api_key:
         scraper = GetSerieInfo(
             f"{site_constants.FULL_URL}/{select_title.provider_language}",
             media_id=select_title.id,
@@ -46,7 +46,7 @@ def download_film(select_title: Entries) -> str:
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} -> [cyan]{select_title.name} \n")
 
     tmdb_data = None
-    if tmdb_client.api_key is not None:
+    if tmdb_client.api_key:
         site_tmdb_id = scraper.get_tmdb_id() if scraper is not None else None
 
         if site_tmdb_id:
@@ -92,7 +92,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     episode_path = series_folder(*path_components)
     episode_name = f"{filename}.{extension_output}"
 
-    if tmdb_client.api_key is not None:
+    if tmdb_client.api_key:
         site_tmdb_id = None
         try:
             site_tmdb_id = scrape_serie.get_tmdb_id()

@@ -1,5 +1,8 @@
 # 06.06.25
 
+import os
+import sys
+
 from django.apps import AppConfig
 
 
@@ -8,6 +11,9 @@ class SearchappConfig(AppConfig):
     name = "searchapp"
 
     def ready(self) -> None:
+        autoreload_active = "runserver" in sys.argv and "--noreload" not in sys.argv
+        if autoreload_active and os.environ.get("RUN_MAIN") != "true":
+            return
 
         # Initialize the logger for the application
         try:

@@ -9,10 +9,10 @@
   <!-- Header -->
   <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 mb-10">
     <div>
-      <h1 class="text-3xl sm:text-4xl font-bold text-white mb-2">
+      <h1 class="text-3xl sm:text-4xl font-bold text-fg mb-2">
         My <span class="text-red-500">Watchlist</span>
       </h1>
-      <p class="text-gray-400">
+      <p class="text-fg-muted">
         Track your favorite content and quickly access movies and series.
       </p>
     </div>
@@ -21,7 +21,7 @@
       <form action="{% url 'update_all_watchlist' %}" method="post">
         {% csrf_token %}
         <button type="submit"
-                class="h-10 px-5 bg-white hover:bg-gray-200 text-black font-bold rounded-lg transition-all flex items-center gap-2 text-sm shadow-lg shadow-white/5">
+                class="h-10 px-5 btn-secondary transition-all flex items-center gap-2 text-sm shadow-lg shadow-overlay/5">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
@@ -34,7 +34,7 @@
         <form action="{% url 'run_watchlist_auto_now' %}" method="post" class="h-full">
           {% csrf_token %}
           <button type="submit"
-                  class="h-full px-4 text-white font-bold text-sm flex items-center gap-2 border-r border-green-700/50 hover:bg-white/10 rounded-l-lg transition-colors"
+                  class="h-full px-4 text-fg font-bold text-sm flex items-center gap-2 border-r border-green-700/50 hover:bg-overlay/10 rounded-l-lg transition-colors"
                   title="Runs an immediate watchlist check for new seasons/episodes">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -47,15 +47,15 @@
           {% csrf_token %}
           <select name="poll_interval"
                   onchange="this.form.requestSubmit ? this.form.requestSubmit() : this.form.submit()"
-                  class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 appearance-none bg-gray-900 text-white"
+                  class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 appearance-none bg-surface-1 text-fg"
                   title="Change check frequency">
-            <option value="1800" class="bg-gray-900 text-white" {% if poll_interval_seconds == 1800 %}selected{% endif %}>Every 30 min</option>
-            <option value="3600" class="bg-gray-900 text-white" {% if poll_interval_seconds == 3600 %}selected{% endif %}>Every 1 hour</option>
-            <option value="21600" class="bg-gray-900 text-white" {% if poll_interval_seconds == 21600 %}selected{% endif %}>Every 6 hours</option>
-            <option value="43200" class="bg-gray-900 text-white" {% if poll_interval_seconds == 43200 %}selected{% endif %}>Every 12 hours</option>
-            <option value="86400" class="bg-gray-900 text-white" {% if poll_interval_seconds == 86400 %}selected{% endif %}>Every 24 hours</option>
+            <option value="1800" class="bg-surface-1 text-fg" {% if poll_interval_seconds == 1800 %}selected{% endif %}>Every 30 min</option>
+            <option value="3600" class="bg-surface-1 text-fg" {% if poll_interval_seconds == 3600 %}selected{% endif %}>Every 1 hour</option>
+            <option value="21600" class="bg-surface-1 text-fg" {% if poll_interval_seconds == 21600 %}selected{% endif %}>Every 6 hours</option>
+            <option value="43200" class="bg-surface-1 text-fg" {% if poll_interval_seconds == 43200 %}selected{% endif %}>Every 12 hours</option>
+            <option value="86400" class="bg-surface-1 text-fg" {% if poll_interval_seconds == 86400 %}selected{% endif %}>Every 24 hours</option>
           </select>
-          <div class="h-full px-2 flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10 rounded-r-lg cursor-pointer">
+          <div class="h-full px-2 flex items-center justify-center text-white/80 hover:text-fg hover:bg-overlay/10 rounded-r-lg cursor-pointer">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
             </svg>
@@ -66,7 +66,7 @@
       <form action="{% url 'clear_watchlist' %}" method="post">
         {% csrf_token %}
         <button type="submit"
-                class="h-10 px-5 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white border border-red-600/30 font-bold rounded-lg transition-all flex items-center gap-2 text-sm">
+                class="h-10 px-5 btn-danger transition-all flex items-center gap-2 text-sm">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
@@ -78,27 +78,27 @@
   </div>
 
   {% if items %}
-  <div class="grid grid-cols-4 gap-4">
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
     {% for item in items %}
-    <div class="bg-gray-900/50 backdrop-blur-sm border rounded-xl overflow-hidden transition-all group duration-500
+    <div class="bg-glass-1/50 backdrop-blur-sm border rounded-xl overflow-hidden transition-all group duration-500
                 {% if item.has_new_seasons or item.has_new_episodes %}
                 border-green-500/50 ring-1 ring-green-500/30 shadow-[0_0_40px_rgba(34,197,94,0.15)]
                 {% else %}
-                border-gray-800 hover:border-gray-700
+                border-line-1 hover:border-line-2
                 {% endif %}">
       <div class="relative aspect-[16/10] overflow-hidden">
         <img src="{{ item.poster_url }}" alt="{{ item.name }}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
-        <div class="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent"></div>
+        <div class="absolute inset-0 bg-gradient-to-t from-grad-from via-transparent to-transparent"></div>
         
         <!-- Site Badge -->
         <div class="absolute top-3 left-3">
-          <span class="px-2 py-1 bg-black/60 backdrop-blur-md border border-white/10 text-white text-[9px] font-bold uppercase rounded-full">
+          <span class="px-2 py-1 bg-scrim/60 backdrop-blur-md border border-overlay/10 text-fg text-[9px] font-bold uppercase rounded-full">
             {{ item.source_alias|capfirst }}
           </span>
         </div>
 
         <div class="absolute bottom-3 left-3">
-          <span class="px-2 py-1 bg-white/15 backdrop-blur-md border border-white/20 text-white text-[9px] font-bold uppercase rounded-full">
+          <span class="px-2 py-1 bg-overlay/15 backdrop-blur-md border border-overlay/20 text-fg text-[9px] font-bold uppercase rounded-full">
             {% if item.is_movie %}Movie{% else %}Series{% endif %}
           </span>
         </div>
@@ -113,22 +113,22 @@ NEW RELEASE!
       </div>
 
       <div class="p-4">
-        <h2 class="text-lg font-bold text-white mb-3 line-clamp-1">{{ item.name }}</h2>
+        <h2 class="text-lg font-bold text-fg mb-3 line-clamp-1">{{ item.name }}</h2>
         
         {% if not item.is_movie %}
         <div class="grid grid-cols-2 gap-3 mb-4">
-          <div class="bg-gray-800/50 rounded-lg p-2 border border-gray-700/50">
-            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Seasons</span>
-            <span class="text-base font-black text-white">{{ item.num_seasons }}</span>
+          <div class="bg-glass-2/50 rounded-lg p-2 border border-glass-3/50">
+            <span class="text-[9px] font-bold text-fg-muted uppercase tracking-widest block mb-1">Seasons</span>
+            <span class="text-base font-black text-fg">{{ item.num_seasons }}</span>
           </div>
-          <div class="bg-gray-800/50 rounded-lg p-2 border border-gray-700/50">
-            <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Latest Episodes</span>
-            <span class="text-base font-black text-white">{{ item.last_season_episodes }}</span>
+          <div class="bg-glass-2/50 rounded-lg p-2 border border-glass-3/50">
+            <span class="text-[10px] font-bold text-fg-muted uppercase tracking-widest block mb-1">Latest Episodes</span>
+            <span class="text-base font-black text-fg">{{ item.last_season_episodes }}</span>
           </div>
         </div>
         {% endif %}
 
-        <div class="flex items-center justify-between text-[10px] text-gray-500 mb-4">
+        <div class="flex items-center justify-between text-[10px] text-fg-muted mb-4">
           <span>Added: {{ item.added_at|date:"d/m/Y" }}</span>
           <span>Check: {{ item.last_checked_at|date:"H:i" }}</span>
         </div>
@@ -139,11 +139,11 @@ NEW RELEASE!
               class="mb-4 js-auto-watchlist-form">
           {% csrf_token %}
 
-          <div class="rounded-xl border border-gray-800 bg-gray-900/50 backdrop-blur-sm p-3">
+          <div class="rounded-xl border border-line-1 bg-glass-1/50 backdrop-blur-sm p-3">
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0">
-                <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Auto-download</p>
-                <p class="mt-1 text-[10px] text-gray-500 leading-snug">
+                <p class="text-[9px] font-bold text-fg-muted uppercase tracking-widest">Auto-download</p>
+                <p class="mt-1 text-[10px] text-fg-muted leading-snug">
                   Automatically download episodes for the selected season.
                 </p>
               </div>
@@ -157,12 +157,12 @@ NEW RELEASE!
                        {% if item.auto_enabled %}checked{% endif %}
                        {% if not item.season_numbers %}disabled{% endif %}>
 
-                <span class="h-6 w-11 rounded-full bg-gray-700/70 border border-gray-600/70 transition
+                <span class="h-6 w-11 rounded-full bg-glass-3/70 border border-glass-4/70 transition
                              peer-checked:bg-green-500/80
                              peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-green-400/40
                              peer-disabled:opacity-40"></span>
 
-                <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition
+                <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-surface-white shadow transition
                              peer-checked:translate-x-5
                              peer-disabled:opacity-60"></span>
               </label>
@@ -170,16 +170,16 @@ NEW RELEASE!
 
             <div class="mt-3">
               <label for="auto_season_{{ item.id }}"
-                     class="block mb-1 text-[9px] font-bold text-gray-400 uppercase tracking-widest">
+                     class="block mb-1 text-[9px] font-bold text-fg-muted uppercase tracking-widest">
                 Season
               </label>
 
               <div class="relative">
                 <select id="auto_season_{{ item.id }}"
                         name="auto_season"
-                        class="w-full appearance-none rounded-lg border border-gray-700/70 bg-black/40 px-3 py-2
-                               text-[10px] text-white transition
-                               hover:border-gray-600/80
+                        class="w-full appearance-none rounded-lg border border-glass-3/70 bg-scrim/40 px-3 py-2
+                               text-[10px] text-fg transition
+                               hover:border-glass-4/80
                                focus:border-red-500/60 focus:ring-2 focus:ring-red-500/20
                                disabled:opacity-50 js-auto-watchlist-input"
                         {% if not item.season_numbers %}disabled{% endif %}>
@@ -191,14 +191,14 @@ NEW RELEASE!
                   {% endfor %}
                 </select>
 
-                <svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+                <svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-muted"
                      fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                 </svg>
               </div>
 
               {% if not item.season_numbers %}
-                <p class="mt-2 text-[10px] text-gray-500">
+                <p class="mt-2 text-[10px] text-fg-muted">
                   Seasons not available. Update the watchlist.
                 </p>
               {% endif %}
@@ -206,9 +206,9 @@ NEW RELEASE!
           </div>
         </form>
         {% else %}
-        <div class="mb-4 rounded-xl border border-gray-800 bg-gray-900/50 backdrop-blur-sm p-3">
-          <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Auto-download</p>
-          <p class="mt-1 text-[10px] text-gray-500 leading-snug">
+        <div class="mb-4 rounded-xl border border-line-1 bg-glass-1/50 backdrop-blur-sm p-3">
+          <p class="text-[9px] font-bold text-fg-muted uppercase tracking-widest">Auto-download</p>
+          <p class="mt-1 text-[10px] text-fg-muted leading-snug">
             Not available for movies.
           </p>
         </div>
@@ -241,7 +241,7 @@ NEW RELEASE!
           {% if not item.is_movie %}
           <form action="{% url 'update_watchlist_item' item.id %}" method="post">
             {% csrf_token %}
-            <button type="submit" class="p-2 bg-white/5 hover:bg-white/10 text-white rounded-lg transition-all" title="Check for updates">
+            <button type="submit" class="p-2 bg-overlay/5 hover:bg-overlay/10 text-fg rounded-lg transition-all" title="Check for updates">
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
               </svg>
@@ -264,43 +264,40 @@ NEW RELEASE!
   </div>
   {% else %}
   <div class="flex flex-col items-center justify-center py-16 text-center">
-    <div class="w-16 h-16 bg-gray-900 border border-gray-800 rounded-3xl flex items-center justify-center mb-4">
-      <svg class="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div class="w-16 h-16 bg-surface-1 border border-line-1 rounded-3xl flex items-center justify-center mb-4">
+      <svg class="w-8 h-8 text-fg-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
       </svg>
     </div>
-    <h3 class="text-lg font-bold text-white mb-2">Your watchlist is empty</h3>
+    <h3 class="text-lg font-bold text-fg mb-2">Your watchlist is empty</h3>
   </div>
   {% endif %}
 </div>
 
 <script>
-  // Auto-refresh when background updates finish
   let lastCheckedAt = 0;
   let itemsCount = {{ items|length }};
   
-  async function checkWatchlistStatus() {
-    try {
-      const response = await fetch('{% url "watchlist_status" %}');
-      const data = await response.json();
-      
-      if (lastCheckedAt === 0) {
-        lastCheckedAt = data.last_checked;
-        return;
-      }
-      
-      // If timestamp changed or count changed, refresh page
-      if (data.last_checked > lastCheckedAt || data.items_count !== itemsCount) {
-        window.location.reload();
-      }
-    } catch (e) {
-      console.error("Status check failed", e);
-    }
-  }
-
-  // Poll every 3 seconds while on this page
   if (itemsCount > 0) {
-    setInterval(checkWatchlistStatus, 3000);
+    VV.poll({
+      fetch: function () {
+        return VV.fetchJSON('{% url "watchlist_status" %}');
+      },
+      activeMs: 3000,
+      idleMs: 3000,
+      onData: function (data) {
+        if (lastCheckedAt === 0) {
+          lastCheckedAt = data.last_checked;
+          return;
+        }
+        if (data.last_checked > lastCheckedAt || data.items_count !== itemsCount) {
+          window.location.reload();
+        }
+      },
+      onError: function (e) {
+        console.error('Status check failed', e);
+      },
+    }).start();
   }
 
   // Auto-submit auto-download changes for quick toggle/select

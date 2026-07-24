@@ -21,7 +21,7 @@ _QUEUE_SENTINEL = object()
 _EVENT_CB_LOCK = threading.Lock()
 _PROGRESS_CB_LOCK = threading.Lock()
 DEFAULT_WAIT_TIMEOUT_SECONDS = 900.0
-SPEED_WINDOW_SECONDS = 3.0
+SPEED_WINDOW_SECONDS = 1.75
 
 
 def _safe_event_cb(event_cb: Optional[Callable[[Dict[str, Any]], None]], event: Dict[str, Any]) -> None:
@@ -139,6 +139,9 @@ def _format_bridge_event(event: Dict[str, Any]) -> str:
     if event_name == "summary":
         elapsed_display = (f"{float(elapsed_seconds):.1f}s" if isinstance(elapsed_seconds, (int, float)) else "?")
         return (f"SUMMARY {label} | completed={event.get('completed', '?')}/{event.get('total', '?')} | bytes={format_size(int(event.get('bytes') or 0))} | elapsed={elapsed_display}")
+
+    if event_name == "progress":
+        return f"TICK {label} | segments={event.get('segments', '?')} | size={event.get('size', '?')} | speed={event.get('speed', '?')}"
 
     if event_name == "completed":
         parts = [f"GET {url}" if url else "GET", f"PATH: {path}" if path else None]
@@ -369,6 +372,39 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                     normalized_event.setdefault("segments", "0/1")
                     normalized_event.setdefault("speed", "ERR")
                     _safe_event_cb(event_cb, normalized_event)
+                continue
+
+            if event_name == "progress":
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(_format_bridge_event(event))
+
+                live_bytes = int(event.get("total_bytes") or 0)
+                display_bytes = max(total_bytes, live_bytes)  # monotonic merge; does NOT mutate the ledger
+
+                now = time.monotonic()
+                speed_window.append((now, display_bytes))
+                while len(speed_window) > 1 and now - speed_window[0][0] > SPEED_WINDOW_SECONDS:
+                    speed_window.popleft()
+                window_start_at, window_start_bytes = speed_window[0]
+                speed = (display_bytes - window_start_bytes) / max(now - window_start_at, 0.001)
+                _safe_progress_cb(progress_cb, done_count, total, display_bytes, speed)
+
+                progress_event = dict(event)
+                progress_event.pop("total_bytes", None)
+                progress_event.setdefault("task_key", plan.get("task_key", "download"))
+                progress_event.setdefault("label", plan.get("label", ""))
+                progress_event.setdefault("display_label", plan.get("display_label", ""))
+                progress_event.setdefault("pct", int((done_count / total) * 100) if total else 100)
+                progress_event.setdefault("segments", f"{done_count}/{total}")
+                estimated_total = max(estimate_total_size(total_bytes, done_count, total), display_bytes)
+                progress_event["size"] = (
+                    f"{format_size(display_bytes)}/{format_size(estimated_total)}"
+                    if estimated_total
+                    else format_size(display_bytes)
+                )
+                progress_event["speed"] = format_speed(speed)
+
+                _safe_event_cb(event_cb, progress_event)
                 continue
 
             if event_name == "completed" or "path" in event:

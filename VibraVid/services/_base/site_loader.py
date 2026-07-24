@@ -20,12 +20,12 @@ console = Console()
 logger = logging.getLogger(__name__)
 folder_name = "services"
 imp_sources = config_manager.config.get_list("DEFAULT", "imp_service")
-KNOWN_CONTENT_TYPES = ("Anime", "Film_Serie", "Serie", "Song")
+KNOWN_CONTENT_TYPES = ("Anime", "Film_Serie", "Serie", "Song", "Tor")
 current_site_var: "contextvars.ContextVar[str | None]" = contextvars.ContextVar("vibravid_current_site", default=None)
 
 
 class LazySearchModule:
-    def __init__(self, module_name: str, indice: int, use_for: str = None, source: str = "default", base_path: str = None, has_cli_args: bool = False):
+    def __init__(self, module_name: str, indice: int, use_for: str = None, source: str = "default", base_path: str = None, has_cli_args: bool = False, hide: bool = False):
         """
         Lazy loader for a search module.
 
@@ -36,6 +36,7 @@ class LazySearchModule:
             source: Source of the module ('default' or custom path)
             base_path: Base path for custom sources
             has_cli_args: Whether the module's source defines register_cli_args
+            hide: Whether the module declares `_hide = True` (excluded from CLI/GUI/ARR listings)
         """
         self.module_name = module_name
         self.indice = indice
@@ -45,6 +46,7 @@ class LazySearchModule:
         self.source = source
         self.base_path = base_path
         self.has_cli_args = has_cli_args
+        self.hide = hide
     
     def _load_module(self):
         """Load the module on first access."""
@@ -200,9 +202,10 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
                 with open(init_file, 'r', encoding='utf-8') as f:
                     content = f.read()
                 
-                # Extract indice and _useFor using simple string search (faster than regex)
+                # Extract indice, _useFor and _hide using simple string search (faster than regex)
                 indice = None
                 use_for = None
+                hide = False
                 for line in content.split('\n'):
                     line = line.strip()
                     if not indice and (line.startswith('indice =') or line.startswith('indice=')):
@@ -215,9 +218,9 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
                             use_for = line.split('=')[1].strip().strip('"').strip("'")
                         except IndexError as e:
                             logger.warning(f"Module '{module_name}': Failed to parse _useFor value - {str(e)}")
-                    
-                    if indice is not None and use_for is not None:
-                        break
+                    elif line.startswith('_hide =') or line.startswith('_hide='):
+                        value = line.split('=')[1].split('#')[0].strip().lower()
+                        hide = value == 'true'
                 
                 # Validate that both indice and _useFor are defined
                 if indice is None:
@@ -235,9 +238,9 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
                     console.print(f"[yellow]Warning: Module '{module_name}' declares unknown _useFor='{use_for}' (expected: {', '.join(KNOWN_CONTENT_TYPES)})[/yellow]")
 
                 has_cli_args = 'def register_cli_args' in content
-                source_modules.append((module_name, indice, use_for, source, base_path, has_cli_args))
+                source_modules.append((module_name, indice, use_for, source, base_path, has_cli_args, hide))
                 loaded_module_names.add(module_name)
-                logger.debug(f"Found module '{module_name}' from source '{source}': use_for={use_for}, indice={indice}")
+                logger.debug(f"Found module '{module_name}' from source '{source}': use_for={use_for}, indice={indice}, hide={hide}")
                     
             except Exception as e:
                 logger.error(f"Exception reading metadata from {module_name}: {str(e)}")
@@ -247,7 +250,7 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
     
     # Check for duplicate indice values
     indice_map = {}
-    for module_name, indice, use_for, source, base_path, has_cli_args in modules_metadata:
+    for module_name, indice, use_for, source, base_path, has_cli_args, hide in modules_metadata:
         if indice in indice_map:
             existing_module = indice_map[indice]
             logger.warning(f"Duplicate indice detected: Both '{module_name}' and '{existing_module}' have indice={indice}")
@@ -255,9 +258,17 @@ def load_search_functions() -> Dict[str, LazySearchModule]:
         else:
             indice_map[indice] = module_name
 
+    # Hidden modules (_hide = True) are excluded from CLI/GUI/ARR listings entirely and
+    # don't consume a slot in the renumbered index sequence.
+    visible_modules = [m for m in modules_metadata if not m[6]]
+    hidden_modules = [m for m in modules_metadata if m[6]]
+    for module_name, indice, use_for, source, base_path, has_cli_args, hide in hidden_modules:
+        loaded_functions[f'{module_name}_search'] = LazySearchModule(module_name, indice, use_for, source, base_path, has_cli_args, hide=True)
+        logger.info(f"Module '{module_name}' is hidden (_hide = True); excluded from CLI/GUI/ARR listings.")
+
     # Sort by index and create lazy loaders with consecutive indices
-    sorted_modules = sorted(modules_metadata, key=lambda x: x[1])
-    for new_indice, (module_name, old_indice, use_for, source, base_path, has_cli_args) in enumerate(sorted_modules):
+    sorted_modules = sorted(visible_modules, key=lambda x: x[1])
+    for new_indice, (module_name, old_indice, use_for, source, base_path, has_cli_args, hide) in enumerate(sorted_modules):
         loaded_functions[f'{module_name}_search'] = LazySearchModule(module_name, new_indice, use_for, source, base_path, has_cli_args)
 
         # Update indice in __init__.py for each module only if changed and from default source

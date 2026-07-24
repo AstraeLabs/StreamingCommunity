@@ -62,6 +62,24 @@ def parse_headers(headers_list: Optional[list]) -> dict:
     return result
 
 
+def parse_raw_key(value: Optional[str]) -> Optional[bytes]:
+    """Decode a HEX, Base64, or file-path key/IV argument into raw bytes."""
+    if not value:
+        return None
+    
+    value = value.strip()
+    p = Path(value)
+
+    if p.is_file():
+        return p.read_bytes()
+    
+    try:
+        return bytes.fromhex(value)
+    except ValueError:
+        import base64
+        return base64.b64decode(value)
+
+
 def parse_keys(key_list: Optional[list]) -> Optional[list]:
     """Normalise the raw ``--key`` argument(s) into a list of clean ``'kid:key'`` strings (or None if empty)."""
     if not key_list:

@@ -21,28 +21,28 @@
 
 	--vv-theme-color: #f3f4f6;
 
-	/* --- Superfici (remap classi Tailwind) --- */
-	--vv-surf-0: #ffffff; /* bg-black solido */
-	--vv-scrim-rgb: 255 255 255; /* bg-black/NN */
-	--vv-surf-1: #ffffff; /* bg-gray-900 / bg-zinc-900 (card) */
+	--vv-surf-0: #ffffff; 
+	--vv-scrim-rgb: 255 255 255;
+	--vv-surf-1: #ffffff;
 	--vv-surf-1-rgb: 255 255 255;
-	--vv-surf-2: #f3f4f6; /* bg-gray-800 */
+	--vv-surf-2: #f3f4f6;
 	--vv-surf-2-rgb: 243 244 246;
-	--vv-surf-3: #e5e7eb; /* bg-gray-700 */
+	--vv-surf-3: #e5e7eb;
 	--vv-surf-3-rgb: 229 231 235;
-	--vv-surf-4: #d1d5db; /* bg-gray-600 */
-	--vv-surf-5: #9ca3af; /* bg-gray-500 */
+	--vv-surf-4: #d1d5db; 
+	--vv-surf-4-rgb: 209 213 219;
+	--vv-surf-5: #9ca3af;
 	--vv-surf-5-rgb: 156 163 175;
-	--vv-surf-white: #e9e9ee; /* bg-white -> chip chiaro visibile su pagina chiara */
-	--vv-surf-chip: #e0e0e6; /* bg-gray-200 */
+	--vv-surf-white: #e9e9ee;
+	--vv-surf-chip: #e0e0e6;
 
-	--vv-overlay-rgb: 0 0 0; /* bg-white/NN e border-white/NN -> overlay scuro */
+	--vv-overlay-rgb: 0 0 0;
 
-	--vv-border-1: #e5e7eb; /* border-gray-800 */
-	--vv-border-2: #d1d5db; /* border-gray-700/600 */
+	--vv-border-1: #e5e7eb;
+	--vv-border-2: #d1d5db;
 
 	--vv-grad-from: #ffffff;
 	--vv-grad-to: #f3f4f6;
 
-	--vv-card-blur: 0px; /* nessun blur nel tema solido */
+	--vv-card-blur: 0px;
 }

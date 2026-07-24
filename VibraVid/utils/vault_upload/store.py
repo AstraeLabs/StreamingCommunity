@@ -5,6 +5,8 @@ import logging
 import threading
 from typing import Optional
 
+import requests
+
 from VibraVid.utils.http_client import create_client
 from VibraVid.utils.config import config_manager
 from VibraVid.utils.vault_upload import client
@@ -21,13 +23,14 @@ class ExternalUploadVault:
         headers = {"Content-Type": "application/json"}
         if STORE_TOKEN:
             headers["Authorization"] = f"Bearer {STORE_TOKEN}"
-        
+
         self.api = create_client(headers=headers, http2=True)
-        self.storage = create_client(timeout=120)
+        self.storage = requests.Session()
+        self.upload_client = client.new_upload_client()
         self._lock = threading.Lock()
 
     def close(self):
-        for s in (getattr(self, "api", None), getattr(self, "storage", None)):
+        for s in (getattr(self, "api", None), getattr(self, "storage", None), getattr(self, "upload_client", None)):
             try:
                 if s:
                     s.close()
@@ -37,7 +40,7 @@ class ExternalUploadVault:
     def search(self, title: str, media_type: Optional[str] = None, season: Optional[int] = None, episode: Optional[int] = None) -> Optional[dict]:
         if not self.base_url or not title:
             return None
-        
+
         params: dict = {"title": title.strip()}
         if media_type:
             params["type"] = str(media_type).strip().lower()
@@ -62,37 +65,27 @@ class ExternalUploadVault:
         filename = os.path.basename(file_path)
         size = os.path.getsize(file_path)
         try:
-            create_payload = {"filename": filename, "size": size, "mtime": int(os.path.getmtime(file_path))}
-            if title:
-                create_payload["title"] = title
-            if expiry_days is not None:
-                create_payload["expiryDays"] = expiry_days
-            
-            r = self.api.post(f"{self.base_url}/upload/create", json=create_payload)
+            r = self.api.post(f"{self.base_url}/upload/target")
             r.raise_for_status()
-            c = r.json()
-            sid, xh, root_h, pool = c["sid"], c["xh"], c["rootH"], c["pool"]
+            endpoint = r.json()["endpoint"]
 
-            ul_key = client.rand_a32(6)
-            token, macs = client.upload_file(self.storage, file_path, pool, ul_key, on_progress=on_progress)
-            filekey = client.compute_file_key(ul_key, macs)
+            key, nonce = client.new_file_key()
+            up = client.upload_file(self.upload_client, file_path, endpoint, key, nonce, filename=filename, on_progress=on_progress)
 
-            finalize = {
-                "sid": sid, "xh": xh, "rootH": root_h,
-                "token": client.b64_encode(token), "filekey": filekey,
-                "filename": filename, "size": size,
-            }
-            for k, v in (("title", title), ("mediaType", media_type), ("category", category)):
-                if v:
-                    finalize[k] = v
-            if season is not None:
-                finalize["season"] = season
-            if episode is not None:
-                finalize["episode"] = episode
+            register = {"filename": filename, "size": up.get("size", size), "storageUrl": up["url"], "key": client.pack_key(key, nonce)}
+            if title:
+                register["title"] = title
             if expiry_days is not None:
-                finalize["expiryDays"] = expiry_days
-            
-            r = self.api.post(f"{self.base_url}/upload/finalize", json=finalize)
+                register["expiryDays"] = expiry_days
+            for k, v in (("mediaType", media_type), ("category", category)):
+                if v:
+                    register[k] = v
+            if season is not None:
+                register["season"] = season
+            if episode is not None:
+                register["episode"] = episode
+
+            r = self.api.post(f"{self.base_url}/upload/register", json=register)
             r.raise_for_status()
             link = r.json().get("link")
             logger.info(f"upload store: uploaded {filename} -> {link}")
@@ -104,27 +97,19 @@ class ExternalUploadVault:
     def download(self, xh: str, dest_path: str, password: Optional[str] = None, on_progress=None) -> Optional[str]:
         if not self.base_url or not xh:
             return None
-        
+
         try:
             with self._lock:
-                r = self.api.get(f"{self.base_url}/transfer/{xh}", params={"pw": password} if password else None)
-            r.raise_for_status()
-            files = r.json().get("files") or []
-            if not files:
-                return None
-            node = files[0]
-
-            dl = {"xh": xh, "handle": node["handle"]}
-            if password:
-                dl["password"] = password
-            r = self.api.post(f"{self.base_url}/download", json=dl)
+                r = self.api.get(f"{self.base_url}/upload/resolve/{xh}")
             r.raise_for_status()
             info = r.json()
             url = info.get("url")
-            if not url:
+            key_packed = info.get("key")
+            if not url or not key_packed:
                 return None
 
-            client.download_file(self.storage, url, dest_path, client.b64_to_a32(node["key"]), total=info.get("size") or node.get("size"), on_progress=on_progress)
+            key, nonce = client.unpack_key(key_packed)
+            client.download_decrypt(self.storage, url, dest_path, key, nonce, total=info.get("size"), on_progress=on_progress)
             logger.info(f"upload store: downloaded -> {dest_path}")
             return dest_path
         except Exception as e:
@@ -136,6 +121,14 @@ class ExternalUploadVault:
         if not hit:
             return None
         return self.download(hit["xh"], dest_path, on_progress=on_progress)
+
+    def report_error(self, xh: str) -> None:
+        if not self.base_url or not xh:
+            return
+        try:
+            self.api.post(f"{self.base_url}/report/error", json={"xh": xh})
+        except Exception as e:
+            logger.debug(f"upload store report_error error: {e}")
 
 
 is_upload_vault_valid = bool(STORE_URL)

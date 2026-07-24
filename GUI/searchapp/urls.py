@@ -10,6 +10,8 @@ urlpatterns = [
     path("download/", views.start_download, name="start_download"),
     path("series-metadata/", views.series_metadata, name="series_metadata"),
     path("series-detail/", views.series_detail, name="series_detail"),
+    path("api/resolve-tmdb-posters/", views.resolve_tmdb_posters, name="resolve_tmdb_posters"),
+    path("api/resolve-tmdb-episode-stills/", views.resolve_tmdb_episode_stills, name="resolve_tmdb_episode_stills"),
 
     # Download
     path("downloads/", views.download_dashboard, name="download_dashboard"),

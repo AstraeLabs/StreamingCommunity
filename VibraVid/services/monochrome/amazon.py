@@ -1,4 +1,5 @@
 # 16.07.26
+# by @danpro00
 
 import os
 import time
@@ -76,12 +77,20 @@ def _solve_via_bypasser(url: str, timeout: int) -> str:
     """Solve the Turnstile widget via the docker/bypasser sidecar over HTTP."""
     endpoint = _bypasser_url()
     logger.info(f"[monochrome/amazon] solving Cloudflare Turnstile via bypasser sidecar ({endpoint})…")
-    client = create_client(browser=None, timeout=timeout + 15)
+    client = create_client(browser=None, timeout=timeout + 15, proxies={})
     try:
-        resp = client.post(
-            f"{endpoint}/solve",
-            json={"url": url, "sitekey": TURNSTILE_SITE_KEY, "timeout": timeout},
-        )
+        try:
+            resp = client.post(
+                f"{endpoint}/solve",
+                json={"url": url, "sitekey": TURNSTILE_SITE_KEY, "timeout": timeout},
+            )
+        except Exception as e:
+            raise AmazonError(
+                f"Could not reach the bypasser sidecar at {endpoint} ({e}). "
+                "It is required to solve monochrome.tf's Turnstile and is not running. "
+                "Start it with 'docker compose --profile bypasser up -d bypasser' "
+                "(see docker/bypasser/ and the bypasser_url setting in README.md)."
+            ) from e
         resp.raise_for_status()
         data = resp.json()
     finally:

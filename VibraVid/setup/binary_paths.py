@@ -1,7 +1,9 @@
 # 19.09.25
 
 import os
+import glob
 import platform
+import subprocess
 import logging
 import threading
 from typing import Dict, Optional
@@ -16,6 +18,7 @@ class BinaryPaths:
     def __init__(self):
         self.system = self._detect_system()
         self.arch = self._detect_arch()
+        self.libc = self._detect_libc()
         self.home_dir = os.path.expanduser('~')
         self.binary_dir_override = os.environ.get('VIBRAVID_BINARY_DIR') or os.environ.get('BINARY_DIR')
         self.github_repo = "https://raw.githubusercontent.com/AstraeLabs/Binary/main"
@@ -44,6 +47,46 @@ class BinaryPaths:
             'aarch64': 'arm64',
         }
         return arch_map.get(machine, 'x64')
+
+    def _detect_libc(self) -> str:
+        """Detect whether this Linux host is running glibc or musl."""
+        if self.system != 'linux':
+            return 'glibc'
+
+        # 1) musl's dynamic loader has a distinctive, unmistakable name.
+        musl_loader_globs = (
+            '/lib/ld-musl-*.so.1',
+            '/lib64/ld-musl-*.so.1',
+            '/usr/lib/ld-musl-*.so.1',
+        )
+        for pattern in musl_loader_globs:
+            if glob.glob(pattern):
+                return 'musl'
+
+        # 2) glibc exposes gnu_get_libc_version() in the process's own symbol table; musl does not, so this raises on musl systems.
+        try:
+            import ctypes
+
+            ctypes.CDLL(None).gnu_get_libc_version
+            return 'glibc'
+        except Exception:
+            pass
+
+        # 3) Last resort: musl's `ldd --version` prints a usage banner mentioning "musl libc" (and exits non-zero);
+        try:
+            result = subprocess.run(
+                ['ldd', '--version'],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            combined = f"{result.stdout}{result.stderr}".lower()
+            if 'musl' in combined:
+                return 'musl'
+        except Exception:
+            pass
+
+        return 'glibc'
 
     def get_binary_directory(self) -> str:
         """Return the platform-specific directory where binaries are stored."""
@@ -136,9 +179,11 @@ class BinaryPaths:
                 return local_path
 
             paths_json = self._load_paths_json()
-            key = f"{self.system}_{self.arch}_{tool}"
+            base_key = f"{self.system}_{self.arch}_{tool}"
+            musl_key = f"{base_key}_musl"
+            key = musl_key if self.libc == 'musl' and musl_key in paths_json else base_key
             logger.info(f"Looking up binary paths for key {key}")
-            console.log(f"[cyan]Downloading [red]{binary_name} [cyan]for [yellow]{tool} [cyan]on [red]{self.system} {self.arch}")
+            console.log(f"[cyan]Downloading [red]{binary_name} [cyan]for [yellow]{tool} [cyan]on [red]{self.system} {self.arch} ({self.libc})")
 
             if key not in paths_json:
                 logger.error(f"No binary paths found for key {key} in binary paths JSON")

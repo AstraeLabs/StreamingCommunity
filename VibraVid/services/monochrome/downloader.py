@@ -1,4 +1,5 @@
 # 16.07.26
+# by @danpro00
 
 import os
 import logging
@@ -12,8 +13,6 @@ from VibraVid.services._base.tv_display_manager import map_song_path
 from VibraVid.core.ui.tracker import context_tracker
 from VibraVid.core.downloader import MP4_Downloader
 from VibraVid.core.muxing.helper.audio import process_song
-
-from VibraVid.services.lucida.downloader import _existing_audio_file
 
 from . import amazon
 from .amazon import AmazonError
@@ -46,6 +45,7 @@ def _download_via_amazon(select_title) -> Optional[str]:
     cover = getattr(select_title, "image", "")
     track_number = getattr(select_title, "track", None) or None
     duration = getattr(select_title, "duration_seconds", None)
+    album_artist = getattr(select_title, "album_artist", "")
 
     if not duration:
         amazon_id = getattr(select_title, "id", None)
@@ -67,6 +67,7 @@ def _download_via_amazon(select_title) -> Optional[str]:
         resp = amazon.get_track_link(title=title, duration=int(duration), album=album, artist=artist, quality=_amazon_quality())
     except AmazonError as e:
         logger.warning(f"[monochrome/amazon] resolve failed: {e}")
+        console.print(f"[yellow]Warning: {e}")
         return None
     except Exception:
         logger.exception(f"[monochrome/amazon] unexpected resolve error for {title!r}")
@@ -82,13 +83,6 @@ def _download_via_amazon(select_title) -> Optional[str]:
 
     path_components, filename = map_song_path(artist=artist, album=album, title=title, year=year, track_number=track_number)
     dest_base = os.path.join(site_constants.MUSIC_FOLDER, *path_components, filename)
-
-    existing = _existing_audio_file(dest_base)
-    if existing:
-        logger.info(f"[monochrome/amazon] found existing file, skipping download: {existing}")
-        console.print(f"[dim]Already downloaded, skipping: {os.path.basename(existing)}")
-        context_tracker.report_download_success()
-        return existing
 
     out_path = f"{dest_base}.m4a"
     logger.info(f"[monochrome/amazon] downloading to: {out_path}")
@@ -113,6 +107,7 @@ def _download_via_amazon(select_title) -> Optional[str]:
     final_path = process_song(
         file_path=result_path, title=title, artist=artist, album=album,
         year=year, track_number=track_number, cover_url=cover,
+        album_artist=album_artist,
     )
     logger.info(f"[monochrome/amazon] done: {final_path} (exists={os.path.exists(final_path)})")
     return final_path
@@ -151,6 +146,7 @@ def download_track_from_album(episode_dict, season_number: int, episode_index: i
     )
     entry.title = name
     entry.artist = (episode_dict.get("artist") if is_dict else getattr(episode_dict, "artist", "")) or getattr(scrape_serie, "artist", "")
+    entry.album_artist = getattr(scrape_serie, "artist", "")
     entry.album = getattr(scrape_serie, "title", "")
     entry.year = (episode_dict.get("year") if is_dict else getattr(episode_dict, "year", "")) or getattr(scrape_serie, "year", "")
     entry.image = (episode_dict.get("cover") if is_dict else getattr(episode_dict, "cover", "")) or getattr(scrape_serie, "cover_url", "")

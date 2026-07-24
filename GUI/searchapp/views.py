@@ -23,12 +23,13 @@ from django.utils import timezone
 from .forms import SearchForm, DownloadForm
 from .models import ArrMediaRequest, ArrProcessingQueue, WatchlistItem
 from .watchlist_auto import _get_interval_seconds
-from GUI.searchapp.api import get_api, get_available_sites, get_site_categories
-from GUI.searchapp.api.base import Entries
+from .api import get_api, get_available_sites, get_site_categories
+from .api.base import Entries
 
 from VibraVid.core.ui.tracker import  download_tracker, context_tracker
 from VibraVid.utils import config_manager
 from VibraVid.provider.tmdb import tmdb_client
+from VibraVid.services._base import tmdb_artwork
 from VibraVid.cli.run import equivalent_command_builder
 
 from ._download_infra import (
@@ -91,9 +92,18 @@ def _mark_native_webhook_seen(tmdb_id, source: str):
     _is_recent_webhook(tmdb_id, source=source, window_seconds=_WEBHOOK_DEDUP_WINDOW, touch=True)
 
 
+_POSTER_PLACEHOLDER = (
+    "data:image/svg+xml;charset=utf-8,"
+    "%3Csvg%20xmlns%3D'http%3A//www.w3.org/2000/svg'%20viewBox%3D'0%200%20300%20450'%3E"
+    "%3Crect%20width%3D'300'%20height%3D'450'%20fill%3D'%23111827'/%3E"
+    "%3Cpath%20d%3D'M150%20195a26%2026%200%201%200%200-52%2026%2026%200%200%200%200%2052z"
+    "M92%20286l44-56%2030%2036%2024-28%2038%2048z'%20fill%3D'%23374151'/%3E%3C/svg%3E"
+)
+
+
 def _media_item_to_display_dict(item: Entries, source_alias: str) -> Dict[str, Any]:
     """Convert Entries to template-friendly dictionary."""
-    poster_url = item.poster if item.poster else "https://via.placeholder.com/300x450?text=Search"
+    poster_url = item.poster if item.poster else _POSTER_PLACEHOLDER
     
     # Treat songs as 'movie' in the GUI so they show a direct Download button
     display_is_movie = bool(item.is_movie or (str(item.type or "").strip().lower() == 'song'))
@@ -105,7 +115,10 @@ def _media_item_to_display_dict(item: Entries, source_alias: str) -> Dict[str, A
         'source_alias': source_alias,
         'bg_image_url': poster_url,
         'is_movie': display_is_movie,
-        'year': item.year
+        'year': item.year,
+        'entitlement': item.desc,
+        'slug': item.slug,
+        'tmdb_id': item.tmdb_id,
     }
 
     # Ensure payload reflects the GUI behaviour (so start_download treats songs like single-item downloads)
@@ -217,6 +230,7 @@ def search(request: HttpRequest) -> HttpResponse:
                 "results": results,
                 "selected_site": site,
                 "is_global": True,
+                "tmdb_available": bool(tmdb_client.api_key),
             },
         )
 
@@ -238,6 +252,7 @@ def search(request: HttpRequest) -> HttpResponse:
             "download_form": download_form,
             "results": results,
             "selected_site": site,
+            "tmdb_available": bool(tmdb_client.api_key),
         },
     )
 
@@ -285,6 +300,17 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
             context_tracker.season = int(season) if str(season or "").isdigit() else 0
             context_tracker.episode = int(episodes) if str(episodes or "").isdigit() else 0
 
+            # The search payload already carries the site's own artwork. Seed it
+            # as the fallback so a download card shows a real poster even when
+            # TMDB can't supply one (no Provider.tmdb key, or no match). Without
+            # this the only writers of context_tracker.poster_url were the TMDB
+            # lookups, so an unset key meant every card fell back to the
+            # placeholder thumbnail.
+            _site_poster = item_payload.get("poster") or item_payload.get("image")
+            if _site_poster and str(_site_poster).startswith("http"):
+                context_tracker.fallback_poster_url = _site_poster
+                context_tracker.poster_url = _site_poster
+
             api = get_api(site)
 
             # Create Entries from payload
@@ -303,9 +329,12 @@ def _run_download_in_thread(site: str, item_payload: Dict[str, Any], season: str
             print("[_task] Calling api.start_download with:")
             print(f"        season={season}, episodes={episodes}, output_path={output_path}, audio_format={audio_format}")
             try:
-                api.start_download(media_item, season=season, episodes=episodes, audio_format=audio_format)
+                start_result = api.start_download(media_item, season=season, episodes=episodes, audio_format=audio_format)
             except TypeError:
-                api.start_download(media_item, season=season, episodes=episodes)
+                start_result = api.start_download(media_item, season=season, episodes=episodes)
+
+            if start_result is False:
+                raise RuntimeError("download_failed")
 
             final_state = next(
                 (item for item in download_tracker.get_history() if item.get("id") == download_id),
@@ -501,25 +530,20 @@ def series_detail(request: HttpRequest) -> HttpResponse:
         entries_fields = {k: v for k, v in item_payload.items() if k in Entries.__dataclass_fields__}
         media_item = Entries(**entries_fields)
         
-        # Try to get TMDB backdrop for better background image
+        # Try to get TMDB backdrop for better background image, and a series
+        # tmdb_id we can reuse for per-season posters below.
         backdrop_url = media_item.poster  # fallback to original poster
+        series_tmdb_id = None
         if not media_item.is_movie:
             try:
-                if media_item.tmdb_id:
-                    backdrop = tmdb_client.get_backdrop_url('tv', int(media_item.tmdb_id), size="w1920")
+                series_tmdb_id = tmdb_artwork.resolve_series_tmdb_id(
+                    tmdb_id=media_item.tmdb_id, name=media_item.name,
+                    slug=media_item.slug, year=media_item.year, site_name=source_alias,
+                )
+                if series_tmdb_id:
+                    backdrop = tmdb_client.get_backdrop_url('tv', series_tmdb_id, size="w1920")
                     if backdrop:
                         backdrop_url = backdrop
-                
-                else:
-                    # Fallback to search by slug/year
-                    slug = media_item.slug or tmdb_client._slugify(media_item.name)
-                    year_str = str(media_item.year) if media_item.year else None
-                    tmdb_result = tmdb_client.get_type_and_id_by_slug_year(slug, year_str, "tv")
-                    if tmdb_result and tmdb_result.get('type') == 'tv':
-                        backdrop = tmdb_client.get_backdrop_url('tv', tmdb_result['id'], size="w1920")
-                        if backdrop:
-                            backdrop_url = backdrop
-                            
             except Exception:
                 # If TMDB fails, keep original poster
                 pass
@@ -551,10 +575,18 @@ def series_detail(request: HttpRequest) -> HttpResponse:
                 ep_dict["language_list"] = [language.strip() for language in lang.split(",") if language.strip()] if lang else []
                 episodes_data.append(ep_dict)
 
+            season_image = None
+            if series_tmdb_id:
+                try:
+                    season_image = tmdb_client.get_season_poster_url(series_tmdb_id, season.number)
+                except Exception:
+                    pass
+
             seasons_data.append({
                 "number": season.number,
                 "episode_count": season.episode_count,
                 "episodes": episodes_data,
+                "image": season_image,
             })
         
         return render(
@@ -563,6 +595,7 @@ def series_detail(request: HttpRequest) -> HttpResponse:
             {
                 "series": series_info,
                 "seasons": seasons_data,
+                "series_tmdb_id": series_tmdb_id,
             }
         )
         
@@ -815,6 +848,78 @@ def get_downloads_json(request: HttpRequest) -> JsonResponse:
         "scheduled": scheduled,
         "history": history
     })
+
+@csrf_exempt
+def resolve_tmdb_posters(request: HttpRequest) -> JsonResponse:
+    """Batch-resolve TMDB poster URLs for search-result cards."""
+    if request.method != "POST":
+        return JsonResponse({"status": "error", "message": "Method not allowed"}, status=405)
+
+    try:
+        items = json.loads(request.body).get("items", [])
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": str(e)}, status=400)
+
+    def _resolve(item: Dict[str, Any]):
+        index = item.get("index")
+        try:
+            if item.get("is_movie"):
+                poster = tmdb_artwork.resolve_movie_poster_url(
+                    tmdb_id=item.get("tmdb_id"), name=item.get("name"),
+                    slug=item.get("slug"), year=item.get("year"),
+                )
+            else:
+                series_tmdb_id = tmdb_artwork.resolve_series_tmdb_id(
+                    tmdb_id=item.get("tmdb_id"), name=item.get("name"),
+                    slug=item.get("slug"), year=item.get("year"), site_name=item.get("site"),
+                )
+                poster = tmdb_client.get_poster_url('tv', series_tmdb_id) if series_tmdb_id else None
+        except Exception:
+            poster = None
+        return index, poster
+
+    posters: Dict[Any, str] = {}
+    if items:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(items), 8)) as executor:
+            for index, poster in executor.map(_resolve, items):
+                if poster:
+                    posters[index] = poster
+
+    return JsonResponse({"posters": posters})
+
+
+@csrf_exempt
+def resolve_tmdb_episode_stills(request: HttpRequest) -> JsonResponse:
+    """Batch-resolve TMDB episode stills for the series_detail episode grid."""
+    if request.method != "POST":
+        return JsonResponse({"status": "error", "message": "Method not allowed"}, status=405)
+
+    try:
+        body = json.loads(request.body)
+        series_tmdb_id = body.get("series_tmdb_id")
+        episodes = body.get("episodes", [])
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": str(e)}, status=400)
+
+    if not series_tmdb_id or not episodes:
+        return JsonResponse({"stills": {}})
+
+    def _resolve(ep: Dict[str, Any]):
+        eid = ep.get("id")
+        try:
+            still = tmdb_artwork.resolve_episode_artwork_url(int(series_tmdb_id), ep.get("season"), ep.get("episode"))
+        except Exception:
+            still = None
+        return eid, still
+
+    stills: Dict[Any, str] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(episodes), 8)) as executor:
+        for eid, still in executor.map(_resolve, episodes):
+            if still:
+                stills[eid] = still
+
+    return JsonResponse({"stills": stills})
+
 
 @csrf_exempt
 def kill_download(request: HttpRequest) -> JsonResponse:
@@ -1353,23 +1458,34 @@ def upload_service_zip(request: HttpRequest) -> JsonResponse:
             try:
                 # Drop any GUI API modules from sys.modules so previously-failed imports
                 # (e.g. primevideo with a missing service backend) are retried fresh.
-                for mod_name in [m for m in sys.modules if m.startswith("GUI.searchapp.api.") and not m.endswith(".base")]:
+                # Django loads this app as top-level package "searchapp" (see
+                # INSTALLED_APPS = ["searchapp.apps.SearchappConfig", ...]), so the
+                # module every view actually uses is "searchapp.api", not
+                # "GUI.searchapp.api" — both are importable (GUI/ and the repo root
+                # are both on sys.path) but resolve to two independent module objects
+                # with separate globals. Reloading the wrong one leaves the live
+                # dropdown stale until the whole process restarts.
+                for mod_name in [m for m in sys.modules if m.startswith("searchapp.api.") and not m.endswith(".base")]:
                     del sys.modules[mod_name]
 
                 # Reload GUI API registry. Do NOT pre-clear _API_REGISTRY here:
                 # _initialize_registry() now updates atomically and refuses to
                 # shrink the registry if a reload encounters errors, which
                 # protects existing services from being lost on a partial reload.
-                from GUI.searchapp import api as gui_api_module
+                from . import api as gui_api_module
                 gui_api_module._INITIALIZED = False
                 gui_api_module._initialize_registry()
+                # The site->category map is cached independently of the registry
+                # (get_site_categories()); without clearing it here, newly installed
+                # services stay invisible to category grouping until the process restarts.
+                gui_api_module.reset_site_categories_cache()
             except Exception as e:
                 errors.append(f"Reload GUI API registry: {e}")
 
         # Report what the dropdown actually contains right now so the user can
         # verify their upload landed and which services failed to load.
         try:
-            from GUI.searchapp import api as gui_api_module
+            from . import api as gui_api_module
             available_sites = sorted(gui_api_module.get_available_sites())
             load_errors_list = gui_api_module.get_load_errors()
         except Exception:
@@ -2021,7 +2137,7 @@ def registry_status(request: HttpRequest) -> JsonResponse:
     and which static GUI api stubs exist. Hit /api/registry-status/ in a browser
     when the dropdown looks wrong to find out why.
     """
-    from GUI.searchapp import api as gui_api_module
+    from . import api as gui_api_module
 
     api_dir = os.path.dirname(gui_api_module.__file__)
     static_stubs = sorted(

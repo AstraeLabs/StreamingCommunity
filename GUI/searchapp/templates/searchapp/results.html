@@ -10,30 +10,37 @@
   <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 mb-10">
       <div>
       <div class="flex items-center gap-3 mb-3">
-        <button 
-          onclick="window.history.back()" 
-          class="p-2 hover:bg-white/10 rounded-lg transition-colors"
-        >
-          <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-          </svg>
-        </button>
-        <h1 class="text-3xl sm:text-4xl font-bold text-white">
+{% include "searchapp/partials/_back_button.html" %}
+        <h1 class="text-3xl sm:text-4xl font-bold text-fg">
           Results for "<span class="text-red-500">{{ query|default:'your search' }}</span>"
         </h1>
       </div>
-      <p id="results-count" class="text-gray-400 ml-14">
+      <p id="results-count" class="text-fg-muted ml-14">
         {{ results|length }} titles found
       </p>
 
+      {% if not tmdb_available %}
+      {% comment %}
+      Senza chiave TMDB le copertine restavano quelle del sito senza che
+      nulla lo spiegasse: loadTmdbPosters() veniva semplicemente saltato.
+      Stessa causa per le locandine di stagione e le anteprime episodio.
+      {% endcomment %}
+      <p class="ml-14 mt-1 text-xs text-fg-faint">
+        Copertine TMDB non attive &mdash; imposta
+        <code class="text-fg-muted">Provider.tmdb</code> in
+        <a href="{% url 'settings_editor' %}" class="underline hover:text-fg">Impostazioni</a>
+        per locandine e anteprime episodio.
+      </p>
+      {% endif %}
+
       <!-- Filter Controls -->
       <div class="mt-4 ml-14">
-        <div class="inline-flex rounded-lg bg-white/5 border border-white/10 p-1 gap-1">
+        <div class="pill-group gap-1">
           <button 
             id="filter-all" 
             type="button"
             onclick="filterResults('all')" 
-            class="filter-btn px-4 py-1.5 text-sm font-semibold rounded-md transition-all"
+            class="filter-btn pill px-4 py-1.5 text-sm"
           >
             All
           </button>
@@ -42,7 +49,7 @@
             id="filter-movies" 
             type="button"
             onclick="filterResults('movie')" 
-            class="filter-btn px-4 py-1.5 text-sm font-medium rounded-md transition-all"
+            class="filter-btn pill px-4 py-1.5 text-sm"
           >
             Movies
           </button>
@@ -51,7 +58,7 @@
             id="filter-series" 
             type="button"
             onclick="filterResults('series')" 
-            class="filter-btn px-4 py-1.5 text-sm font-medium rounded-md transition-all"
+            class="filter-btn pill px-4 py-1.5 text-sm"
           >
             Series
           </button>
@@ -65,14 +72,17 @@
   <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 3xl:grid-cols-8 gap-3 sm:gap-4">
     {% for result in results %}
 
-    <div 
-      class="group relative card-hover cursor-pointer" 
-      data-type="{% if result.is_movie %}movie{% else %}series{% endif %}" 
-      data-name="{{ result.display_title }}" 
-      data-year="{{ result.year }}" 
-      data-is-movie="{{ result.is_movie|lower }}" 
+    <div
+      class="group relative card-hover cursor-pointer"
+      data-type="{% if result.is_movie %}movie{% else %}series{% endif %}"
+      data-name="{{ result.display_title }}"
+      data-year="{{ result.year }}"
+      data-is-movie="{{ result.is_movie|lower }}"
       data-source="{{ result.source_alias }}"
       data-has-tmdb="{{ result.has_tmdb_potential|lower }}"
+      data-index="{{ forloop.counter }}"
+      data-slug="{{ result.slug|default:'' }}"
+      data-tmdb-id="{{ result.tmdb_id|default:'' }}"
 
       {% if result.is_movie %}
         data-action-type="download"
@@ -86,17 +96,18 @@
     >
 
       <!-- Card Container -->
-      <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-gray-900">
+      <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-surface-1">
         <!-- Poster Image -->
-        <img 
-          src="{{ result.bg_image_url }}" 
-          alt="{{ result.display_title }}" 
+        <img
+          id="poster-img-{{ forloop.counter }}"
+          src="{{ result.bg_image_url }}"
+          alt="{{ result.display_title }}"
           class="w-full h-full object-cover {% if not result.bg_image_url or result.bg_image_url == 'N/A' %}opacity-50{% endif %}"
           loading="lazy"
         >
         
         <!-- Gradient Overlay -->
-        <div class="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity"></div>
+        <div class="absolute inset-0 bg-gradient-to-t from-scrim via-scrim/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity"></div>
         
         <!-- Top Badges -->
         <div class="absolute top-2 left-2 right-2 flex items-start justify-between gap-2 z-10">
@@ -105,13 +116,13 @@
               {{ result.display_type }}
             </span>
             {% if is_global %}
-            <span class="px-2 py-1 bg-black/80 backdrop-blur-sm text-red-300 text-[10px] font-bold uppercase tracking-wider rounded shadow-lg">
+            <span class="px-2 py-1 bg-scrim/80 backdrop-blur-sm text-red-300 text-[10px] font-bold uppercase tracking-wider rounded shadow-lg">
               {{ result.source }}
             </span>
             {% endif %}
           </div>
           {% if result.year %}
-          <span class="px-2 py-1 bg-black/80 backdrop-blur-sm text-white text-[10px] font-semibold rounded">
+          <span class="px-2 py-1 bg-scrim/80 backdrop-blur-sm text-fg text-[10px] font-semibold rounded">
             {{ result.year }}
           </span>
           {% endif %}
@@ -121,7 +132,7 @@
         <div class="absolute inset-0 flex flex-col justify-end p-4 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-4 group-hover:translate-y-0">
 
           <!-- Title -->
-          <h3 class="text-white font-bold text-sm mb-3 line-clamp-2 drop-shadow-lg">
+          <h3 class="text-fg font-bold text-sm mb-3 line-clamp-2 drop-shadow-lg">
             {{ result.display_title }}
           </h3>
           
@@ -141,7 +152,7 @@
               <input type="hidden" name="item_payload" value="{{ result.payload_json }}">
               <select
                 name="audio_format"
-                class="bg-black/60 border border-gray-700 text-white text-xs font-bold rounded-md px-2 py-2.5 focus:border-red-500 focus:outline-none cursor-pointer"
+                class="bg-scrim/60 border border-line-2 text-fg text-xs font-bold rounded-md px-2 py-2.5 focus:border-red-500 focus:outline-none cursor-pointer"
                 title="Audio format"
               >
                 <option value="flac" selected>FLAC</option>
@@ -149,7 +160,7 @@
               </select>
               <button
                 type="submit"
-                class="flex-1 py-2.5 bg-white hover:bg-gray-200 text-black font-bold text-xs rounded-md transition-all flex items-center justify-center gap-2 shadow-xl"
+                class="flex-1 py-2.5 bg-surface-white hover:bg-surface-chip text-black font-bold text-xs rounded-md transition-all flex items-center justify-center gap-2 shadow-xl"
               >
                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
@@ -172,7 +183,7 @@
               <input type="hidden" name="item_payload" value="{{ result.payload_json }}">
               <button
                 type="submit"
-                class="w-full py-2.5 bg-white hover:bg-gray-200 text-black font-bold text-xs rounded-md transition-all flex items-center justify-center gap-2 shadow-xl"
+                class="w-full py-2.5 bg-surface-white hover:bg-surface-chip text-black font-bold text-xs rounded-md transition-all flex items-center justify-center gap-2 shadow-xl"
               >
                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M8 5v14l11-7z"/>
@@ -204,7 +215,7 @@
             <div class="flex-1">
               <a 
                 href="{% url 'series_detail' %}?source_alias={{ result.source_alias }}&item_payload={{ result.payload_json|urlencode }}" 
-                class="w-full py-2.5 bg-white hover:bg-gray-200 text-black font-bold text-xs rounded-md transition-all flex items-center justify-center gap-2 shadow-xl"
+                class="w-full py-2.5 bg-surface-white hover:bg-surface-chip text-black font-bold text-xs rounded-md transition-all flex items-center justify-center gap-2 shadow-xl"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -236,6 +247,12 @@
         </div>
       </div>
 
+      {% if result.entitlement %}
+      <div class="mt-1 px-2 py-1 bg-amber-600/90 text-white text-[10px] font-semibold rounded text-center truncate" title="{{ result.entitlement }}">
+        {{ result.entitlement }}
+      </div>
+      {% endif %}
+
     </div>
     {% endfor %}
   </div>
@@ -244,14 +261,14 @@
   <!-- Empty State -->
   <div class="flex flex-col items-center justify-center py-32 text-center">
     <div class="w-24 h-24 bg-gradient-to-br from-red-600/20 to-purple-600/20 rounded-full flex items-center justify-center mb-8">
-      <svg class="w-12 h-12 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg class="w-12 h-12 text-fg-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
       </svg>
     </div>
-    <h2 class="text-3xl font-bold text-white mb-4">
+    <h2 class="text-3xl font-bold text-fg mb-4">
       No results found
     </h2>
-    <p class="text-gray-400 text-lg mb-8 max-w-md">
+    <p class="text-fg-muted text-lg mb-8 max-w-md">
       Try adjusting your search terms, pick a different source, and check the terminal for any errors.
     </p>
     <a 
@@ -268,14 +285,6 @@
 </div>
 
 <style>
-  /* Line clamp utility */
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  
   /* Enhanced card hover - Netflix style */
   @media (min-width: 768px) {
     .card-hover:hover {
@@ -284,19 +293,9 @@
     }
   }
 
-  /* Filter button active state */
-  .filter-btn {
-    color: rgb(156 163 175); /* gray-400 */
-  }
-  .filter-btn.active {
-    background-color: rgb(220 38 38); /* red-600 */
-    color: white;
-    font-weight: 700;
-  }
-  .filter-btn:not(.active):hover {
-    color: white;
-    background-color: rgba(255,255,255,0.08);
-  }
+  /* I filtri usavano colori letterali (rgb(156 163 175), rgba(255,255,255,.08))
+     che non rispondevano al tema: sul tema chiaro restavano grigio-su-chiaro.
+     Ora ereditano da .pill nel component layer. */
 
   /* Download click flash */
   @keyframes downloadFlash {
@@ -368,8 +367,41 @@
     }
   }
 
+  function loadTmdbPosters() {
+    const cards = document.querySelectorAll('.card-hover[data-index]');
+    const items = Array.from(cards).map(card => ({
+      index: card.dataset.index,
+      name: card.dataset.name,
+      year: card.dataset.year || null,
+      is_movie: card.dataset.isMovie === 'true',
+      site: card.dataset.source || null,
+      slug: card.dataset.slug || null,
+      tmdb_id: card.dataset.tmdbId || null,
+    }));
+    if (!items.length) return;
+
+    fetch("{% url 'resolve_tmdb_posters' %}", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (!data || !data.posters) return;
+        Object.entries(data.posters).forEach(([index, posterUrl]) => {
+          const img = document.getElementById(`poster-img-${index}`);
+          if (img && posterUrl) {
+            img.src = posterUrl;
+            img.classList.remove('opacity-50');
+          }
+        });
+      })
+      .catch(() => { /* keep the site's own posters on failure */ });
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     filterResults('all');
+    {% if tmdb_available %}loadTmdbPosters();{% endif %}
   });
 </script>
 {% endblock %}

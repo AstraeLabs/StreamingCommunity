@@ -182,17 +182,20 @@ class InternetManager:
         try:
             nb = float(size_bytes)
         except (TypeError, ValueError):
-            return "0 B"
+            return "0"
 
         if nb <= 0:
-            return "0 B"
+            return "0"
 
-        units = ['B', 'KB', 'MB', 'GB', 'TB']
-        unit_index = 0
-        while nb >= 1024 and unit_index < len(units) - 1:
-            nb /= 1024
-            unit_index += 1
-        return f"{nb:.2f} {units[unit_index]}"
+        if nb >= 1024 ** 4:
+            return f"{nb / 1024 ** 4:.2f}T"
+        if nb >= 1024 ** 3:
+            return f"{nb / 1024 ** 3:.2f}G"
+        if nb >= 1024 ** 2:
+            return f"{nb / 1024 ** 2:.1f}M"
+        if nb >= 1024:
+            return f"{nb / 1024:.0f}K"
+        return f"{nb:.0f}"
 
     def parse_file_size(self, size_str: str) -> int | None:
         """Parse a human-readable size string such as ``"1.5 GB"`` into bytes."""
@@ -222,17 +225,17 @@ class InternetManager:
         try:
             bps = float(bytes_per_second)
         except (TypeError, ValueError):
-            return "0 B/s"
+            return "0/s"
 
         if bps <= 0:
-            return "0 B/s"
-        if bps >= 1024 * 1024 * 1024:
-            return f"{bps / (1024 ** 3):.2f} GB/s"
-        if bps >= 1024 * 1024:
-            return f"{bps / (1024 ** 2):.2f} MB/s"
+            return "0/s"
+        if bps >= 1024 ** 3:
+            return f"{bps / 1024 ** 3:.2f}G/s"
+        if bps >= 1024 ** 2:
+            return f"{bps / 1024 ** 2:.2f}M/s"
         if bps >= 1024:
-            return f"{bps / 1024:.2f} KB/s"
-        return f"{bps:.2f} Bytes/s"
+            return f"{bps / 1024:.0f}K/s"
+        return f"{bps:.0f}/s"
 
     def format_time(self, seconds: float, add_hours: bool = False) -> str:
         """Format seconds to MM:SS or HH:MM:SS."""

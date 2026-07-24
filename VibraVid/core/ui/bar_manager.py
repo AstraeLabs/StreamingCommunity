@@ -10,8 +10,6 @@ from rich.progress import Progress, TextColumn
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.ui.progress_bar import (
     CustomBarColumn,
-    ColoredSegmentColumn,
-    CompactTimeColumn,
     CompactTimeRemainingColumn,
     TransferStatsColumn,
     SHOW_ELAPSED_REMAINING
@@ -29,11 +27,8 @@ class DownloadBarManager:
         time_columns = []
         if SHOW_ELAPSED_REMAINING:
             time_columns = [
-                TextColumn("[dim][[/dim]"),
-                CompactTimeColumn(),
-                TextColumn("[dim]<[/dim]"),
+                TextColumn("[dim]·[/dim]"),
                 CompactTimeRemainingColumn(),
-                TextColumn("[dim]][/dim]"),
             ]
 
         self.progress_ctx = (
@@ -42,9 +37,9 @@ class DownloadBarManager:
             else Progress(
                 TextColumn("[purple]{task.description}", justify="left"),
                 CustomBarColumn(),
-                ColoredSegmentColumn(),
-                *time_columns,
+                TextColumn("[dim]|[/dim]"),
                 TransferStatsColumn(),
+                *time_columns,
                 console=console,
                 refresh_per_second=10.0,
             )

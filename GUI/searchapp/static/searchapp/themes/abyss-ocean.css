@@ -21,7 +21,6 @@
 
 	--vv-theme-color: #06080f;
 
-	/* --- Superfici: vetro blu smerigliato --- */
 	--vv-surf-0: rgba(16, 22, 40, 0.55);
 	--vv-scrim-rgb: 4 6 14;
 	--vv-surf-1: rgba(28, 36, 60, 0.45);
@@ -31,6 +30,7 @@
 	--vv-surf-3: rgba(46, 58, 90, 0.55);
 	--vv-surf-3-rgb: 46 58 90;
 	--vv-surf-4: rgba(58, 72, 110, 0.6);
+	--vv-surf-4-rgb: 58 72 110;
 	--vv-surf-5: rgba(74, 90, 130, 0.5);
 	--vv-surf-5-rgb: 74 90 130;
 	--vv-surf-white: rgba(238, 242, 255, 0.92);

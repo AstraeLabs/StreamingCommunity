@@ -34,6 +34,8 @@ from .util._verify import verify_decrypted_media
 logger = logging.getLogger("manual")
 REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS",  "timeout")
 MAX_TOKEN_REFRESH_ROUNDS = config_manager.config.get_int("DOWNLOAD", "max_token_refresh_rounds")
+TOKEN_REFRESH_BACKOFF_SECONDS = config_manager.config.get_float("DOWNLOAD", "token_refresh_backoff_seconds", default=2.0)
+TOKEN_REFRESH_STALL_ROUNDS = max(1, config_manager.config.get_int("DOWNLOAD", "token_refresh_stall_rounds", default=3))
 DECRYPT_WORKER_COUNT = max(1, config_manager.config.get_int("DOWNLOAD", "decrypt_worker_count"))
 
 
@@ -42,6 +44,14 @@ class DecryptPipelineMixin:
     def _decrypt_track_label(stream) -> str:
         """Short human label for a track, used in decrypt-failure reporting."""
         return track_label(stream)
+
+    def _interruptible_sleep(self, seconds: float) -> None:
+        """Sleep in small increments so a stop request lands without waiting out the full backoff."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if self._stop_check():
+                return
+            time.sleep(min(0.5, deadline - time.monotonic()))
 
     def _verify_track_decrypted(self, out_path: "Path", stream) -> None:
         """Verify a per-track merged+decrypted MP4/M4A carries no residual CENC boxes."""
@@ -193,24 +203,27 @@ class DecryptPipelineMixin:
             if method != "AES-128":
                 return
 
-            key_url = enc.get("key_url")
-            if not key_url:
-                raise RuntimeError(f"Missing AES-128 key URL for {fp.name}")
-
-            key_data = key_cache.get(key_url)
+            key_data = enc.get("key_bytes")
             if key_data is None:
-                with key_cache_lock:
-                    key_data = key_cache.get(key_url)
-                    if key_data is None:
-                        with create_client(headers=all_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
-                            r = c.get(key_url)
-                            r.raise_for_status()
-                            key_data = r.content
+                key_url = enc.get("key_url")
+                if not key_url:
+                    raise RuntimeError(f"Missing AES-128 key URL for {fp.name}")
 
-                        if len(key_data) != 16:
-                            logger.warning(f"HLS AES-128 key length is {len(key_data)} bytes for {key_url}")
+                key_data = key_cache.get(key_url)
+                if key_data is None:
+                    with key_cache_lock:
+                        key_data = key_cache.get(key_url)
+                        if key_data is None:
+                            with create_client(headers=all_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
+                                r = c.get(key_url)
+                                r.raise_for_status()
+                                key_data = r.content
 
-                        key_cache[key_url] = key_data
+                            if len(key_data) != 16:
+                                logger.warning(f"HLS AES-128 key length is {len(key_data)} bytes for {key_url}")
+
+                            key_cache[key_url] = key_data
+                            logger.info(f"HLS AES-128 key fetched: iv={enc.get('iv')} key={key_data.hex()}")
 
 
             logger.debug(f"AES-128 LIVE decrypt path={fp} with key={describe_key_for_log(key_data)}")
@@ -323,7 +336,8 @@ class DecryptPipelineMixin:
                 if msg:
                     seg_errors.append(str(msg))
                 return
-            if event_name in {"start", "summary", "retry", "cancelled"}:
+            
+            if event_name in {"start", "summary", "retry", "cancelled", "progress"}:
                 return
 
             path_value = event.get("path")
@@ -357,14 +371,23 @@ class DecryptPipelineMixin:
 
         paths = self._run_dl(dl_segs, stream_dir, all_headers, _progress, stream=stream, event_cb=_handle_download_event, default_ext=default_ext)
 
-        # Token-refresh retry: when segments fail (e.g. the CDN manifest token expired mid-download -> HTTP 403)
+        # Token-refresh retry: when segments fail (e.g. the CDN manifest token expired mid-download -> HTTP 403, or a transient CDN-side 503 that clears up after a short wait).
         if seg_url_refresh_fn and not self._stop_check():
             seg_by_number = {s["number"]: s for s in dl_segs}
             failed = collect_failed_segments(dl_segs, paths, stream_dir, default_ext)
             rounds = 0
+            stall_rounds = 0
 
             while failed and rounds < MAX_TOKEN_REFRESH_ROUNDS and not self._stop_check():
                 rounds += 1
+
+                if TOKEN_REFRESH_BACKOFF_SECONDS > 0:
+                    backoff = min(TOKEN_REFRESH_BACKOFF_SECONDS * rounds, 20.0)
+                    logger.info(f"Token refresh round {rounds}: waiting {backoff:.1f}s before retrying (transient CDN errors often clear up on their own)")
+                    self._interruptible_sleep(backoff)
+                    if self._stop_check():
+                        break
+
                 failed_numbers = [n for n, _ in failed]
                 fresh_map = seg_url_refresh_fn(failed_numbers)
                 retry_segs = [{**seg_by_number[n], "url": fresh_map[n]} for n in failed_numbers if n in fresh_map and n in seg_by_number]
@@ -376,9 +399,15 @@ class DecryptPipelineMixin:
                 paths.extend(retry_paths)
                 new_failed = collect_failed_segments(dl_segs, paths, stream_dir, default_ext)
 
-                if len(new_failed) >= len(failed):  # no progress -> token still dead / host moved
+                if len(new_failed) >= len(failed):  # no progress this round -> token still dead / host moved
+                    stall_rounds += 1
                     failed = new_failed
-                    break
+                    if stall_rounds >= TOKEN_REFRESH_STALL_ROUNDS:
+                        logger.warning(f"Token refresh: no progress after {stall_rounds} consecutive round(s), giving up on {len(failed)} segment(s)")
+                        break
+                    continue
+
+                stall_rounds = 0
                 failed = new_failed
 
         if decrypt_threads:
@@ -398,14 +427,20 @@ class DecryptPipelineMixin:
             _plain_label = re.sub(r"\[/?[^\[\]]*\]", "", _stream_label_rich).strip() or task_key
             failed = collect_failed_segments(dl_segs, paths, stream_dir, default_ext)
             if failed:
+                failed_numbers = {n for n, _ in failed}
+                aes_failed = sum(
+                    1 for seg in dl_segs
+                    if seg["number"] in failed_numbers and str((seg.get("enc") or {}).get("method") or "NONE").upper() == "AES-128"
+                )
+                aes_note = f" ({aes_failed} had an AES-128 key pending — never fetched, segment missing before decrypt)" if aes_failed else ""
                 if seg_errors:
                     top = "; ".join(
                         f"{m} (x{n})"
                         for m, n in Counter(e.strip() for e in seg_errors if e.strip()).most_common(3)
                     )
-                    logger.warning(f"{_plain_label}: {len(failed)}/{total} segment(s) failed to download — most common error(s): {top}")
+                    logger.warning(f"{_plain_label}: {len(failed)}/{total} segment(s) failed to download — most common error(s): {top}{aes_note}")
                 else:
-                    logger.warning(f"{_plain_label}: {len(failed)}/{total} segment(s) failed to download")
+                    logger.warning(f"{_plain_label}: {len(failed)}/{total} segment(s) failed to download{aes_note}")
 
                 with self._failed_segments_lock:
                     self._failed_segments.append((_plain_label, failed))

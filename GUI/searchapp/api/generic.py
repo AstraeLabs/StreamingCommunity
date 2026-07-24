@@ -48,6 +48,7 @@ class GenericStreamingAPI(BaseStreamingAPI):
             tmdb_id=item_dict.get('tmdb_id'),
             provider_language=item_dict.get('provider_language'),
             raw_data=item_dict,
+            desc=item_dict.get('desc'),
         )
 
     def search(self, query: str) -> List[Entries]:

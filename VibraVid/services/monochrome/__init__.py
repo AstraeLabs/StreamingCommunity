@@ -1,4 +1,5 @@
 # 16.07.26
+# by @danpro00
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -17,7 +18,7 @@ from .album import AmazonAlbumScraper
 from .downloader import download_song, download_track_from_album
 
 
-indice = 19
+indice = 18
 _useFor = "Song"
 console = Console()
 msg = Prompt()

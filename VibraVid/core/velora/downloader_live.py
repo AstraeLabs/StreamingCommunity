@@ -134,16 +134,22 @@ class LiveDownloadMixin:
         total_bytes: int = 0
         elapsed_dur: float = 0.0
 
+        # Range support: seg_done/elapsed_dur only count segments actually downloaded
+        seg_start, seg_end   = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
+        time_start, time_end = self.max_time if isinstance(self.max_time, tuple) else (0.0, self.max_time)
+        total_seg_seen: int = 0
+        total_time_seen: float = 0.0
+
         probe_done: bool = False
         probe_lock = threading.Lock()
 
         init_downloaded: bool      = False
         last_fresh_segs: List[Dict] = []
 
-        def _fetch_key(key_url: str) -> bytes:
+        def _fetch_key(key_url: str, iv: Optional[str] = None) -> bytes:
             if key_url in key_cache:
                 return key_cache[key_url]
-            
+
             with create_client(headers=all_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
                 r = c.get(key_url)
                 r.raise_for_status()
@@ -152,6 +158,7 @@ class LiveDownloadMixin:
             if len(key_data) != 16:
                 logger.warning(f"AES-128 key length {len(key_data)} bytes (expected 16) for {key_url}")
             key_cache[key_url] = key_data
+            logger.info(f"Live HLS AES-128 key fetched: iv={iv} key={key_data.hex()}")
             return key_data
 
         def _decrypt_segment(fp: Path, seg_meta: Dict) -> None:
@@ -159,12 +166,14 @@ class LiveDownloadMixin:
             enc = seg_meta.get("enc") or {}
             if str(enc.get("method") or "NONE").upper() != "AES-128":
                 return
-            
-            key_url = enc.get("key_url")
-            if not key_url:
-                raise RuntimeError(f"Missing AES-128 key URL for {fp.name}")
-            
-            key_data   = _fetch_key(key_url)
+
+            key_data = enc.get("key_bytes")
+            if key_data is None:
+                key_url = enc.get("key_url")
+                if not key_url:
+                    raise RuntimeError(f"Missing AES-128 key URL for {fp.name}")
+                key_data = _fetch_key(key_url, enc.get("iv"))
+
             seg_number = int(seg_meta.get("number", 0))
             logger.debug(f'AES-128 live-decrypt seg={fp.name} iv={enc.get("iv")}')
 
@@ -208,7 +217,11 @@ class LiveDownloadMixin:
 
             for fp, seg_meta in zip(batch_paths, dl_batch):
                 if not fp.exists() or fp.stat().st_size == 0:
-                    logger.warning(f"Live HLS: empty or missing segment {fp.name}")
+                    enc_method = str((seg_meta.get("enc") or {}).get("method") or "NONE").upper()
+                    if enc_method != "NONE":
+                        logger.warning(f"Live HLS: empty or missing segment {fp.name} — {enc_method} key was never fetched (segment download failed before decrypt)")
+                    else:
+                        logger.warning(f"Live HLS: empty or missing segment {fp.name}")
                     continue
                 try:
                     _decrypt_segment(fp, seg_meta)
@@ -255,7 +268,7 @@ class LiveDownloadMixin:
                     continue
 
             new_segs, new_init_url, target_duration, media_sequence, is_ended = \
-                parse_hls_live_playlist(current_content, base_url)
+                parse_hls_live_playlist(current_content, base_url, enc_override=getattr(self, "hls_enc_override", None))
 
             # ── Init segment: download exactly once as seg_00000 ──────────────
             if new_init_url and not init_downloaded:
@@ -287,62 +300,79 @@ class LiveDownloadMixin:
             # ── Download & process fresh segments
             if fresh_segs:
                 empty_polls = 0
-                last_fresh_segs = fresh_segs
 
                 # Check limit before building the batch
-                if self.max_segments and seg_done >= self.max_segments:
-                    logger.info(f"Live HLS: max_segments={self.max_segments} reached — stopping")
+                if seg_end is not None and seg_done >= (seg_end - seg_start):
+                    logger.info(f"Live HLS: max_segments range reached ({seg_done} downloaded) — stopping")
+                    break
+                if time_end is not None and elapsed_dur >= (time_end - time_start):
+                    logger.info(f"Live HLS: max_time range reached ({_fmt_dur(elapsed_dur)}) — stopping")
                     break
 
-                # Clamp to remaining quota
-                if self.max_segments:
-                    remaining  = self.max_segments - seg_done
-                    fresh_segs = fresh_segs[:remaining]
-
-                # Assign stable global numbers to every segment in this batch.
-                dl_batch: List[Dict] = []
+                # Skip segments that fall before the start offset (still counted toward total_seg_seen/total_time_seen, but not downloaded).
+                kept_segs: List[Dict] = []
                 for seg in fresh_segs:
-                    dl_batch.append({
-                        "url":      seg["url"],
-                        "number":   seg_index,
-                        "seg_type": "media",
-                        "enc":      seg.get("enc") or {"method": "NONE"},
-                        "duration": seg.get("duration", 0.0),
-                    })
-                    seg_index += 1
+                    total_seg_seen += 1
+                    total_time_seen += seg.get("duration", 0.0)
+                    if total_seg_seen <= seg_start or total_time_seen <= time_start:
+                        continue
+                    kept_segs.append(seg)
+                fresh_segs = kept_segs
 
-                _batch_avg_dur = sum(s.get("duration", 0.0) for s in dl_batch) / max(len(dl_batch), 1)
-                _segs_before    = seg_done
-                _bytes_before   = total_bytes
-                _elapsed_before = elapsed_dur
+                if fresh_segs:
+                    last_fresh_segs = fresh_segs
 
-                def _batch_progress_cb(done, total_, cur_bytes, speed_bps, speed_label=None):
-                    _emit_live_progress(
-                        bar_manager, task_key,
-                        _segs_before + done,
-                        _bytes_before + cur_bytes,
-                        speed_bps,
-                        _elapsed_before + done * _batch_avg_dur,
-                    )
+                    # Clamp to remaining quota
+                    if seg_end is not None:
+                        remaining  = (seg_end - seg_start) - seg_done
+                        fresh_segs = fresh_segs[:remaining]
 
-                batch_t0    = time.monotonic()
+                    # Assign stable global numbers to every segment in this batch.
+                    dl_batch: List[Dict] = []
+                    for seg in fresh_segs:
+                        dl_batch.append({
+                            "url":      seg["url"],
+                            "number":   seg_index,
+                            "seg_type": "media",
+                            "enc":      seg.get("enc") or {"method": "NONE"},
+                            "duration": seg.get("duration", 0.0),
+                        })
+                        seg_index += 1
 
-                # _live_download_batch returns paths ordered by seg number
-                batch_paths = self._live_download_batch(dl_batch, stream_dir, all_headers, stream, progress_cb=_batch_progress_cb)
-                elapsed     = max(time.monotonic() - batch_t0, 0.001)
+                    _batch_avg_dur = sum(s.get("duration", 0.0) for s in dl_batch) / max(len(dl_batch), 1)
+                    _segs_before    = seg_done
+                    _bytes_before   = total_bytes
+                    _elapsed_before = elapsed_dur
 
-                batch_bytes = _process_batch(dl_batch, batch_paths)
-                speed_bps   = batch_bytes / elapsed
+                    def _batch_progress_cb(done, total_, cur_bytes, speed_bps, speed_label=None):
+                        _emit_live_progress(
+                            bar_manager, task_key,
+                            _segs_before + done,
+                            _bytes_before + cur_bytes,
+                            speed_bps,
+                            _elapsed_before + done * _batch_avg_dur,
+                        )
 
-                _emit_live_progress(bar_manager, task_key, seg_done, total_bytes, speed_bps, elapsed_dur)
-                logger.info(f"Live HLS: +{len(fresh_segs)} segs | total={seg_done} | {_fmt_size(total_bytes)} | {speed_bps / 1024:.1f} KB/s | dur={_fmt_dur(elapsed_dur)}")
+                    batch_t0    = time.monotonic()
 
-                if self.max_segments and seg_done >= self.max_segments:
-                    logger.info(f"Live HLS: max_segments={self.max_segments} reached — stopping")
+                    # _live_download_batch returns paths ordered by seg number
+                    batch_paths = self._live_download_batch(dl_batch, stream_dir, all_headers, stream, progress_cb=_batch_progress_cb)
+                    elapsed     = max(time.monotonic() - batch_t0, 0.001)
+
+                    batch_bytes = _process_batch(dl_batch, batch_paths)
+                    speed_bps   = batch_bytes / elapsed
+
+                    # Emit a final progress update for the batch (in case the last segment was small and the progress callback didn't get called).
+                    _emit_live_progress(bar_manager, task_key, seg_done, total_bytes, speed_bps, elapsed_dur)
+                    if seg_done % 10 == 0 or seg_done < 10:
+                        logger.info(f"Live HLS: +{len(fresh_segs)} segs | total={seg_done} | {_fmt_size(total_bytes)} | {speed_bps / 1024:.1f} KB/s | dur={_fmt_dur(elapsed_dur)}")
+
+                if seg_end is not None and seg_done >= (seg_end - seg_start):
+                    logger.info(f"Live HLS: max_segments range reached ({seg_done} downloaded) — stopping")
                     break
 
-                if self.max_time and elapsed_dur >= self.max_time:
-                    logger.info(f"Live HLS: max_time={self.max_time:.0f}s reached ({_fmt_dur(elapsed_dur)}) — stopping")
+                if time_end is not None and elapsed_dur >= (time_end - time_start):
+                    logger.info(f"Live HLS: max_time range reached ({_fmt_dur(elapsed_dur)}) — stopping")
                     break
 
             if not fresh_segs:
@@ -443,6 +473,12 @@ class LiveDownloadMixin:
         last_media_url:  str         = ""
         elapsed_dur:     float       = 0.0
         init_downloaded: bool        = False
+
+        # Range support — see _download_hls_live_stream
+        seg_start, seg_end   = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
+        time_start, time_end = self.max_time if isinstance(self.max_time, tuple) else (0.0, self.max_time)
+        total_seg_seen: int = 0
+        total_time_seen: float = 0.0
         init_path:       Optional[Path] = None
         probe_done:      bool        = False
         probe_lock                   = threading.Lock()
@@ -628,8 +664,27 @@ class LiveDownloadMixin:
 
             if fresh_segs:
                 empty_polls = 0
-                if self.max_segments:
-                    remaining = self.max_segments - seg_done
+
+                if seg_end is not None and seg_done >= (seg_end - seg_start):
+                    break
+
+                if time_end is not None and elapsed_dur >= (time_end - time_start):
+                    break
+
+                # Skip segments that fall before the start offset (still counted toward total_seg_seen/total_time_seen, but not downloaded).
+                kept_segs: List = []
+                for seg in fresh_segs:
+                    total_seg_seen += 1
+                    total_time_seen += getattr(seg, "duration", 0.0)
+                    if total_seg_seen <= seg_start or total_time_seen <= time_start:
+                        continue
+                    
+                    kept_segs.append(seg)
+                fresh_segs = kept_segs
+
+            if fresh_segs:
+                if seg_end is not None:
+                    remaining = (seg_end - seg_start) - seg_done
                     if remaining <= 0:
                         break
                     fresh_segs = fresh_segs[:remaining]
@@ -637,8 +692,8 @@ class LiveDownloadMixin:
                 # Clamp the batch to the remaining max_time budget so we don't
                 # grab the entire DVR back-window in one shot.
                 # Keep the MOST RECENT segments (tail, nearest the live edge)
-                if self.max_time and elapsed_dur < self.max_time:
-                    budget = self.max_time - elapsed_dur
+                if time_end is not None and elapsed_dur < (time_end - time_start):
+                    budget = (time_end - time_start) - elapsed_dur
                     clamped: List = []
                     acc = 0.0
                     for s in reversed(fresh_segs):
@@ -715,14 +770,15 @@ class LiveDownloadMixin:
                 _emit_live_progress(bar_manager, task_key, seg_done, total_bytes, speed_bps, elapsed_dur)
                 logger.info(f"Live DASH: +{len(fresh_segs)} segs | total={seg_done} | {_fmt_size(total_bytes)} | {speed_bps / 1024:.1f} KB/s | dur={_fmt_dur(elapsed_dur)}")
 
-                if self.max_segments and seg_done >= self.max_segments:
-                    logger.info(f"Live DASH: max_segments={self.max_segments} reached — stopping")
+                if seg_end is not None and seg_done >= (seg_end - seg_start):
+                    logger.info(f"Live DASH: max_segments range reached ({seg_done} downloaded) — stopping")
                     break
 
-                if self.max_time:
-                    logger.debug(f"Live DASH: max_time check elapsed={elapsed_dur:.1f}s limit={self.max_time:.0f}s")
-                    if elapsed_dur >= self.max_time:
-                        logger.info(f"Live DASH: max_time={self.max_time:.0f}s reached ({_fmt_dur(elapsed_dur)}) — stopping")
+                if time_end is not None:
+                    budget = time_end - time_start
+                    logger.debug(f"Live DASH: max_time check elapsed={elapsed_dur:.1f}s budget={budget:.0f}s")
+                    if elapsed_dur >= budget:
+                        logger.info(f"Live DASH: max_time range reached ({_fmt_dur(elapsed_dur)}) — stopping")
                         break
 
             if not fresh_segs:

@@ -1,10 +1,11 @@
 # 09.08.25
 
-import asyncio
-import functools
-import json
-import logging
 import os
+import json
+import asyncio
+import logging
+import functools
+import urllib.request
 from contextlib import asynccontextmanager, contextmanager
 
 from typing import Dict, Optional, Union
@@ -332,6 +333,16 @@ async def create_async_client(
         yield AsyncClient(session)
     finally:
         session.close()
+
+
+def fetch_image_bytes(url: str, timeout: int = 10) -> Optional[bytes]:
+    """Download raw image bytes from a URL (cover art, posters, stills, ...)."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return resp.read()
+    except Exception as e:
+        logger.warning(f"Could not fetch image: {e}")
+        return None
 
 
 def get_userAgent() -> str:

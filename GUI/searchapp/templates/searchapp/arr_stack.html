@@ -6,19 +6,19 @@
 <div class="py-8 sm:py-12 animate-fade-in">
   <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 mb-8">
     <div>
-      <h1 class="text-3xl sm:text-4xl font-bold text-white mb-2">
+      <h1 class="text-3xl sm:text-4xl font-bold text-fg mb-2">
         ARR <span class="text-red-500">Queue</span>
       </h1>
-      <p class="text-gray-400">
+      <p class="text-fg-muted">
         Items picked up by VibraVid via Sonarr, Radarr, webhook and polling.
       </p>
     </div>
 
     <div class="flex flex-wrap items-center gap-3">
-      <span class="box-border h-10 px-3 py-0 rounded-lg border inline-flex items-center {% if arr_enabled %}border-green-500/40 bg-green-500/10 text-green-300{% else %}border-gray-700 bg-gray-900 text-gray-400{% endif %} text-sm font-semibold leading-5">
+      <span class="box-border h-10 px-3 py-0 rounded-lg border inline-flex items-center {% if arr_enabled %}border-green-500/40 bg-green-500/10 text-green-300{% else %}border-line-2 bg-surface-1 text-fg-muted{% endif %} text-sm font-semibold leading-5">
         ARR {% if arr_enabled %}enabled{% else %}disabled{% endif %}
       </span>
-      <span class="box-border h-10 px-3 py-0 rounded-lg border inline-flex items-center {% if polling_enabled %}border-blue-500/40 bg-blue-500/10 text-blue-300{% else %}border-gray-700 bg-gray-900 text-gray-400{% endif %} text-sm font-semibold leading-5">
+      <span class="box-border h-10 px-3 py-0 rounded-lg border inline-flex items-center {% if polling_enabled %}border-blue-500/40 bg-blue-500/10 text-blue-300{% else %}border-line-2 bg-surface-1 text-fg-muted{% endif %} text-sm font-semibold leading-5">
         Polling {% if polling_enabled %}enabled{% else %}disabled{% endif %}
       </span>
       <button
@@ -36,101 +36,101 @@
   </div>
 
   <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-8">
-    <div class="bg-gray-900/60 border border-gray-800 rounded-lg p-4">
-      <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-1">Total</span>
-      <span class="text-2xl font-black text-white">{{ total_count }}</span>
+    <div class="panel-flat p-4">
+      <span class="text-[10px] font-bold uppercase tracking-widest text-fg-muted block mb-1">Total</span>
+      <span class="text-2xl font-black text-fg">{{ total_count }}</span>
     </div>
-    <div class="bg-gray-900/60 border border-gray-800 rounded-lg p-4">
-      <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-1">Active</span>
+    <div class="panel-flat p-4">
+      <span class="text-[10px] font-bold uppercase tracking-widest text-fg-muted block mb-1">Active</span>
       <span class="text-2xl font-black text-blue-300">{{ active_count }}</span>
     </div>
-    <div class="bg-gray-900/60 border border-gray-800 rounded-lg p-4">
-      <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-1">Pending</span>
+    <div class="panel-flat p-4">
+      <span class="text-[10px] font-bold uppercase tracking-widest text-fg-muted block mb-1">Pending</span>
       <span class="text-2xl font-black text-yellow-300">{{ status_counts.pending|default:"0" }}</span>
     </div>
-    <div class="bg-gray-900/60 border border-gray-800 rounded-lg p-4">
-      <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-1">Download</span>
+    <div class="panel-flat p-4">
+      <span class="text-[10px] font-bold uppercase tracking-widest text-fg-muted block mb-1">Download</span>
       <span class="text-2xl font-black text-blue-300">{{ status_counts.downloading|default:"0" }}</span>
     </div>
-    <div class="bg-gray-900/60 border border-gray-800 rounded-lg p-4">
-      <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-1">Completed</span>
+    <div class="panel-flat p-4">
+      <span class="text-[10px] font-bold uppercase tracking-widest text-fg-muted block mb-1">Completed</span>
       <span class="text-2xl font-black text-green-300">{{ status_counts.completed|default:"0" }}</span>
     </div>
-    <div class="bg-gray-900/60 border border-gray-800 rounded-lg p-4">
-      <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-1">Failed</span>
+    <div class="panel-flat p-4">
+      <span class="text-[10px] font-bold uppercase tracking-widest text-fg-muted block mb-1">Failed</span>
       <span class="text-2xl font-black text-red-300">{{ status_counts.failed|default:"0" }}</span>
     </div>
-    <div class="bg-gray-900/60 border border-gray-800 rounded-lg p-4">
-      <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-1">Skipped</span>
-      <span class="text-2xl font-black text-gray-300">{{ status_counts.skipped|default:"0" }}</span>
+    <div class="panel-flat p-4">
+      <span class="text-[10px] font-bold uppercase tracking-widest text-fg-muted block mb-1">Skipped</span>
+      <span class="text-2xl font-black text-fg-secondary">{{ status_counts.skipped|default:"0" }}</span>
     </div>
   </div>
 
   <p id="arr-stack-sync-message" class="hidden mb-4 text-sm"></p>
 
-  <form method="get" class="bg-gray-900/60 border border-gray-800 rounded-lg p-4 mb-6">
+  <form method="get" class="panel-flat p-4 mb-6">
     <div class="grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto_auto] gap-3 items-center">
       <input
         type="search"
         name="q"
         value="{{ filters.q }}"
         placeholder="Search title, provider, ID or dedup key"
-        class="box-border h-10 px-3 py-0 rounded-lg bg-black/40 border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:border-red-500 leading-5"
+        class="box-border h-10 px-3 py-0 rounded-lg bg-scrim/40 border border-line-2 text-fg placeholder:text-fg-muted focus:outline-none focus:border-red-500 leading-5"
       >
-      <select name="status" class="box-border h-10 px-3 py-0 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:border-red-500 leading-5">
+      <select name="status" class="box-border h-10 px-3 py-0 rounded-lg bg-scrim/40 border border-line-2 text-fg focus:outline-none focus:border-red-500 leading-5">
         <option value="all" {% if filters.status == "all" %}selected{% endif %}>All statuses</option>
         {% for value,label in status_choices %}
         <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-      <select name="source" class="box-border h-10 px-3 py-0 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:border-red-500 leading-5">
+      <select name="source" class="box-border h-10 px-3 py-0 rounded-lg bg-scrim/40 border border-line-2 text-fg focus:outline-none focus:border-red-500 leading-5">
         <option value="all" {% if filters.source == "all" %}selected{% endif %}>Sonarr + Radarr</option>
         <option value="sonarr" {% if filters.source == "sonarr" %}selected{% endif %}>Sonarr</option>
         <option value="radarr" {% if filters.source == "radarr" %}selected{% endif %}>Radarr</option>
       </select>
-      <select name="sync" class="box-border h-10 px-3 py-0 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:border-red-500 leading-5">
+      <select name="sync" class="box-border h-10 px-3 py-0 rounded-lg bg-scrim/40 border border-line-2 text-fg focus:outline-none focus:border-red-500 leading-5">
         <option value="all" {% if filters.sync == "all" %}selected{% endif %}>All sources</option>
         {% for value,label in sync_choices %}
         <option value="{{ value }}" {% if filters.sync == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-      <button type="submit" class="box-border h-10 px-5 py-0 bg-white hover:bg-gray-200 border border-white hover:border-gray-200 text-black font-bold rounded-lg transition-colors text-sm inline-flex items-center justify-center leading-5">
+      <button type="submit" class="box-border h-10 px-5 py-0 bg-surface-white hover:bg-surface-chip border border-surface-white hover:border-surface-chip text-black font-bold rounded-lg transition-colors text-sm inline-flex items-center justify-center leading-5">
         Filter
       </button>
     </div>
   </form>
 
-  <div class="mb-3 text-sm text-gray-500">
+  <div class="mb-3 text-sm text-fg-muted">
     Showing {{ shown_count }} items{% if filtered_count > 300 %} (page limit: 300){% endif %}.
   </div>
 
-  <div class="bg-gray-900/50 border border-gray-800 rounded-lg overflow-hidden">
+  <div class="bg-glass-1/50 border border-line-1 rounded-lg overflow-hidden">
     {% if entries %}
     <div class="overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-800">
-        <thead class="bg-black/30">
+      <table class="table-vv min-w-full">
+        <thead class="bg-scrim/30">
           <tr>
-            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500">Item</th>
-            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500">Status</th>
-            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500">Source</th>
-            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500">Queue</th>
-            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500">Dates</th>
+            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-fg-muted">Item</th>
+            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-fg-muted">Status</th>
+            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-fg-muted">Source</th>
+            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-fg-muted">Queue</th>
+            <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-fg-muted">Dates</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-800">
+        <tbody class="divide-y divide-line-1">
           {% for entry in entries %}
           {% with item=entry.media_request %}
-          <tr class="hover:bg-white/[0.03] transition-colors">
+          <tr class="hover:bg-overlay/[0.03] transition-colors">
             <td class="px-4 py-4 align-top">
-              <div class="font-bold text-white">{{ item.title }}</div>
-              <div class="text-xs text-gray-400 mt-1">
+              <div class="font-bold text-fg">{{ item.title }}</div>
+              <div class="text-xs text-fg-muted mt-1">
                 {% if item.content_type == "movie" %}Movie{% else %}Series{% endif %}
                 {% if item.year %} · {{ item.year }}{% endif %}
                 {% if item.season_number %} · S{{ item.season_number|stringformat:"02d" }}{% endif %}
                 {% if item.episode_number %}E{{ item.episode_number|stringformat:"02d" }}{% endif %}
               </div>
-              <div class="text-xs text-gray-500 mt-2">
-                Provider: <span class="text-gray-300">{{ item.provider|default:"-" }}</span>
+              <div class="text-xs text-fg-muted mt-2">
+                Provider: <span class="text-fg-secondary">{{ item.provider|default:"-" }}</span>
               </div>
             </td>
             <td class="px-4 py-4 align-top">
@@ -139,28 +139,28 @@
                 {% elif item.status == "downloading" %}bg-blue-500/10 text-blue-300 border border-blue-500/30
                 {% elif item.status == "pending" %}bg-yellow-500/10 text-yellow-300 border border-yellow-500/30
                 {% elif item.status == "failed" %}bg-red-500/10 text-red-300 border border-red-500/30
-                {% elif item.status == "skipped" %}bg-gray-500/10 text-gray-300 border border-gray-500/30
+                {% elif item.status == "skipped" %}bg-glass-5/10 text-fg-secondary border border-glass-5/30
                 {% else %}bg-purple-500/10 text-purple-300 border border-purple-500/30{% endif %}">
                 {{ item.get_status_display }}
               </span>
-              <div class="text-xs text-gray-500 mt-2">
+              <div class="text-xs text-fg-muted mt-2">
                 {% if entry.success == True %}Success{% elif entry.success == False %}Closed without success{% else %}In progress / pending{% endif %}
               </div>
             </td>
             <td class="px-4 py-4 align-top text-sm">
-              <div class="text-white font-semibold uppercase">{{ item.arr_source }}</div>
-              <div class="text-xs text-gray-400 mt-1">{{ item.get_sync_source_display }}</div>
-              <div class="text-xs text-gray-500 mt-2">
+              <div class="text-fg font-semibold uppercase">{{ item.arr_source }}</div>
+              <div class="text-xs text-fg-muted mt-1">{{ item.get_sync_source_display }}</div>
+              <div class="text-xs text-fg-muted mt-2">
                 ARR ID: {{ item.arr_id }}{% if item.episode_id %} · Ep ID: {{ item.episode_id }}{% endif %}
               </div>
             </td>
             <td class="px-4 py-4 align-top">
-              <code class="block max-w-[320px] truncate text-xs text-gray-300 bg-black/30 border border-gray-800 rounded px-2 py-1">{{ entry.dedup_key }}</code>
-              <div class="text-xs text-gray-500 mt-2">
+              <code class="block max-w-[320px] truncate text-xs text-fg-secondary bg-scrim/30 border border-line-1 rounded px-2 py-1">{{ entry.dedup_key }}</code>
+              <div class="text-xs text-fg-muted mt-2">
                 TMDB: {{ item.tmdb_id|default:"-" }} · TVDB: {{ item.tvdb_id|default:"-" }}
               </div>
             </td>
-            <td class="px-4 py-4 align-top text-xs text-gray-400 whitespace-nowrap">
+            <td class="px-4 py-4 align-top text-xs text-fg-muted whitespace-nowrap">
               <div>Queued: {{ entry.enqueued_at|date:"d/m/Y H:i" }}</div>
               <div>Started: {% if entry.started_at %}{{ entry.started_at|date:"d/m/Y H:i" }}{% else %}-{% endif %}</div>
               <div>Closed: {% if entry.completed_at %}{{ entry.completed_at|date:"d/m/Y H:i" }}{% else %}-{% endif %}</div>
@@ -174,13 +174,13 @@
     </div>
     {% else %}
     <div class="py-16 text-center px-6">
-      <div class="w-14 h-14 mx-auto mb-4 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center">
-        <svg class="w-7 h-7 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="w-14 h-14 mx-auto mb-4 rounded-full bg-surface-2 border border-line-2 flex items-center justify-center">
+        <svg class="w-7 h-7 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 12h14M5 16h10"></path>
         </svg>
       </div>
-      <h2 class="text-lg font-bold text-white mb-2">No items in the ARR queue</h2>
-      <p class="text-gray-500">When VibraVid picks up requests from Sonarr/Radarr, they'll appear here.</p>
+      <h2 class="text-lg font-bold text-fg mb-2">No items in the ARR queue</h2>
+      <p class="text-fg-muted">When VibraVid picks up requests from Sonarr/Radarr, they'll appear here.</p>
     </div>
     {% endif %}
   </div>
@@ -189,22 +189,7 @@
 
 {% block extra_scripts %}
 <script>
-  function getArrStackCookie(name) {
-    const value = document.cookie.match(`(^|;) ?${name}=([^;]*)(;|$)`);
-    return value ? value[2] : '';
-  }
 
-  function showArrStackSyncMessage(message, type) {
-    const el = document.getElementById('arr-stack-sync-message');
-    if (!el) return;
-    const colors = {
-      success: 'text-green-300',
-      error: 'text-red-300',
-      info: 'text-blue-300',
-    };
-    el.textContent = message;
-    el.className = `mb-4 text-sm ${colors[type] || colors.info}`;
-  }
 
   async function arrStackTriggerSync() {
     const btn = document.getElementById('arr-stack-sync-btn');
@@ -213,12 +198,12 @@
 
     if (btn) btn.disabled = true;
     if (label) label.textContent = 'Syncing...';
-    showArrStackSyncMessage('Manual sync started...', 'info');
+    VV.toast('Manual sync started...', { type: 'info' });
 
     try {
       const response = await fetch('{% url "arr_trigger_sync" %}', {
         method: 'POST',
-        headers: { 'X-CSRFToken': getArrStackCookie('csrftoken') },
+        headers: { 'X-CSRFToken': VV.csrf() },
       });
       const data = await response.json();
 
@@ -226,10 +211,10 @@
         throw new Error(data.message || 'Unable to start sync');
       }
 
-      showArrStackSyncMessage('Sync started in background. The page will refresh in a few seconds.', 'success');
+      VV.toast('Sync started in background. The page will refresh in a few seconds.', { type: 'success' });
       setTimeout(() => window.location.reload(), 3000);
     } catch (error) {
-      showArrStackSyncMessage(`Error: ${error.message}`, 'error');
+      VV.toast(`Error: ${error.message}`, { type: 'error' });
       if (btn) btn.disabled = false;
       if (label) label.textContent = originalText || 'Manual sync';
     }

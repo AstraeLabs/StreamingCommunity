@@ -180,7 +180,8 @@ Supported `role` values: `video`, `video:dv`, `video:hdr10` (or any range tag),
 `audio`, `subtitle`. A `video:dv` source is automatically routed as the Dolby Vision
 companion for hybrid muxing. Optional per-source fields: `language`, `name`, `label`,
 `headers`, `cookies`, `protocol`. Limit a test run with `max_segments=N` or
-`max_time="HH:MM:SS"`.
+`max_time="HH:MM:SS"`, or grab a specific clip with a range: `max_segments="10-50"`
+or `max_time="00:01:00-00:05:00"`.
 
 ---
 
@@ -275,6 +276,7 @@ All settings live in `config.json`. The sections below cover each configuration 
 | `%(original_title)` | Original-language title (requires TMDB API key) |
 | `%(original_language)` | Original language code, e.g. `ja` (requires TMDB API key) |
 | `%(tmdb_id)` | TMDB ID (requires TMDB API key) |
+| `%(tmdb_title)` | TMDB title in the configured lookup language (requires TMDB API key) |
 | `%(imdb_id)` | IMDb ID, e.g. `tt0409591` (requires TMDB API key) |
 
 ---
@@ -308,6 +310,10 @@ S%(season:02d)/     ->  season folder   S01/
 | `%(original_title)` | Original-language title (requires TMDB API key) |
 | `%(original_language)` | Original language code, e.g. `ja` (requires TMDB API key) |
 | `%(tmdb_id)` | TMDB ID (requires TMDB API key) |
+| `%(tmdb_title)` | TMDB title in the configured lookup language (requires TMDB API key) |
+| `%(tmdb_episode_title)` | TMDB episode title, resolved from `%(tmdb_id)` + season/episode number (requires TMDB API key) |
+| `%(tmdb_season_number:FORMAT)` | Real TMDB season number, mapped from an absolute/flat episode number when needed (anime) — supports inline padding like `season`/`episode` (requires TMDB API key) |
+| `%(tmdb_season_name)` | TMDB season name, e.g. `Season 2`, mapped the same way (requires TMDB API key) |
 | `%(imdb_id)` | IMDb ID, e.g. `tt0409591` (requires TMDB API key) |
 
 **Inline padding syntax (for `season`, `episode` and `absolute`):**
@@ -319,6 +325,13 @@ S%(season:02d)/     ->  season folder   S01/
 | `%(season:d)` | `1` | No padding |
 
 > Tokens that cannot be resolved (e.g. TMDB tokens without an API key, or `%(absolute)` on non-anime services) are removed from the filename together with any surrounding `[]`/`()` wrapper, so they never leak as literal text.
+
+#### Recommended configuration (with a TMDB API key)
+
+```json
+"movie_format": "%(title_name) (%(title_year)) [%(tmdb_id)]/%(title_name) (%(title_year)) [%(tmdb_title)] [%(quality)]",
+"episode_format": "%(series_name) [%(tmdb_id)]/S%(tmdb_season_number:02d) - %(tmdb_season_name)/%(episode_name) - %(tmdb_episode_title) S%(season:02d)E%(episode:02d) [%(tmdb_title)] [%(quality)]",
+```
 
 ---
 
@@ -337,7 +350,9 @@ S%(season:02d)/     ->  season folder   S01/
     "select_video": "1920",
     "select_audio": "ita|Ita",
     "select_subtitle": "ita|eng|Ita|Eng",
+    "extract_embedded_cc": false,
     "cleanup_tmp_folder": true,
+    "embed_tmdb_poster": true,
     "engine": "ffmpeg"
   }
 }
@@ -354,7 +369,9 @@ S%(season:02d)/     ->  season folder   S01/
 | `decrypt_worker_count` | `THREAD_COUNT` | Number of segments decrypted in parallel when `realtime_decrypt` is `true`.
 | `realtime_decrypt` | `true` | Decrypt each segment as it downloads (in-flight) instead of decrypting the whole file once after merging.
 | `concurrent_download` | `true` | Download video, audio, and subtitles simultaneously |
+| `extract_embedded_cc` | `false` | HLS only: extract embedded CEA-608/708 closed captions (`EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS`, no separate subtitle file) from the downloaded video into a subtitle track. Opt-in because it requires decoding the whole video, adding extra time/CPU per download |
 | `cleanup_tmp_folder` | `true` | Remove temporary files after download |
+| `embed_tmdb_poster` | `true` | Embed the matching TMDB poster (movies/series) or episode still (episodes, falling back to season/series poster) into the downloaded file, when a TMDB match is found |
 | `engine` | `"ffmpeg"` | Muxing engine used to combine video, audio and subtitle tracks. `ffmpeg`, `mkvmerge` requires a **full installation** |
 
 #### Stream Selection Filters
@@ -897,7 +914,42 @@ python manual.py --down "https://example.com/master.m3u8" --type hls \
 python manual.py --down "https://example.com/manifest.mpd" --type dash \
   --license-url "https://example.com/wv/license" --drm widevine \
   --headers "Authorization: Bearer <token>" -o "./Video/movie.mkv"
+
+# Grab just a clip: segments 10-50, or the 00:01:00-00:05:00 time range
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --max-segments "10-50" -o "./Video/clip.mkv"
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --max-time "00:01:00-00:05:00" -o "./Video/clip.mkv"
 ```
+
+### Download Queue (`--queue-*`)
+
+```bash
+# Queue instead of downloading now
+python manual.py --site streamingcommunity --search "interstellar" --item 0 --queue-add
+python manual.py --down "https://example.com/movie.mkv" -o "./Video/movie.mkv" --queue-add
+
+# Inspect / manage the queue
+python manual.py --queue-list
+python manual.py --queue-remove <ID>
+python manual.py --queue-clear
+
+# Process every pending (or interrupted) item in order
+python manual.py --queue-run
+
+# A failed item is never retried automatically - re-queue it explicitly
+python manual.py --queue-retry <ID>
+python manual.py --queue-retry-all
+
+# Optional extra pause between items, on top of DOWNLOAD.delay_after_download
+# (which each download already sleeps for on its own before exiting)
+python manual.py --queue-run --queue-delay 15
+```
+
+Notes:
+- Only invocations that would already complete without any prompt can be queued; anything
+  ambiguous (e.g. `--global`, or a site search with no `--item`/`--auto-first`) is rejected at
+  enqueue time.
 
 ---
 

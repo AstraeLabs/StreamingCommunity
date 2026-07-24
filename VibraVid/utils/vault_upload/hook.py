@@ -21,7 +21,6 @@ def _enabled() -> bool:
     except Exception:
         return True
 
-
 def _can_upload() -> bool:
     try:
         token = config_manager.config.get_dict("HOOKS", "db_info", default={}).get("token", "")
@@ -29,6 +28,11 @@ def _can_upload() -> bool:
     except Exception:
         return False
 
+def _skip_if_cached() -> bool:
+    try:
+        return bool(config_manager.config.get_dict("HOOKS", "db_info", default={}).get("skip_if_cached", False))
+    except Exception:
+        return False
 
 def _meta() -> Tuple[Optional[str], str, int, int]:
     title = context_tracker.title
@@ -39,7 +43,6 @@ def _meta() -> Tuple[Optional[str], str, int, int]:
         media_type = "TV"
     
     return title, media_type, season, episode
-
 
 def _run_with_bar(label: str, run):
     if getattr(context_tracker, "is_gui", False):
@@ -64,7 +67,6 @@ def _run_with_bar(label: str, run):
         bm.finish_all_tasks()
         return result
 
-
 def try_fetch(output_path: str) -> bool:
     if not _enabled() or not output_path:
         return False
@@ -85,12 +87,29 @@ def try_fetch(output_path: str) -> bool:
         if got:
             logger.info(f"upload-store hit: {title} S{season}E{episode} -> {output_path}")
             return True
-        
+
+        upload_vault.report_error(hit["xh"])
         return False
     except Exception as e:
         logger.debug(f"upload-store fetch skipped: {e}")
         return False
 
+def is_cached() -> bool:
+    if not _enabled() or not _skip_if_cached():
+        return False
+
+    try:
+        if not upload_vault:
+            return False
+
+        title, media_type, season, episode = _meta()
+        if not title:
+            return False
+
+        return bool(upload_vault.search(title, media_type, season or None, episode or None))
+    except Exception as e:
+        logger.debug(f"upload-store cache check skipped: {e}")
+        return False
 
 def upload_after(output_path: str) -> None:
     if not _enabled() or not output_path:

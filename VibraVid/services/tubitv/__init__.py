@@ -11,7 +11,7 @@ from VibraVid.services._base import site_constants, EntriesManager, Entries
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
 from .downloader import download_series, download_film
-from .client import get_bearer_token
+from .client import get_bearer_token, tubi_email, tubi_password
 
 
 indice = 9
@@ -61,6 +61,13 @@ def title_search(query: str) -> int:
     table_show_manager.clear()
 
     if not check_region_availability(_region, site_constants.SITE_NAME):
+        return 0
+
+    if not tubi_email or not tubi_password:
+        console.print(
+            "[yellow]\nWarning: Tubi TV email/password are not set, search will return no results for this site.\n"
+            "[yellow]Set them in [cyan]Conf/login.json[/cyan] under [cyan]tubi.email[/cyan] and [cyan]tubi.password[/cyan]."
+        )
         return 0
 
     try:

@@ -26,6 +26,7 @@ from VibraVid.utils.upload.version import __version__, __title__
 from VibraVid.cli.command.global_search import global_search as call_global_search
 from VibraVid.cli.command.download import handle_direct_download
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
+from VibraVid.cli.command.queue import add_queue_arguments, handle_queue_dispatch
 
 
 console = Console()
@@ -33,15 +34,17 @@ msg = Prompt()
 logger = logging.getLogger(__name__)
 
 COLOR_MAP = {
-    "anime": "red", 
-    "film_serie": "yellow", 
-    "serie": "green", 
-    "song": "grey35"
+    "anime": "red",
+    "film_serie": "yellow",
+    "serie": "green",
+    "song": "grey35",
+    "tor": "blue"
 }
 CATEGORY_MAP = {
-    1: "anime", 
-    2: "Film_serie", 
-    3: "serie", 
+    1: "anime",
+    2: "Film_serie",
+    3: "serie",
+    4: "tor",
     5: "song"
 }
 
@@ -65,7 +68,9 @@ _VERSION_FLAGS = {
 _EQUIVALENT_CMD_EXCLUDED_DESTS = {
     'site', 'search', 'item', 'season', 'episode',
     'down', 'stream_type', 'output', 'headers', 'license_url', 'license_headers', 'key',
+    'hls_method', 'hls_key', 'hls_iv',
     'no_log', 'update', 'dep',
+    'queue_add', 'queue_run', 'queue_list', 'queue_remove', 'queue_clear', 'queue_retry', 'queue_retry_all', 'queue_delay',
 }
 equivalent_command_builder = EquivalentCommandBuilder(excluded_dests=_EQUIVALENT_CMD_EXCLUDED_DESTS)
 
@@ -176,6 +181,7 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     dl_opts.add_argument('--skip-ts', dest='skip_ts', action='store_const', const=True, default=None, help='Skip TS/CAM releases (StreamingCommunity)')
     dl_opts.add_argument('--close-console', dest='close_console', type=str, choices=['true', 'false'], metavar='true|false', help='Exit after last download (overrides config)')
     dl_opts.add_argument('--no-vault-cache', dest='bypass_vault_cache', action='store_const', const=True, default=None, help='Bypass DRM key vault cache; force a fresh CDM license request every run (for dynamic/time-sensitive tokens)')
+    dl_opts.add_argument('--resolve-only', dest='resolve_only', action='store_true', help='Only resolve & cache the master playlist without downloading.')
 
     # ── Direct download
     dl_group = parser.add_argument_group('Direct download (--down)')
@@ -187,10 +193,18 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     dl_group.add_argument('--license-headers', dest='license_headers', action='append', metavar='Key:Value', help='HTTP header for DRM license request. Repeatable.')
     dl_group.add_argument('--key', action='append', metavar='KID:KEY', help='Decryption key in KID:KEY hex format. Repeatable.')
     dl_group.add_argument('--drm', choices=['widevine', 'playready', 'auto'], default='auto', help='DRM system (default: auto)')
-    dl_group.add_argument('--max-segments', dest='max_segments', type=int, default=None, metavar='N', help='Limit download to first N segments (HLS/DASH/ISM)')
-    dl_group.add_argument('--max-time', dest='max_time', type=str, default=None, metavar='HH:MM:SS|SEC', help='Limit downloaded duration, e.g. "00:05:00" or 300 (HLS/DASH/ISM)')
+    dl_group.add_argument('--hls-method', dest='hls_method', choices=['AES_128', 'NONE'], default=None, help="Override the HLS segment encryption method, ignoring the manifest's own #EXT-X-KEY tag (or supplying one when it has none). NONE forces every segment to be treated as already clear (skips decrypt); AES_128 forces AES-128-CBC (pair with --hls-key/--hls-iv).")
+    dl_group.add_argument('--hls-key', dest='hls_key', metavar='HEX|BASE64|FILE', default=None, help="Raw AES-128 key to use instead of fetching URI= from the manifest's #EXT-X-KEY tag.")
+    dl_group.add_argument('--hls-iv', dest='hls_iv', metavar='HEX', default=None, help="IV to use instead of the manifest's IV=0x... (or the implicit per-segment IV).")
+    dl_group.add_argument('--max-segments', dest='max_segments', type=str, default=None, metavar='N|START-END', help='Limit download to first N segments, or a START-END range, e.g. "50" or "10-50" (HLS/DASH/ISM)')
+    dl_group.add_argument('--max-time', dest='max_time', type=str, default=None, metavar='SEC|HH:MM:SS|START-END', help='Limit downloaded duration, e.g. "00:05:00", 300, or a range "00:01:00-00:05:00" (HLS/DASH/ISM)')
     dl_group.add_argument('--skip-content-check', dest='skip_content_check', action='store_true', help='Skip the preflight HEAD content-type check for MP4 direct downloads (--type mp4). Needed for single-use download URLs where a HEAD request consumes the link.')
     dl_group.add_argument('--skip-sanitize', dest='skip_sanitize', action='store_true', help='Use the -o output path verbatim (MP4/HLS/DASH/ISM direct downloads), skipping path sanitization (which transliterates non-ASCII characters). Use when the caller already built/created the exact destination path.')
+    dl_group.add_argument('--meta-title', dest='meta_title', metavar='TITLE', help='Title metadata for this --down invocation (feeds DB/Vault "Claudio database" caching/upload and other title-dependent hooks, which are otherwise skipped for raw --down downloads). Set automatically on --down entries built by --resolve-only.')
+    dl_group.add_argument('--meta-type', dest='meta_type', metavar='TYPE', help='Media type metadata for this --down invocation (e.g. Film, TV).')
+    dl_group.add_argument('--meta-season', dest='meta_season', type=int, metavar='N', help='Season number metadata for this --down invocation.')
+    dl_group.add_argument('--meta-episode', dest='meta_episode', type=int, metavar='N', help='Episode number metadata for this --down invocation.')
+    dl_group.add_argument('--meta-site', dest='meta_site', metavar='NAME', help='Site/service name metadata for this --down invocation (e.g. streamingcommunity).')
 
     # ── Utility
     util_group = parser.add_argument_group('Utility')
@@ -198,6 +212,9 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     util_group.add_argument('-UP', '--update', action='store_true', help='Auto-update to latest version (binary only)')
     util_group.add_argument('--dep', action='store_true', help='Show dependency paths (config, services, binaries)')
     util_group.add_argument('--version', action='version', version=f'{__title__} {__version__}')
+
+    # ── Queue
+    add_queue_arguments(parser)
 
     # ── Site-specific options (only added, and thus only shown in --help, when --site targets this module).
     site_option_dests = []
@@ -277,10 +294,13 @@ def build_function_mappings(search_functions):
 
     for func in search_functions.values():
         module_name = func.module_name
+        module_name_to_function[module_name.lower()] = func
+        if getattr(func, 'hide', False):
+            continue
+
         site_index = str(func.indice)
         input_to_function[site_index] = func
         choice_labels[site_index] = (module_name.capitalize(), func.use_for.lower())
-        module_name_to_function[module_name.lower()] = func
 
     logger.debug(f"Built function mappings: {input_to_function.keys()} and module names: {module_name_to_function.keys()}")
     return input_to_function, choice_labels, module_name_to_function
@@ -348,7 +368,7 @@ def get_user_site_selection(args, choice_labels):
         console.print(row)
     
     console.print()
-    return msg.ask("[cyan]Insert site index[/cyan]", choices=choice_keys, default="0", show_choices=False, show_default=False)
+    return msg.ask("[cyan]Insert site index[/cyan]", choices=choice_keys, default="0", show_choices=False, show_default=True)
 
 
 def get_logs_directory() -> str:
@@ -471,6 +491,9 @@ def main():
             show_dependencies(search_functions)
             return
 
+        if handle_queue_dispatch(args, argv):
+            return
+
         # Initialize
         _initialize_paths()
 
@@ -517,13 +540,15 @@ def main():
         context_tracker.max_segments = getattr(args, 'max_segments', None)
         context_tracker.max_time = getattr(args, 'max_time', None)
         context_tracker.bypass_vault_cache = getattr(args, 'bypass_vault_cache', None)
+        context_tracker.resolve_only = bool(getattr(args, 'resolve_only', False))
         site_options = {'drm': getattr(args, 'drm', None)}
         site_options.update({dest: getattr(args, dest, None) for dest in site_option_dests})
         context_tracker.site_options = site_options
 
         # ── Direct download (--down) — handled before interactive site selection ──
-        if handle_direct_download(args):
-            return
+        down_handled, down_ok = handle_direct_download(args)
+        if down_handled:
+            sys.exit(0 if down_ok else 1)
 
         # If we reach this point, we're in interactive mode (either normal or with --site specified)
         close_console_flag = None

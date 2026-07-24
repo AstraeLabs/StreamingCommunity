@@ -83,6 +83,9 @@ class BaseMediaDownloader:
         self.license_url: Optional[str] = None
         self.drm_type: Optional[str] = None
 
+        # Manual override for HLS segment encryption (method/key_bytes/iv)
+        self.hls_enc_override: Optional[Dict] = None
+
         # Progress-bar label tables — built in _prepare_labels()
         self._video_label: str = ""
         self._video_task_key: str = "vid_main"

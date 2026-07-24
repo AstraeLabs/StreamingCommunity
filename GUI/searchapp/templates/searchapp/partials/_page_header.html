@@ -1,0 +1,13 @@
+
+<div class="flex items-center gap-3 mb-6 sm:mb-8">
+	{% if back %}{% include "searchapp/partials/_back_button.html" %}{% endif %}
+
+	<div class="min-w-0">
+		<h1 class="text-3xl sm:text-4xl font-black tracking-tight text-fg truncate">
+			{{ title }}{% if accent %}<span class="text-red-600">{{ accent }}</span>{% endif %}
+		</h1>
+		{% if subtitle %}
+		<p class="mt-1 text-sm text-fg-muted">{{ subtitle }}</p>
+		{% endif %}
+	</div>
+</div>

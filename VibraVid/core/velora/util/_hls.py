@@ -16,7 +16,7 @@ def hls_base_url(playlist_url: str) -> str:
     return f"{p.scheme}://{p.netloc}{path}/"
 
 
-def parse_hls_variant_playlist(content: str, base_url: str) -> Tuple[List[Dict], Optional[str]]:
+def parse_hls_variant_playlist(content: str, base_url: str, enc_override: Optional[Dict] = None) -> Tuple[List[Dict], Optional[str]]:
     """
     Parse an HLS *variant* (media) playlist.
 
@@ -66,11 +66,16 @@ def parse_hls_variant_playlist(content: str, base_url: str) -> Tuple[List[Dict],
                 if seg_url and not seg_url.startswith("#"):
                     if current_block is None:
                         current_block = _ensure_block(None)
-                    
+
+                    # Apply any encryption override to the segment's encryption info.
+                    seg_enc = dict(current_enc)
+                    if enc_override:
+                        seg_enc.update(enc_override)
+
                     current_block["segments"].append(
                         {
                             "url":      urljoin(base_url, seg_url),
-                            "enc":      dict(current_enc),
+                            "enc":      seg_enc,
                             "duration": seg_duration,
                         }
                     )
@@ -93,9 +98,9 @@ def parse_hls_variant_playlist(content: str, base_url: str) -> Tuple[List[Dict],
 
     return segments, best["init"]
 
-def parse_hls_live_playlist(content: str, base_url: str) -> Tuple[List[Dict], Optional[str], int, int, bool]:
+def parse_hls_live_playlist(content: str, base_url: str, enc_override: Optional[Dict] = None) -> Tuple[List[Dict], Optional[str], int, int, bool]:
     """Parse a live HLS playlist and return all relevant scheduling metadata."""
-    segments, init_url = parse_hls_variant_playlist(content, base_url)
+    segments, init_url = parse_hls_variant_playlist(content, base_url, enc_override)
 
     td_m = re.search(r"#EXT-X-TARGETDURATION:(\d+)", content)
     target_duration: int = int(td_m.group(1)) if td_m else 6

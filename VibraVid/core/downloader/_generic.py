@@ -1,6 +1,7 @@
 # 09.06.26
 
 import re
+import os
 import copy
 import logging
 import threading
@@ -13,7 +14,7 @@ from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.ui.bar_manager import DownloadBarManager
 
-from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time
+from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time, parse_max_segments as _parse_max_segments
 from VibraVid.core.velora.downloader import MediaDownloader
 from VibraVid.core.velora.util._stream_helpers import join_interruptible
 
@@ -25,6 +26,7 @@ from VibraVid.core.muxing import probe_media_file
 from VibraVid.core.ui.ui import build_table
 
 from .base import BaseDownloader
+from .mp4 import MP4_Downloader
 
 
 console = Console()
@@ -32,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 _MEDIA_TYPES = ("video", "audio", "subtitle")
+_DIRECT_MEDIA_EXTS = (".mp4", ".m4v", ".m4a", ".mp3", ".aac", ".wav")
 
 
 def _track_signature(s) -> tuple:
@@ -80,7 +83,7 @@ def _normalize_lang(s) -> None:
 
 
 class Generic_Downloader(BaseDownloader):
-    def __init__(self, sources: List[Dict[str, Any]], output_path: Optional[str] = None, max_segments: Optional[int] = None, max_time=None, cookies: Optional[Dict[str, str]] = None, custom_filters: Optional[Dict[str, str]] = None, chapters: Optional[list] = None,) -> None:
+    def __init__(self, sources: List[Dict[str, Any]], output_path: Optional[str] = None, max_segments: Optional[int] = None, max_time=None, cookies: Optional[Dict[str, str]] = None, custom_filters: Optional[Dict[str, str]] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None,) -> None:
         """
         Parameters:
             - sources: list of source dicts (see class docstring).
@@ -91,17 +94,20 @@ class Generic_Downloader(BaseDownloader):
             - custom_filters: optional {"video","audio","subtitle"} selector
               overrides; otherwise the values from config.json are used.
             - chapters: Chapter markers to inject into the muxed output, e.g. [{"name": str, "seconds": int}]. Default: context_tracker.chapters.
+            - poster_url: Poster/still image URL to embed in the muxed output. Default: context_tracker.poster_url.
         """
         self.sources = [dict(s or {}) for s in (sources or [])]
         self.cookies = cookies or {}
-        self.max_segments = max_segments if max_segments is not None else context_tracker.max_segments
+        self.max_segments = _parse_max_segments(max_segments if max_segments is not None else context_tracker.max_segments)
         self.max_time = _parse_max_time(max_time if max_time is not None else context_tracker.max_time)
         self.custom_filters = custom_filters or {}
         self.chapters = chapters if chapters is not None else context_tracker.chapters
+        self.poster_url = poster_url if poster_url is not None else context_tracker.poster_url
         self._active: List[Tuple[MediaDownloader, Dict[str, Any]]] = []
         self._dv_stream = None
         self._dv_isolated = False
         self.other_tracks: list = []
+        self._direct_sources: List[Dict[str, Any]] = []
         logger.info(f"Initialized GENERIC_Downloader with {len(self.sources)} source(s), max_segments={self.max_segments}")
         super().__init__(output_path, "_generic_temp")
 
@@ -116,6 +122,11 @@ class Generic_Downloader(BaseDownloader):
             logger.error(f"Failed to pre-fetch manifest {url!r}: {exc}")
             return None
 
+    @staticmethod
+    def _is_direct_media_url(url: str) -> bool:
+        """True if the URL points at a plain media file (not a manifest to parse) — e.g. a raw .mp4/.m4a."""
+        return url.lower().split("?")[0].endswith(_DIRECT_MEDIA_EXTS)
+
     def _parse_sources(self) -> List[Tuple[MediaDownloader, Dict[str, Any]]]:
         """Parse every source into a MediaDownloader with its streams. The source dict is kept alongside for reference (e.g. headers, protocol)."""
         parsed: List[Tuple[MediaDownloader, Dict[str, Any]]] = []
@@ -128,6 +139,10 @@ class Generic_Downloader(BaseDownloader):
 
             out_dir = os_manager.get_sanitize_path(f"{self.output_dir}/{label}")
             os_manager.create_path(out_dir)
+
+            if not source.get("protocol") and self._is_direct_media_url(url):
+                self._direct_sources.append({"label": label, "url": url, "out_dir": out_dir, "source": source})
+                continue
 
             protocol = source.get("protocol")
             content = self._fetch_manifest_content(url, source.get("headers") or {}) if protocol else None
@@ -153,6 +168,47 @@ class Generic_Downloader(BaseDownloader):
 
             parsed.append((md, source))
         return parsed
+
+    def _download_direct_sources(self) -> bool:
+        """Download every self._direct_sources entry (plain .mp4/.m4a/... files) via Mp4_Downloader. Returns False if cancelled (Ctrl+C)."""
+        for entry in self._direct_sources:
+            source = entry["source"]
+            label = entry["label"]
+            url = entry["url"]
+
+            role = str(source.get("role") or source.get("type") or "video").strip().lower()
+            kind = role.split(":")[0]
+            ext = os.path.splitext(url.split("?")[0])[1] or ".mp4"
+            out_path = os.path.join(entry["out_dir"], f"{self.filename_base}{ext}")
+
+            console.print(f"[cyan]Downloading direct source '[yellow]{label}[/yellow]' ({kind})...")
+            path, need_stop, error = MP4_Downloader(
+                url=url,
+                path=out_path,
+                headers_=source.get("headers") or {},
+                download_id=self.download_id,
+                site_name=self.site_name,
+                label=label,
+                key=source.get("key"),
+                check_content_type=True,
+            )
+
+            if need_stop:
+                return False
+
+            if not path or not os.path.exists(path):
+                logger.error(f"Direct source '{label}' failed to download: {error}")
+                console.print(f"[red]Direct source '{label}' failed: {error}")
+                continue
+
+            entry["result"] = {
+                "path": path,
+                "kind": kind,
+                "language": source.get("language") or source.get("lang") or "und",
+                "size": os.path.getsize(path),
+            }
+
+        return True
 
     def _apply_explicit_roles(self, parsed: List[Tuple[MediaDownloader, Dict[str, Any]]]) -> Tuple[List, List[Tuple[MediaDownloader, Dict[str, Any]]]]:
         """Apply per-source explicit ``role`` tags and split them off from auto-selection.
@@ -446,7 +502,32 @@ class Generic_Downloader(BaseDownloader):
             for sub in md_status.get("subtitles", []) or []:
                 if sub.get("path"):
                     status["subtitles"].append(sub)
-        
+
+        for entry in self._direct_sources:
+            result = entry.get("result")
+            if not result:
+                continue
+
+            kind = result["kind"]
+            lang = result["language"]
+
+            if kind in ("video", "vid"):
+                if status["video"] is None:
+                    status["video"] = {"path": result["path"], "size": result["size"]}
+            elif kind in ("audio", "aud"):
+                status["audios"].append({
+                    "path": result["path"], "name": lang, "language": lang,
+                    "size": result["size"], **language_variants(lang),
+                })
+            elif kind in ("subtitle", "sub"):
+                status["subtitles"].append({
+                    "path": result["path"], "name": lang, "language": lang, "size": result["size"],
+                })
+            else:
+                logger.warning(f"Direct source '{entry['label']}' has unknown kind '{kind}' — treating as video")
+                if status["video"] is None:
+                    status["video"] = {"path": result["path"], "size": result["size"]}
+
         return status
 
     def start(self) -> Tuple[Optional[str], bool, Optional[str]]:
@@ -471,19 +552,19 @@ class Generic_Downloader(BaseDownloader):
         if self.chapters:
             console.print(f"[dim]Adding {len(self.chapters)} external chapter(s).")
 
-        # ── 1) Parse every source
+        # ── 1) Parse every source (manifest-based sources here; plain .mp4/.m4a/... sources are split off into self._direct_sources instead)
         parsed = self._parse_sources()
-        if not parsed:
+        if not parsed and not self._direct_sources:
             return None, True, "no sources parsed"
 
-        # ── 2-3) Merge + dedup + single selection
-        selected = self._select(parsed)
+        # ── 2-3) Merge + dedup + single selection (only meaningful for manifest sources)
+        selected = self._select(parsed) if parsed else []
 
         all_streams = [s for md, _ in parsed for s in md.streams if not s.is_external]
         if all_streams:
             console.print(build_table(all_streams))
 
-        if not selected:
+        if not selected and not self._direct_sources:
             console.print("[yellow][HYBRID] No track selected.")
             return None, True, "no tracks selected"
 
@@ -491,9 +572,15 @@ class Generic_Downloader(BaseDownloader):
         self._setup_dv_companion()
         self._active = [(md, src) for md, src in self._active if any(s.selected and not s.is_external and s.type in _MEDIA_TYPES for s in md.streams)]
 
-        # ── 4) Concurrent download (clean Ctrl+C) 
+        # ── 4) Concurrent download (clean Ctrl+C)
         if self.download_id:
             download_tracker.update_status(self.download_id, "Downloading ...")
+
+        if self._direct_sources:
+            if not self._download_direct_sources():
+                if self.download_id:
+                    download_tracker.complete_download(self.download_id, success=False, error="cancelled")
+                return None, True, "cancelled"
 
         if not self._run_downloads():
             if self.download_id:

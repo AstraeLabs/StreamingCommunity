@@ -2,7 +2,7 @@
 
 from django import forms
 
-from GUI.searchapp.api import get_available_sites, get_site_categories
+from .api import get_available_sites, get_site_categories
 
 
 GLOBAL_ALL_TOKEN = "__all__"
@@ -38,7 +38,7 @@ class SearchForm(forms.Form):
         label="Sito",
         widget=forms.Select(
             attrs={
-                "class": "block w-full appearance-none rounded-xl border-2 border-gray-800 bg-black/50 py-4 pl-6 pr-12 text-white text-lg font-medium cursor-pointer focus:border-red-600 focus:outline-none focus:ring-4 focus:ring-red-600/20 transition-all",
+                "class": "block w-full appearance-none rounded-xl border-2 border-line-1 bg-scrim/50 py-4 pl-6 pr-12 text-fg text-lg font-medium cursor-pointer focus:border-red-600 focus:outline-none focus:ring-4 focus:ring-red-600/20 transition-all",
                 "id": "id_site",
             }
         ),
@@ -48,7 +48,7 @@ class SearchForm(forms.Form):
         label="Cosa cerchi?",
         widget=forms.TextInput(
             attrs={
-                "class": "block w-full rounded-xl border-2 border-gray-800 bg-black/50 py-4 pl-6 pr-6 text-white text-lg placeholder-gray-600 focus:border-red-600 focus:outline-none focus:ring-4 focus:ring-red-600/20 transition-all",
+                "class": "block w-full rounded-xl border-2 border-line-1 bg-scrim/50 py-4 pl-6 pr-6 text-fg text-lg placeholder-fg-faint focus:border-red-600 focus:outline-none focus:ring-4 focus:ring-red-600/20 transition-all",
                 "placeholder": "Cerca titolo...",
                 "autocomplete": "off",
             }

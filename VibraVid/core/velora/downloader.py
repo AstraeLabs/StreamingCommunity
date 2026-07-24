@@ -4,7 +4,7 @@ import asyncio
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 from VibraVid.utils import config_manager
@@ -38,7 +38,7 @@ SEGMENT_DELAY_JITTER_SECONDS = max(0.0, config_manager.config.get_float("DOWNLOA
 
 
 class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, DecryptPipelineMixin, IsmPostprocMixin, BaseMediaDownloader):
-    def __init__(self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, max_segments: Optional[int] = None, max_time: Optional[float] = None, manifest_content: Optional[str] = None, manifest_protocol: Optional[str] = None, manifest_refresh_fn=None) -> None:
+    def __init__(self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, max_segments: Union[int, Tuple[int, Optional[int]], None] = None, max_time: Union[float, Tuple[float, Optional[float]], None] = None, manifest_content: Optional[str] = None, manifest_protocol: Optional[str] = None, manifest_refresh_fn=None) -> None:
         super().__init__(
             url=url,
             output_dir=output_dir,
@@ -66,6 +66,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
         # Failed-segment accumulator
         self._failed_segments: list = []
         self._failed_segments_lock = threading.Lock()
+        self.missing_segments_count: int = 0
 
         # Decryption-failure accumulator: per-track records for streams that are still encrypted after decrypt
         self.decrypt_failures: list = []
@@ -107,6 +108,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                 logger.info("Using post-download decryption.")
 
         ext_result: Dict[str, Any] = {"ext_subs": [], "ext_auds": []}
+        spawned_threads: List[threading.Thread] = []
 
         try:
             bar_ctx = (
@@ -154,12 +156,14 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
 
                 if CONCURRENT_DL:
                     ext_thread = threading.Thread(target=_run_externals, daemon=True)
+                    spawned_threads.append(ext_thread)
                     ext_thread.start()
 
                     media_threads: List[threading.Thread] = []
                     for stream in selected_media:
                         t = threading.Thread(target=_run_stream, args=(stream,), daemon=True)
                         media_threads.append(t)
+                        spawned_threads.append(t)
                         t.start()
 
                     join_interruptible(media_threads, self._stop_event)
@@ -176,6 +180,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                         if self._stop_check():
                             break
                         t = threading.Thread(target=lambda s=stream: _run_stream(s), daemon=True)
+                        spawned_threads.append(t)
                         t.start()
                         join_interruptible([t], self._stop_event)
 
@@ -183,6 +188,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                         if self._stop_check():
                             break
                         t = threading.Thread(target=lambda s=stream: _run_stream(s), daemon=True)
+                        spawned_threads.append(t)
                         t.start()
                         join_interruptible([t], self._stop_event)
 
@@ -190,6 +196,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                         if self._stop_check():
                             break
                         t = threading.Thread(target=lambda s=stream: _run_stream(s), daemon=True)
+                        spawned_threads.append(t)
                         t.start()
                         join_interruptible([t], self._stop_event)
 
@@ -197,6 +204,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
 
                     if not self._stop_check():
                         ext_thread = threading.Thread(target=_run_externals, daemon=True)
+                        spawned_threads.append(ext_thread)
                         ext_thread.start()
                         join_interruptible([ext_thread], self._stop_event, hard_timeout=300.0)
 
@@ -208,16 +216,31 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
             self._cancel_all_loops()
             if self.download_id:
                 download_tracker.request_stop(self.download_id)
-            raise
 
-        if self._stop_event.is_set() or (self.download_id and download_tracker.is_stopped(self.download_id)):
-            return {"error": "cancelled"}
+            console.print("\n[yellow]Stopping — finishing the current segment and merging what was downloaded...")
+            logger.info("KeyboardInterrupt: waiting for stream threads to finish merging before returning")
+
+            for t in spawned_threads:
+                if t.is_alive():
+                    t.join(timeout=30.0)
+
+            ext_subs = ext_result.get("ext_subs", [])
+            ext_auds = ext_result.get("ext_auds", [])
 
         if self._failed_segments:
+            self.missing_segments_count += sum(len(failed) for _, failed in self._failed_segments)
             print_failed_segments_report(self._failed_segments)
             self._failed_segments.clear()
 
         self.status = self._build_status(ext_subs, ext_auds)
+
+        # A stop (Ctrl+C or a tracker-level request, e.g. a live source going
+        # offline) can still have produced a fully merged file by the time we
+        # get here — only treat it as a cancellation if nothing was produced.
+        was_stopped = self._stop_event.is_set() or bool(self.download_id and download_tracker.is_stopped(self.download_id))
+        if was_stopped and not self.status.get("video") and not self.status.get("audios"):
+            return {"error": "cancelled"}
+
         return self.status
 
     def _register_loop(self, loop: asyncio.AbstractEventLoop) -> None:

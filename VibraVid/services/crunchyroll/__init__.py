@@ -33,7 +33,11 @@ def title_search(query: str) -> int:
     table_show_manager.clear()
 
     if not config_manager.login.get('crunchyroll','device_id') or not config_manager.login.get('crunchyroll','etp_rt'):
-        raise Exception("device_id or etp_rt is missing or empty in config.json.")
+        console.print(
+            "[yellow]\nWarning: Crunchyroll device_id/etp_rt are not set, search will return no results for this site.\n"
+            "[yellow]Set them in [cyan]Conf/login.json[/cyan] under [cyan]crunchyroll.device_id[/cyan] and [cyan]crunchyroll.etp_rt[/cyan]."
+        )
+        return 0
 
     client = CrunchyrollClient()
     if not client.start():

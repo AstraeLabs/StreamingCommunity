@@ -2,6 +2,7 @@
 # By @UrloMythus
 
 import re
+import base64
 import logging
 
 from bs4 import BeautifulSoup
@@ -11,6 +12,10 @@ from VibraVid.utils.http_client import create_client, get_userAgent
 
 logger = logging.getLogger(__name__)
 _M3U8_RE = re.compile(r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*')
+_CONTINUE_PARTS_RE = re.compile(
+    r'decodedBaseUrl\s*=\s*atob\(\s*["\']([A-Za-z0-9+/=]+)["\']\s*\)\s*;\s*'
+    r'var\s+\w+\s*=\s*atob\(\s*["\']([A-Za-z0-9+/=]+)["\']\s*\)',
+)
 
 
 class MaxStreamSource:
@@ -45,6 +50,16 @@ class MaxStreamSource:
                 if 'continue' in a.get_text(strip=True).lower():
                     continue_url = str(a.get('href', ''))
                     break
+
+            if not continue_url:
+                parts_match = _CONTINUE_PARTS_RE.search(resp.text)
+                if parts_match:
+                    try:
+                        base_url = base64.b64decode(parts_match.group(1)).decode()
+                        token = base64.b64decode(parts_match.group(2)).decode()
+                        continue_url = base_url + token
+                    except Exception as e:
+                        logger.error(f"[MaxStream] Failed to decode Continue link parts: {e}")
 
             if not continue_url:
                 logger.error(f"[MaxStream] No Continue link in mse page: {mse_link}")

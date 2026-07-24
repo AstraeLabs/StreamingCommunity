@@ -5,6 +5,7 @@ services:
     container_name: ${FLARESOLVERR_CONTAINER_NAME:-flaresolverr}
     environment:
       LOG_LEVEL: "info"
+      PROXY_URL: "${FLARESOLVERR_PROXY_URL:-}"
     ports:
       - "8191:8191"
     networks:

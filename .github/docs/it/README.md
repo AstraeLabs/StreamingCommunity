@@ -180,7 +180,8 @@ Valori `role` supportati: `video`, `video:dv`, `video:hdr10` (o qualsiasi tag di
 `audio`, `subtitle`. Una sorgente `video:dv` viene instradata automaticamente come
 companion Dolby Vision per il mux ibrido. Campi opzionali per sorgente: `language`,
 `name`, `label`, `headers`, `cookies`, `protocol`. Per limitare un test usa
-`max_segments=N` oppure `max_time="HH:MM:SS"`.
+`max_segments=N` oppure `max_time="HH:MM:SS"`, oppure estrai una clip specifica con
+un range: `max_segments="10-50"` o `max_time="00:01:00-00:05:00"`.
 
 ---
 
@@ -275,6 +276,7 @@ Tutte le impostazioni si trovano in `config.json`. Le sezioni seguenti descrivon
 | `%(original_title)` | Titolo in lingua originale (richiede API key TMDB) |
 | `%(original_language)` | Codice lingua originale, es. `ja` (richiede API key TMDB) |
 | `%(tmdb_id)` | ID TMDB (richiede API key TMDB) |
+| `%(tmdb_title)` | Titolo TMDB nella lingua di ricerca configurata (richiede API key TMDB) |
 | `%(imdb_id)` | ID IMDb, es. `tt0409591` (richiede API key TMDB) |
 
 ---
@@ -308,6 +310,10 @@ S%(season:02d)/     ->  cartella stagione  S01/
 | `%(original_title)` | Titolo in lingua originale (richiede API key TMDB) |
 | `%(original_language)` | Codice lingua originale, es. `ja` (richiede API key TMDB) |
 | `%(tmdb_id)` | ID TMDB (richiede API key TMDB) |
+| `%(tmdb_title)` | Titolo TMDB nella lingua di ricerca configurata (richiede API key TMDB) |
+| `%(tmdb_episode_title)` | Titolo episodio TMDB, risolto da `%(tmdb_id)` + numero stagione/episodio (richiede API key TMDB) |
+| `%(tmdb_season_number:FORMAT)` | Vero numero stagione TMDB, mappato da un numero episodio assoluto/piatto quando necessario (anime) — supporta padding inline come `season`/`episode` (richiede API key TMDB) |
+| `%(tmdb_season_name)` | Nome stagione TMDB, es. `Stagione 2`, mappato allo stesso modo (richiede API key TMDB) |
 | `%(imdb_id)` | ID IMDb, es. `tt0409591` (richiede API key TMDB) |
 
 **Sintassi padding inline (per `season`, `episode` e `absolute`):**
@@ -319,6 +325,13 @@ S%(season:02d)/     ->  cartella stagione  S01/
 | `%(season:d)` | `1` | Nessun padding |
 
 > I token che non possono essere risolti (es. token TMDB senza API key, oppure `%(absolute)` su servizi non-anime) vengono rimossi dal nome file insieme agli eventuali wrapper `[]`/`()` circostanti, così non restano mai come testo letterale.
+
+#### Configurazione consigliata (con una API key TMDB)
+
+```json
+"movie_format": "%(title_name) (%(title_year)) [%(tmdb_id)]/%(title_name) (%(title_year)) [%(tmdb_title)] [%(quality)]",
+"episode_format": "%(series_name) [%(tmdb_id)]/S%(tmdb_season_number:02d) - %(tmdb_season_name)/%(episode_name) - %(tmdb_episode_title) S%(season:02d)E%(episode:02d) [%(tmdb_title)] [%(quality)]",
+```
 
 ---
 
@@ -337,7 +350,9 @@ S%(season:02d)/     ->  cartella stagione  S01/
     "select_video": "1920",
     "select_audio": "ita|Ita",
     "select_subtitle": "ita|eng|Ita|Eng",
+    "extract_embedded_cc": false,
     "cleanup_tmp_folder": true,
+    "embed_tmdb_poster": true,
     "engine": "ffmpeg"
   }
 }
@@ -354,7 +369,9 @@ S%(season:02d)/     ->  cartella stagione  S01/
 | `decrypt_worker_count` | `THREAD_COUNT` | Numero di segmenti decriptati in parallelo quando `realtime_decrypt` è `true`.
 | `realtime_decrypt` | `true` | Decripta ogni segmento non appena scaricato invece di decriptare l'intero file una sola volta a fine merge.
 | `concurrent_download` | `true` | Scarica video, audio e sottotitoli simultaneamente |
+| `extract_embedded_cc` | `false` | Solo HLS: estrae i sottotitoli CC (CEA-608/708) incorporati nel video (`EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS`, senza file sottotitoli separato) come traccia sottotitoli. Opzionale perché richiede di decodificare l'intero video, aggiungendo tempo/CPU extra ad ogni download |
 | `cleanup_tmp_folder` | `true` | Rimuove i file temporanei dopo il download |
+| `embed_tmdb_poster` | `true` | Incorpora la locandina TMDB corrispondente (film/serie) o la foto dell'episodio (episodi, con fallback su poster di stagione/serie) nel file scaricato, quando viene trovata una corrispondenza TMDB |
 | `engine` | `"ffmpeg"` | Motore di muxing usato per unire video, audio e sottotitoli. `ffmpeg` funziona senza configurazioni aggiuntive; `mkvmerge` richiede l'installazione completa |
 
 #### Filtri di selezione flusso
@@ -682,7 +699,42 @@ python manual.py --down "https://example.com/master.m3u8" --type hls \
 python manual.py --down "https://example.com/manifest.mpd" --type dash \
   --license-url "https://example.com/wv/license" --drm widevine \
   --headers "Authorization: Bearer <token>" -o "./Video/movie.mkv"
+
+# Scarica solo una clip: segmenti 10-50, oppure il range temporale 00:01:00-00:05:00
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --max-segments "10-50" -o "./Video/clip.mkv"
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --max-time "00:01:00-00:05:00" -o "./Video/clip.mkv"
 ```
+
+### Coda di download (`--queue-*`)
+
+```bash
+# Accoda invece di scaricare subito
+python manual.py --site streamingcommunity --search "interstellar" --item 0 --queue-add
+python manual.py --down "https://example.com/movie.mkv" -o "./Video/movie.mkv" --queue-add
+
+# Ispeziona / gestisci la coda
+python manual.py --queue-list
+python manual.py --queue-remove <ID>
+python manual.py --queue-clear
+
+# Processa ogni item in stato pending (o interrupted), in ordine
+python manual.py --queue-run
+
+# Un item fallito non viene mai ritentato automaticamente - va riaccodato esplicitamente
+python manual.py --queue-retry <ID>
+python manual.py --queue-retry-all
+
+# Pausa extra opzionale tra un item e l'altro, in aggiunta a DOWNLOAD.delay_after_download
+# (che ogni download applica già da solo prima di uscire)
+python manual.py --queue-run --queue-delay 15
+```
+
+Note:
+- Può essere accodata solo un'invocazione che si concluderebbe già senza alcun prompt; qualsiasi
+  cosa ambigua (es. `--global`, oppure una ricerca sito senza `--item`/`--auto-first`) viene
+  rifiutata al momento dell'accodamento.
 
 ---
 

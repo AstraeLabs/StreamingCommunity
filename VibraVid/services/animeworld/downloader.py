@@ -8,6 +8,7 @@ from rich.prompt import Prompt
 from VibraVid.utils import os_manager, start_message
 from VibraVid.services._base import site_constants, Entries, anime_folder
 from VibraVid.services._base.tv_display_manager import manage_selection, map_episode_path
+from VibraVid.core.ui.tracker import context_tracker
 
 from VibraVid.core.downloader import MP4_Downloader
 
@@ -66,6 +67,11 @@ def download_episode(episode_data, index_select, scrape_serie):
     series_name = scrape_serie.get_name()
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} -> [cyan]{series_name} ([cyan]E{episode_number}) \n")
 
+    # Add episode information to context tracker
+    context_tracker.season = 1
+    context_tracker.episode = episode_number
+    context_tracker.episode_name = episode_name
+
     path_components, filename = map_episode_path(series_name=series_name, series_year=None, season_number=1, episode_number=episode_number, episode_name=episode_name, absolute_number=episode_number)
     episode_path = anime_folder(*path_components)
     episode_filename = f"{filename}.mp4"
@@ -117,11 +123,9 @@ def download_series(select_title: Entries, season_selection: str = None, episode
     else:
         for i_episode in list_episode_select:
             obj_episode = episodes[i_episode-1]
-            path, kill_handler, msg_error = download_episode(obj_episode, i_episode-1, scrape_serie)
+            path, stopped, msg_error = download_episode(obj_episode, i_episode-1, scrape_serie)
 
             if msg_error:
                 console.print(f"[red]{msg_error}")
-                kill_handler = True
-            
-            if kill_handler:
-                break
+                if msg_error == "cancelled":
+                    break
