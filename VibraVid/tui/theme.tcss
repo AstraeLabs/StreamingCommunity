@@ -203,21 +203,14 @@ OptionList > .option-list--option-highlighted {
     text-align: center;
 }
 
-#home-provider-header {
+#home-provider-filter-bar {
     height: 3;
-    margin-top: 1;
     margin-bottom: 1;
-    align: left middle;
-}
-
-.home-section-title-left {
-    text-style: bold;
-    color: $accent-primary;
-    width: 2fr;
+    align: center middle;
 }
 
 #provider-filter-input {
-    width: 3fr;
+    width: 1fr;
     height: 3;
 }
 
@@ -239,7 +232,6 @@ OptionList > .option-list--option-highlighted {
 
 #home-sites-box {
     height: auto;
-    min-height: 4;
     max-height: 10;
     border: round $bg-overlay;
     background: $bg-base;
@@ -249,36 +241,49 @@ OptionList > .option-list--option-highlighted {
 
 #home-sites-wrap {
     height: auto;
-    align: left middle;
+    max-height: 8;
 }
 
-.site-pill {
-    min-width: 0;
+.site-pill-row {
     height: 1;
-    border: none;
-    background: $bg-surface;
-    color: $fg-default;
-    padding: 0 1;
-    margin-right: 0;
-    margin-bottom: 1;
-}
-
-.site-pill:hover {
-    background: $bg-overlay;
-    color: $accent-primary;
-}
-
-.site-pill.-primary {
-    background: $accent-primary;
-    color: #15161e;
-    text-style: bold;
+    margin-bottom: 0;
+    align: center middle;
 }
 
 .site-dot {
-    color: $accent-secondary;
+    color: $fg-muted;
+    width: 3;
+    content-align: center middle;
+}
+
+Button.site-pill {
+    min-width: 0;
     height: 1;
-    padding: 0 0;
-    margin-bottom: 1;
+    padding: 0 1;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: $fg-default;
+}
+
+Button.site-pill:hover {
+    color: $accent-primary;
+    background: $bg-overlay;
+    border: none;
+}
+
+Button.site-pill:focus {
+    color: $accent-primary;
+    text-style: bold underline;
+    background: $bg-selection;
+    border: none;
+}
+
+Button.site-pill.-primary {
+    background: $accent-primary;
+    color: #15161e;
+    text-style: bold;
+    border: none;
 }
 
 /* ── Search Screen ────────────────────────────────────────────────────── */
@@ -441,6 +446,17 @@ FuzzyList {
 }
 
 #downloads-table:focus {
+    border: round $accent-primary;
+}
+
+#completed-table {
+    height: 1fr;
+    max-height: 45%;
+    border: round $bg-overlay;
+    margin-bottom: 1;
+}
+
+#completed-table:focus {
     border: round $accent-primary;
 }
 

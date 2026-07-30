@@ -2,7 +2,9 @@
 
 """Downloads screen: live progress panel with per-track bars, status badges, cancel/retry."""
 
+import datetime
 import logging
+from typing import Any, Dict, List, Optional
 
 from textual import on
 from textual.app import ComposeResult
@@ -13,6 +15,7 @@ from textual.widgets import Button, DataTable, Header, Static
 from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.core.ui.tracker import download_tracker
+from VibraVid.utils.system_open import open_file, open_folder
 
 logger = logging.getLogger(__name__)
 
@@ -40,23 +43,39 @@ def format_status_badge(status: str) -> str:
         return f"[dim]⏳ {status.upper()}[/dim]"
 
 
+def _format_time(ts: Any) -> str:
+    if not ts:
+        return "-"
+    try:
+        if isinstance(ts, (int, float)):
+            return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+        return str(ts)
+    except Exception:
+        return str(ts)
+
+
 class DownloadsScreen(Screen):
     """Live download progress panel with cancel/retry controls."""
 
     def __init__(self) -> None:
         super().__init__()
-        self._refresh_timer: Timer | None = None
+        self._refresh_timer: Optional[Timer] = None
+        self._completed_items: List[Dict[str, Any]] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="downloads-panel"):
-            yield Static("Active & Recent Downloads", classes="panel-title")
+            yield Static("Active Downloads", classes="panel-title")
             yield DataTable(id="downloads-table")
             yield Static("Track Details & Streams", classes="panel-title")
             yield DataTable(id="tasks-table")
+            yield Static("Completed Downloads", classes="panel-title")
+            yield DataTable(id="completed-table")
             with Horizontal(id="downloads-actions"):
                 yield Button("Cancel Selected", id="btn-cancel", variant="error")
                 yield Button("Clear Completed", id="btn-clear")
+                yield Button("▶ Avvia File", id="btn-play-file")
+                yield Button("📁 Apri Cartella", id="btn-open-folder")
         yield CustomFooter()
 
     def on_mount(self) -> None:
@@ -67,6 +86,11 @@ class DownloadsScreen(Screen):
 
         tasks_table = self.query_one("#tasks-table", DataTable)
         tasks_table.add_columns("Track / Stream", "Progress Bar", "Speed", "Size", "Segments")
+
+        completed_table = self.query_one("#completed-table", DataTable)
+        completed_table.add_columns("ID", "Title", "Site", "Size", "Path", "Finished")
+        completed_table.cursor_type = "row"
+        completed_table.show_cursor = True
 
         self._refresh_timer = self.set_interval(0.5, self._refresh_downloads)
         self._refresh_downloads()
@@ -80,6 +104,7 @@ class DownloadsScreen(Screen):
         main_table = self.query_one("#downloads-table", DataTable)
         tasks_table = self.query_one("#tasks-table", DataTable)
 
+        active_cursor = main_table.cursor_row
         main_table.clear()
         for dl in active:
             dl_id = str(dl.get("id", "?"))[:8]
@@ -92,12 +117,16 @@ class DownloadsScreen(Screen):
             segments = str(dl.get("segments", "0/0"))
             main_table.add_row(dl_id, title, site, status, progress, speed, size, segments, key=dl.get("id"))
 
+        if active_cursor is not None and active_cursor < len(active):
+            main_table.move_cursor(row=active_cursor)
+
         tasks_table.clear()
         if main_table.cursor_row is not None and active:
             row_keys = list(main_table.rows.keys())
             if main_table.cursor_row < len(row_keys):
-                row_key = row_keys[main_table.cursor_row]
-                dl = next((d for d in active if d.get("id") == row_key), None)
+                row_key_obj = row_keys[main_table.cursor_row]
+                row_key_str = str(getattr(row_key_obj, "value", row_key_obj))
+                dl = next((d for d in active if str(d.get("id")) == row_key_str), None)
                 if dl:
                     tasks = dl.get("tasks", {})
                     for task_key, task_data in tasks.items():
@@ -108,6 +137,61 @@ class DownloadsScreen(Screen):
                         segments = str(task_data.get("segments", "0/0"))
                         tasks_table.add_row(label, progress, speed, size, segments)
 
+        completed_table = self.query_one("#completed-table", DataTable)
+        completed_cursor = completed_table.cursor_row
+        completed_table.clear()
+
+        history_items = download_tracker.get_history()
+        self._completed_items = [dl for dl in history_items if dl.get("status") == "completed"]
+
+        for dl in self._completed_items:
+            dl_id = str(dl.get("id", "?"))[:8]
+            title = str(dl.get("title", "?"))[:38]
+            site = str(dl.get("site", "?"))
+            size = str(dl.get("size", "-"))
+            path = str(dl.get("path") or "-")
+            finished = _format_time(dl.get("end_time") or dl.get("last_update"))
+            row_key = dl.get("path") or str(dl.get("id"))
+            completed_table.add_row(dl_id, title, site, size, path, finished, key=row_key)
+
+        if completed_cursor is not None and completed_cursor < len(self._completed_items):
+            completed_table.move_cursor(row=completed_cursor)
+
+        self._update_buttons()
+
+    def _update_buttons(self) -> None:
+        active_table = self.query_one("#downloads-table", DataTable)
+        completed_table = self.query_one("#completed-table", DataTable)
+
+        btn_cancel = self.query_one("#btn-cancel", Button)
+        btn_clear = self.query_one("#btn-clear", Button)
+        btn_play = self.query_one("#btn-play-file", Button)
+        btn_folder = self.query_one("#btn-open-folder", Button)
+
+        active = download_tracker.get_active_downloads()
+        btn_cancel.disabled = active_table.cursor_row is None or not active or active_table.cursor_row >= len(active)
+
+        if completed_table.cursor_row is not None and self._completed_items and completed_table.cursor_row < len(self._completed_items):
+            item = self._completed_items[completed_table.cursor_row]
+            path = item.get("path")
+            has_path = bool(path and path != "-")
+            btn_play.disabled = not has_path
+            btn_folder.disabled = not has_path
+        else:
+            btn_play.disabled = True
+            btn_folder.disabled = True
+
+        btn_clear.disabled = len(self._completed_items) == 0
+
+    def _get_selected_completed_path(self) -> Optional[str]:
+        completed_table = self.query_one("#completed-table", DataTable)
+        if completed_table.cursor_row is None or not self._completed_items:
+            return None
+        if completed_table.cursor_row < len(self._completed_items):
+            item = self._completed_items[completed_table.cursor_row]
+            return item.get("path")
+        return None
+
     @on(Button.Pressed, "#btn-cancel")
     def _on_cancel(self) -> None:
         main_table = self.query_one("#downloads-table", DataTable)
@@ -115,10 +199,45 @@ class DownloadsScreen(Screen):
             return
         row_keys = list(main_table.rows.keys())
         if main_table.cursor_row < len(row_keys):
-            row_key = row_keys[main_table.cursor_row]
-            download_tracker.request_stop(row_key)
-            self.app.notify(f"Cancel requested for {row_key[:8]}", severity="information")
+            row_key_obj = row_keys[main_table.cursor_row]
+            row_key_str = str(getattr(row_key_obj, "value", row_key_obj))
+            download_tracker.request_stop(row_key_str)
+            self.app.notify(f"Cancel requested for {row_key_str[:8]}", severity="information")
 
     @on(Button.Pressed, "#btn-clear")
     def _on_clear(self) -> None:
+        download_tracker.clear_history()
+        self._refresh_downloads()
         self.app.notify("Cleared completed downloads from tracker", severity="information")
+
+    @on(Button.Pressed, "#btn-play-file")
+    def _on_play_file(self) -> None:
+        path = self._get_selected_completed_path()
+        if not path or path == "-":
+            self.app.notify("Nessun file valido selezionato", severity="warning")
+            return
+        success, msg = open_file(path)
+        severity = "information" if success else "error"
+        self.app.notify(msg, severity=severity)
+
+    @on(Button.Pressed, "#btn-open-folder")
+    def _on_open_folder(self) -> None:
+        path = self._get_selected_completed_path()
+        if not path or path == "-":
+            self.app.notify("Nessun percorso valido selezionato", severity="warning")
+            return
+        success, msg = open_folder(path)
+        severity = "information" if success else "error"
+        self.app.notify(msg, severity=severity)
+
+    @on(DataTable.RowSelected, "#completed-table")
+    def _on_completed_row_selected(self) -> None:
+        self._on_play_file()
+
+    @on(DataTable.RowHighlighted, "#completed-table")
+    def _on_completed_row_highlighted(self) -> None:
+        self._update_buttons()
+
+    @on(DataTable.RowHighlighted, "#downloads-table")
+    def _on_downloads_row_highlighted(self) -> None:
+        self._update_buttons()
