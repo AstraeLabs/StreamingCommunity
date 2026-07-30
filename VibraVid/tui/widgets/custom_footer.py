@@ -12,24 +12,27 @@ logger = logging.getLogger(__name__)
 class CustomFooter(Static):
     """Custom footer displaying bracketed shortcut labels across all TUI screens."""
 
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.styles.dock = "bottom"
-        self.styles.height = 1
-        self.styles.background = "#1f2335"
-        self.styles.color = "#c0caf5"
-        self.styles.padding = (0, 1)
+    DEFAULT_CSS = """
+    CustomFooter {
+        dock: bottom;
+        height: 1;
+        background: #1a1b26;
+        color: #c0caf5;
+        padding: 0 1;
+        border: none;
+    }
+    """
 
     def on_mount(self) -> None:
         text = (
-            "[bold cyan][H][/bold cyan] Home    "
-            "[bold cyan][d][/bold cyan] Downloads    "
-            "[bold cyan][q][/bold cyan] Coda    "
-            "[bold cyan][h][/bold cyan] Storia    "
-            "[bold cyan][,][/bold cyan] Settings    "
-            "[bold cyan][s][/bold cyan] Sistema    "
-            "[bold cyan][?][/bold cyan] Aiuto    "
-            "[bold cyan][ESC][/bold cyan] Indietro    "
-            "[bold cyan][Ctrl+Q][/bold cyan] Esci"
+            "[bold #7aa2f7][H][/bold #7aa2f7] Home    "
+            "[bold #7aa2f7][d][/bold #7aa2f7] Downloads    "
+            "[bold #7aa2f7][q][/bold #7aa2f7] Coda    "
+            "[bold #7aa2f7][h][/bold #7aa2f7] Storia    "
+            "[bold #7aa2f7][,][/bold #7aa2f7] Settings    "
+            "[bold #7aa2f7][s][/bold #7aa2f7] Sistema    "
+            "[bold #7aa2f7][?][/bold #7aa2f7] Aiuto    "
+            "[bold #7aa2f7][ESC][/bold #7aa2f7] Indietro    "
+            "[bold #7aa2f7][Ctrl+Q][/bold #7aa2f7] Esci"
         )
         self.update(text)

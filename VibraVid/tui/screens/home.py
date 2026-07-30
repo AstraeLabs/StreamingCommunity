@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
@@ -58,15 +58,16 @@ class HomeScreen(Screen):
 
                 yield Static("Oppure Filtra per Provider / Sito Specifico:", classes="home-section-title")
                 with VerticalScroll(id="home-sites-scroll"):
-                    with Horizontal(id="home-sites-grid"):
-                        yield Button("🌐 Tutti i Provider", id="site-all", variant="primary", classes="site-pill")
-                        # Site pills populated dynamically in on_mount
+                    yield Container(
+                        Button("🌐 Tutti i Provider", id="site-all", variant="primary", classes="site-pill"),
+                        id="home-sites-grid",
+                    )
 
         yield CustomFooter()
 
     def on_mount(self) -> None:
         self._grouped = sites_by_category()
-        sites_box = self.query_one("#home-sites-grid", Horizontal)
+        sites_box = self.query_one("#home-sites-grid", Container)
 
         added_sites = set()
         for cat, site_list in self._grouped.items():
@@ -74,7 +75,7 @@ class HomeScreen(Screen):
                 if site.name not in added_sites:
                     added_sites.add(site.name)
                     btn_id = f"site-btn-{site.name.replace('_', '-')}"
-                    label = f"{site.name.capitalize()}"
+                    label = f"[{cat.upper()}] {site.name.capitalize()}"
                     sites_box.mount(Button(label, id=btn_id, classes="site-pill"))
 
         self.query_one("#main-search-input", Input).focus()
