@@ -64,6 +64,28 @@ class EquivalentCommandBuilder:
 
         return " ".join(parts)
 
+    def build_argv_from_params(self, site: Any, search: Any = None, item: Any = None, season: Any = None, episode: Any = None, options: dict = None) -> list[str]:
+        """Build the equivalent command argument list from explicit params without 'python' or program name."""
+        if site is None or site == "":
+            return []
+
+        parts = ["--site", str(site)]
+        for flag, value in (("-s", search), ("--item", item), ("--season", season), ("--episode", episode)):
+            if value is None or value == "":
+                continue
+            parts += [flag, str(value)]
+
+        for dest, value in (options or {}).items():
+            if value is None or value is False or value == "":
+                continue
+            flag = "--" + str(dest).replace("_", "-")
+            if value is True:
+                parts.append(flag)
+            else:
+                parts += [flag, str(value)]
+
+        return parts
+
     def log_equivalent_command_from_params(self, *args, **kwargs) -> None:
         """Build and log the equivalent command from explicit params, if a site is set."""
         equivalent_cmd = self.build_from_params(*args, **kwargs)

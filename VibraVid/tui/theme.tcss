@@ -304,3 +304,85 @@ FuzzyList {
 #update-status {
     padding-top: 1;
 }
+
+/* ── Queue ────────────────────────────────────────────────────────────── */
+
+#queue-panel {
+    padding: 0 1;
+}
+
+#queue-table {
+    height: 1fr;
+    max-height: 50%;
+}
+
+.queue-detail-box {
+    height: 5;
+    border: solid $accent;
+    background: $surface;
+    padding: 0 1;
+}
+
+#queue-actions {
+    height: auto;
+    padding: 1 0;
+}
+
+#queue-actions Button {
+    margin-right: 2;
+}
+
+/* ── History ──────────────────────────────────────────────────────────── */
+
+#history-panel {
+    padding: 0 1;
+}
+
+#history-table {
+    height: 1fr;
+    max-height: 50%;
+}
+
+.history-detail-box {
+    height: 5;
+    border: solid $accent;
+    background: $surface;
+    padding: 0 1;
+}
+
+#history-actions {
+    height: auto;
+    padding: 1 0;
+}
+
+#history-actions Button {
+    margin-right: 2;
+}
+
+/* ── Enqueue Modal ────────────────────────────────────────────────────── */
+
+EnqueueModal {
+    align: center middle;
+}
+
+#enqueue-modal-box {
+    width: 64;
+    max-width: 90%;
+    height: auto;
+    border: solid $accent;
+    padding: 1 2;
+    background: $surface;
+}
+
+#enqueue-input {
+    margin: 1 0;
+}
+
+#modal-buttons {
+    height: auto;
+    padding-top: 1;
+}
+
+#modal-buttons Button {
+    margin-right: 2;
+}

@@ -16,8 +16,10 @@ from textual.events import Resize
 
 from VibraVid.tui.screens.downloads import DownloadsScreen
 from VibraVid.tui.screens.help import HelpScreen
+from VibraVid.tui.screens.history import HistoryScreen
 from VibraVid.tui.screens.home import HomeScreen
 from VibraVid.tui.screens.placeholder import PlaceholderScreen
+from VibraVid.tui.screens.queue import QueueScreen
 from VibraVid.tui.screens.settings import SettingsScreen
 from VibraVid.tui.screens.system import SystemScreen
 from VibraVid.utils.upload.version import __version__
@@ -74,6 +76,14 @@ class VibraVidApp(App):
         if area == "downloads":
             if not isinstance(self.screen, DownloadsScreen):
                 self.push_screen(DownloadsScreen())
+            return
+        if area == "queue":
+            if not isinstance(self.screen, QueueScreen):
+                self.push_screen(QueueScreen())
+            return
+        if area == "history":
+            if not isinstance(self.screen, HistoryScreen):
+                self.push_screen(HistoryScreen())
             return
         if area == "settings":
             if not isinstance(self.screen, SettingsScreen):
