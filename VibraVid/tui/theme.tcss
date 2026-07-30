@@ -1,88 +1,183 @@
-/* VibraVid TUI theme — semantic tokens.
-   Category colors mirror COLOR_MAP in VibraVid/cli/run.py. */
+/* ── VibraVid TUI — Tokyo Night Modern Design System ──────────────────────
+   Built following the tui-design skill standards:
+   - Semantic color slots (bg.base, bg.surface, bg.overlay, fg.default, status.*)
+   - Background layering for depth (no unnecessary harsh borders)
+   - Clear focus management and visual indicators
+   - High information density with crisp typography
+   ──────────────────────────────────────────────────────────────────────── */
 
-$cat-anime: red;
-$cat-film_serie: yellow;
-$cat-serie: green;
-$cat-song: #585858;
-$cat-tor: blue;
-$cat-global: magenta;
+/* ── Color System ──────────────────────────────────────────────────────── */
 
-$accent: cyan;
-$error: red;
-$warning: yellow;
-$success: green;
+$bg-base: #1a1b26;
+$bg-surface: #24283b;
+$bg-overlay: #2f3549;
+$bg-selection: #3b4261;
 
-/* ── Home ─────────────────────────────────────────────────────────────── */
+$fg-default: #c0caf5;
+$fg-muted: #565f89;
+$fg-emphasis: #7aa2f7;
+
+$accent-primary: #7aa2f7;
+$accent-secondary: #bb9af7;
+
+$status-success: #9ece6a;
+$status-warning: #e0af68;
+$status-error: #f7768e;
+$status-info: #7dcfff;
+
+/* Category badges */
+$cat-anime: #f7768e;
+$cat-film_serie: #e0af68;
+$cat-serie: #9ece6a;
+$cat-song: #9d7cd8;
+$cat-tor: #7dcfff;
+$cat-global: #bb9af7;
+
+/* ── Global Elements ──────────────────────────────────────────────────── */
+
+Screen {
+    background: $bg-base;
+    color: $fg-default;
+}
+
+Header {
+    background: $bg-surface;
+    color: $fg-emphasis;
+    dock: top;
+    height: 1;
+}
+
+Footer {
+    background: $bg-surface;
+    color: $fg-muted;
+    dock: bottom;
+    height: 1;
+}
+
+Button {
+    background: $bg-surface;
+    color: $fg-default;
+    border: round $bg-overlay;
+    min-width: 12;
+    height: 3;
+    padding: 0 1;
+}
+
+Button:hover {
+    background: $bg-overlay;
+    color: $fg-emphasis;
+    border: round $accent-primary;
+}
+
+Button:focus {
+    background: $accent-primary;
+    color: #15161e;
+    text-style: bold;
+    border: round $accent-primary;
+}
+
+Button.-primary {
+    background: $accent-primary;
+    color: #15161e;
+    text-style: bold;
+}
+
+Button.-error {
+    background: $status-error;
+    color: #15161e;
+    text-style: bold;
+}
+
+Button.-warning {
+    background: $status-warning;
+    color: #15161e;
+    text-style: bold;
+}
+
+Input {
+    background: $bg-surface;
+    color: $fg-default;
+    border: round $bg-overlay;
+    height: 3;
+    padding: 0 1;
+}
+
+Input:focus {
+    border: round $accent-primary;
+    background: $bg-surface;
+}
+
+DataTable {
+    background: $bg-base;
+    color: $fg-default;
+}
+
+DataTable > .datatable--header {
+    background: $bg-surface;
+    color: $accent-primary;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: $bg-selection;
+    color: #ffffff;
+    text-style: bold;
+}
+
+OptionList {
+    background: $bg-base;
+    color: $fg-default;
+    border: round $bg-overlay;
+}
+
+OptionList:focus {
+    border: round $accent-primary;
+}
+
+OptionList > .option-list--option-highlighted {
+    background: $bg-selection;
+    color: $fg-emphasis;
+    text-style: bold;
+}
+
+/* ── Category Styling ─────────────────────────────────────────────────── */
+
+.cat-anime { color: $cat-anime; text-style: bold; }
+.cat-film_serie { color: $cat-film_serie; text-style: bold; }
+.cat-serie { color: $cat-serie; text-style: bold; }
+.cat-song { color: $cat-song; text-style: bold; }
+.cat-tor { color: $cat-tor; text-style: bold; }
+.cat-global { color: $cat-global; text-style: bold; }
+
+/* ── Home Screen ──────────────────────────────────────────────────────── */
 
 #sidebar {
-    width: 22;
+    width: 24;
     dock: left;
-    border-right: solid $primary-background-lighten-2;
-    padding: 0 1;
+    background: $bg-surface;
+    border-right: solid $bg-overlay;
+    padding: 1 1;
 }
 
 #site-panel {
     width: 1fr;
-    padding: 0 1;
+    padding: 1 2;
 }
 
 .panel-title {
     text-style: bold;
-    color: $accent;
-    padding: 1 0 0 0;
-}
-
-.category-label {
-    text-style: bold;
-}
-
-.cat-anime { color: $cat-anime; }
-.cat-film_serie { color: $cat-film_serie; }
-.cat-serie { color: $cat-serie; }
-.cat-song { color: $cat-song; }
-.cat-tor { color: $cat-tor; }
-.cat-global { color: $cat-global; }
-
-.site-source {
-    color: $text-muted;
-}
-
-/* ── Placeholder / Help ───────────────────────────────────────────────── */
-
-PlaceholderScreen, HelpScreen {
-    align: center middle;
-}
-
-#placeholder-box, #help-box {
-    width: 64;
-    max-width: 90%;
-    height: auto;
-    border: solid $accent;
-    padding: 1 2;
-    background: $surface;
-}
-
-.placeholder-title {
-    text-style: bold;
-    color: $accent;
+    color: $accent-primary;
     padding-bottom: 1;
 }
 
-.placeholder-milestone {
-    color: $warning;
-    padding-top: 1;
+.site-source {
+    color: $fg-muted;
 }
 
-.placeholder-hint {
-    color: $text-muted;
-    padding-top: 1;
-}
-
-/* ── Search ───────────────────────────────────────────────────────────── */
+/* ── Search Screen ────────────────────────────────────────────────────── */
 
 #search-panel {
-    padding: 0 1;
+    padding: 1 2;
 }
 
 #query, #year {
@@ -94,7 +189,7 @@ PlaceholderScreen, HelpScreen {
 }
 
 #search-status {
-    color: $text-muted;
+    color: $fg-muted;
     padding: 0 1;
 }
 
@@ -104,26 +199,27 @@ FuzzyList {
 
 #fuzzy-input {
     dock: top;
+    margin-bottom: 1;
 }
 
 #fuzzy-list {
     height: 1fr;
 }
 
-/* ── Detail ───────────────────────────────────────────────────────────── */
+/* ── Detail Screen ────────────────────────────────────────────────────── */
 
 #detail-panel {
-    padding: 0 2;
+    padding: 1 2;
 }
 
 .detail-title {
     text-style: bold;
-    color: $accent;
+    color: $accent-primary;
     padding-top: 1;
 }
 
 .detail-meta {
-    color: $text-muted;
+    color: $fg-muted;
 }
 
 #series-area {
@@ -140,8 +236,10 @@ FuzzyList {
 }
 
 #seasons-box {
-    width: 24;
-    border-right: solid $primary-background-lighten-2;
+    width: 26;
+    border-right: solid $bg-overlay;
+    background: $bg-surface;
+    padding: 0 1;
 }
 
 #episodes-box {
@@ -150,8 +248,9 @@ FuzzyList {
 }
 
 .dsl-preview {
-    color: $warning;
+    color: $status-warning;
     padding: 1 0;
+    text-style: bold;
 }
 
 #actions-row {
@@ -163,42 +262,54 @@ FuzzyList {
     margin-right: 2;
 }
 
-/* ── Downloads ────────────────────────────────────────────────────────── */
+/* ── Downloads Screen ─────────────────────────────────────────────────── */
 
 #downloads-panel {
-    padding: 0 1;
+    padding: 1 2;
 }
 
 #downloads-table {
     height: 1fr;
-    max-height: 40%;
+    max-height: 45%;
+    border: round $bg-overlay;
+    margin-bottom: 1;
+}
+
+#downloads-table:focus {
+    border: round $accent-primary;
 }
 
 #tasks-table {
     height: 1fr;
+    border: round $bg-overlay;
+}
+
+#tasks-table:focus {
+    border: round $accent-primary;
 }
 
 #downloads-actions {
     height: auto;
-    padding: 1 0;
+    padding-top: 1;
 }
 
 #downloads-actions Button {
     margin-right: 2;
 }
 
-/* ── Settings ─────────────────────────────────────────────────────────── */
+/* ── Settings Screen ──────────────────────────────────────────────────── */
 
 #settings-sidebar {
     width: 26;
     dock: left;
-    border-right: solid $primary-background-lighten-2;
-    padding: 0 1;
+    background: $bg-surface;
+    border-right: solid $bg-overlay;
+    padding: 1 1;
 }
 
 #settings-content {
     width: 1fr;
-    padding: 0 1;
+    padding: 1 2;
 }
 
 #settings-form {
@@ -207,10 +318,12 @@ FuzzyList {
 }
 
 .settings-banner {
-    border: solid $warning;
-    color: $warning;
+    border: round $status-warning;
+    background: $bg-surface;
+    color: $status-warning;
     padding: 1;
     margin-bottom: 1;
+    text-style: bold;
 }
 
 .settings-field {
@@ -222,12 +335,12 @@ FuzzyList {
 .field-label {
     width: 32;
     text-style: bold;
-    color: $accent;
+    color: $accent-primary;
 }
 
 .sub-title {
     text-style: bold;
-    color: $accent;
+    color: $accent-primary;
     padding-top: 1;
     padding-bottom: 1;
 }
@@ -244,24 +357,31 @@ FuzzyList {
 
 #settings-status {
     padding-left: 1;
+    color: $status-success;
 }
 
-/* ── System ───────────────────────────────────────────────────────────── */
+/* ── System Screen ────────────────────────────────────────────────────── */
 
 #tab-deps, #tab-logs, #tab-updates {
-    padding: 0 1;
+    padding: 1 2;
 }
 
 #deps-table {
     height: auto;
     max-height: 12;
+    border: round $bg-overlay;
     margin-bottom: 1;
+}
+
+#deps-table:focus {
+    border: round $accent-primary;
 }
 
 #drm-box {
     height: auto;
     padding: 1;
-    border: solid $primary-background-lighten-2;
+    border: round $bg-overlay;
+    background: $bg-surface;
     margin-bottom: 1;
 }
 
@@ -280,21 +400,28 @@ FuzzyList {
 }
 
 #log-file-list {
-    width: 30;
+    width: 32;
     dock: left;
-    border-right: solid $primary-background-lighten-2;
+    background: $bg-surface;
+    border-right: solid $bg-overlay;
 }
 
 #log-viewer {
     width: 1fr;
     height: 1fr;
-    border: solid $primary-background-lighten-2;
-    background: $surface;
+    border: round $bg-overlay;
+    background: $bg-base;
+}
+
+#log-viewer:focus {
+    border: round $accent-primary;
 }
 
 #update-box {
     height: 1fr;
     padding: 1;
+    border: round $bg-overlay;
+    background: $bg-surface;
 }
 
 #system-info-text {
@@ -303,75 +430,105 @@ FuzzyList {
 
 #update-status {
     padding-top: 1;
+    color: $status-info;
 }
 
-/* ── Queue ────────────────────────────────────────────────────────────── */
+/* ── Queue Screen ─────────────────────────────────────────────────────── */
 
 #queue-panel {
-    padding: 0 1;
+    padding: 1 2;
 }
 
 #queue-table {
     height: 1fr;
     max-height: 50%;
+    border: round $bg-overlay;
+    margin-bottom: 1;
+}
+
+#queue-table:focus {
+    border: round $accent-primary;
 }
 
 .queue-detail-box {
     height: 5;
-    border: solid $accent;
-    background: $surface;
+    border: round $accent-primary;
+    background: $bg-surface;
     padding: 0 1;
 }
 
 #queue-actions {
     height: auto;
-    padding: 1 0;
+    padding-top: 1;
 }
 
 #queue-actions Button {
     margin-right: 2;
 }
 
-/* ── History ──────────────────────────────────────────────────────────── */
+/* ── History Screen ───────────────────────────────────────────────────── */
 
 #history-panel {
-    padding: 0 1;
+    padding: 1 2;
 }
 
 #history-table {
     height: 1fr;
     max-height: 50%;
+    border: round $bg-overlay;
+    margin-bottom: 1;
+}
+
+#history-table:focus {
+    border: round $accent-primary;
 }
 
 .history-detail-box {
     height: 5;
-    border: solid $accent;
-    background: $surface;
+    border: round $accent-primary;
+    background: $bg-surface;
     padding: 0 1;
 }
 
 #history-actions {
     height: auto;
-    padding: 1 0;
+    padding-top: 1;
 }
 
 #history-actions Button {
     margin-right: 2;
 }
 
-/* ── Enqueue Modal ────────────────────────────────────────────────────── */
+/* ── Overlay Modals & Help ────────────────────────────────────────────── */
 
-EnqueueModal {
+PlaceholderScreen, HelpScreen, EnqueueModal {
     align: center middle;
+    background: rgba(15, 16, 22, 0.8);
 }
 
-#enqueue-modal-box {
-    width: 64;
+#placeholder-box, #help-box, #enqueue-modal-box {
+    width: 68;
     max-width: 90%;
     height: auto;
-    border: solid $accent;
+    border: round $accent-primary;
     padding: 1 2;
-    background: $surface;
+    background: $bg-surface;
+}
+
+.placeholder-title {
+    text-style: bold;
+    color: $accent-primary;
+    padding-bottom: 1;
+}
+
+.placeholder-milestone {
+    color: $status-warning;
+    padding-top: 1;
+}
+
+.placeholder-hint {
+    color: $fg-muted;
+    padding-top: 1;
 }
 
 #enqueue-input {
