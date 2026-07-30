@@ -25,6 +25,7 @@ from VibraVid.cli.command.queue import (
     _save_queue,
 )
 from VibraVid.core.ui.tracker import download_tracker
+from VibraVid.utils.system_open import open_file, open_folder
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +67,10 @@ class HistoryScreen(Screen):
             )
             with Horizontal(id="history-actions"):
                 yield Button("Refresh", id="refresh-btn")
-                yield Button("Re-enqueue item", id="reenqueue-btn")
-                yield Button("Clear history", id="clear-btn")
+                yield Button("▶ Avvia File", id="play-history-btn")
+                yield Button("📁 Apri Cartella", id="open-folder-history-btn")
+                yield Button("Re-enqueue item", id="retry-history-btn")
+                yield Button("Clear history", id="clear-history-btn")
         yield CustomFooter()
 
     def on_mount(self) -> None:
@@ -123,7 +126,7 @@ class HistoryScreen(Screen):
             )
 
         if current_cursor is not None and current_cursor < len(items):
-            table.cursor_row = current_cursor
+            table.move_cursor(row=current_cursor)
 
         counts = {}
         for dl in items:
@@ -172,25 +175,75 @@ class HistoryScreen(Screen):
 
         detail_box.update("\n".join(lines))
 
+    def _get_selected_item(self) -> Optional[Dict[str, Any]]:
+        table = self.query_one("#history-table", DataTable)
+        if table.cursor_row is not None and 0 <= table.cursor_row < len(self._history_items):
+            return self._history_items[table.cursor_row]
+        return None
+
     def _update_buttons(self) -> None:
         clear_btn = self.query_one("#clear-history-btn", Button)
         retry_btn = self.query_one("#retry-history-btn", Button)
+        play_btn = self.query_one("#play-history-btn", Button)
+        open_folder_btn = self.query_one("#open-folder-history-btn", Button)
 
         clear_btn.disabled = len(self._history_items) == 0
 
-        table = self.query_one("#history-table", DataTable)
-        if table.cursor_row is not None and table.cursor_row < len(self._history_items):
+        dl = self._get_selected_item()
+        if dl:
             retry_btn.disabled = False
+            status = dl.get("status")
+            path = dl.get("path")
+            can_open = status == "completed" and bool(path and path != "-")
+            play_btn.disabled = not can_open
+            open_folder_btn.disabled = not can_open
         else:
             retry_btn.disabled = True
+            play_btn.disabled = True
+            open_folder_btn.disabled = True
 
-    @on(DataTable.RowSelected, "#history-table")
     @on(DataTable.RowHighlighted, "#history-table")
-    def _on_row_changed(self) -> None:
+    def _on_row_highlighted(self) -> None:
         self._update_item_detail()
         self._update_buttons()
 
+    @on(DataTable.RowSelected, "#history-table")
+    def _on_row_selected(self) -> None:
+        self._update_item_detail()
+        self._update_buttons()
+        dl = self._get_selected_item()
+        if dl and dl.get("status") == "completed":
+            path = dl.get("path")
+            if path and path != "-":
+                self._on_play_history_file()
+
     # ── Actions ───────────────────────────────────────────────────────────
+
+    @on(Button.Pressed, "#play-history-btn")
+    def _on_play_history_file(self) -> None:
+        dl = self._get_selected_item()
+        if not dl:
+            return
+        path = dl.get("path")
+        if not path or path == "-":
+            self.app.notify("Nessun file valido selezionato", severity="warning")
+            return
+        success, msg = open_file(path)
+        severity = "information" if success else "error"
+        self.app.notify(msg, severity=severity)
+
+    @on(Button.Pressed, "#open-folder-history-btn")
+    def _on_open_folder_history(self) -> None:
+        dl = self._get_selected_item()
+        if not dl:
+            return
+        path = dl.get("path")
+        if not path or path == "-":
+            self.app.notify("Nessun percorso valido selezionato", severity="warning")
+            return
+        success, msg = open_folder(path)
+        severity = "information" if success else "error"
+        self.app.notify(msg, severity=severity)
 
     @on(Button.Pressed, "#refresh-btn")
     def _on_refresh(self) -> None:
