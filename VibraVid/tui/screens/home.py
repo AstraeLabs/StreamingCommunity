@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
@@ -31,21 +31,24 @@ class HomeScreen(Screen):
 
     def __init__(self) -> None:
         super().__init__()
-        self._selected_scope: str = "global"  # global, anime, film, serie, music
+        self._selected_scope: str = "global"
         self._selected_site: Optional[str] = None
         self._grouped: Dict[str, List[SiteInfo]] = {}
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="home-container"):
-            with Vertical(id="home-center-box"):
+        with Vertical(id="home-outer"):
+            with Vertical(id="home-card"):
                 yield Static(ASCII_LOGO, id="home-logo")
-                yield Static("[dim]Motore di ricerca universale per Streaming, Anime, Film, Serie e Musica[/dim]", id="home-tagline")
+                yield Static(
+                    "[bold #7aa2f7]Motore di ricerca universale per Streaming, Anime, Film, Serie e Musica[/bold #7aa2f7]",
+                    id="home-tagline",
+                )
 
                 with Horizontal(id="home-search-bar"):
                     yield Input(placeholder="Cerca un titolo (es. Batman, Naruto, One Piece)...", id="main-search-input")
                     yield Button("Cerca 🔍", id="btn-submit-search", variant="primary")
 
-                yield Static("[bold white]Seleziona Categoria di Ricerca:[/bold white]", classes="home-label")
+                yield Static("Seleziona Categoria di Ricerca:", classes="home-section-title")
                 with Horizontal(id="home-scope-pills"):
                     yield Button("🌐 Global (Tutti)", id="scope-global", variant="primary", classes="scope-pill")
                     yield Button("🌸 Anime", id="scope-anime", classes="scope-pill")
@@ -53,17 +56,17 @@ class HomeScreen(Screen):
                     yield Button("📺 Serie TV", id="scope-serie", classes="scope-pill")
                     yield Button("🎵 Musica", id="scope-music", classes="scope-pill")
 
-                yield Static("[bold white]Oppure Filtra per Provider / Sito Specifico:[/bold white]", classes="home-label")
+                yield Static("Oppure Filtra per Provider / Sito Specifico:", classes="home-section-title")
                 with VerticalScroll(id="home-sites-scroll"):
-                    with Horizontal(id="home-sites-pills"):
-                        yield Button("🌐 Tutti i Provider (Default)", id="site-all", variant="primary", classes="site-pill")
+                    with Horizontal(id="home-sites-grid"):
+                        yield Button("🌐 Tutti i Provider", id="site-all", variant="primary", classes="site-pill")
                         # Site pills populated dynamically in on_mount
 
         yield CustomFooter()
 
     def on_mount(self) -> None:
         self._grouped = sites_by_category()
-        sites_box = self.query_one("#home-sites-pills", Horizontal)
+        sites_box = self.query_one("#home-sites-grid", Horizontal)
 
         added_sites = set()
         for cat, site_list in self._grouped.items():
@@ -71,7 +74,7 @@ class HomeScreen(Screen):
                 if site.name not in added_sites:
                     added_sites.add(site.name)
                     btn_id = f"site-btn-{site.name.replace('_', '-')}"
-                    label = f"[{cat.upper()}] {site.name.capitalize()}"
+                    label = f"{site.name.capitalize()}"
                     sites_box.mount(Button(label, id=btn_id, classes="site-pill"))
 
         self.query_one("#main-search-input", Input).focus()
@@ -106,7 +109,6 @@ class HomeScreen(Screen):
         if event.button.id == "site-all":
             self._selected_site = None
         else:
-            # Extract site name from button id site-btn-<name>
             site_name = event.button.id[len("site-btn-"):].replace("-", "_")
             self._selected_site = site_name
 

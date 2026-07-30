@@ -16,19 +16,20 @@ class CustomFooter(Static):
         super().__init__(**kwargs)
         self.styles.dock = "bottom"
         self.styles.height = 1
-        self.styles.background = "#24283b"
-        self.styles.color = "#565f89"
+        self.styles.background = "#1f2335"
+        self.styles.color = "#c0caf5"
+        self.styles.padding = (0, 1)
 
     def on_mount(self) -> None:
         text = (
-            "[bold cyan][H][/bold cyan] Home  ·  "
-            "[bold cyan][d][/bold cyan] Downloads  ·  "
-            "[bold cyan][q][/bold cyan] Coda  ·  "
-            "[bold cyan][h][/bold cyan] Storia  ·  "
-            "[bold cyan][,][/bold cyan] Settings  ·  "
-            "[bold cyan][s][/bold cyan] Sistema  ·  "
-            "[bold cyan][?][/bold cyan] Aiuto  ·  "
-            "[bold cyan][ESC][/bold cyan] Indietro  ·  "
+            "[bold cyan][H][/bold cyan] Home    "
+            "[bold cyan][d][/bold cyan] Downloads    "
+            "[bold cyan][q][/bold cyan] Coda    "
+            "[bold cyan][h][/bold cyan] Storia    "
+            "[bold cyan][,][/bold cyan] Settings    "
+            "[bold cyan][s][/bold cyan] Sistema    "
+            "[bold cyan][?][/bold cyan] Aiuto    "
+            "[bold cyan][ESC][/bold cyan] Indietro    "
             "[bold cyan][Ctrl+Q][/bold cyan] Esci"
         )
         self.update(text)
