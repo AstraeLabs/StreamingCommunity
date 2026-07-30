@@ -1330,6 +1330,10 @@ vibravid --tui
 | `F8` | **System & DRM** | External binary checker, Widevine DRM device status, and log viewer |
 | `F9` | **Help Guide** | Full keyboard shortcut reference and navigation guide |
 
+### Screenshots
+
+![VibraVid TUI Home Screen](docs/images/tui_home.png)
+
 ### Keyboard Shortcuts
 
 | Key | Context | Action |
