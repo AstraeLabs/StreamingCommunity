@@ -13,6 +13,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.timer import Timer
 from textual.widgets import Button, DataTable, Header, Static
+from VibraVid.tui.i18n import t
 from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
@@ -52,25 +53,25 @@ class HistoryScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="history-panel"):
-            yield Static("Download History", classes="panel-title")
+            yield Static(t("download_history"), classes="panel-title")
             yield Static(
-                "Past downloads (last 50 items loaded from download_tracker & history cache)",
+                t("history_status_text"),
                 id="history-status-text",
                 classes="detail-meta",
             )
             yield DataTable(id="history-table")
-            yield Static("History Item Details", classes="panel-title")
+            yield Static(t("history_item_details"), classes="panel-title")
             yield Static(
-                "Select an item above to view details.",
+                t("select_item_view_details"),
                 id="history-item-detail",
                 classes="history-detail-box",
             )
             with Horizontal(id="history-actions"):
-                yield Button("Refresh", id="refresh-btn")
-                yield Button("▶ Avvia File", id="play-history-btn")
-                yield Button("📁 Apri Cartella", id="open-folder-history-btn")
-                yield Button("Re-enqueue item", id="retry-history-btn")
-                yield Button("Clear history", id="clear-history-btn")
+                yield Button(t("refresh"), id="refresh-btn")
+                yield Button(f"▶ {t('play_file')}", id="play-history-btn")
+                yield Button(f"📁 {t('open_folder')}", id="open-folder-history-btn")
+                yield Button(t("re_enqueue_item"), id="retry-history-btn")
+                yield Button(t("clear_history"), id="clear-history-btn")
         yield CustomFooter()
 
     def on_mount(self) -> None:
@@ -149,7 +150,7 @@ class HistoryScreen(Screen):
         detail_box = self.query_one("#history-item-detail", Static)
 
         if table.cursor_row is None or not self._history_items or table.cursor_row >= len(self._history_items):
-            detail_box.update("Select an item above to view details.")
+            detail_box.update(t("select_item_view_details"))
             return
 
         dl = self._history_items[table.cursor_row]

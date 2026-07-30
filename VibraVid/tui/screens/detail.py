@@ -14,6 +14,7 @@ from textual.widgets import Button, Header, ListItem, ListView, LoadingIndicator
 from textual.widgets._selection_list import Selection
 
 from VibraVid.tui import bridge
+from VibraVid.tui.i18n import t
 from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 logger = logging.getLogger(__name__)
@@ -43,8 +44,8 @@ class TitleDetailScreen(Screen):
     """Shows one catalog item; for series lets the user pick episodes across providers."""
 
     BINDINGS = [
-        Binding("a", "select_all_episodes", "Select All"),
-        Binding("u", "deselect_all_episodes", "Deselect All"),
+        Binding("a", "select_all_episodes", t("select_all")),
+        Binding("u", "deselect_all_episodes", t("clear_selection")),
     ]
 
     def __init__(
@@ -78,22 +79,22 @@ class TitleDetailScreen(Screen):
             yield Static(self._meta_line(), classes="detail-meta")
             yield Static(self._desc_line(), classes="detail-meta")
             with Vertical(id="series-area"):
-                yield Static("Seasons & Episodes (Right -> Episodes | Left <- Seasons | Space -> Toggle | a -> Select All | u -> Clear)", classes="panel-title")
+                yield Static(t("seasons_episodes_title"), classes="panel-title")
                 yield LoadingIndicator(id="seasons-loading")
                 with Horizontal(id="series-browser"):
                     with Vertical(id="providers-box"):
-                        yield Static("Provider", classes="box-title")
+                        yield Static(t("providers"), classes="box-title")
                         yield ListView(id="providers")
                     with Vertical(id="seasons-box"):
-                        yield Static("Stagioni", classes="box-title")
+                        yield Static(t("seasons"), classes="box-title")
                         yield ListView(id="seasons")
                     with Vertical(id="episodes-box"):
-                        yield Static("Episodi", classes="box-title")
+                        yield Static(t("episodes"), classes="box-title")
                         yield SelectionList(id="episodes")
                 yield Static("", id="dsl-preview", classes="dsl-preview")
                 with Horizontal(id="actions-row"):
-                    yield Button("Download selected episodes", id="dl", variant="primary")
-                    yield Button("+ Add to Queue", id="queue")
+                    yield Button(t("download_selected_episodes"), id="dl", variant="primary")
+                    yield Button(t("add_to_queue"), id="queue")
         yield CustomFooter()
 
     def _meta_line(self) -> str:

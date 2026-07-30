@@ -12,6 +12,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Header, OptionList, RichLog, Static, TabbedContent, TabPane
+from VibraVid.tui.i18n import t
 from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.cli.run import _probe_binary_version
@@ -48,25 +49,25 @@ class SystemScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with TabbedContent():
-            with TabPane("Dependencies & DRM", id="tab-deps"):
-                yield Static("External Binary Dependencies", classes="panel-title")
+            with TabPane(t("tab_deps"), id="tab-deps"):
+                yield Static(t("external_dependencies"), classes="panel-title")
                 yield DataTable(id="deps-table")
-                yield Static("DRM Device & Vault Status", classes="panel-title")
+                yield Static(t("drm_status"), classes="panel-title")
                 yield Vertical(id="drm-box")
 
-            with TabPane("Log Viewer", id="tab-logs"):
+            with TabPane(t("log_viewer"), id="tab-logs"):
                 with Horizontal(id="log-control-bar"):
                     yield Static("Select Log File:", classes="field-label")
-                    yield Button("Refresh Log List", variant="default", id="btn-refresh-logs")
+                    yield Button(t("refresh_log_list"), variant="default", id="btn-refresh-logs")
                 with Horizontal(id="log-layout"):
                     yield OptionList(id="log-file-list")
                     yield RichLog(id="log-viewer", highlight=True, markup=False)
 
-            with TabPane("Updates & Info", id="tab-updates"):
+            with TabPane(t("updates_info"), id="tab-updates"):
                 with VerticalScroll(id="update-box"):
-                    yield Static("System & Application Info", classes="panel-title")
+                    yield Static(t("system_app_info"), classes="panel-title")
                     yield Static(id="system-info-text")
-                    yield Button("Check for Updates", variant="primary", id="btn-check-update")
+                    yield Button(t("check_for_updates"), variant="primary", id="btn-check-update")
                     yield Static("", id="update-status")
         yield CustomFooter()
 

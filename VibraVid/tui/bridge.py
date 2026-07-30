@@ -86,7 +86,10 @@ class _ThreadStdProxy:
         capture = getattr(self._local, "capture", None)
         if capture is not None:
             return capture.write(data)
-        if data.strip():
+        if self._stream_name == "stderr":
+            sys.__stderr__.write(data)
+            sys.__stderr__.flush()
+        elif data.strip():
             logger.getChild("stdio").debug("[%s] %s", self._stream_name, data.rstrip())
         return len(data)
 

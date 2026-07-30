@@ -11,6 +11,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Header, Input, ListItem, ListView, Static, Switch
+from VibraVid.tui.i18n import t
 from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.utils import config_manager
@@ -49,15 +50,15 @@ class SettingsScreen(Screen):
         yield Header()
         with Horizontal():
             with Vertical(id="settings-sidebar"):
-                yield Static("Settings Sections", classes="panel-title")
+                yield Static(t("settings_sections"), classes="panel-title")
                 yield ListView(id="settings-sections")
             with Vertical(id="settings-content"):
-                yield Static("DEFAULT — Default Settings", id="section-title", classes="panel-title")
+                yield Static(f"DEFAULT — {t('default_settings')}", id="section-title", classes="panel-title")
                 yield VerticalScroll(id="settings-form")
                 with Horizontal(id="settings-actions"):
-                    yield Button("Save Section", variant="primary", id="btn-save")
-                    yield Button("Reload Config", variant="default", id="btn-reload")
-                    yield Button("System Info", variant="accent", id="btn-goto-system")
+                    yield Button(t("save_section"), variant="primary", id="btn-save")
+                    yield Button(t("reload_config"), variant="default", id="btn-reload")
+                    yield Button(t("system_info"), variant="warning", id="btn-goto-system")
                     yield Static("", id="settings-status")
         yield CustomFooter()
 
@@ -72,7 +73,10 @@ class SettingsScreen(Screen):
 
     def _load_section(self, section: str) -> None:
         self._current_section = section
-        title_label = dict(SECTIONS).get(section, section)
+        if section == "DEFAULT":
+            title_label = t("default_settings")
+        else:
+            title_label = dict(SECTIONS).get(section, section)
         self.query_one("#section-title", Static).update(f"{section} — {title_label}")
 
         form = self.query_one("#settings-form", VerticalScroll)

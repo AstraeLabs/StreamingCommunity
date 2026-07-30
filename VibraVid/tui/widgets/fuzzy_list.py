@@ -124,3 +124,8 @@ class FuzzyList(Widget):
             item = getattr(event.item, "fuzzy_payload", None)
             if item is not None:
                 self.post_message(self.Highlighted(item, self))
+
+    @on(events.Click, "ListItem")
+    def _on_item_click(self, event: events.Click) -> None:
+        self.action_focus_list()
+

@@ -97,7 +97,7 @@ class TrackSelect(Widget):
         row_key = list(table.rows.keys())[table.cursor_row] if table.cursor_row < len(table.rows) else None
         if row_key is None:
             return
-        idx = int(row_key)
+        idx = int(getattr(row_key, "value", row_key))
         if idx in self._selected:
             self._selected.discard(idx)
             table.update_cell_at((table.cursor_row, 0), "")

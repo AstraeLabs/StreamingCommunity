@@ -7,11 +7,12 @@ from typing import Dict, List, Optional
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, HorizontalScroll, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
 from VibraVid.tui.bridge import SiteInfo, sites_by_category
+from VibraVid.tui.i18n import t
 from VibraVid.tui.screens.search import SearchScreen
 from VibraVid.tui.widgets.custom_footer import CustomFooter
 
@@ -42,33 +43,32 @@ class HomeScreen(Screen):
             with Vertical(id="home-card"):
                 yield Static(ASCII_LOGO, id="home-logo")
                 yield Static(
-                    "[bold #7aa2f7]Motore di ricerca universale per Streaming, Anime, Film, Serie e Musica[/bold #7aa2f7]",
+                    f"[bold #7aa2f7]{t('home_tagline')}[/bold #7aa2f7]",
                     id="home-tagline",
                 )
 
                 with Horizontal(id="home-search-bar"):
-                    yield Input(placeholder="Cerca un titolo (es. Batman, Naruto, One Piece)...", id="main-search-input")
-                    yield Button("Cerca 🔍", id="btn-submit-search", variant="primary")
+                    yield Input(placeholder=t("search_placeholder"), id="main-search-input")
+                    yield Button(t("search_btn"), id="btn-submit-search", variant="primary")
 
-                yield Static("Seleziona Categoria di Ricerca:", classes="home-section-title")
+                yield Static(t("select_search_category"), classes="home-section-title")
                 with Horizontal(id="home-scope-pills"):
-                    yield Button("🌐 Global (Tutti)", id="scope-global", variant="primary", classes="scope-pill")
-                    yield Button("🌸 Anime", id="scope-anime", classes="scope-pill")
-                    yield Button("🎬 Film", id="scope-film", classes="scope-pill")
-                    yield Button("📺 Serie TV", id="scope-serie", classes="scope-pill")
-                    yield Button("🎵 Musica", id="scope-music", classes="scope-pill")
+                    yield Button(f"🌐 {t('scope_global')}", id="scope-global", variant="primary", classes="scope-pill")
+                    yield Button(f"🌸 {t('scope_anime')}", id="scope-anime", classes="scope-pill")
+                    yield Button(f"🎬 {t('scope_film')}", id="scope-film", classes="scope-pill")
+                    yield Button(f"📺 {t('scope_serie')}", id="scope-serie", classes="scope-pill")
+                    yield Button(f"🎵 {t('scope_music')}", id="scope-music", classes="scope-pill")
 
-                with Horizontal(id="home-provider-header"):
-                    yield Static("Filtra Provider / Sito Specifico:", classes="home-section-title-left")
-                    yield Input(placeholder="Filtra provider... (es. anime, streaming)", id="provider-filter-input")
+                yield Static(t("filter_provider_site"), classes="home-section-title")
+                with Horizontal(id="home-provider-filter-bar"):
+                    yield Input(placeholder=t("filter_provider_placeholder"), id="provider-filter-input")
 
                 with Container(id="home-sites-box"):
-                    with Horizontal(id="home-sites-wrap"):
-                        yield Button("🌐 Tutti i Provider", id="site-all", variant="primary", classes="site-pill")
+                    yield VerticalScroll(id="home-sites-wrap")
 
         yield CustomFooter()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         self._grouped = sites_by_category()
         self._all_sites = []
         added_names = set()
@@ -78,34 +78,45 @@ class HomeScreen(Screen):
                     added_names.add(site.name)
                     self._all_sites.append(site)
 
-        self._render_provider_pills(self._all_sites)
+        await self._render_provider_pills(self._all_sites)
         self.query_one("#main-search-input", Input).focus()
 
-    def _render_provider_pills(self, sites: List[SiteInfo]) -> None:
-        sites_wrap = self.query_one("#home-sites-wrap", Horizontal)
-        for child in list(sites_wrap.children):
-            child.remove()
+    async def _render_provider_pills(self, sites: List[SiteInfo]) -> None:
+        sites_wrap = self.query_one("#home-sites-wrap", VerticalScroll)
+        await sites_wrap.remove_children()
 
         is_all_active = (self._selected_site is None)
         all_variant = "primary" if is_all_active else "default"
-        sites_wrap.mount(Button("🌐 Tutti i Provider", id="site-all", variant=all_variant, classes="site-pill"))
 
+        all_buttons = [Button(f"🌐 {t('all_providers')}", id="site-all", variant=all_variant, classes="site-pill")]
         for site in sites:
-            sites_wrap.mount(Static(" • ", classes="site-dot"))
             btn_id = f"site-btn-{site.name.replace('_', '-')}"
             label = site.name.capitalize()
             is_active = (self._selected_site == site.name)
             variant = "primary" if is_active else "default"
-            sites_wrap.mount(Button(label, id=btn_id, variant=variant, classes="site-pill"))
+            all_buttons.append(Button(label, id=btn_id, variant=variant, classes="site-pill"))
+
+        chunk_size = 4
+        rows = []
+        for i in range(0, len(all_buttons), chunk_size):
+            chunk = all_buttons[i : i + chunk_size]
+            row_items = []
+            for idx, btn in enumerate(chunk):
+                row_items.append(btn)
+                if idx < len(chunk) - 1:
+                    row_items.append(Static(" • ", classes="site-dot"))
+            rows.append(Horizontal(*row_items, classes="site-pill-row"))
+
+        await sites_wrap.mount(*rows)
 
     @on(Input.Changed, "#provider-filter-input")
-    def _on_provider_filter_changed(self, event: Input.Changed) -> None:
+    async def _on_provider_filter_changed(self, event: Input.Changed) -> None:
         query = event.value.strip().lower()
         if not query:
             filtered = self._all_sites
         else:
-            filtered = [s for s in self._all_sites if query in s.name.lower() or query in s.category.lower()]
-        self._render_provider_pills(filtered)
+            filtered = [s for s in self._all_sites if query in s.name.lower() or query in (s.use_for or "").lower()]
+        await self._render_provider_pills(filtered)
 
     # ── Scope and Site Pill Click Handlers ─────────────────────────────────
 
@@ -129,8 +140,7 @@ class HomeScreen(Screen):
 
     @on(Button.Pressed, ".site-pill")
     def _on_site_pressed(self, event: Button.Pressed) -> None:
-        pills = self.query_all(".site-pill")
-        for pill in pills:
+        for pill in self.query(".site-pill"):
             pill.variant = "default"
 
         event.button.variant = "primary"
@@ -151,7 +161,7 @@ class HomeScreen(Screen):
         try:
             query = self.query_one("#main-search-input", Input).value.strip()
             if not query:
-                self.app.notify("Inserisci un titolo prima di cercare!", severity="warning")
+                self.app.notify(t("enter_title_warning"), severity="warning")
                 return
 
             screen = SearchScreen(site=self._selected_site, initial_query=query)

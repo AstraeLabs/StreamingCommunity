@@ -5,7 +5,9 @@
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Static
+from textual.widgets import Static
+
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 
 class PlaceholderScreen(Screen):
@@ -24,4 +26,5 @@ class PlaceholderScreen(Screen):
             yield Static(self._body)
             yield Static(f"Coming with milestone {self._milestone}.", classes="placeholder-milestone")
             yield Static("ESC to go back", classes="placeholder-hint")
-        yield Footer()
+        yield CustomFooter()
+

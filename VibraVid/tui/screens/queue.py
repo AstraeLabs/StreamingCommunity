@@ -15,6 +15,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
 from textual.widgets import Button, DataTable, Header, Input, Static
+from VibraVid.tui.i18n import t
 from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
@@ -41,7 +42,7 @@ class EnqueueModal(ModalScreen[Optional[str]]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="enqueue-modal-box"):
-            yield Static("Enqueue Job", classes="panel-title")
+            yield Static(t("enqueue_job"), classes="panel-title")
             yield Static(
                 "Enter CLI arguments (e.g. '--site animesaturn -s Naruto --item 1'):",
                 classes="placeholder-hint",
@@ -51,8 +52,8 @@ class EnqueueModal(ModalScreen[Optional[str]]):
                 id="enqueue-input",
             )
             with Horizontal(id="modal-buttons"):
-                yield Button("Enqueue", id="submit-btn", variant="primary")
-                yield Button("Cancel", id="cancel-btn")
+                yield Button(t("enqueue_job"), id="submit-btn", variant="primary")
+                yield Button(t("cancel"), id="cancel-btn")
 
     @on(Button.Pressed, "#submit-btn")
     def _on_submit(self) -> None:
@@ -81,21 +82,21 @@ class QueueScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="queue-panel"):
-            yield Static("Batch Queue", classes="panel-title")
-            yield Static("Loading queue data...", id="queue-status-text", classes="detail-meta")
+            yield Static(t("batch_queue"), classes="panel-title")
+            yield Static(t("loading"), id="queue-status-text", classes="detail-meta")
             yield DataTable(id="queue-table")
-            yield Static("Item Detail", classes="panel-title")
+            yield Static(t("item_detail"), classes="panel-title")
             yield Static(
-                "Select a queue item above to view full details.",
+                t("select_queue_item_view_details"),
                 id="queue-item-detail",
                 classes="queue-detail-box",
             )
             with Horizontal(id="queue-actions"):
-                yield Button("Run Queue", id="run-queue-btn", variant="primary")
-                yield Button("Remove item", id="remove-btn")
-                yield Button("Retry failed", id="retry-btn")
-                yield Button("Clear queue", id="clear-queue-btn")
-                yield Button("Clear Completed", id="queue-btn-clear")
+                yield Button(t("run_queue"), id="run-queue-btn", variant="primary")
+                yield Button(t("remove_item"), id="remove-btn")
+                yield Button(t("retry_failed"), id="retry-btn")
+                yield Button(t("clear_queue"), id="clear-queue-btn")
+                yield Button(t("clear_completed"), id="queue-btn-clear")
         yield CustomFooter()
 
     def on_mount(self) -> None:
@@ -162,7 +163,7 @@ class QueueScreen(Screen):
             )
 
         if current_cursor is not None and current_cursor < len(self._loaded_items):
-            table.cursor_row = current_cursor
+            table.move_cursor(row=current_cursor)
 
         status_msg = (
             f"Total: {len(loaded)} items  ·  "
@@ -182,7 +183,7 @@ class QueueScreen(Screen):
         detail_box = self.query_one("#queue-item-detail", Static)
 
         if table.cursor_row is None or not self._loaded_items or table.cursor_row >= len(self._loaded_items):
-            detail_box.update("Select a queue item above to view details.")
+            detail_box.update(t("select_queue_item_view_details"))
             return
 
         item, path = self._loaded_items[table.cursor_row]

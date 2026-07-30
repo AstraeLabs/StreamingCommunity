@@ -11,6 +11,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Header, Input, LoadingIndicator, ListView, Static
 from VibraVid.tui import bridge
+from VibraVid.tui.i18n import t
 from VibraVid.tui.widgets.custom_footer import CustomFooter
 from VibraVid.tui.widgets.fuzzy_list import FuzzyItem, FuzzyList
 
@@ -91,32 +92,32 @@ class SearchScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="search-panel"):
-            title = f"Search on {self._site}" if self._site else "Global search across all sites"
+            title = t("search_on_site", site=self._site) if self._site else t("global_search_title")
             yield Static(title, classes="panel-title")
             with Horizontal(id="search-inputs-bar"):
-                yield Input(placeholder="Type title and press ENTER...", id="query", value=self._initial_query)
-                yield Input(placeholder="Year (e.g. 2021 or 1990-2015)", id="year")
+                yield Input(placeholder=t("search_input_placeholder"), id="query", value=self._initial_query)
+                yield Input(placeholder=t("year_placeholder"), id="year")
 
             with Horizontal(id="category-filter-pills"):
-                yield Button("All (0)", id="filter-all", variant="primary", classes="filter-pill")
-                yield Button("🎬 Film", id="filter-film", classes="filter-pill")
-                yield Button("📺 Serie / Anime", id="filter-serie", classes="filter-pill")
-                yield Button("🎵 Music", id="filter-music", classes="filter-pill")
+                yield Button(f"{t('all')} (0)", id="filter-all", variant="primary", classes="filter-pill")
+                yield Button(f"🎬 {t('film')}", id="filter-film", classes="filter-pill")
+                yield Button(f"📺 {t('serie_anime')}", id="filter-serie", classes="filter-pill")
+                yield Button(f"🎵 {t('music')}", id="filter-music", classes="filter-pill")
 
             yield LoadingIndicator(id="search-loading")
             yield Static("", id="search-status")
             with Horizontal(id="search-split"):
                 with Vertical(id="results-container"):
-                    yield FuzzyList(placeholder="Filter results...", id="results")
+                    yield FuzzyList(placeholder=t("filter_results_placeholder"), id="results")
                 with Vertical(id="preview-container"):
                     with Vertical(id="preview-box"):
                         yield Static(
-                            "Hover or click a search result to view details and metadata preview.",
+                            t("preview_initial_text"),
                             id="search-preview-box",
                         )
                         with Horizontal(id="preview-actions-row"):
-                            yield Button("Download Now", id="preview-open-btn", variant="primary")
-                            yield Button("+ Add to Queue", id="preview-queue-btn")
+                            yield Button(t("download_now"), id="preview-open-btn", variant="primary")
+                            yield Button(t("add_to_queue"), id="preview-queue-btn")
         yield CustomFooter()
 
     def on_mount(self) -> None:
@@ -169,7 +170,7 @@ class SearchScreen(Screen):
     def _start_search(self) -> None:
         query = self.query_one("#query", Input).value.strip()
         if not query:
-            self.app.notify("Type something to search first.", severity="warning")
+            self.app.notify(t("type_something_warning"), severity="warning")
             return
         year_spec = _parse_year_filter(self.query_one("#year", Input).value)
         self._set_loading(True)
@@ -196,7 +197,7 @@ class SearchScreen(Screen):
 
     def _search_failed(self, message: str) -> None:
         self._set_loading(False)
-        self.query_one("#search-status", Static).update(f"[bold red]✖ Search failed:[/] {message}")
+        self.query_one("#search-status", Static).update(f"[bold red]✖ {t('search_failed')}:[/] {message}")
 
     def _apply_results(self, results: List[Tuple[str, object]], errors: Dict[str, str], year_spec: Optional[Tuple[int, int]]) -> None:
         self._set_loading(False)
@@ -210,12 +211,12 @@ class SearchScreen(Screen):
         self._update_category_counts(deduped)
         self._populate_results_list()
 
-        status = f"[bold green]✔ {len(deduped)}[/bold green] result(s) found"
+        status = t("results_found_status", count=len(deduped))
         if errors:
             failed_names = ", ".join(sorted(errors))
-            status += f"  ·  [bold yellow]⚠️ {len(errors)} site(s) timed out:[/] [dim]{failed_names}[/dim]"
+            status += t("sites_timed_out_status", count=len(errors), sites=failed_names)
         elif not deduped:
-            status = "[bold yellow]No results found for query.[/bold yellow]"
+            status = t("no_results_status")
 
         self.query_one("#search-status", Static).update(status)
 
@@ -225,10 +226,10 @@ class SearchScreen(Screen):
         series = sum(1 for _, it, _ in results if not getattr(it, "is_movie", False) and not getattr(it, "is_song", False))
         music = sum(1 for _, it, _ in results if getattr(it, "is_song", False))
 
-        self.query_one("#filter-all", Button).label = f"All ({total})"
-        self.query_one("#filter-film", Button).label = f"🎬 Film ({films})"
-        self.query_one("#filter-serie", Button).label = f"📺 Serie ({series})"
-        self.query_one("#filter-music", Button).label = f"🎵 Music ({music})"
+        self.query_one("#filter-all", Button).label = f"{t('all')} ({total})"
+        self.query_one("#filter-film", Button).label = f"🎬 {t('film')} ({films})"
+        self.query_one("#filter-serie", Button).label = f"📺 {t('serie')} ({series})"
+        self.query_one("#filter-music", Button).label = f"🎵 {t('music')} ({music})"
 
     def _populate_results_list(self) -> None:
         filtered = []
@@ -321,17 +322,17 @@ class SearchScreen(Screen):
         open_btn = self.query_one("#preview-open-btn", Button)
 
         if is_movie:
-            type_header = "🎬  FILM / MOVIE FEATURE"
-            badge = "[bold yellow]🎬 FILM[/bold yellow]"
-            open_btn.label = "⬇️ Download Movie"
+            type_header = t("header_film")
+            badge = f"[bold yellow]🎬 {t('film').upper()}[/bold yellow]"
+            open_btn.label = f"⬇️ {t('download_movie')}"
         elif is_song:
-            type_header = "🎵  MUSIC TRACK / ALBUM"
-            badge = "[bold magenta]🎵 MUSIC[/bold magenta]"
-            open_btn.label = "⬇️ Download Track"
+            type_header = t("header_music")
+            badge = f"[bold magenta]🎵 {t('music').upper()}[/bold magenta]"
+            open_btn.label = f"⬇️ {t('download_track')}"
         else:
-            type_header = "📺  TV SERIES / ANIME"
-            badge = "[bold green]📺 SERIE / ANIME[/bold green]"
-            open_btn.label = "📺 Select Seasons & Episodes"
+            type_header = t("header_serie")
+            badge = f"[bold green]📺 {t('serie_anime').upper()}[/bold green]"
+            open_btn.label = f"📺 {t('select_seasons_episodes')}"
 
         prov_str = ", ".join(p[0] for p in providers)
         lines = [
@@ -340,18 +341,18 @@ class SearchScreen(Screen):
             f"[bold cyan]└──────────────────────────────────────────────┘[/bold cyan]",
             "",
             f"{badge}  [bold white]{name}[/bold white]" + (f" [dim]({year})[/dim]" if year else ""),
-            f"[dim]Provider(s):[/] [bold cyan]{prov_str}[/bold cyan]   [dim]Format:[/] [bold white]{typ}[/bold white]",
+            f"[dim]{t('label_providers')}[/] [bold cyan]{prov_str}[/bold cyan]   [dim]{t('label_format')}[/] [bold white]{typ}[/bold white]",
         ]
 
         if slug:
-            lines.append(f"[dim]Slug ID:[/] {slug}")
+            lines.append(f"[dim]{t('label_slug')}[/] {slug}")
 
         lines.append("")
-        lines.append("[bold cyan]Synopsis / Plot:[/bold cyan]")
+        lines.append(f"[bold cyan]{t('synopsis_plot')}:[/bold cyan]")
         if desc:
             lines.append(f"[italic]{desc[:280]}...[/italic]" if len(desc) > 280 else f"[italic]{desc}[/italic]")
         else:
-            lines.append("[dim]No description or plot details available for this title.[/dim]")
+            lines.append(f"[dim]{t('no_description')}[/dim]")
 
         preview = self.query_one("#search-preview-box", Static)
         preview.update("\n".join(lines))

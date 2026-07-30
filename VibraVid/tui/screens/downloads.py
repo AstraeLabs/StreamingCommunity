@@ -12,6 +12,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.timer import Timer
 from textual.widgets import Button, DataTable, Header, Static
+from VibraVid.tui.i18n import t
 from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.core.ui.tracker import download_tracker
@@ -65,17 +66,17 @@ class DownloadsScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="downloads-panel"):
-            yield Static("Active Downloads", classes="panel-title")
+            yield Static(t("active_downloads"), classes="panel-title")
             yield DataTable(id="downloads-table")
-            yield Static("Track Details & Streams", classes="panel-title")
+            yield Static(t("track_details_streams"), classes="panel-title")
             yield DataTable(id="tasks-table")
-            yield Static("Completed Downloads", classes="panel-title")
+            yield Static(t("completed_downloads"), classes="panel-title")
             yield DataTable(id="completed-table")
             with Horizontal(id="downloads-actions"):
-                yield Button("Cancel Selected", id="btn-cancel", variant="error")
-                yield Button("Clear Completed", id="btn-clear")
-                yield Button("▶ Avvia File", id="btn-play-file")
-                yield Button("📁 Apri Cartella", id="btn-open-folder")
+                yield Button(t("cancel_selected"), id="btn-cancel", variant="error")
+                yield Button(t("clear_completed"), id="btn-clear")
+                yield Button(f"▶ {t('play_file')}", id="btn-play-file")
+                yield Button(f"📁 {t('open_folder')}", id="btn-open-folder")
         yield CustomFooter()
 
     def on_mount(self) -> None:

@@ -27,3 +27,9 @@ def test_i18n_detect_system_language(monkeypatch):
     assert detect_system_language() == "it"
     monkeypatch.setenv("LANG", "en_US.UTF-8")
     assert detect_system_language() == "en"
+
+def test_i18n_catalogs_keys_matching():
+    from VibraVid.tui.i18n import CATALOGS
+    it_keys = set(CATALOGS["it"].keys())
+    en_keys = set(CATALOGS["en"].keys())
+    assert it_keys == en_keys, f"Missing in IT: {en_keys - it_keys}, Missing in EN: {it_keys - en_keys}"

@@ -9,6 +9,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widget import Widget
 from textual.widgets import Static
+from VibraVid.tui.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,11 @@ class CustomFooter(Widget):
     }
     #custom-footer-bar {
         height: 1;
+        width: 100%;
         align: center middle;
     }
     .foot-item {
+        width: auto;
         height: 1;
         padding: 0 1;
         margin: 0;
@@ -45,15 +48,15 @@ class CustomFooter(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="custom-footer-bar"):
-            yield Static("[H] Home", id="foot-home", classes="foot-item")
-            yield Static("[d] Downloads", id="foot-downloads", classes="foot-item")
-            yield Static("[q] Coda", id="foot-queue", classes="foot-item")
-            yield Static("[h] Storia", id="foot-history", classes="foot-item")
-            yield Static("[,] Settings", id="foot-settings", classes="foot-item")
-            yield Static("[s] Sistema", id="foot-system", classes="foot-item")
-            yield Static("[?] Aiuto", id="foot-help", classes="foot-item")
-            yield Static("[ESC] Indietro", id="foot-back", classes="foot-item")
-            yield Static("[Ctrl+Q] Esci", id="foot-quit", classes="foot-item")
+            yield Static(fr"[bold #7dcfff]\[H][/bold #7dcfff] {t('nav_home')}", id="foot-home", classes="foot-item")
+            yield Static(fr"[bold #7dcfff]\[d][/bold #7dcfff] {t('nav_downloads')}", id="foot-downloads", classes="foot-item")
+            yield Static(fr"[bold #7dcfff]\[q][/bold #7dcfff] {t('nav_queue')}", id="foot-queue", classes="foot-item")
+            yield Static(fr"[bold #7dcfff]\[h][/bold #7dcfff] {t('nav_history')}", id="foot-history", classes="foot-item")
+            yield Static(fr"[bold #7dcfff]\[,][/bold #7dcfff] {t('nav_settings')}", id="foot-settings", classes="foot-item")
+            yield Static(fr"[bold #7dcfff]\[s][/bold #7dcfff] {t('nav_system')}", id="foot-system", classes="foot-item")
+            yield Static(fr"[bold #7dcfff]\[?][/bold #7dcfff] {t('nav_help')}", id="foot-help", classes="foot-item")
+            yield Static(fr"[bold #7dcfff]\[ESC][/bold #7dcfff] {t('nav_back')}", id="foot-back", classes="foot-item")
+            yield Static(fr"[bold #7dcfff]\[Ctrl+Q][/bold #7dcfff] {t('nav_quit')}", id="foot-quit", classes="foot-item")
 
     @on(events.Click, ".foot-item")
     def _on_foot_item_click(self, event: events.Click) -> None:
@@ -76,3 +79,4 @@ class CustomFooter(Widget):
             self.app.action_back()
         elif target_id == "foot-quit":
             self.app.action_quit()
+
