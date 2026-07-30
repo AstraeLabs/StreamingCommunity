@@ -127,7 +127,7 @@ class TitleDetailScreen(Screen):
         providers_list.clear()
         selected_idx = 0
         for idx, (site_name, p_item) in enumerate(self._providers):
-            item_widget = ListItem(Static(site_name), id=f"provider-{idx}")
+            item_widget = ListItem(Static(site_name))
             item_widget.provider_payload = (site_name, p_item)
             providers_list.append(item_widget)
             if site_name == self._current_site:
@@ -239,15 +239,16 @@ class TitleDetailScreen(Screen):
     def _apply_seasons(self, seasons: List) -> None:
         self.query_one("#seasons-loading", LoadingIndicator).display = False
         self._seasons = list(seasons)
+        season_list = self.query_one("#seasons", ListView)
+        season_list.clear()
         if not self._seasons:
             self.query_one("#dsl-preview", Static).update("No season data available for this title.")
             return
 
-        season_list = self.query_one("#seasons", ListView)
         for season in self._seasons:
             count = len(getattr(season, "episodes", []) or [])
             label = f"S{season.number}  ·  {count} ep"
-            item = ListItem(Static(label), id=f"season-{season.number}")
+            item = ListItem(Static(label))
             item.season_payload = season
             season_list.append(item)
         season_list.index = 0
