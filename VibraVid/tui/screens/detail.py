@@ -10,10 +10,11 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, ListItem, ListView, LoadingIndicator, SelectionList, Static
+from textual.widgets import Button, Header, ListItem, ListView, LoadingIndicator, SelectionList, Static
 from textual.widgets._selection_list import Selection
 
 from VibraVid.tui import bridge
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +74,9 @@ class TitleDetailScreen(Screen):
                     with Vertical(id="episodes-box"):
                         yield SelectionList(id="episodes")
                 yield Static("", id="dsl-preview", classes="dsl-preview")
-            with Horizontal(id="actions-row"):
-                yield Button("Download Now", id="dl", variant="primary")
-                yield Button("Add to Queue", id="queue")
-        yield Footer()
+                with Horizontal(id="actions-row"):
+                    yield Button("Download selected episodes", id="btn-download", variant="primary")
+        yield CustomFooter()
 
     def _meta_line(self) -> str:
         parts = [

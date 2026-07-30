@@ -14,7 +14,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
-from textual.widgets import Button, DataTable, Footer, Header, Input, Static
+from textual.widgets import Button, DataTable, Header, Input, Static
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
 from VibraVid.cli.command.queue import (
@@ -94,8 +95,8 @@ class QueueScreen(Screen):
                 yield Button("Remove item", id="remove-btn")
                 yield Button("Retry failed", id="retry-btn")
                 yield Button("Clear queue", id="clear-queue-btn")
-                yield Button("Add command", id="add-command-btn")
-        yield Footer()
+                yield Button("Clear Completed", id="queue-btn-clear")
+        yield CustomFooter()
 
     def on_mount(self) -> None:
         table = self.query_one("#queue-table", DataTable)

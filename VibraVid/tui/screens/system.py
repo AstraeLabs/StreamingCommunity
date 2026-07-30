@@ -11,7 +11,8 @@ from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, OptionList, RichLog, Static, TabbedContent, TabPane
+from textual.widgets import Button, DataTable, Header, OptionList, RichLog, Static, TabbedContent, TabPane
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.cli.run import _probe_binary_version
 from VibraVid.setup.system import (
@@ -67,7 +68,7 @@ class SystemScreen(Screen):
                     yield Static(id="system-info-text")
                     yield Button("Check for Updates", variant="primary", id="btn-check-update")
                     yield Static("", id="update-status")
-        yield Footer()
+        yield CustomFooter()
 
     def on_mount(self) -> None:
         table = self.query_one("#deps-table", DataTable)

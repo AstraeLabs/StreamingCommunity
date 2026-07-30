@@ -10,7 +10,8 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Input, ListItem, ListView, Static, Switch
+from textual.widgets import Button, Header, Input, ListItem, ListView, Static, Switch
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.utils import config_manager
 
@@ -58,7 +59,7 @@ class SettingsScreen(Screen):
                     yield Button("Reload Config", variant="default", id="btn-reload")
                     yield Button("System Info", variant="accent", id="btn-goto-system")
                     yield Static("", id="settings-status")
-        yield Footer()
+        yield CustomFooter()
 
     def on_mount(self) -> None:
         sections_list = self.query_one("#settings-sections", ListView)

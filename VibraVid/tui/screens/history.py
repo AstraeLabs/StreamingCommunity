@@ -12,7 +12,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.timer import Timer
-from textual.widgets import Button, DataTable, Footer, Header, Static
+from textual.widgets import Button, DataTable, Header, Static
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
 from VibraVid.cli.command.queue import (
@@ -65,9 +66,9 @@ class HistoryScreen(Screen):
             )
             with Horizontal(id="history-actions"):
                 yield Button("Refresh", id="refresh-btn")
-                yield Button("Retry Selected", id="retry-history-btn")
-                yield Button("Clear History", id="clear-history-btn")
-        yield Footer()
+                yield Button("Re-enqueue item", id="reenqueue-btn")
+                yield Button("Clear history", id="clear-btn")
+        yield CustomFooter()
 
     def on_mount(self) -> None:
         table = self.query_one("#history-table", DataTable)

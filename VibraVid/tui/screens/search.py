@@ -9,8 +9,7 @@ from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Input, LoadingIndicator, ListView, Static
-
+from textual.widgets import Button, Header, Input, LoadingIndicator, ListView, Static
 from VibraVid.tui import bridge
 from VibraVid.tui.widgets.fuzzy_list import FuzzyItem, FuzzyList
 
@@ -79,7 +78,7 @@ class SearchScreen(Screen):
                         with Horizontal(id="preview-actions-row"):
                             yield Button("Download Now", id="preview-open-btn", variant="primary")
                             yield Button("+ Add to Queue", id="preview-queue-btn")
-        yield Footer()
+        yield CustomFooter()
 
     def on_mount(self) -> None:
         self.query_one("#search-loading", LoadingIndicator).display = False

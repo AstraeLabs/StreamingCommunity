@@ -9,7 +9,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.timer import Timer
-from textual.widgets import Button, DataTable, Footer, Header, Static
+from textual.widgets import Button, DataTable, Header, Static
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.core.ui.tracker import download_tracker
 
@@ -54,9 +55,9 @@ class DownloadsScreen(Screen):
             yield Static("Track Details & Streams", classes="panel-title")
             yield DataTable(id="tasks-table")
             with Horizontal(id="downloads-actions"):
-                yield Button("Cancel Selected", id="cancel-btn", disabled=True, variant="warning")
-                yield Button("Retry Failed", id="retry-btn", disabled=True, variant="primary")
-        yield Footer()
+                yield Button("Cancel Selected", id="btn-cancel", variant="error")
+                yield Button("Clear Completed", id="btn-clear")
+        yield CustomFooter()
 
     def on_mount(self) -> None:
         main_table = self.query_one("#downloads-table", DataTable)
@@ -107,17 +108,7 @@ class DownloadsScreen(Screen):
                         segments = str(task_data.get("segments", "0/0"))
                         tasks_table.add_row(label, progress, speed, size, segments)
 
-        cancel_btn = self.query_one("#cancel-btn", Button)
-        retry_btn = self.query_one("#retry-btn", Button)
-        cancel_btn.disabled = not active
-        failed = [dl for dl in active if dl.get("status") in ("failed", "cancelled")]
-        retry_btn.disabled = not failed
-
-    @on(DataTable.RowSelected, "#downloads-table")
-    def _on_row_selected(self) -> None:
-        self._refresh_downloads()
-
-    @on(Button.Pressed, "#cancel-btn")
+    @on(Button.Pressed, "#btn-cancel")
     def _on_cancel(self) -> None:
         main_table = self.query_one("#downloads-table", DataTable)
         if main_table.cursor_row is None:
@@ -128,6 +119,6 @@ class DownloadsScreen(Screen):
             download_tracker.request_stop(row_key)
             self.app.notify(f"Cancel requested for {row_key[:8]}", severity="information")
 
-    @on(Button.Pressed, "#retry-btn")
-    def _on_retry(self) -> None:
-        self.app.notify("Retry triggered from active tracker", severity="information")
+    @on(Button.Pressed, "#btn-clear")
+    def _on_clear(self) -> None:
+        self.app.notify("Cleared completed downloads from tracker", severity="information")

@@ -7,6 +7,7 @@ and remains the default interface.
 Directional navigation:
 - Right Arrow (->): Drill in / Select / Move right to child pane
 - Left Arrow (<-): Go back / Move left to parent pane
+- H: Jump to Home screen
 - ESC: Go back one level
 - Ctrl+Q: Quit
 """
@@ -54,6 +55,8 @@ class VibraVidApp(App):
         Binding("escape", "back", "Back", priority=True),
         Binding("left", "nav_left", "Left/Back", show=False),
         Binding("right", "nav_right", "Right/Select", show=False),
+        Binding("H", "go_home", "Home"),
+        Binding("home", "go_home", "Home", show=False),
         Binding("d", "open_area('downloads')", "Downloads"),
         Binding("q", "open_area('queue')", "Queue"),
         Binding("h", "open_area('history')", "History"),
@@ -85,6 +88,12 @@ class VibraVidApp(App):
             pass
 
     # ── Global directional navigation & actions ───────────────────────────
+
+    def action_go_home(self) -> None:
+        """Jump directly back to the HomeScreen from anywhere."""
+        if not isinstance(self.screen, HomeScreen):
+            while len(self.screen_stack) > 1 and not isinstance(self.screen, HomeScreen):
+                self.pop_screen()
 
     def action_nav_left(self) -> None:
         """Move left between columns, or ascend/go back one level."""

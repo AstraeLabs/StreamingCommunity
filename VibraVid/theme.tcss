@@ -47,11 +47,12 @@ Header {
     height: 1;
 }
 
-Footer {
+Footer, CustomFooter {
     background: $bg-surface;
     color: $fg-muted;
     dock: bottom;
     height: 1;
+    padding: 0 1;
 }
 
 Button {
@@ -152,7 +153,7 @@ OptionList > .option-list--option-highlighted {
 /* ── Home Screen ──────────────────────────────────────────────────────── */
 
 #sidebar {
-    width: 24;
+    width: 20;
     dock: left;
     background: $bg-surface;
     border-right: solid $bg-overlay;
@@ -160,8 +161,29 @@ OptionList > .option-list--option-highlighted {
 }
 
 #site-panel {
+    width: 28;
+    background: $bg-base;
+    border-right: solid $bg-overlay;
+    padding: 1 2;
+}
+
+#demo-panel {
     width: 1fr;
     padding: 1 2;
+    background: $bg-surface;
+}
+
+#demo-anim-box {
+    height: auto;
+    border: round $accent-primary;
+    background: $bg-base;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+#demo-guide-text {
+    height: auto;
+    color: $fg-default;
 }
 
 .panel-title {
