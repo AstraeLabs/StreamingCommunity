@@ -208,6 +208,7 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
 
     # ── Utility
     util_group = parser.add_argument_group('Utility')
+    util_group.add_argument('--tui', action='store_true', help='Launch the Textual Terminal User Interface (TUI)')
     util_group.add_argument('--no-log', action='store_true', help='Disable log file for this run')
     util_group.add_argument('-UP', '--update', action='store_true', help='Auto-update to latest version (binary only)')
     util_group.add_argument('--dep', action='store_true', help='Show dependency paths (config, services, binaries)')
@@ -486,6 +487,11 @@ def main():
         parser, site_option_dests = setup_argument_parser(search_functions, site_module=site_module, extra_site_modules=extra_site_modules)
         args = parser.parse_args()
         setup_logger(no_log=getattr(args, 'no_log', False))
+
+        if getattr(args, 'tui', False):
+            from VibraVid.tui.app import main as tui_main
+            tui_main()
+            return
 
         if hasattr(args, 'dep') and args.dep:
             show_dependencies(search_functions)
