@@ -81,15 +81,37 @@ class DownloadsScreen(Screen):
 
     def on_mount(self) -> None:
         main_table = self.query_one("#downloads-table", DataTable)
-        main_table.add_columns("ID", "Title", "Site", "Status", "Progress Bar", "Speed", "Size", "Segments")
+        main_table.add_columns(
+            t("col_id"),
+            t("col_title"),
+            t("col_site"),
+            t("col_status"),
+            t("col_progress"),
+            t("col_speed"),
+            t("col_size"),
+            t("col_segments"),
+        )
         main_table.cursor_type = "row"
         main_table.show_cursor = True
 
         tasks_table = self.query_one("#tasks-table", DataTable)
-        tasks_table.add_columns("Track / Stream", "Progress Bar", "Speed", "Size", "Segments")
+        tasks_table.add_columns(
+            t("col_track_stream"),
+            t("col_progress"),
+            t("col_speed"),
+            t("col_size"),
+            t("col_segments"),
+        )
 
         completed_table = self.query_one("#completed-table", DataTable)
-        completed_table.add_columns("ID", "Title", "Site", "Size", "Path", "Finished")
+        completed_table.add_columns(
+            t("col_id"),
+            t("col_title"),
+            t("col_site"),
+            t("col_size"),
+            t("col_path"),
+            t("col_finished"),
+        )
         completed_table.cursor_type = "row"
         completed_table.show_cursor = True
 

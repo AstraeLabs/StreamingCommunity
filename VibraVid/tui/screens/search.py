@@ -381,12 +381,12 @@ class SearchScreen(Screen):
         try:
             success = bridge.start_download(site, item, season=None, episodes=None)
             if success:
-                self.app.call_from_thread(self.app.notify, f"Started download for '{getattr(item, 'name', 'item')}'", severity="information")
+                self.app.call_from_thread(self.app.notify, t("started_download_for", item=getattr(item, "name", "item")), severity="information")
             else:
-                self.app.call_from_thread(self.app.notify, "Download failed to start", severity="error")
+                self.app.call_from_thread(self.app.notify, t("download_failed_to_start"), severity="error")
         except Exception as e:
             logger.exception("download error")
-            self.app.call_from_thread(self.app.notify, f"Download error: {e}", severity="error")
+            self.app.call_from_thread(self.app.notify, t("download_error", error=str(e)), severity="error")
         finally:
             context_tracker.is_gui = False
 
@@ -411,7 +411,7 @@ class SearchScreen(Screen):
         argv = builder.build_argv_from_params(site=site, search=search_term, item="1")
 
         if not argv:
-            self.app.notify("Could not build equivalent command.", severity="error")
+            self.app.notify(t("could_not_build_cmd"), severity="error")
             return
 
         tag = _PROCESS_TAG
@@ -433,9 +433,9 @@ class SearchScreen(Screen):
                 data = _load_queue(path)
                 data.setdefault("items", []).append(job_item)
                 _save_queue(path, data)
-            self.app.notify(f"Added '{search_term[:20]}' to queue ({job_item['id']})", severity="information")
+            self.app.notify(t("added_to_queue_msg", title=search_term[:20], job_id=job_item['id']), severity="information")
         except Exception as e:
-            self.app.notify(f"Queue error: {e}", severity="error")
+            self.app.notify(t("queue_error", error=str(e)), severity="error")
 
     @on(FuzzyList.Chosen, "#results")
     def _on_chosen(self, event: FuzzyList.Chosen) -> None:

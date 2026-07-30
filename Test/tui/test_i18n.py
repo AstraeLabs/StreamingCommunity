@@ -33,3 +33,19 @@ def test_i18n_catalogs_keys_matching():
     it_keys = set(CATALOGS["it"].keys())
     en_keys = set(CATALOGS["en"].keys())
     assert it_keys == en_keys, f"Missing in IT: {en_keys - it_keys}, Missing in EN: {it_keys - en_keys}"
+
+def test_i18n_new_gaps_keys():
+    set_language("it")
+    assert t("col_title") == "Titolo"
+    assert t("col_status") == "Stato"
+    assert t("hk_home") == "Torna alla schermata iniziale (Home)"
+    assert t("sec_default") == "Impostazioni Predefinite"
+    assert t("select_log_file") == "Seleziona File Log:"
+
+    set_language("en")
+    assert t("col_title") == "Title"
+    assert t("col_status") == "Status"
+    assert t("hk_home") == "Return to Home screen"
+    assert t("sec_default") == "Default Settings"
+    assert t("select_log_file") == "Select Log File:"
+

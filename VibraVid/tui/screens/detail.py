@@ -211,7 +211,7 @@ class TitleDetailScreen(Screen):
             return
         episodes: SelectionList = self.query_one("#episodes", SelectionList)
         episodes.select_all()
-        self.app.notify("Selected all episodes in season", severity="information")
+        self.app.notify(t("selected_all_episodes_msg"), severity="information")
 
     def action_deselect_all_episodes(self) -> None:
         """Shortcut 'u': Clear all episode selections in current season."""
@@ -219,7 +219,7 @@ class TitleDetailScreen(Screen):
             return
         episodes: SelectionList = self.query_one("#episodes", SelectionList)
         episodes.deselect_all()
-        self.app.notify("Cleared episode selections", severity="information")
+        self.app.notify(t("cleared_episodes_msg"), severity="information")
 
     # ── Seasons loading (worker) ──────────────────────────────────────────
 
@@ -235,7 +235,7 @@ class TitleDetailScreen(Screen):
 
     def _seasons_failed(self, message: str) -> None:
         self.query_one("#seasons-loading", LoadingIndicator).display = False
-        self.query_one("#dsl-preview", Static).update(f"[red]Could not load seasons: {message}")
+        self.query_one("#dsl-preview", Static).update(f"[red]{t('could_not_load_seasons', message=message)}[/red]")
 
     def _apply_seasons(self, seasons: List) -> None:
         self.query_one("#seasons-loading", LoadingIndicator).display = False
@@ -243,7 +243,7 @@ class TitleDetailScreen(Screen):
         season_list = self.query_one("#seasons", ListView)
         season_list.clear()
         if not self._seasons:
-            self.query_one("#dsl-preview", Static).update("No season data available for this title.")
+            self.query_one("#dsl-preview", Static).update(t("no_season_data"))
             return
 
         for season in self._seasons:
@@ -285,9 +285,7 @@ class TitleDetailScreen(Screen):
     def _update_dsl(self) -> None:
         picked = {s: eps for s, eps in self._episode_selections.items() if eps}
         if not picked:
-            self.query_one("#dsl-preview", Static).update(
-                "SPACE to toggle episode  ·  'a' Select All  ·  'u' Clear  ·  DSL preview will appear here"
-            )
+            self.query_one("#dsl-preview", Static).update(t("dsl_hint"))
             return
 
         if len(picked) == 1:
@@ -316,7 +314,7 @@ class TitleDetailScreen(Screen):
         else:
             picked = {s: eps for s, eps in self._episode_selections.items() if eps}
             if not picked:
-                self.app.notify("Select at least one episode first.", severity="warning")
+                self.app.notify(t("select_at_least_one_ep"), severity="warning")
                 return
             if len(picked) == 1:
                 season, eps = next(iter(picked.items()))
@@ -337,12 +335,12 @@ class TitleDetailScreen(Screen):
         try:
             success = bridge.start_download(self._site, self._item, season=season, episodes=episodes)
             if success:
-                self.app.call_from_thread(self.app.notify, "Download started in background!", severity="information")
+                self.app.call_from_thread(self.app.notify, t("download_started_bg"), severity="information")
             else:
-                self.app.call_from_thread(self.app.notify, "Download failed to start", severity="error")
+                self.app.call_from_thread(self.app.notify, t("download_failed_to_start"), severity="error")
         except Exception as e:
             logger.exception("download failed")
-            self.app.call_from_thread(self.app.notify, f"Download error: {e}", severity="error")
+            self.app.call_from_thread(self.app.notify, t("download_error", error=str(e)), severity="error")
         finally:
             context_tracker.is_gui = False
 
@@ -368,7 +366,7 @@ class TitleDetailScreen(Screen):
         if not self._is_single:
             picked = {s: eps for s, eps in self._episode_selections.items() if eps}
             if not picked:
-                self.app.notify("Select at least one episode first to queue.", severity="warning")
+                self.app.notify(t("select_at_least_one_ep_queue"), severity="warning")
                 return
             if len(picked) == 1:
                 season, eps = next(iter(picked.items()))
@@ -391,7 +389,7 @@ class TitleDetailScreen(Screen):
         )
 
         if not argv:
-            self.app.notify("Could not build equivalent command for queue.", severity="error")
+            self.app.notify(t("could_not_build_cmd_queue"), severity="error")
             return
 
         tag = _PROCESS_TAG
@@ -413,7 +411,7 @@ class TitleDetailScreen(Screen):
                 data = _load_queue(path)
                 data.setdefault("items", []).append(item)
                 _save_queue(path, data)
-            self.app.notify(f"Added item {item['id']} to queue ({search_term[:25]})", severity="information")
+            self.app.notify(t("added_item_to_queue_msg", id=item['id'], title=search_term[:25]), severity="information")
         except Exception as e:
             logger.exception("Failed to enqueue item")
-            self.app.notify(f"Queue error: {e}", severity="error")
+            self.app.notify(t("queue_error", error=str(e)), severity="error")

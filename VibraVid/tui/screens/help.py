@@ -10,28 +10,28 @@ from textual.widgets import Static
 from VibraVid.tui.i18n import t
 
 _GLOBAL_KEYS = [
-    ("H / Home", "Torna alla schermata iniziale (Home)"),
-    ("d", "Apri la schermata Scaricamenti (Downloads)"),
-    ("q", "Apri la Coda di download (Queue)"),
-    ("h", "Apri la Cronologia (History)"),
-    (",", "Apri le Impostazioni (Settings)"),
-    ("s", "Apri Diagnostica di Sistema e Log"),
-    ("?", "Apri / Chiudi questo menu di Aiuto"),
-    ("ESC", "Torna indietro di un livello"),
-    ("Ctrl+Q", "Esci dall'applicazione"),
+    ("H / Home", "hk_home"),
+    ("d", "hk_downloads"),
+    ("q", "hk_queue"),
+    ("h", "hk_history"),
+    (",", "hk_settings"),
+    ("s", "hk_system"),
+    ("?", "hk_help"),
+    ("ESC", "hk_back"),
+    ("Ctrl+Q", "hk_quit"),
 ]
 
 _NAV_KEYS = [
-    ("← / →", "Spostamento tra colonne, sezioni e filtri"),
-    ("↑ / ↓", "Scorrimento elenchi e risultati di ricerca"),
-    ("ENTER", "Conferma selezione o avvia ricerca"),
+    ("← / →", "hk_arrow_lr"),
+    ("↑ / ↓", "hk_arrow_ud"),
+    ("ENTER", "hk_enter"),
 ]
 
 _CONTEXT_KEYS = [
-    ("a", "Seleziona tutti gli episodi (Dettaglio serie)"),
-    ("u", "Deseleziona tutti gli episodi (Dettaglio serie)"),
-    ("Ctrl+S", "Salva la sezione corrente (Impostazioni)"),
-    ("r", "Ricarica diagnostica e log (Sistema)"),
+    ("a", "hk_select_all"),
+    ("u", "hk_deselect_all"),
+    ("Ctrl+S", "hk_save_section"),
+    ("r", "hk_reload_system"),
 ]
 
 
@@ -51,16 +51,16 @@ class HelpScreen(ModalScreen):
             yield Static(t("keyboard_help_guide"), classes="placeholder-title")
             with VerticalScroll(id="help-scroll"):
                 yield Static(f"[bold #7aa2f7]{t('global_navigation')}[/bold #7aa2f7]", classes="help-section-header")
-                for key, desc in _GLOBAL_KEYS:
-                    yield Static(f"[bold #7dcfff]{key:>10}[/bold #7dcfff]  [#c0caf5]{desc}[/#c0caf5]")
+                for key, desc_key in _GLOBAL_KEYS:
+                    yield Static(f"[bold #7dcfff]{key:>10}[/bold #7dcfff]  [#c0caf5]{t(desc_key)}[/#c0caf5]")
 
                 yield Static(f"\n[bold #7aa2f7]{t('navigation_keyboard')}[/bold #7aa2f7]", classes="help-section-header")
-                for key, desc in _NAV_KEYS:
-                    yield Static(f"[bold #7dcfff]{key:>10}[/bold #7dcfff]  [#c0caf5]{desc}[/#c0caf5]")
+                for key, desc_key in _NAV_KEYS:
+                    yield Static(f"[bold #7dcfff]{key:>10}[/bold #7dcfff]  [#c0caf5]{t(desc_key)}[/#c0caf5]")
 
                 yield Static(f"\n[bold #7aa2f7]{t('contextual_shortcuts')}[/bold #7aa2f7]", classes="help-section-header")
-                for key, desc in _CONTEXT_KEYS:
-                    yield Static(f"[bold #7dcfff]{key:>10}[/bold #7dcfff]  [#c0caf5]{desc}[/#c0caf5]")
+                for key, desc_key in _CONTEXT_KEYS:
+                    yield Static(f"[bold #7dcfff]{key:>10}[/bold #7dcfff]  [#c0caf5]{t(desc_key)}[/#c0caf5]")
 
             yield Static(f"\n{t('press_esc_to_close')}", classes="placeholder-hint")
 

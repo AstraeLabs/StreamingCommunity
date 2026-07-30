@@ -57,7 +57,7 @@ class SystemScreen(Screen):
 
             with TabPane(t("log_viewer"), id="tab-logs"):
                 with Horizontal(id="log-control-bar"):
-                    yield Static("Select Log File:", classes="field-label")
+                    yield Static(t("select_log_file"), classes="field-label")
                     yield Button(t("refresh_log_list"), variant="default", id="btn-refresh-logs")
                 with Horizontal(id="log-layout"):
                     yield OptionList(id="log-file-list")
@@ -73,7 +73,12 @@ class SystemScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one("#deps-table", DataTable)
-        table.add_columns("Binary", "Status", "Version", "Path")
+        table.add_columns(
+            t("col_binary"),
+            t("col_status"),
+            t("col_version"),
+            t("col_path"),
+        )
         self._load_dependencies()
         self._load_drm_status()
         self._load_log_files()

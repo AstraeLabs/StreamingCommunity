@@ -19,14 +19,14 @@ from VibraVid.utils import config_manager
 logger = logging.getLogger(__name__)
 
 SECTIONS: List[Tuple[str, str]] = [
-    ("DEFAULT", "Default Settings"),
-    ("OUTPUT", "Output Directories & Formatting"),
-    ("DOWNLOAD", "Download & Decryption Tuning"),
-    ("PROCESS", "Video & Audio Processing / Remuxing"),
-    ("REQUESTS", "Network, Proxy & Solvers"),
-    ("DRM", "CDM & Vault Configuration"),
-    ("ARR", "Sonarr / Radarr / Seerr Integration"),
-    ("LOGIN", "Login Credentials (login.json)"),
+    ("DEFAULT", "sec_default"),
+    ("OUTPUT", "sec_output"),
+    ("DOWNLOAD", "sec_download"),
+    ("PROCESS", "sec_process"),
+    ("REQUESTS", "sec_requests"),
+    ("DRM", "sec_drm"),
+    ("ARR", "sec_arr"),
+    ("LOGIN", "sec_login"),
 ]
 
 ARR_BANNER_TEXT = (
@@ -53,7 +53,7 @@ class SettingsScreen(Screen):
                 yield Static(t("settings_sections"), classes="panel-title")
                 yield ListView(id="settings-sections")
             with Vertical(id="settings-content"):
-                yield Static(f"DEFAULT — {t('default_settings')}", id="section-title", classes="panel-title")
+                yield Static(f"DEFAULT — {t('sec_default')}", id="section-title", classes="panel-title")
                 yield VerticalScroll(id="settings-form")
                 with Horizontal(id="settings-actions"):
                     yield Button(t("save_section"), variant="primary", id="btn-save")
@@ -73,10 +73,8 @@ class SettingsScreen(Screen):
 
     def _load_section(self, section: str) -> None:
         self._current_section = section
-        if section == "DEFAULT":
-            title_label = t("default_settings")
-        else:
-            title_label = dict(SECTIONS).get(section, section)
+        sec_key = dict(SECTIONS).get(section, section)
+        title_label = t(sec_key)
         self.query_one("#section-title", Static).update(f"{section} — {title_label}")
 
         form = self.query_one("#settings-form", VerticalScroll)

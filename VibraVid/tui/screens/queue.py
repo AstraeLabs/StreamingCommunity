@@ -44,11 +44,11 @@ class EnqueueModal(ModalScreen[Optional[str]]):
         with Vertical(id="enqueue-modal-box"):
             yield Static(t("enqueue_job"), classes="panel-title")
             yield Static(
-                "Enter CLI arguments (e.g. '--site animesaturn -s Naruto --item 1'):",
+                t("enter_cli_args_hint"),
                 classes="placeholder-hint",
             )
             yield Input(
-                placeholder="--site <site> -s <query> --item <N> ...",
+                placeholder=t("enqueue_input_placeholder"),
                 id="enqueue-input",
             )
             with Horizontal(id="modal-buttons"):
@@ -101,7 +101,14 @@ class QueueScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one("#queue-table", DataTable)
-        table.add_columns("ID", "Queue/Tag", "Status", "Command / Arguments", "Enqueued", "Attempts")
+        table.add_columns(
+            t("col_id"),
+            t("col_queue_tag"),
+            t("col_status"),
+            t("col_cmd_args"),
+            t("col_enqueued"),
+            t("col_attempts"),
+        )
         table.cursor_type = "row"
         table.show_cursor = True
 
