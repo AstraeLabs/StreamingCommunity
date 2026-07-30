@@ -1,0 +1,188 @@
+/* VibraVid TUI theme — semantic tokens.
+   Category colors mirror COLOR_MAP in VibraVid/cli/run.py. */
+
+$cat-anime: red;
+$cat-film_serie: yellow;
+$cat-serie: green;
+$cat-song: #585858;
+$cat-tor: blue;
+$cat-global: magenta;
+
+$accent: cyan;
+$error: red;
+$warning: yellow;
+$success: green;
+
+/* ── Home ─────────────────────────────────────────────────────────────── */
+
+#sidebar {
+    width: 22;
+    dock: left;
+    border-right: solid $primary-background-lighten-2;
+    padding: 0 1;
+}
+
+#site-panel {
+    width: 1fr;
+    padding: 0 1;
+}
+
+.panel-title {
+    text-style: bold;
+    color: $accent;
+    padding: 1 0 0 0;
+}
+
+.category-label {
+    text-style: bold;
+}
+
+.cat-anime { color: $cat-anime; }
+.cat-film_serie { color: $cat-film_serie; }
+.cat-serie { color: $cat-serie; }
+.cat-song { color: $cat-song; }
+.cat-tor { color: $cat-tor; }
+.cat-global { color: $cat-global; }
+
+.site-source {
+    color: $text-muted;
+}
+
+/* ── Placeholder / Help ───────────────────────────────────────────────── */
+
+PlaceholderScreen, HelpScreen {
+    align: center middle;
+}
+
+#placeholder-box, #help-box {
+    width: 64;
+    max-width: 90%;
+    height: auto;
+    border: solid $accent;
+    padding: 1 2;
+    background: $surface;
+}
+
+.placeholder-title {
+    text-style: bold;
+    color: $accent;
+    padding-bottom: 1;
+}
+
+.placeholder-milestone {
+    color: $warning;
+    padding-top: 1;
+}
+
+.placeholder-hint {
+    color: $text-muted;
+    padding-top: 1;
+}
+
+/* ── Search ───────────────────────────────────────────────────────────── */
+
+#search-panel {
+    padding: 0 1;
+}
+
+#query, #year {
+    margin-bottom: 1;
+}
+
+#search-loading {
+    height: 3;
+}
+
+#search-status {
+    color: $text-muted;
+    padding: 0 1;
+}
+
+FuzzyList {
+    height: 1fr;
+}
+
+#fuzzy-input {
+    dock: top;
+}
+
+#fuzzy-list {
+    height: 1fr;
+}
+
+/* ── Detail ───────────────────────────────────────────────────────────── */
+
+#detail-panel {
+    padding: 0 2;
+}
+
+.detail-title {
+    text-style: bold;
+    color: $accent;
+    padding-top: 1;
+}
+
+.detail-meta {
+    color: $text-muted;
+}
+
+#series-area {
+    height: 1fr;
+    padding-top: 1;
+}
+
+#seasons-loading {
+    height: 3;
+}
+
+#series-browser {
+    height: 1fr;
+}
+
+#seasons-box {
+    width: 24;
+    border-right: solid $primary-background-lighten-2;
+}
+
+#episodes-box {
+    width: 1fr;
+    padding: 0 1;
+}
+
+.dsl-preview {
+    color: $warning;
+    padding: 1 0;
+}
+
+#actions-row {
+    height: auto;
+    padding: 1 0;
+}
+
+#actions-row Button {
+    margin-right: 2;
+}
+
+/* ── Downloads ────────────────────────────────────────────────────────── */
+
+#downloads-panel {
+    padding: 0 1;
+}
+
+#downloads-table {
+    height: 1fr;
+    max-height: 40%;
+}
+
+#tasks-table {
+    height: 1fr;
+}
+
+#downloads-actions {
+    height: auto;
+    padding: 1 0;
+}
+
+#downloads-actions Button {
+    margin-right: 2;
+}
