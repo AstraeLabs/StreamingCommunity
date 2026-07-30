@@ -1,6 +1,6 @@
 # 29.07.26
 
-"""Home screen: Search Engine style landing page with central search bar & category scope selectors."""
+"""Home screen: Search Engine style landing page with central search bar, scope selectors & filtered provider pills."""
 
 import logging
 from typing import Dict, List, Optional
@@ -27,13 +27,15 @@ ASCII_LOGO = """[bold cyan]
 
 
 class HomeScreen(Screen):
-    """Search Engine style main screen with central search, category selectors & provider pills."""
+    """Search Engine style main screen with central search, category selectors & live-filtered provider pills."""
 
     def __init__(self) -> None:
         super().__init__()
         self._selected_scope: str = "global"
         self._selected_site: Optional[str] = None
         self._grouped: Dict[str, List[SiteInfo]] = {}
+        self._all_sites: List[SiteInfo] = []
+        self._searching_lock: bool = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="home-outer"):
@@ -56,29 +58,51 @@ class HomeScreen(Screen):
                     yield Button("📺 Serie TV", id="scope-serie", classes="scope-pill")
                     yield Button("🎵 Musica", id="scope-music", classes="scope-pill")
 
-                yield Static("Oppure Filtra per Provider / Sito Specifico:", classes="home-section-title")
+                with Horizontal(id="home-provider-header"):
+                    yield Static("Filtra Provider / Sito Specifico:", classes="home-section-title-left")
+                    yield Input(placeholder="Filtra provider... (es. anime, streaming)", id="provider-filter-input")
+
                 with VerticalScroll(id="home-sites-scroll"):
-                    yield Container(
-                        Button("🌐 Tutti i Provider", id="site-all", variant="primary", classes="site-pill"),
-                        id="home-sites-grid",
-                    )
+                    with Horizontal(id="home-sites-wrap"):
+                        yield Button("🌐 Tutti i Provider", id="site-all", variant="primary", classes="site-pill")
 
         yield CustomFooter()
 
     def on_mount(self) -> None:
         self._grouped = sites_by_category()
-        sites_box = self.query_one("#home-sites-grid", Container)
-
-        added_sites = set()
+        self._all_sites = []
+        added_names = set()
         for cat, site_list in self._grouped.items():
             for site in site_list:
-                if site.name not in added_sites:
-                    added_sites.add(site.name)
-                    btn_id = f"site-btn-{site.name.replace('_', '-')}"
-                    label = f"[{cat.upper()}] {site.name.capitalize()}"
-                    sites_box.mount(Button(label, id=btn_id, classes="site-pill"))
+                if site.name not in added_names:
+                    added_names.add(site.name)
+                    self._all_sites.append(site)
 
+        self._render_provider_pills(self._all_sites)
         self.query_one("#main-search-input", Input).focus()
+
+    def _render_provider_pills(self, sites: List[SiteInfo]) -> None:
+        sites_wrap = self.query_one("#home-sites-wrap", Horizontal)
+        # Keep the "Tutti i Provider" button and mount site buttons
+        current_buttons = [c for c in sites_wrap.children if isinstance(c, Button) and c.id != "site-all"]
+        for b in current_buttons:
+            b.remove()
+
+        for site in sites:
+            btn_id = f"site-btn-{site.name.replace('_', '-')}"
+            label = f"{site.name.capitalize()}"
+            is_active = (self._selected_site == site.name)
+            variant = "primary" if is_active else "default"
+            sites_wrap.mount(Button(label, id=btn_id, variant=variant, classes="site-pill"))
+
+    @on(Input.Changed, "#provider-filter-input")
+    def _on_provider_filter_changed(self, event: Input.Changed) -> None:
+        query = event.value.strip().lower()
+        if not query:
+            filtered = self._all_sites
+        else:
+            filtered = [s for s in self._all_sites if query in s.name.lower() or query in s.category.lower()]
+        self._render_provider_pills(filtered)
 
     # ── Scope and Site Pill Click Handlers ─────────────────────────────────
 
@@ -113,20 +137,29 @@ class HomeScreen(Screen):
             site_name = event.button.id[len("site-btn-"):].replace("-", "_")
             self._selected_site = site_name
 
-    # ── Search Submission ──────────────────────────────────────────────────
+    # ── Search Submission (Crash Guarded) ──────────────────────────────────
 
     @on(Input.Submitted, "#main-search-input")
     @on(Button.Pressed, "#btn-submit-search")
     def _on_search(self) -> None:
-        query = self.query_one("#main-search-input", Input).value.strip()
-        if not query:
-            self.app.notify("Inserisci un titolo prima di cercare!", severity="warning")
+        if self._searching_lock:
             return
+        self._searching_lock = True
+        try:
+            query = self.query_one("#main-search-input", Input).value.strip()
+            if not query:
+                self.app.notify("Inserisci un titolo prima di cercare!", severity="warning")
+                return
 
-        screen = SearchScreen(site=self._selected_site, initial_query=query)
-        if self._selected_scope != "global":
-            screen._current_filter_category = self._selected_scope
-        self.app.push_screen(screen)
+            screen = SearchScreen(site=self._selected_site, initial_query=query)
+            if self._selected_scope != "global":
+                screen._current_filter_category = self._selected_scope
+            self.app.push_screen(screen)
+        finally:
+            self.set_timer(0.6, self._unlock_search)
+
+    def _unlock_search(self) -> None:
+        self._searching_lock = False
 
     # ── Keyboard Directional Navigation ────────────────────────────────────
 
