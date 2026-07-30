@@ -113,7 +113,7 @@ class VibraVidApp(App):
     def action_nav_left(self) -> None:
         """Move left between columns, or ascend/go back one level."""
         current = self.screen
-        if hasattr(current, "action_nav_left") and callable(getattr(current, "action_nav_left")):
+        if hasattr(current, "action_nav_left") and callable(current.action_nav_left):
             current.action_nav_left()
         elif len(self.screen_stack) > 1:
             self.pop_screen()
@@ -121,7 +121,7 @@ class VibraVidApp(App):
     def action_nav_right(self) -> None:
         """Move right between columns, or descend/select current item."""
         current = self.screen
-        if hasattr(current, "action_nav_right") and callable(getattr(current, "action_nav_right")):
+        if hasattr(current, "action_nav_right") and callable(current.action_nav_right):
             current.action_nav_right()
 
     def action_back(self) -> None:

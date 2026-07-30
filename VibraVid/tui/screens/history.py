@@ -5,7 +5,7 @@
 import datetime
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from textual import on
 from textual.app import ComposeResult
@@ -13,19 +13,19 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.timer import Timer
 from textual.widgets import Button, DataTable, Header, Static
-from VibraVid.tui.i18n import t
-from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
 from VibraVid.cli.command.queue import (
     _PROCESS_TAG,
-    _QueueLock,
     _load_queue,
     _now_iso,
     _queue_path,
+    _QueueLock,
     _save_queue,
 )
 from VibraVid.core.ui.tracker import download_tracker
+from VibraVid.tui.i18n import t
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 from VibraVid.utils.system_open import open_file, open_folder
 
 logger = logging.getLogger(__name__)
@@ -47,8 +47,8 @@ class HistoryScreen(Screen):
 
     def __init__(self) -> None:
         super().__init__()
-        self._refresh_timer: Optional[Timer] = None
-        self._history_items: List[Dict[str, Any]] = []
+        self._refresh_timer: Timer | None = None
+        self._history_items: list[dict[str, Any]] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -184,7 +184,7 @@ class HistoryScreen(Screen):
 
         detail_box.update("\n".join(lines))
 
-    def _get_selected_item(self) -> Optional[Dict[str, Any]]:
+    def _get_selected_item(self) -> dict[str, Any] | None:
         table = self.query_one("#history-table", DataTable)
         if table.cursor_row is not None and 0 <= table.cursor_row < len(self._history_items):
             return self._history_items[table.cursor_row]

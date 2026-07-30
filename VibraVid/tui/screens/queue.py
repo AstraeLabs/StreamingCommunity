@@ -7,7 +7,7 @@ import os
 import shlex
 import subprocess
 import uuid
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from textual import on, work
 from textual.app import ComposeResult
@@ -15,13 +15,9 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
 from textual.widgets import Button, DataTable, Header, Input, Static
-from VibraVid.tui.i18n import t
-from VibraVid.tui.widgets.custom_footer import CustomFooter
 
-from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
 from VibraVid.cli.command.queue import (
     _PROCESS_TAG,
-    _QueueLock,
     _all_queue_paths,
     _child_command,
     _claim_next_any,
@@ -29,10 +25,13 @@ from VibraVid.cli.command.queue import (
     _load_queue,
     _now_iso,
     _queue_path,
+    _QueueLock,
     _save_queue,
     clear,
     remove,
 )
+from VibraVid.tui.i18n import t
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +74,8 @@ class QueueScreen(Screen):
 
     def __init__(self) -> None:
         super().__init__()
-        self._refresh_timer: Optional[Timer] = None
-        self._loaded_items: List[Tuple[dict, str]] = []  # (item_dict, queue_file_path)
+        self._refresh_timer: Timer | None = None
+        self._loaded_items: list[tuple[dict, str]] = []  # (item_dict, queue_file_path)
         self._is_worker_running: bool = False
 
     def compose(self) -> ComposeResult:
@@ -122,8 +121,8 @@ class QueueScreen(Screen):
     def _refresh_queue(self) -> None:
         """Reload all queued items from .cache/queue and update table & details."""
         paths = _all_queue_paths()
-        loaded: List[Tuple[dict, str]] = []
-        counts: Dict[str, int] = {"pending": 0, "running": 0, "done": 0, "failed": 0, "interrupted": 0}
+        loaded: list[tuple[dict, str]] = []
+        counts: dict[str, int] = {"pending": 0, "running": 0, "done": 0, "failed": 0, "interrupted": 0}
 
         for path in paths:
             data = _load_queue(path)
@@ -205,7 +204,7 @@ class QueueScreen(Screen):
 
         detail_box.update("\n".join(lines))
 
-    def _update_buttons(self, counts: Dict[str, int]) -> None:
+    def _update_buttons(self, counts: dict[str, int]) -> None:
         run_btn = self.query_one("#run-queue-btn", Button)
         remove_btn = self.query_one("#remove-btn", Button)
         retry_btn = self.query_one("#retry-btn", Button)
@@ -264,7 +263,7 @@ class QueueScreen(Screen):
                 proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL)
                 rc = proc.wait()
                 status = "done" if rc == 0 else "failed"
-            except Exception as e:
+            except Exception:
                 logger.exception("Error executing queued item %s", item.get("id"))
                 rc = -1
                 status = "failed"
@@ -332,7 +331,7 @@ class QueueScreen(Screen):
     def _on_add_command(self) -> None:
         self.app.push_screen(EnqueueModal(), callback=self._on_enqueue_modal_dismissed)
 
-    def _on_enqueue_modal_dismissed(self, raw_cmd: Optional[str]) -> None:
+    def _on_enqueue_modal_dismissed(self, raw_cmd: str | None) -> None:
         if not raw_cmd:
             return
         try:

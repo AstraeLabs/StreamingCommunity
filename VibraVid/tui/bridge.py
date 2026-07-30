@@ -14,8 +14,9 @@ import io
 import logging
 import sys
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Iterator, List, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 from VibraVid.services._base import load_search_functions
 
@@ -31,10 +32,10 @@ class SiteInfo(NamedTuple):
     source: str
 
 
-_sites_cache: Optional[List[SiteInfo]] = None
+_sites_cache: list[SiteInfo] | None = None
 
 
-def list_sites(refresh: bool = False) -> List[SiteInfo]:
+def list_sites(refresh: bool = False) -> list[SiteInfo]:
     """Return visible site modules sorted by index.
 
     Reads only the lazy-loader metadata, so no site module gets imported.
@@ -60,9 +61,9 @@ def list_sites(refresh: bool = False) -> List[SiteInfo]:
     return sites
 
 
-def sites_by_category() -> Dict[str, List[SiteInfo]]:
+def sites_by_category() -> dict[str, list[SiteInfo]]:
     """Group visible sites by their _useFor category, preserving index order."""
-    grouped: Dict[str, List[SiteInfo]] = {}
+    grouped: dict[str, list[SiteInfo]] = {}
     for site in list_sites():
         grouped.setdefault(site.use_for or "other", []).append(site)
     return grouped
@@ -113,7 +114,7 @@ def install_stdio_proxy() -> None:
 
 
 @contextlib.contextmanager
-def capture_stdio() -> Iterator[Tuple[io.StringIO, io.StringIO]]:
+def capture_stdio() -> Iterator[tuple[io.StringIO, io.StringIO]]:
     """Capture stdout/stderr of the CURRENT thread while running service code."""
     out_buf, err_buf = io.StringIO(), io.StringIO()
     out_local = getattr(sys.stdout, "_local", None)
@@ -152,7 +153,7 @@ def adapter_available(site: str) -> bool:
     return api.is_site_available(site)
 
 
-def available_adapters() -> List[str]:
+def available_adapters() -> list[str]:
     from GUI.searchapp import api
     return api.get_available_sites()
 
@@ -168,15 +169,15 @@ def search_titles(site: str, query: str) -> list:
         return _get_api(site).search(query)
 
 
-def search_global(query: str, sites: Optional[List[str]] = None, max_workers: int = 6) -> Tuple[Dict[str, list], Dict[str, str]]:
+def search_global(query: str, sites: list[str] | None = None, max_workers: int = 6) -> tuple[dict[str, list], dict[str, str]]:
     """Search every available adapter in parallel.
 
     Returns (results, errors): results maps site -> [Entries], errors maps
     site -> message for adapters that failed (offline, login required, ...).
     """
     available = sites if sites is not None else available_adapters()
-    results: Dict[str, list] = {}
-    errors: Dict[str, str] = {}
+    results: dict[str, list] = {}
+    errors: dict[str, str] = {}
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(search_titles, site, query): site for site in available}
@@ -192,13 +193,13 @@ def search_global(query: str, sites: Optional[List[str]] = None, max_workers: in
     return results, errors
 
 
-def get_seasons(site: str, item) -> Optional[list]:
+def get_seasons(site: str, item) -> list | None:
     """Return List[Season] for a series/album item, or None when not applicable."""
     with capture_stdio():
         return _get_api(site).get_series_metadata(item)
 
 
-def start_download(site: str, item, season: Optional[str] = None, episodes: Optional[str] = None) -> bool:
+def start_download(site: str, item, season: str | None = None, episodes: str | None = None) -> bool:
     """Start a download via the GUI adapter layer.
 
     This reuses the same path as the web GUI: the adapter's start_download()

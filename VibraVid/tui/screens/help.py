@@ -7,6 +7,7 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
+
 from VibraVid.tui.i18n import t
 
 _GLOBAL_KEYS = [

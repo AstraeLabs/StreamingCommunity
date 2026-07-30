@@ -3,7 +3,6 @@
 """Track selection widget: DataTable with multi-select for video/audio/subtitle streams."""
 
 import logging
-from typing import List, Set
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -22,7 +21,7 @@ class TrackSelect(Widget):
     class Confirmed(Message):
         """Posted when the user confirms the selection with ENTER."""
 
-        def __init__(self, selected_indices: Set[int], control) -> None:
+        def __init__(self, selected_indices: set[int], control) -> None:
             super().__init__()
             self.selected_indices = selected_indices
             self.control = control
@@ -32,10 +31,10 @@ class TrackSelect(Widget):
         Binding("enter", "confirm", "Confirm"),
     ]
 
-    def __init__(self, streams: List, **kwargs) -> None:
+    def __init__(self, streams: list, **kwargs) -> None:
         super().__init__(**kwargs)
         self._streams = sorted(streams, key=sort_streams_key)
-        self._selected: Set[int] = set()
+        self._selected: set[int] = set()
         # Pre-select streams marked as selected
         for idx, stream in enumerate(self._streams):
             if getattr(stream, "selected", False):
@@ -113,6 +112,6 @@ class TrackSelect(Widget):
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def get_selected_streams(self) -> List:
+    def get_selected_streams(self) -> list:
         """Return the list of selected stream objects."""
         return [self._streams[idx] for idx in sorted(self._selected)]

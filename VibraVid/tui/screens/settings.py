@@ -4,21 +4,21 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Header, Input, ListItem, ListView, Static, Switch
+
 from VibraVid.tui.i18n import t
 from VibraVid.tui.widgets.custom_footer import CustomFooter
-
 from VibraVid.utils import config_manager
 
 logger = logging.getLogger(__name__)
 
-SECTIONS: List[Tuple[str, str]] = [
+SECTIONS: list[tuple[str, str]] = [
     ("DEFAULT", "sec_default"),
     ("OUTPUT", "sec_output"),
     ("DOWNLOAD", "sec_download"),
@@ -44,7 +44,7 @@ class SettingsScreen(Screen):
     def __init__(self) -> None:
         super().__init__()
         self._current_section = "DEFAULT"
-        self._field_map: Dict[str, Tuple[str, Any, type]] = {}
+        self._field_map: dict[str, tuple[str, Any, type]] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()

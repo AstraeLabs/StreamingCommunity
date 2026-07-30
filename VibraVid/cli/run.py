@@ -1,33 +1,47 @@
 # 10.12.23
 
-import os
-import re
-import sys
+import argparse
 import json
 import logging
-import argparse
+import os
+import re
 import subprocess
+import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import config_manager, start_message, setup_logger, get_log_file_path
-from VibraVid.core.ui.tracker import context_tracker
-from VibraVid.services._base import load_search_functions
-from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
-from VibraVid.utils.upload import git_update, binary_update
-from VibraVid.setup.system import _initialize_paths
-from VibraVid.setup.system import (get_ffmpeg_path, get_ffprobe_path, get_bento4_decrypt_path, get_wvd_path, get_prd_path, get_shaka_packager_path, get_dovi_tool_path, get_mkvmerge_path, get_mkvpropedit_path, get_velora_path)
-from VibraVid.setup.binary_paths import binary_paths
-from VibraVid.utils.upload.version import __version__, __title__
-
-from VibraVid.cli.command.global_search import global_search as call_global_search
 from VibraVid.cli.command.download import handle_direct_download
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
+from VibraVid.cli.command.global_search import global_search as call_global_search
 from VibraVid.cli.command.queue import add_queue_arguments, handle_queue_dispatch
-
+from VibraVid.core.ui.tracker import context_tracker
+from VibraVid.services._base import load_search_functions
+from VibraVid.setup.binary_paths import binary_paths
+from VibraVid.setup.system import (
+    _initialize_paths,
+    get_bento4_decrypt_path,
+    get_dovi_tool_path,
+    get_ffmpeg_path,
+    get_ffprobe_path,
+    get_mkvmerge_path,
+    get_mkvpropedit_path,
+    get_prd_path,
+    get_shaka_packager_path,
+    get_velora_path,
+    get_wvd_path,
+)
+from VibraVid.utils import (
+    config_manager,
+    get_log_file_path,
+    setup_logger,
+    start_message,
+)
+from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
+from VibraVid.utils.upload import binary_update, git_update
+from VibraVid.utils.upload.version import __title__, __version__
 
 console = Console()
 msg = Prompt()
@@ -525,8 +539,8 @@ def main():
         try:
             git_update()
         except Exception as e:
-            logger.error(f"Error during git update: {str(e)}")
-            console.log(f"[red]Error loading github: {str(e)}")
+            logger.error(f"Error during git update: {e!s}")
+            console.log(f"[red]Error loading github: {e!s}")
 
         # Handle auto-update
         if args.update:

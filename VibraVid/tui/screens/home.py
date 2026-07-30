@@ -3,11 +3,15 @@
 """Home screen: Search Engine style landing page with central search bar, scope selectors & filtered provider pills."""
 
 import logging
-from typing import Dict, List, Optional
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, HorizontalScroll, Vertical, VerticalScroll
+from textual.containers import (
+    Container,
+    Horizontal,
+    Vertical,
+    VerticalScroll,
+)
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
@@ -33,9 +37,9 @@ class HomeScreen(Screen):
     def __init__(self) -> None:
         super().__init__()
         self._selected_scope: str = "global"
-        self._selected_site: Optional[str] = None
-        self._grouped: Dict[str, List[SiteInfo]] = {}
-        self._all_sites: List[SiteInfo] = []
+        self._selected_site: str | None = None
+        self._grouped: dict[str, list[SiteInfo]] = {}
+        self._all_sites: list[SiteInfo] = []
         self._searching_lock: bool = False
 
     def compose(self) -> ComposeResult:
@@ -81,7 +85,7 @@ class HomeScreen(Screen):
         await self._render_provider_pills(self._all_sites)
         self.query_one("#main-search-input", Input).focus()
 
-    async def _render_provider_pills(self, sites: List[SiteInfo]) -> None:
+    async def _render_provider_pills(self, sites: list[SiteInfo]) -> None:
         sites_wrap = self.query_one("#home-sites-wrap", VerticalScroll)
         await sites_wrap.remove_children()
 

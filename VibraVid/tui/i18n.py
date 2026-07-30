@@ -1,6 +1,5 @@
 import locale
 import os
-from typing import Optional
 
 CATALOGS = {
     "it": {
@@ -436,7 +435,7 @@ def get_language() -> str:
     return _CURRENT_LANG
 
 
-def t(key: str, default: Optional[str] = None, **kwargs) -> str:
+def t(key: str, default: str | None = None, **kwargs) -> str:
     lang_catalog = CATALOGS.get(_CURRENT_LANG, CATALOGS["en"])
     template = lang_catalog.get(key)
     if template is None:

@@ -4,7 +4,7 @@
 
 import datetime
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from textual import on
 from textual.app import ComposeResult
@@ -12,10 +12,10 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.timer import Timer
 from textual.widgets import Button, DataTable, Header, Static
-from VibraVid.tui.i18n import t
-from VibraVid.tui.widgets.custom_footer import CustomFooter
 
 from VibraVid.core.ui.tracker import download_tracker
+from VibraVid.tui.i18n import t
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 from VibraVid.utils.system_open import open_file, open_folder
 
 logger = logging.getLogger(__name__)
@@ -60,8 +60,8 @@ class DownloadsScreen(Screen):
 
     def __init__(self) -> None:
         super().__init__()
-        self._refresh_timer: Optional[Timer] = None
-        self._completed_items: List[Dict[str, Any]] = []
+        self._refresh_timer: Timer | None = None
+        self._completed_items: list[dict[str, Any]] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -206,7 +206,7 @@ class DownloadsScreen(Screen):
 
         btn_clear.disabled = len(self._completed_items) == 0
 
-    def _get_selected_completed_path(self) -> Optional[str]:
+    def _get_selected_completed_path(self) -> str | None:
         completed_table = self.query_one("#completed-table", DataTable)
         if completed_table.cursor_row is None or not self._completed_items:
             return None

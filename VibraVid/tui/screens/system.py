@@ -2,18 +2,24 @@
 
 """System screen: external dependencies & binary versions, DRM status, log viewer, update check."""
 
-import os
 import logging
+import os
 from pathlib import Path
-from typing import List, Tuple
 
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Header, OptionList, RichLog, Static, TabbedContent, TabPane
-from VibraVid.tui.i18n import t
-from VibraVid.tui.widgets.custom_footer import CustomFooter
+from textual.widgets import (
+    Button,
+    DataTable,
+    Header,
+    OptionList,
+    RichLog,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 
 from VibraVid.cli.run import _probe_binary_version
 from VibraVid.setup.system import (
@@ -28,6 +34,8 @@ from VibraVid.setup.system import (
     get_velora_path,
     get_wvd_path,
 )
+from VibraVid.tui.i18n import t
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 from VibraVid.utils import config_manager, get_log_file_path
 from VibraVid.utils.upload.update import fetch_github_releases, get_execution_mode
 from VibraVid.utils.upload.version import __title__, __version__
@@ -44,7 +52,7 @@ class SystemScreen(Screen):
 
     def __init__(self) -> None:
         super().__init__()
-        self._log_files: List[Path] = []
+        self._log_files: list[Path] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -95,7 +103,7 @@ class SystemScreen(Screen):
         table = self.query_one("#deps-table", DataTable)
         table.clear()
 
-        deps: List[Tuple[str, str]] = [
+        deps: list[tuple[str, str]] = [
             ("FFmpeg", get_ffmpeg_path()),
             ("FFprobe", get_ffprobe_path()),
             ("Bento4 (mp4decrypt)", get_bento4_decrypt_path()),

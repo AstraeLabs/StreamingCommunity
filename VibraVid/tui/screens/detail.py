@@ -3,14 +3,21 @@
 """Title detail screen: metadata, season/episode multi-select, DSL preview, directional nav & QoL shortcuts."""
 
 import logging
-from typing import Dict, List, Optional, Set, Tuple
 
 from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Header, ListItem, ListView, LoadingIndicator, SelectionList, Static
+from textual.widgets import (
+    Button,
+    Header,
+    ListItem,
+    ListView,
+    LoadingIndicator,
+    SelectionList,
+    Static,
+)
 from textual.widgets._selection_list import Selection
 
 from VibraVid.tui import bridge
@@ -20,7 +27,7 @@ from VibraVid.tui.widgets.custom_footer import CustomFooter
 logger = logging.getLogger(__name__)
 
 
-def compact_ranges(numbers: Set[int], total: int) -> str:
+def compact_ranges(numbers: set[int], total: int) -> str:
     """Compact a set of ints into the CLI DSL: [1,2,3,5] -> '1-3,5'; all -> '*'."""
     if not numbers:
         return ""
@@ -52,17 +59,17 @@ class TitleDetailScreen(Screen):
         self,
         site: str,
         item,
-        providers: Optional[List[Tuple[str, object]]] = None,
+        providers: list[tuple[str, object]] | None = None,
     ) -> None:
         super().__init__()
         if not providers:
             providers = [(site, item)]
-        self._providers: List[Tuple[str, object]] = list(providers)
+        self._providers: list[tuple[str, object]] = list(providers)
         self._current_site: str = site
         self._item = item
-        self._seasons: List = []
-        self._current_season: Optional[int] = None
-        self._episode_selections: Dict[int, Set[int]] = {}
+        self._seasons: list = []
+        self._current_season: int | None = None
+        self._episode_selections: dict[int, set[int]] = {}
 
     @property
     def _site(self) -> str:
@@ -237,7 +244,7 @@ class TitleDetailScreen(Screen):
         self.query_one("#seasons-loading", LoadingIndicator).display = False
         self.query_one("#dsl-preview", Static).update(f"[red]{t('could_not_load_seasons', message=message)}[/red]")
 
-    def _apply_seasons(self, seasons: List) -> None:
+    def _apply_seasons(self, seasons: list) -> None:
         self.query_one("#seasons-loading", LoadingIndicator).display = False
         self._seasons = list(seasons)
         season_list = self.query_one("#seasons", ListView)
@@ -329,7 +336,7 @@ class TitleDetailScreen(Screen):
             self._start_download_worker(season_str, episode_str)
 
     @work(thread=True, exclusive=True, group="download")
-    def _start_download_worker(self, season: Optional[str], episodes: Optional[str]) -> None:
+    def _start_download_worker(self, season: str | None, episodes: str | None) -> None:
         from VibraVid.core.ui.tracker import context_tracker
         context_tracker.is_gui = True
         try:
@@ -349,13 +356,14 @@ class TitleDetailScreen(Screen):
     @on(Button.Pressed, "#queue")
     def _on_queue(self) -> None:
         import uuid
+
         from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
         from VibraVid.cli.command.queue import (
             _PROCESS_TAG,
-            _QueueLock,
             _load_queue,
             _now_iso,
             _queue_path,
+            _QueueLock,
             _save_queue,
         )
 

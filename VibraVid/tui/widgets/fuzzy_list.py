@@ -4,7 +4,7 @@
 
 import logging
 from difflib import SequenceMatcher
-from typing import Any, List, NamedTuple
+from typing import Any, NamedTuple
 
 from textual import events, on
 from textual.app import ComposeResult
@@ -24,7 +24,6 @@ class FuzzyItem(NamedTuple):
 
 class HoverListItem(ListItem):
     """ListItem container for FuzzyList items."""
-    pass
 
 
 class FuzzyList(Widget):
@@ -58,7 +57,7 @@ class FuzzyList(Widget):
 
     def __init__(self, placeholder: str = "Filter...", **kwargs) -> None:
         super().__init__(**kwargs)
-        self._items: List[FuzzyItem] = []
+        self._items: list[FuzzyItem] = []
         self._placeholder = placeholder
 
     def compose(self) -> ComposeResult:
@@ -67,7 +66,7 @@ class FuzzyList(Widget):
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def set_items(self, items: List[FuzzyItem]) -> None:
+    def set_items(self, items: list[FuzzyItem]) -> None:
         self._items = list(items)
         self.query_one("#fuzzy-input", Input).value = ""
         self.call_after_refresh(self._refresh_list, self._items)
@@ -80,7 +79,7 @@ class FuzzyList(Widget):
 
     # ── Internals ─────────────────────────────────────────────────────────
 
-    async def _refresh_list(self, items: List[FuzzyItem]) -> None:
+    async def _refresh_list(self, items: list[FuzzyItem]) -> None:
         lv = self.query_one("#fuzzy-list", ListView)
         await lv.clear()
         for it in items:

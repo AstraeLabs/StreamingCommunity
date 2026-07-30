@@ -9,6 +9,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widget import Widget
 from textual.widgets import Static
+
 from VibraVid.tui.i18n import t
 
 logger = logging.getLogger(__name__)

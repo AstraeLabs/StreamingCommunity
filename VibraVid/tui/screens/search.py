@@ -3,13 +3,13 @@
 """Search screen: query input + category filters + mouse-hover live metadata preview card."""
 
 import logging
-from typing import Dict, List, Optional, Tuple
 
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Header, Input, LoadingIndicator, ListView, Static
+from textual.widgets import Button, Header, Input, LoadingIndicator, Static
+
 from VibraVid.tui import bridge
 from VibraVid.tui.i18n import t
 from VibraVid.tui.widgets.custom_footer import CustomFooter
@@ -18,7 +18,7 @@ from VibraVid.tui.widgets.fuzzy_list import FuzzyItem, FuzzyList
 logger = logging.getLogger(__name__)
 
 
-def _parse_year_filter(spec: str) -> Optional[Tuple[int, int]]:
+def _parse_year_filter(spec: str) -> tuple[int, int] | None:
     """Parse '2020' or '1990-2015' into (min, max); None if empty/invalid."""
     spec = (spec or "").strip()
     if not spec:
@@ -33,7 +33,7 @@ def _parse_year_filter(spec: str) -> Optional[Tuple[int, int]]:
         return None
 
 
-def _item_year(item) -> Optional[int]:
+def _item_year(item) -> int | None:
     try:
         return int(str(getattr(item, "year", "")).split("-")[0].strip())
     except (ValueError, TypeError):
@@ -47,10 +47,10 @@ def _normalize_title(title: str) -> str:
 
 
 def deduplicate_search_results(
-    results: List[Tuple[str, object]]
-) -> List[Tuple[str, object, List[Tuple[str, object]]]]:
+    results: list[tuple[str, object]]
+) -> list[tuple[str, object, list[tuple[str, object]]]]:
     """Group search results by normalized title, year, and category, merging providers."""
-    groups: Dict[Tuple[str, Optional[int], str], Tuple[str, object, List[Tuple[str, object]]]] = {}
+    groups: dict[tuple[str, int | None, str], tuple[str, object, list[tuple[str, object]]]] = {}
     ordered_keys = []
 
     for site, item in results:
@@ -81,13 +81,13 @@ def deduplicate_search_results(
 class SearchScreen(Screen):
     """Runs catalog search and displays results alongside mouse-hover live metadata preview card."""
 
-    def __init__(self, site: Optional[str], initial_query: str = "") -> None:
+    def __init__(self, site: str | None, initial_query: str = "") -> None:
         super().__init__()
         self._site = site
         self._initial_query = initial_query
-        self._raw: List[Tuple[str, object, List[Tuple[str, object]]]] = []
+        self._raw: list[tuple[str, object, list[tuple[str, object]]]] = []
         self._current_filter_category: str = "all"
-        self._highlighted_payload: Optional[Tuple] = None
+        self._highlighted_payload: tuple | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -140,9 +140,7 @@ class SearchScreen(Screen):
         preview_container = self.query_one("#preview-container")
         if self.focused in (open_btn, queue_btn) or (self.focused and self.focused in preview_container.walk_children()):
             results.focus()
-        elif self.focused == results or (self.focused and self.focused in results.walk_children()):
-            query_input.focus()
-        elif self.focused == year_input:
+        elif self.focused == results or (self.focused and self.focused in results.walk_children()) or self.focused == year_input:
             query_input.focus()
         else:
             self.app.pop_screen()
@@ -177,12 +175,12 @@ class SearchScreen(Screen):
         self._search_worker(query, year_spec)
 
     @work(thread=True, exclusive=True, group="search")
-    def _search_worker(self, query: str, year_spec: Optional[Tuple[int, int]]) -> None:
+    def _search_worker(self, query: str, year_spec: tuple[int, int] | None) -> None:
         try:
             if self._site:
                 items = bridge.search_titles(self._site, query)
                 results = [(self._site, it) for it in items]
-                errors: Dict[str, str] = {}
+                errors: dict[str, str] = {}
             else:
                 found, errors = bridge.search_global(query)
                 results = [(site, it) for site, items in found.items() for it in items]
@@ -199,7 +197,7 @@ class SearchScreen(Screen):
         self._set_loading(False)
         self.query_one("#search-status", Static).update(f"[bold red]✖ {t('search_failed')}:[/] {message}")
 
-    def _apply_results(self, results: List[Tuple[str, object]], errors: Dict[str, str], year_spec: Optional[Tuple[int, int]]) -> None:
+    def _apply_results(self, results: list[tuple[str, object]], errors: dict[str, str], year_spec: tuple[int, int] | None) -> None:
         self._set_loading(False)
         if year_spec:
             lo, hi = year_spec
@@ -220,7 +218,7 @@ class SearchScreen(Screen):
 
         self.query_one("#search-status", Static).update(status)
 
-    def _update_category_counts(self, results: List[Tuple[str, object, List[Tuple[str, object]]]]) -> None:
+    def _update_category_counts(self, results: list[tuple[str, object, list[tuple[str, object]]]]) -> None:
         total = len(results)
         films = sum(1 for _, it, _ in results if getattr(it, "is_movie", False))
         series = sum(1 for _, it, _ in results if not getattr(it, "is_movie", False) and not getattr(it, "is_song", False))
@@ -304,7 +302,7 @@ class SearchScreen(Screen):
         self._highlighted_payload = payload
         self._render_preview_card(payload)
 
-    def _render_preview_card(self, payload: Tuple) -> None:
+    def _render_preview_card(self, payload: tuple) -> None:
         self.query_one("#preview-actions-row", Horizontal).display = True
         site, item = payload[0], payload[1]
         providers = payload[2] if len(payload) > 2 else [(site, item)]
@@ -336,9 +334,9 @@ class SearchScreen(Screen):
 
         prov_str = ", ".join(p[0] for p in providers)
         lines = [
-            f"[bold cyan]┌──────────────────────────────────────────────┐[/bold cyan]",
+            "[bold cyan]┌──────────────────────────────────────────────┐[/bold cyan]",
             f"[bold cyan]│[/bold cyan] [bold white]{type_header[:44]:<44}[/bold white] [bold cyan]│[/bold cyan]",
-            f"[bold cyan]└──────────────────────────────────────────────┘[/bold cyan]",
+            "[bold cyan]└──────────────────────────────────────────────┘[/bold cyan]",
             "",
             f"{badge}  [bold white]{name}[/bold white]" + (f" [dim]({year})[/dim]" if year else ""),
             f"[dim]{t('label_providers')}[/] [bold cyan]{prov_str}[/bold cyan]   [dim]{t('label_format')}[/] [bold white]{typ}[/bold white]",
@@ -396,13 +394,14 @@ class SearchScreen(Screen):
             return
         site, item = self._highlighted_payload[0], self._highlighted_payload[1]
         import uuid
+
         from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
         from VibraVid.cli.command.queue import (
             _PROCESS_TAG,
-            _QueueLock,
             _load_queue,
             _now_iso,
             _queue_path,
+            _QueueLock,
             _save_queue,
         )
 
