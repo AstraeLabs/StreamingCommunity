@@ -1,12 +1,12 @@
 # 29.07.26
 
-"""Filter-as-you-type list: an Input over a ListView of labelled items with Chosen & Highlighted events."""
+"""Filter-as-you-type list: an Input over a ListView of labelled items with mouse hover & directional events."""
 
 import logging
 from difflib import SequenceMatcher
 from typing import Any, List, NamedTuple
 
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.message import Message
@@ -22,11 +22,23 @@ class FuzzyItem(NamedTuple):
     payload: Any = None
 
 
+class HoverListItem(ListItem):
+    """ListItem that updates ListView selection when hovered over with the mouse."""
+
+    def on_enter(self, event: events.Enter) -> None:
+        if self.parent and hasattr(self.parent, "index"):
+            try:
+                idx = list(self.parent.children).index(self)
+                self.parent.index = idx
+            except Exception:
+                pass
+
+
 class FuzzyList(Widget):
     """Input filter + ListView; reorders and filters items while typing."""
 
     class Chosen(Message):
-        """Posted when the user confirms a list entry with ENTER."""
+        """Posted when the user confirms a list entry with ENTER or CLICK."""
 
         def __init__(self, item: FuzzyItem, control) -> None:
             super().__init__()
@@ -38,7 +50,7 @@ class FuzzyList(Widget):
             return self._control_widget
 
     class Highlighted(Message):
-        """Posted when a list entry is highlighted as cursor moves."""
+        """Posted when a list entry is highlighted via mouse hover or arrow keys."""
 
         def __init__(self, item: FuzzyItem, control) -> None:
             super().__init__()
@@ -79,7 +91,7 @@ class FuzzyList(Widget):
         lv = self.query_one("#fuzzy-list", ListView)
         await lv.clear()
         for it in items:
-            li = ListItem(Static(it.label))
+            li = HoverListItem(Static(it.label))
             li.fuzzy_payload = it
             lv.append(li)
         if len(lv) > 0:

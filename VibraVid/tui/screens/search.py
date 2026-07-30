@@ -1,6 +1,6 @@
 # 29.07.26
 
-"""Search screen: query input + category filters + split-pane live metadata preview card."""
+"""Search screen: query input + category filters + mouse-hover live metadata preview card."""
 
 import logging
 from typing import Dict, List, Optional, Tuple
@@ -40,7 +40,7 @@ def _item_year(item) -> Optional[int]:
 
 
 class SearchScreen(Screen):
-    """Runs catalog search and displays results alongside live item metadata preview card."""
+    """Runs catalog search and displays results alongside mouse-hover live metadata preview card."""
 
     def __init__(self, site: Optional[str], initial_query: str = "") -> None:
         super().__init__()
@@ -73,11 +73,11 @@ class SearchScreen(Screen):
                 with Vertical(id="preview-container"):
                     with Vertical(id="preview-box"):
                         yield Static(
-                            "Highlight a search result to view details and metadata preview.",
+                            "Hover or click a search result to view details and metadata preview.",
                             id="search-preview-box",
                         )
                         with Horizontal(id="preview-actions-row"):
-                            yield Button("Open Details & Download", id="preview-open-btn", variant="primary")
+                            yield Button("Download Now", id="preview-open-btn", variant="primary")
                             yield Button("+ Add to Queue", id="preview-queue-btn")
         yield Footer()
 
@@ -242,7 +242,7 @@ class SearchScreen(Screen):
 
         self._populate_results_list()
 
-    # ── Live Preview Card Rendering ────────────────────────────────────────
+    # ── Live Preview Card Rendering (Mouse Hover & Selection) ───────────────
 
     @on(FuzzyList.Highlighted, "#results")
     def _on_highlighted(self, event: FuzzyList.Highlighted) -> None:
@@ -265,15 +265,20 @@ class SearchScreen(Screen):
         is_song = getattr(item, "is_song", False)
         is_series = getattr(item, "is_series", not (is_movie or is_song))
 
+        open_btn = self.query_one("#preview-open-btn", Button)
+
         if is_movie:
             type_header = "🎬  FILM / MOVIE FEATURE"
             badge = "[bold yellow]🎬 FILM[/bold yellow]"
+            open_btn.label = "⬇️ Download Movie"
         elif is_song:
             type_header = "🎵  MUSIC TRACK / ALBUM"
             badge = "[bold magenta]🎵 MUSIC[/bold magenta]"
+            open_btn.label = "⬇️ Download Track"
         else:
             type_header = "📺  TV SERIES / ANIME"
             badge = "[bold green]📺 SERIE / ANIME[/bold green]"
+            open_btn.label = "📺 Select Seasons & Episodes"
 
         lines = [
             f"[bold cyan]┌──────────────────────────────────────────────┐[/bold cyan]",
@@ -294,20 +299,40 @@ class SearchScreen(Screen):
         else:
             lines.append("[dim]No description or plot details available for this title.[/dim]")
 
-        lines.append("")
-        lines.append("[dim]Press[/dim] [bold cyan]ENTER[/bold cyan] [dim]or[/dim] [bold cyan]->[/bold cyan] [dim]to view seasons, episodes & download[/dim]")
-
         preview = self.query_one("#search-preview-box", Static)
         preview.update("\n".join(lines))
 
-    # ── Interactive Buttons inside Preview Box ────────────────────────────
+    # ── Interactive Actions on Highlighted Item ────────────────────────────
 
     @on(Button.Pressed, "#preview-open-btn")
     def _on_preview_open(self) -> None:
-        if self._highlighted_payload:
-            site, item = self._highlighted_payload
+        if not self._highlighted_payload:
+            return
+        site, item = self._highlighted_payload
+        is_movie = getattr(item, "is_movie", False)
+        is_song = getattr(item, "is_song", False)
+
+        if is_movie or is_song:
+            self._start_direct_download(site, item)
+        else:
             from VibraVid.tui.screens.detail import TitleDetailScreen
             self.app.push_screen(TitleDetailScreen(site, item))
+
+    @work(thread=True, exclusive=True, group="download")
+    def _start_direct_download(self, site: str, item: object) -> None:
+        from VibraVid.core.ui.tracker import context_tracker
+        context_tracker.is_gui = True
+        try:
+            success = bridge.start_download(site, item, season=None, episodes=None)
+            if success:
+                self.app.call_from_thread(self.app.notify, f"Started download for '{getattr(item, 'name', 'item')}'", severity="information")
+            else:
+                self.app.call_from_thread(self.app.notify, "Download failed to start", severity="error")
+        except Exception as e:
+            logger.exception("download error")
+            self.app.call_from_thread(self.app.notify, f"Download error: {e}", severity="error")
+        finally:
+            context_tracker.is_gui = False
 
     @on(Button.Pressed, "#preview-queue-btn")
     def _on_preview_queue(self) -> None:
@@ -359,5 +384,16 @@ class SearchScreen(Screen):
     @on(FuzzyList.Chosen, "#results")
     def _on_chosen(self, event: FuzzyList.Chosen) -> None:
         site, item = event.item.payload
-        from VibraVid.tui.screens.detail import TitleDetailScreen
-        self.app.push_screen(TitleDetailScreen(site, item))
+        self._highlighted_payload = (site, item)
+        self._render_preview_card(site, item)
+
+        is_movie = getattr(item, "is_movie", False)
+        is_song = getattr(item, "is_song", False)
+
+        if is_movie or is_song:
+            # Directly trigger download for movie/song on click!
+            self._start_direct_download(site, item)
+        else:
+            # Open episode selector for series
+            from VibraVid.tui.screens.detail import TitleDetailScreen
+            self.app.push_screen(TitleDetailScreen(site, item))
