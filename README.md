@@ -1291,54 +1291,58 @@ docker compose up -d
 
 ## TUI (Terminal User Interface)
 
-VibraVid includes a modern terminal-based user interface built with [Textual](https://github.com/Textualize/textual), providing an interactive experience for managing downloads without a web browser.
+VibraVid includes a modern terminal-based user interface built with [Textual](https://github.com/Textualize/textual), providing a rich, interactive experience for managing downloads directly from the command line without requiring a web browser.
 
 ### Launching the TUI
 
 ```bash
-# Launch the TUI
+# Launch via python
 python tui.py
+
+# Or via uv package manager
+uv run python tui.py
 
 # Or if installed via pip/termux
 vibravid --tui
 ```
 
-### Features
+### Key Capabilities & Features
 
-- **Interactive queue management** — Add, remove, reorder, and retry downloads
-- **Real-time progress tracking** — Live download progress with speed and ETA
-- **Search and browse** — Search across all supported sites with category filters
-- **Configuration editor** — Edit settings directly from the TUI
-- **History view** — Browse completed downloads with status and metadata
-- **Keyboard-driven** — Full keyboard navigation, no mouse required
-- **Small terminal support** — Works in terminals as small as 60×20 characters
+- **Global Search Deduplication** — Aggregates search results across all configured streaming and music providers into a single result entry per title, eliminating duplicate search results while showing all available sources.
+- **Multi-Provider Detail Navigation** — Triple-column layout in title detail screens (`[Providers] → [Seasons] → [Episodes]`), allowing seamless switching between providers on the fly without returning to search results if episodes are missing.
+- **Automatic i18n Localization (IT / EN)** — Automatic OS system language detection (Italian and English) with full bilingual support across all UI screens, data tables, modals, action bars, and keyboard guides.
+- **Interactive Queue & Batch Manager** — Add, remove, reorder, and retry batch download jobs with custom CLI arguments and tags.
+- **Live Stream & Download Progress Tracking** — Real-time progress indicators, speed, segment counts, track/stream details, and completed file actions (Open Folder / Launch File).
+- **System & DRM Inspector** — Diagnostics tab inspecting external binary dependencies (`ffmpeg`, `mp4decrypt`, `aria2c`, etc.), Widevine DRM CDM device status, and application log viewer.
+- **Full Keyboard & Mouse Navigation** — Directional arrow key navigation, contextual shortcuts (`a` select all, `u` clear, `Space` toggle, `ESC` back, `?` help), and mouse click support.
 
-### Requirements
+### TUI Screen Map
 
-The TUI requires Python 3.9+ and the `textual` package (included in `requirements.txt`).
-
-### Platform Support
-
-The TUI works on all platforms supported by VibraVid:
-
-- **macOS** — Terminal.app, iTerm2, Warp, or any modern terminal
-- **Linux** — Any terminal with 256-color support (GNOME Terminal, Konsole, Alacritty, etc.)
-- **Windows** — Windows Terminal recommended (cmd.exe works but has limited Unicode support)
-- **Termux (Android)** — Native terminal support, no X11 required
-
-### Screenshots
-
-<!-- TODO: Add screenshot -->
+| Shortcut | Screen | Description |
+|----------|--------|-------------|
+| `F1` | **Home** | Category selection (Film, Series, Anime, Music) and site filter shortcut cards |
+| `F2` | **Search** | Global search with deduplicated results and live metadata preview card |
+| `F3` | **Title Detail** | Multi-provider selector sidebar, season/episode selection list, and DSL preview |
+| `F4` | **Downloads** | Real-time progress table, track/stream inspector, and completed downloads |
+| `F5` | **Batch Queue** | Enqueue jobs, retry failed items, and manage CLI batch commands |
+| `F6` | **Download History** | Completed downloads table, output file path inspection, and re-queue actions |
+| `F7` | **Settings Editor** | Interactive section configuration editor with live save & reload |
+| `F8` | **System & DRM** | External binary checker, Widevine DRM device status, and log viewer |
+| `F9` | **Help Guide** | Full keyboard shortcut reference and navigation guide |
 
 ### Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `?` | Show help |
-| `q` | Quit |
-| `↑/↓` | Navigate |
-| `Enter` | Select/Confirm |
-| `Tab` | Switch focus |
+| Key | Context | Action |
+|-----|---------|--------|
+| `?` / `F9` | Global | Open Keyboard Help overlay |
+| `ESC` / `b` | Global | Go back / Close modal / Exit screen |
+| `q` | Global | Quit TUI |
+| `← / →` | Title Detail | Navigate between `[Providers] ↔ [Seasons] ↔ [Episodes] ↔ [Download]` |
+| `↑ / ↓` | Lists / Tables | Move selection highlight up / down |
+| `Space` | Title Detail | Toggle episode selection |
+| `a` | Title Detail | Select all episodes in current season |
+| `u` | Title Detail | Clear episode selections in current season |
+| `Enter` | Global | Confirm / Open selected item |
 
 ### Packaging
 
