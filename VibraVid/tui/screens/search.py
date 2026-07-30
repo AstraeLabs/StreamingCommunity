@@ -39,6 +39,44 @@ def _item_year(item) -> Optional[int]:
         return None
 
 
+def _normalize_title(title: str) -> str:
+    import re
+    cleaned = re.sub(r"[^\w\s]", "", (title or "").lower())
+    return " ".join(cleaned.split())
+
+
+def deduplicate_search_results(
+    results: List[Tuple[str, object]]
+) -> List[Tuple[str, object, List[Tuple[str, object]]]]:
+    """Group search results by normalized title, year, and category, merging providers."""
+    groups: Dict[Tuple[str, Optional[int], str], Tuple[str, object, List[Tuple[str, object]]]] = {}
+    ordered_keys = []
+
+    for site, item in results:
+        name = getattr(item, "name", "") or getattr(item, "title", "") or ""
+        norm_title = _normalize_title(str(name))
+        year = _item_year(item)
+
+        is_movie = getattr(item, "is_movie", False)
+        is_song = getattr(item, "is_song", False)
+        if is_movie:
+            cat = "movie"
+        elif is_song:
+            cat = "music"
+        else:
+            cat = "serie"
+
+        key = (norm_title, year, cat)
+        if key not in groups:
+            groups[key] = (site, item, [(site, item)])
+            ordered_keys.append(key)
+        else:
+            primary_site, primary_item, providers = groups[key]
+            providers.append((site, item))
+
+    return [groups[k] for k in ordered_keys]
+
+
 class SearchScreen(Screen):
     """Runs catalog search and displays results alongside mouse-hover live metadata preview card."""
 
@@ -46,9 +84,9 @@ class SearchScreen(Screen):
         super().__init__()
         self._site = site
         self._initial_query = initial_query
-        self._raw: List[Tuple[str, object]] = []
+        self._raw: List[Tuple[str, object, List[Tuple[str, object]]]] = []
         self._current_filter_category: str = "all"
-        self._highlighted_payload: Optional[Tuple[str, object]] = None
+        self._highlighted_payload: Optional[Tuple] = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -166,24 +204,26 @@ class SearchScreen(Screen):
             lo, hi = year_spec
             results = [r for r in results if (y := _item_year(r[1])) is not None and lo <= y <= hi]
 
-        self._raw = results
-        self._update_category_counts(results)
+        deduped = deduplicate_search_results(results)
+
+        self._raw = deduped
+        self._update_category_counts(deduped)
         self._populate_results_list()
 
-        status = f"[bold green]✔ {len(results)}[/bold green] result(s) found"
+        status = f"[bold green]✔ {len(deduped)}[/bold green] result(s) found"
         if errors:
             failed_names = ", ".join(sorted(errors))
             status += f"  ·  [bold yellow]⚠️ {len(errors)} site(s) timed out:[/] [dim]{failed_names}[/dim]"
-        elif not results:
+        elif not deduped:
             status = "[bold yellow]No results found for query.[/bold yellow]"
 
         self.query_one("#search-status", Static).update(status)
 
-    def _update_category_counts(self, results: List[Tuple[str, object]]) -> None:
+    def _update_category_counts(self, results: List[Tuple[str, object, List[Tuple[str, object]]]]) -> None:
         total = len(results)
-        films = sum(1 for _, it in results if getattr(it, "is_movie", False))
-        series = sum(1 for _, it in results if not getattr(it, "is_movie", False) and not getattr(it, "is_song", False))
-        music = sum(1 for _, it in results if getattr(it, "is_song", False))
+        films = sum(1 for _, it, _ in results if getattr(it, "is_movie", False))
+        series = sum(1 for _, it, _ in results if not getattr(it, "is_movie", False) and not getattr(it, "is_song", False))
+        music = sum(1 for _, it, _ in results if getattr(it, "is_song", False))
 
         self.query_one("#filter-all", Button).label = f"All ({total})"
         self.query_one("#filter-film", Button).label = f"🎬 Film ({films})"
@@ -192,7 +232,7 @@ class SearchScreen(Screen):
 
     def _populate_results_list(self) -> None:
         filtered = []
-        for site, it in self._raw:
+        for site, it, providers in self._raw:
             is_movie = getattr(it, "is_movie", False)
             is_song = getattr(it, "is_song", False)
 
@@ -203,11 +243,11 @@ class SearchScreen(Screen):
             if self._current_filter_category == "music" and not is_song:
                 continue
 
-            filtered.append((site, it))
+            filtered.append((site, it, providers))
 
         global_mode = self._site is None
         items = []
-        for site, it in filtered:
+        for site, it, providers in filtered:
             name = getattr(it, "name", "?")
             year = getattr(it, "year", "") or ""
             is_movie = getattr(it, "is_movie", False)
@@ -220,10 +260,15 @@ class SearchScreen(Screen):
             else:
                 type_tag = "[bold green]📺 SERIE[/bold green]"
 
-            site_tag = f" [bold cyan][{site}][/bold cyan]" if global_mode else ""
+            provider_names = [p[0] for p in providers]
+            if len(provider_names) > 1 or global_mode:
+                site_tag = f" [bold cyan][{', '.join(provider_names)}][/bold cyan]"
+            else:
+                site_tag = ""
+
             year_str = f" [dim]({year})[/dim]" if year else ""
             label = f"{site_tag} {type_tag} [bold white]{name}[/bold white]{year_str}"
-            items.append(FuzzyItem(key=f"{site}:{getattr(it, 'id', name)}", label=label, payload=(site, it)))
+            items.append(FuzzyItem(key=f"{site}:{getattr(it, 'id', name)}", label=label, payload=(site, it, providers)))
 
         self.query_one("#results", FuzzyList).set_items(items)
         self.query_one("#results", FuzzyList).focus()
@@ -254,12 +299,15 @@ class SearchScreen(Screen):
     def _on_highlighted(self, event: FuzzyList.Highlighted) -> None:
         if not event.item or not event.item.payload:
             return
-        site, item = event.item.payload
-        self._highlighted_payload = (site, item)
-        self._render_preview_card(site, item)
+        payload = event.item.payload
+        self._highlighted_payload = payload
+        self._render_preview_card(payload)
 
-    def _render_preview_card(self, site: str, item: object) -> None:
+    def _render_preview_card(self, payload: Tuple) -> None:
         self.query_one("#preview-actions-row", Horizontal).display = True
+        site, item = payload[0], payload[1]
+        providers = payload[2] if len(payload) > 2 else [(site, item)]
+
         name = getattr(item, "name", "") or getattr(item, "title", "?")
         year = getattr(item, "year", None)
         typ = getattr(item, "type", "Movie/Serie")
@@ -285,13 +333,14 @@ class SearchScreen(Screen):
             badge = "[bold green]📺 SERIE / ANIME[/bold green]"
             open_btn.label = "📺 Select Seasons & Episodes"
 
+        prov_str = ", ".join(p[0] for p in providers)
         lines = [
             f"[bold cyan]┌──────────────────────────────────────────────┐[/bold cyan]",
             f"[bold cyan]│[/bold cyan] [bold white]{type_header[:44]:<44}[/bold white] [bold cyan]│[/bold cyan]",
             f"[bold cyan]└──────────────────────────────────────────────┘[/bold cyan]",
             "",
             f"{badge}  [bold white]{name}[/bold white]" + (f" [dim]({year})[/dim]" if year else ""),
-            f"[dim]Provider:[/] [bold cyan]{site}[/bold cyan]   [dim]Format:[/] [bold white]{typ}[/bold white]",
+            f"[dim]Provider(s):[/] [bold cyan]{prov_str}[/bold cyan]   [dim]Format:[/] [bold white]{typ}[/bold white]",
         ]
 
         if slug:
@@ -313,7 +362,7 @@ class SearchScreen(Screen):
     def _on_preview_open(self) -> None:
         if not self._highlighted_payload:
             return
-        site, item = self._highlighted_payload
+        site, item = self._highlighted_payload[0], self._highlighted_payload[1]
         is_movie = getattr(item, "is_movie", False)
         is_song = getattr(item, "is_song", False)
 
@@ -343,7 +392,7 @@ class SearchScreen(Screen):
     def _on_preview_queue(self) -> None:
         if not self._highlighted_payload:
             return
-        site, item = self._highlighted_payload
+        site, item = self._highlighted_payload[0], self._highlighted_payload[1]
         import uuid
         from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
         from VibraVid.cli.command.queue import (
@@ -388,12 +437,14 @@ class SearchScreen(Screen):
 
     @on(FuzzyList.Chosen, "#results")
     def _on_chosen(self, event: FuzzyList.Chosen) -> None:
-        """When an item is clicked or ENTER is pressed: update preview & shift focus to action buttons."""
-        site, item = event.item.payload
-        self._highlighted_payload = (site, item)
-        self._render_preview_card(site, item)
+        """When an item is clicked or selected: update preview & maintain focus on results list."""
+        payload = event.item.payload
+        self._highlighted_payload = payload
+        self._render_preview_card(payload)
 
-        # Shift focus smoothly to the action button on the right card
-        open_btn = self.query_one("#preview-open-btn", Button)
-        if open_btn.display:
-            open_btn.focus()
+        # Re-focus results list so item highlights in blue and arrow keys work immediately
+        self.query_one("#results", FuzzyList).action_focus_list()
+
+        # Re-focus results list so item highlights in blue and arrow keys work immediately
+        self.query_one("#results", FuzzyList).action_focus_list()
+
