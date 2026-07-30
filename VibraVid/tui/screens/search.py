@@ -91,12 +91,16 @@ class SearchScreen(Screen):
     # ── Directional Navigation (Left / Right) ──────────────────────────────
 
     def action_nav_left(self) -> None:
-        """Left Arrow: move focus up to inputs or go back."""
+        """Left Arrow: move focus left from preview to results, or up to inputs, or go back."""
         query_input = self.query_one("#query", Input)
         year_input = self.query_one("#year", Input)
         results = self.query_one("#results", FuzzyList)
+        open_btn = self.query_one("#preview-open-btn", Button)
+        queue_btn = self.query_one("#preview-queue-btn", Button)
 
-        if self.focused == results or (self.focused and results.contains_widget(self.focused)):
+        if self.focused in (open_btn, queue_btn) or (self.focused and self.query_one("#preview-container").contains_widget(self.focused)):
+            results.focus()
+        elif self.focused == results or (self.focused and results.contains_widget(self.focused)):
             query_input.focus()
         elif self.focused == year_input:
             query_input.focus()
@@ -104,16 +108,17 @@ class SearchScreen(Screen):
             self.app.pop_screen()
 
     def action_nav_right(self) -> None:
-        """Right Arrow: move focus down to results or select result."""
+        """Right Arrow: move focus right from inputs to results, or from results to preview buttons."""
         query_input = self.query_one("#query", Input)
+        year_input = self.query_one("#year", Input)
         results = self.query_one("#results", FuzzyList)
+        open_btn = self.query_one("#preview-open-btn", Button)
 
-        if self.focused == query_input:
+        if self.focused in (query_input, year_input):
             results.focus()
-        else:
-            fuzzy_list = results.query_one("#fuzzy-list", ListView)
-            if fuzzy_list.highlighted_child:
-                fuzzy_list.action_select_cursor()
+        elif self.focused == results or (self.focused and results.contains_widget(self.focused)):
+            if self._highlighted_payload and open_btn.display:
+                open_btn.focus()
 
     # ── Search orchestration ──────────────────────────────────────────────
 
@@ -263,7 +268,6 @@ class SearchScreen(Screen):
 
         is_movie = getattr(item, "is_movie", False)
         is_song = getattr(item, "is_song", False)
-        is_series = getattr(item, "is_series", not (is_movie or is_song))
 
         open_btn = self.query_one("#preview-open-btn", Button)
 
@@ -383,17 +387,13 @@ class SearchScreen(Screen):
 
     @on(FuzzyList.Chosen, "#results")
     def _on_chosen(self, event: FuzzyList.Chosen) -> None:
+        """When an item is clicked or ENTER is pressed: update preview & shift focus to action buttons."""
         site, item = event.item.payload
         self._highlighted_payload = (site, item)
         self._render_preview_card(site, item)
 
-        is_movie = getattr(item, "is_movie", False)
-        is_song = getattr(item, "is_song", False)
-
-        if is_movie or is_song:
-            # Directly trigger download for movie/song on click!
-            self._start_direct_download(site, item)
-        else:
-            # Open episode selector for series
-            from VibraVid.tui.screens.detail import TitleDetailScreen
-            self.app.push_screen(TitleDetailScreen(site, item))
+        # Shift focus smoothly to the action button on the right card
+        open_btn = self.query_one("#preview-open-btn", Button)
+        if open_btn.display:
+            open_btn.focus()
+            self.app.notify(f"Selected '{getattr(item, 'name', 'item')}'. Press ENTER to proceed or -> to queue.", severity="information")
