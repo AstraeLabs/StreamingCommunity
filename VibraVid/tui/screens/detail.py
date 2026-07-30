@@ -76,7 +76,7 @@ class TitleDetailScreen(Screen):
                 yield Static("", id="dsl-preview", classes="dsl-preview")
             with Horizontal(id="actions-row"):
                 yield Button("Download", id="dl")
-                yield Button("Queue (M3)", id="queue", disabled=True)
+                yield Button("Queue", id="queue")
         yield Footer()
 
     def _meta_line(self) -> str:
@@ -228,3 +228,76 @@ class TitleDetailScreen(Screen):
             self.app.call_from_thread(self.app.notify, f"Download error: {e}", severity="error")
         finally:
             context_tracker.is_gui = False
+
+    # ── Queue action ──────────────────────────────────────────────────────
+
+    @on(Button.Pressed, "#queue")
+    def _on_queue(self) -> None:
+        import uuid
+        from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
+        from VibraVid.cli.command.queue import (
+            _PROCESS_TAG,
+            _QueueLock,
+            _load_queue,
+            _now_iso,
+            _queue_path,
+            _save_queue,
+        )
+
+        search_term = str(getattr(self._item, "name", "") or getattr(self._item, "title", "") or "")
+        season_str = None
+        episode_str = None
+
+        if not self._is_single:
+            picked = {s: eps for s, eps in self._episode_selections.items() if eps}
+            if not picked:
+                self.app.notify("Select at least one episode first to queue.", severity="warning")
+                return
+            if len(picked) == 1:
+                season, eps = next(iter(picked.items()))
+                total = self._season_episode_count(season)
+                season_str = str(season)
+                episode_str = compact_ranges(eps, total)
+            else:
+                seasons = compact_ranges(set(picked), len(self._seasons))
+                all_full = all(len(eps) >= self._season_episode_count(s) > 0 for s, eps in picked.items())
+                season_str = seasons
+                episode_str = "*" if all_full else "1-*"
+
+        builder = EquivalentCommandBuilder(excluded_dests=[])
+        argv = builder.build_argv_from_params(
+            site=self._site,
+            search=search_term,
+            item="1",
+            season=season_str,
+            episode=episode_str,
+        )
+
+        if not argv:
+            self.app.notify("Could not build equivalent command for queue.", severity="error")
+            return
+
+        tag = _PROCESS_TAG
+        path = _queue_path(tag)
+        item = {
+            "id": uuid.uuid4().hex[:8],
+            "argv": argv,
+            "status": "pending",
+            "tag": tag,
+            "enqueued_at": _now_iso(),
+            "started_at": None,
+            "finished_at": None,
+            "returncode": None,
+            "attempts": 0,
+        }
+
+        try:
+            with _QueueLock(path):
+                data = _load_queue(path)
+                data.setdefault("items", []).append(item)
+                _save_queue(path, data)
+            self.app.notify(f"Added item {item['id']} to queue ({search_term[:25]})", severity="information")
+        except Exception as e:
+            logger.exception("Failed to enqueue item")
+            self.app.notify(f"Queue error: {e}", severity="error")
+

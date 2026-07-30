@@ -16,8 +16,10 @@ from textual.events import Resize
 
 from VibraVid.tui.screens.downloads import DownloadsScreen
 from VibraVid.tui.screens.help import HelpScreen
+from VibraVid.tui.screens.history import HistoryScreen
 from VibraVid.tui.screens.home import HomeScreen
 from VibraVid.tui.screens.placeholder import PlaceholderScreen
+from VibraVid.tui.screens.queue import QueueScreen
 from VibraVid.utils.upload.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -68,9 +70,16 @@ class VibraVidApp(App):
 
     def action_open_area(self, area: str) -> None:
         if area == "downloads":
-            # Downloads is implemented in M2
             if not isinstance(self.screen, DownloadsScreen):
                 self.push_screen(DownloadsScreen())
+            return
+        if area == "queue":
+            if not isinstance(self.screen, QueueScreen):
+                self.push_screen(QueueScreen())
+            return
+        if area == "history":
+            if not isinstance(self.screen, HistoryScreen):
+                self.push_screen(HistoryScreen())
             return
         if isinstance(self.screen, PlaceholderScreen) and self.screen.area == area:
             return

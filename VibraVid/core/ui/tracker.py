@@ -47,29 +47,48 @@ class DownloadTracker(metaclass=SingletonMeta):
 
     def _load_persisted_history(self) -> None:
         model = self._get_history_model()
-        if not model:
-            return
+        if model:
+            try:
+                rows = list(model.objects.order_by("-created_at")[:50])
+                payloads: List[Dict[str, Any]] = []
+                for row in reversed(rows):
+                    try:
+                        payloads.append(json.loads(row.payload))
+                    except Exception:
+                        continue
+                self.history = payloads
+                return
+            except Exception:
+                pass
+
         try:
-            rows = list(model.objects.order_by("-created_at")[:50])
-            payloads: List[Dict[str, Any]] = []
-            for row in reversed(rows):
-                try:
-                    payloads.append(json.loads(row.payload))
-                except Exception:
-                    continue
-            self.history = payloads
+            from VibraVid.utils import config_manager
+            path = os.path.join(config_manager.base_path, ".cache", "history.json")
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                if isinstance(data, list):
+                    self.history = data[-50:]
         except Exception:
             pass
 
     def _persist_history_entry(self, entry: Dict[str, Any]) -> None:
         model = self._get_history_model()
-        if not model:
-            return
+        if model:
+            try:
+                model.objects.create(
+                    download_id=str(entry.get("id") or ""),
+                    payload=json.dumps(entry),
+                )
+            except Exception:
+                pass
+
         try:
-            model.objects.create(
-                download_id=str(entry.get("id") or ""),
-                payload=json.dumps(entry),
-            )
+            from VibraVid.utils import config_manager
+            path = os.path.join(config_manager.base_path, ".cache", "history.json")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(self.history[-50:], fh, indent=2)
         except Exception:
             pass
         
@@ -342,6 +361,13 @@ class DownloadTracker(metaclass=SingletonMeta):
                 model.objects.all().delete()
             except Exception:
                 pass
+        try:
+            from VibraVid.utils import config_manager
+            path = os.path.join(config_manager.base_path, ".cache", "history.json")
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
 
 
 class ContextTracker:
