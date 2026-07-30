@@ -1,17 +1,13 @@
 # 29.07.26
 
-"""Title detail screen: metadata, season/episode multi-select, DSL preview.
-
-Read-only in M1: the Download/Queue actions are wired in M2/M3. The DSL
-preview shows the exact `selections` dict the download path will receive —
-the same strings the CLI DSL produces ("1-3", "*", "1,2,5").
-"""
+"""Title detail screen: metadata, season/episode multi-select, DSL preview, directional nav & QoL shortcuts."""
 
 import logging
 from typing import Dict, List, Optional, Set
 
 from textual import on, work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, ListItem, ListView, LoadingIndicator, SelectionList, Static
@@ -45,6 +41,11 @@ def compact_ranges(numbers: Set[int], total: int) -> str:
 class TitleDetailScreen(Screen):
     """Shows one catalog item; for series lets the user pick episodes."""
 
+    BINDINGS = [
+        Binding("a", "select_all_episodes", "Select All"),
+        Binding("u", "deselect_all_episodes", "Deselect All"),
+    ]
+
     def __init__(self, site: str, item) -> None:
         super().__init__()
         self._site = site
@@ -52,8 +53,6 @@ class TitleDetailScreen(Screen):
         self._seasons: List = []
         self._current_season: Optional[int] = None
         self._episode_selections: Dict[int, Set[int]] = {}
-
-    # ── Layout ────────────────────────────────────────────────────────────
 
     @property
     def _is_single(self) -> bool:
@@ -66,7 +65,7 @@ class TitleDetailScreen(Screen):
             yield Static(self._meta_line(), classes="detail-meta")
             yield Static(self._desc_line(), classes="detail-meta")
             with Vertical(id="series-area"):
-                yield Static("Seasons & episodes", classes="panel-title")
+                yield Static("Seasons & Episodes (Right -> Episodes | Left <- Seasons | Space -> Toggle | a -> Select All | u -> Clear)", classes="panel-title")
                 yield LoadingIndicator(id="seasons-loading")
                 with Horizontal(id="series-browser"):
                     with Vertical(id="seasons-box"):
@@ -75,8 +74,8 @@ class TitleDetailScreen(Screen):
                         yield SelectionList(id="episodes")
                 yield Static("", id="dsl-preview", classes="dsl-preview")
             with Horizontal(id="actions-row"):
-                yield Button("Download", id="dl")
-                yield Button("Queue", id="queue")
+                yield Button("Download Now", id="dl", variant="primary")
+                yield Button("Add to Queue", id="queue")
         yield Footer()
 
     def _meta_line(self) -> str:
@@ -100,8 +99,59 @@ class TitleDetailScreen(Screen):
         if self._is_single:
             self.query_one("#series-area", Vertical).display = False
             self.query_one("#dsl-preview", Static).update("selections = None (single item)")
+            self.query_one("#dl", Button).focus()
             return
         self._load_seasons()
+
+    # ── Directional Navigation (Left / Right) ──────────────────────────────
+
+    def action_nav_left(self) -> None:
+        """Left Arrow: move from Episodes to Seasons, or go back to parent screen."""
+        if self._is_single:
+            self.app.pop_screen()
+            return
+
+        episodes = self.query_one("#episodes", SelectionList)
+        dl_btn = self.query_one("#dl", Button)
+        queue_btn = self.query_one("#queue", Button)
+
+        if self.focused in (episodes, dl_btn, queue_btn):
+            self.query_one("#seasons", ListView).focus()
+        else:
+            # If already on seasons, ascend/pop screen
+            self.app.pop_screen()
+
+    def action_nav_right(self) -> None:
+        """Right Arrow: move from Seasons to Episodes, or to Download button."""
+        if self._is_single:
+            self.query_one("#dl", Button).focus()
+            return
+
+        seasons = self.query_one("#seasons", ListView)
+        episodes = self.query_one("#episodes", SelectionList)
+
+        if self.focused == seasons or (self.focused and self.query_one("#seasons-box").contains_widget(self.focused)):
+            episodes.focus()
+        elif self.focused == episodes:
+            self.query_one("#dl", Button).focus()
+
+    # ── Episode Selection Shortcuts (a / u) ──────────────────────────────
+
+    def action_select_all_episodes(self) -> None:
+        """Shortcut 'a': Select all episodes in current season."""
+        if self._current_season is None or self._is_single:
+            return
+        episodes: SelectionList = self.query_one("#episodes", SelectionList)
+        episodes.select_all()
+        self.app.notify("Selected all episodes in season", severity="information")
+
+    def action_deselect_all_episodes(self) -> None:
+        """Shortcut 'u': Clear all episode selections in current season."""
+        if self._current_season is None or self._is_single:
+            return
+        episodes: SelectionList = self.query_one("#episodes", SelectionList)
+        episodes.deselect_all()
+        self.app.notify("Cleared episode selections", severity="information")
 
     # ── Seasons loading (worker) ──────────────────────────────────────────
 
@@ -135,6 +185,7 @@ class TitleDetailScreen(Screen):
             season_list.append(item)
         season_list.index = 0
         self._show_season(self._seasons[0])
+        season_list.focus()
 
     def _show_season(self, season) -> None:
         self._current_season = season.number
@@ -166,7 +217,7 @@ class TitleDetailScreen(Screen):
         picked = {s: eps for s, eps in self._episode_selections.items() if eps}
         if not picked:
             self.query_one("#dsl-preview", Static).update(
-                "SPACE to select episodes — selections preview will appear here"
+                "SPACE to toggle episode  ·  'a' Select All  ·  'u' Clear  ·  DSL preview will appear here"
             )
             return
 
@@ -192,10 +243,8 @@ class TitleDetailScreen(Screen):
     @on(Button.Pressed, "#dl")
     def _on_download(self) -> None:
         if self._is_single:
-            # Movie/song: no selections needed
             self._start_download_worker(None, None)
         else:
-            # Series: build selections from episode picks
             picked = {s: eps for s, eps in self._episode_selections.items() if eps}
             if not picked:
                 self.app.notify("Select at least one episode first.", severity="warning")
@@ -209,18 +258,17 @@ class TitleDetailScreen(Screen):
                 seasons = compact_ranges(set(picked), len(self._seasons))
                 all_full = all(len(eps) >= self._season_episode_count(s) > 0 for s, eps in picked.items())
                 season_str = seasons
-                episode_str = "*" if all_full else "1-*"  # fallback: all episodes per season
+                episode_str = "*" if all_full else "1-*"
             self._start_download_worker(season_str, episode_str)
 
     @work(thread=True, exclusive=True, group="download")
     def _start_download_worker(self, season: Optional[str], episodes: Optional[str]) -> None:
-        # Set is_gui=True to suppress Rich bars/prints
         from VibraVid.core.ui.tracker import context_tracker
         context_tracker.is_gui = True
         try:
             success = bridge.start_download(self._site, self._item, season=season, episodes=episodes)
             if success:
-                self.app.call_from_thread(self.app.notify, "Download started", severity="information")
+                self.app.call_from_thread(self.app.notify, "Download started in background!", severity="information")
             else:
                 self.app.call_from_thread(self.app.notify, "Download failed to start", severity="error")
         except Exception as e:
@@ -300,4 +348,3 @@ class TitleDetailScreen(Screen):
         except Exception as e:
             logger.exception("Failed to enqueue item")
             self.app.notify(f"Queue error: {e}", severity="error")
-

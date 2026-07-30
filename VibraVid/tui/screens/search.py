@@ -1,6 +1,6 @@
 # 29.07.26
 
-"""Search screen: query input + fuzzy-filterable results, per-site or global."""
+"""Search screen: query input + fuzzy-filterable results with directional navigation."""
 
 import logging
 from typing import Dict, List, Optional, Tuple
@@ -9,7 +9,7 @@ from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, LoadingIndicator, Static
+from textual.widgets import Footer, Header, Input, LoadingIndicator, ListView, Static
 
 from VibraVid.tui import bridge
 from VibraVid.tui.widgets.fuzzy_list import FuzzyItem, FuzzyList
@@ -44,18 +44,16 @@ class SearchScreen(Screen):
 
     def __init__(self, site: Optional[str], initial_query: str = "") -> None:
         super().__init__()
-        self._site = site  # None -> global search across all adapters
+        self._site = site
         self._initial_query = initial_query
         self._raw: List[Tuple[str, object]] = []
-
-    # ── Layout ────────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="search-panel"):
             title = f"Search on {self._site}" if self._site else "Global search"
             yield Static(title, classes="panel-title")
-            yield Input(placeholder="Type a title and press ENTER", id="query", value=self._initial_query)
+            yield Input(placeholder="Type title and press ENTER (or Right -> Results)", id="query", value=self._initial_query)
             yield Input(placeholder="Year filter, e.g. 2021 or 1990-2015 (optional)", id="year")
             yield LoadingIndicator(id="search-loading")
             yield Static("", id="search-status")
@@ -68,9 +66,37 @@ class SearchScreen(Screen):
         if self._initial_query:
             self._start_search()
 
+    # ── Directional Navigation (Left / Right) ──────────────────────────────
+
+    def action_nav_left(self) -> None:
+        """Left Arrow: move focus up to inputs or go back."""
+        query_input = self.query_one("#query", Input)
+        year_input = self.query_one("#year", Input)
+        results = self.query_one("#results", FuzzyList)
+
+        if self.focused == results or (self.focused and results.contains_widget(self.focused)):
+            query_input.focus()
+        elif self.focused == year_input:
+            query_input.focus()
+        else:
+            self.app.pop_screen()
+
+    def action_nav_right(self) -> None:
+        """Right Arrow: move focus down to results or select result."""
+        query_input = self.query_one("#query", Input)
+        results = self.query_one("#results", FuzzyList)
+
+        if self.focused == query_input:
+            results.focus()
+        else:
+            fuzzy_list = results.query_one("#fuzzy-list", ListView)
+            if fuzzy_list.highlighted_child:
+                fuzzy_list.action_select_cursor()
+
     # ── Search orchestration ──────────────────────────────────────────────
 
     @on(Input.Submitted, "#query")
+    @on(Input.Submitted, "#year")
     def _on_submit(self) -> None:
         self._start_search()
 
@@ -98,8 +124,6 @@ class SearchScreen(Screen):
             self.app.call_from_thread(self._search_failed, str(e))
             return
         self.app.call_from_thread(self._apply_results, results, errors, year_spec)
-
-    # ── UI updates (main thread) ──────────────────────────────────────────
 
     def _set_loading(self, active: bool) -> None:
         self.query_one("#search-loading", LoadingIndicator).display = active
@@ -132,6 +156,7 @@ class SearchScreen(Screen):
         elif not items:
             status = "No results found"
         self.query_one("#search-status", Static).update(status)
+        self.query_one("#results", FuzzyList).focus()
 
     @on(FuzzyList.Chosen, "#results")
     def _on_chosen(self, event: FuzzyList.Chosen) -> None:

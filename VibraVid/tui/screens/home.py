@@ -1,10 +1,6 @@
 # 29.07.26
 
-"""Home screen: category sidebar + site list (read-only catalog).
-
-M0 ships the static version; M1 turns the site list into a fuzzy-filterable
-widget and wires ENTER to the Search screen.
-"""
+"""Home screen: category sidebar + site list with directional (left/right) navigation."""
 
 import logging
 from typing import Dict, List, Optional
@@ -21,7 +17,6 @@ from VibraVid.tui.widgets.fuzzy_list import FuzzyItem, FuzzyList
 
 logger = logging.getLogger(__name__)
 
-# Display labels and order for the known _useFor categories.
 CATEGORY_LABELS = {
     "anime": "Anime",
     "film_serie": "Film & Series",
@@ -48,7 +43,7 @@ class HomeScreen(Screen):
                 yield ListView(id="categories")
             with Vertical(id="site-panel"):
                 yield Static("Sites", classes="panel-title")
-                yield FuzzyList(placeholder="Filter sites...", id="sites")
+                yield FuzzyList(placeholder="Filter sites... [/]", id="sites")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -69,6 +64,7 @@ class HomeScreen(Screen):
         if self._categories:
             cat_list.index = 0
             self._show_category(self._categories[0])
+            cat_list.focus()
 
     def _show_category(self, category: str) -> None:
         items = []
@@ -76,6 +72,28 @@ class HomeScreen(Screen):
             suffix = "" if site.source == "default" else f"  ({site.source})"
             items.append(FuzzyItem(key=site.name, label=f"{site.name.capitalize()}{suffix}", payload=site))
         self.query_one("#sites", FuzzyList).set_items(items)
+
+    # ── Directional navigation ────────────────────────────────────────────
+
+    def action_nav_left(self) -> None:
+        """Left arrow: move focus from Sites panel to Categories sidebar."""
+        cat_list = self.query_one("#categories", ListView)
+        cat_list.focus()
+
+    def action_nav_right(self) -> None:
+        """Right arrow: move focus from Categories to Sites, or select site."""
+        focused = self.focused
+        cat_list = self.query_one("#categories", ListView)
+
+        if focused == cat_list or (focused and self.query_one("#sidebar").contains_widget(focused)):
+            sites = self.query_one("#sites", FuzzyList)
+            sites.focus()
+        else:
+            # If on sites, trigger selection of highlighted site
+            sites = self.query_one("#sites", FuzzyList)
+            fuzzy_list = sites.query_one("#fuzzy-list", ListView)
+            if fuzzy_list.highlighted_child:
+                fuzzy_list.action_select_cursor()
 
     @on(ListView.Highlighted, "#categories")
     def _on_category_highlighted(self, event: ListView.Highlighted) -> None:
@@ -87,6 +105,9 @@ class HomeScreen(Screen):
     def _on_category_selected(self, event: ListView.Selected) -> None:
         if event.item is not None and event.item.id == GLOBAL_ID:
             self.app.push_screen(SearchScreen(site=None))
+        else:
+            # Shift focus to sites list upon category selection
+            self.query_one("#sites", FuzzyList).focus()
 
     @on(FuzzyList.Chosen, "#sites")
     def _on_site_chosen(self, event: FuzzyList.Chosen) -> None:

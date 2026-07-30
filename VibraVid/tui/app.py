@@ -3,9 +3,12 @@
 """VibraVid Textual application shell.
 
 Launched by tui.py. The classic CLI in VibraVid/cli/run.py is untouched
-and remains the default interface. ESC always navigates back one screen,
-never kills the app; quit is Ctrl+Q from anywhere (M2 will add the
-confirm-when-downloads-active dialog).
+and remains the default interface.
+Directional navigation:
+- Right Arrow (->): Drill in / Select / Move right to child pane
+- Left Arrow (<-): Go back / Move left to parent pane
+- ESC: Go back one level
+- Ctrl+Q: Quit
 """
 
 import logging
@@ -13,7 +16,9 @@ import logging
 from textual.app import App
 from textual.binding import Binding
 from textual.events import Resize
+from textual.timer import Timer
 
+from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.tui.screens.downloads import DownloadsScreen
 from VibraVid.tui.screens.help import HelpScreen
 from VibraVid.tui.screens.history import HistoryScreen
@@ -29,8 +34,6 @@ logger = logging.getLogger(__name__)
 MIN_WIDTH = 80
 MIN_HEIGHT = 24
 
-# Areas reachable from the global keymap. Real screens land in later
-# milestones: downloads -> M2, queue/history -> M3, settings/system -> M4.
 AREAS = {
     "downloads": ("Downloads", "Live progress with per-track bars, cancel and retry.", "M2"),
     "queue": ("Queue", "Batch queue, shared with the --queue-* CLI commands.", "M3"),
@@ -49,6 +52,8 @@ class VibraVidApp(App):
 
     BINDINGS = [
         Binding("escape", "back", "Back", priority=True),
+        Binding("left", "nav_left", "Left/Back", show=False),
+        Binding("right", "nav_right", "Right/Select", show=False),
         Binding("d", "open_area('downloads')", "Downloads"),
         Binding("q", "open_area('queue')", "Queue"),
         Binding("h", "open_area('history')", "History"),
@@ -61,11 +66,39 @@ class VibraVidApp(App):
     def __init__(self) -> None:
         super().__init__()
         self._small_terminal_warned = False
+        self._header_timer: Timer | None = None
 
     def on_mount(self) -> None:
         self.push_screen(HomeScreen())
+        self._header_timer = self.set_interval(1.0, self._update_header_status)
 
-    # ── Global actions ────────────────────────────────────────────────────
+    def _update_header_status(self) -> None:
+        """Update subtitle with active download count and global speed."""
+        try:
+            active = download_tracker.get_active_downloads()
+            running = [d for d in active if d.get("status") in ("downloading", "active", "running")]
+            if running:
+                self.sub_title = f"v{__version__}  ·  ● {len(running)} active download(s)"
+            else:
+                self.sub_title = f"v{__version__}"
+        except Exception:
+            pass
+
+    # ── Global directional navigation & actions ───────────────────────────
+
+    def action_nav_left(self) -> None:
+        """Move left between columns, or ascend/go back one level."""
+        current = self.screen
+        if hasattr(current, "action_nav_left") and callable(getattr(current, "action_nav_left")):
+            current.action_nav_left()
+        elif len(self.screen_stack) > 1:
+            self.pop_screen()
+
+    def action_nav_right(self) -> None:
+        """Move right between columns, or descend/select current item."""
+        current = self.screen
+        if hasattr(current, "action_nav_right") and callable(getattr(current, "action_nav_right")):
+            current.action_nav_right()
 
     def action_back(self) -> None:
         """ESC goes one level back, never kills the process."""
@@ -120,15 +153,12 @@ class VibraVidApp(App):
 
 
 def main() -> None:
-    # Preload the site registry and the GUI adapter registry before Textual
-    # takes over the terminal (both may print warnings through rich/print).
-    # The stdio proxy makes any later stray print harmless for the display.
     from VibraVid.tui import bridge
 
     bridge.install_stdio_proxy()
     try:
         bridge.list_sites()
         bridge.preload_registry()
-    except Exception as e:  # registries are retried lazily from the screens
+    except Exception as e:
         print(f"[tui] preload failed: {e}")
     VibraVidApp().run()
