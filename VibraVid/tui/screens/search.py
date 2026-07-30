@@ -1,13 +1,13 @@
 # 29.07.26
 
-"""Search screen: query input + fuzzy-filterable results with directional navigation."""
+"""Search screen: query input + split-pane live metadata & poster preview."""
 
 import logging
 from typing import Dict, List, Optional, Tuple
 
 from textual import on, work
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, LoadingIndicator, ListView, Static
 
@@ -40,7 +40,7 @@ def _item_year(item) -> Optional[int]:
 
 
 class SearchScreen(Screen):
-    """Runs a catalog search in a worker and shows filterable results."""
+    """Runs catalog search and displays results alongside live item metadata preview card."""
 
     def __init__(self, site: Optional[str], initial_query: str = "") -> None:
         super().__init__()
@@ -51,13 +51,21 @@ class SearchScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="search-panel"):
-            title = f"Search on {self._site}" if self._site else "Global search"
+            title = f"Search on {self._site}" if self._site else "Global search across all sites"
             yield Static(title, classes="panel-title")
-            yield Input(placeholder="Type title and press ENTER (or Right -> Results)", id="query", value=self._initial_query)
-            yield Input(placeholder="Year filter, e.g. 2021 or 1990-2015 (optional)", id="year")
+            with Horizontal(id="search-inputs-bar"):
+                yield Input(placeholder="Type title and press ENTER...", id="query", value=self._initial_query)
+                yield Input(placeholder="Year (e.g. 2021 or 1990-2015)", id="year")
             yield LoadingIndicator(id="search-loading")
             yield Static("", id="search-status")
-            yield FuzzyList(placeholder="Filter results...", id="results")
+            with Horizontal(id="search-split"):
+                with Vertical(id="results-container"):
+                    yield FuzzyList(placeholder="Filter results...", id="results")
+                with Vertical(id="preview-container"):
+                    yield Static(
+                        "Highlight a search result to view details and metadata preview.",
+                        id="search-preview-box",
+                    )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -150,13 +158,61 @@ class SearchScreen(Screen):
             items.append(FuzzyItem(key=f"{site}:{getattr(it, 'id', name)}", label=label, payload=(site, it)))
         self.query_one("#results", FuzzyList).set_items(items)
 
-        status = f"{len(items)} result(s)"
+        status = f"[bold green]{len(items)}[/bold green] result(s) found"
         if errors:
-            status += f" — {len(errors)} site(s) failed: {', '.join(sorted(errors))}"
+            status += f" — [red]{len(errors)} site(s) failed:[/] {', '.join(sorted(errors))}"
         elif not items:
-            status = "No results found"
+            status = "[yellow]No results found for query.[/yellow]"
         self.query_one("#search-status", Static).update(status)
         self.query_one("#results", FuzzyList).focus()
+
+    # ── Live Preview Card Rendering ────────────────────────────────────────
+
+    @on(FuzzyList.Highlighted, "#results")
+    def _on_highlighted(self, event: FuzzyList.Highlighted) -> None:
+        if not event.item or not event.item.payload:
+            return
+        site, item = event.item.payload
+        self._render_preview_card(site, item)
+
+    def _render_preview_card(self, site: str, item: object) -> None:
+        name = getattr(item, "name", "") or getattr(item, "title", "?")
+        year = getattr(item, "year", None)
+        typ = getattr(item, "type", "Movie/Serie")
+        desc = getattr(item, "desc", "") or getattr(item, "description", "") or ""
+        desc = desc.strip()
+        slug = getattr(item, "slug", "")
+
+        is_movie = getattr(item, "is_movie", False)
+        is_song = getattr(item, "is_song", False)
+        is_series = getattr(item, "is_series", not (is_movie or is_song))
+
+        if is_movie:
+            badge = "[bold yellow]🎬 FILM[/bold yellow]"
+        elif is_song:
+            badge = "[bold magenta]🎵 MUSIC[/bold magenta]"
+        else:
+            badge = "[bold cyan]📺 SERIE / ANIME[/bold cyan]"
+
+        lines = [
+            f"{badge}  [bold white]{name}[/bold white]" + (f" ({year})" if year else ""),
+            f"[dim]Provider:[/] [bold cyan]{site}[/bold cyan]   [dim]Type:[/] {typ}",
+        ]
+
+        if slug:
+            lines.append(f"[dim]Slug:[/] {slug}")
+
+        lines.append("")
+        if desc:
+            lines.append(f"[italic]{desc[:260]}...[/italic]" if len(desc) > 260 else f"[italic]{desc}[/italic]")
+        else:
+            lines.append("[dim]No description available for this title.[/dim]")
+
+        lines.append("")
+        lines.append("[bold cyan]ENTER[/bold cyan] or [bold cyan]->[/bold cyan] [dim]to open seasons & download options[/dim]")
+
+        preview = self.query_one("#search-preview-box", Static)
+        preview.update("\n".join(lines))
 
     @on(FuzzyList.Chosen, "#results")
     def _on_chosen(self, event: FuzzyList.Chosen) -> None:

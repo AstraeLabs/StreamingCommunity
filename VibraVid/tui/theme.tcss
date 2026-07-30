@@ -180,8 +180,18 @@ OptionList > .option-list--option-highlighted {
     padding: 1 2;
 }
 
-#query, #year {
+#search-inputs-bar {
+    height: auto;
     margin-bottom: 1;
+}
+
+#search-inputs-bar Input#query {
+    width: 2fr;
+    margin-right: 1;
+}
+
+#search-inputs-bar Input#year {
+    width: 1fr;
 }
 
 #search-loading {
@@ -190,7 +200,29 @@ OptionList > .option-list--option-highlighted {
 
 #search-status {
     color: $fg-muted;
-    padding: 0 1;
+    padding-bottom: 1;
+}
+
+#search-split {
+    height: 1fr;
+}
+
+#results-container {
+    width: 58%;
+    height: 1fr;
+    padding-right: 1;
+}
+
+#preview-container {
+    width: 42%;
+    height: 1fr;
+}
+
+#search-preview-box {
+    height: 1fr;
+    border: round $accent-primary;
+    background: $bg-surface;
+    padding: 1 2;
 }
 
 FuzzyList {

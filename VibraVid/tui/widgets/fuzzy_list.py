@@ -1,6 +1,6 @@
 # 29.07.26
 
-"""Filter-as-you-type list: an Input over a ListView of labelled items."""
+"""Filter-as-you-type list: an Input over a ListView of labelled items with Chosen & Highlighted events."""
 
 import logging
 from difflib import SequenceMatcher
@@ -35,7 +35,18 @@ class FuzzyList(Widget):
 
         @property
         def control(self):
-            # Class-level override required by the @on(..., selector) decorator.
+            return self._control_widget
+
+    class Highlighted(Message):
+        """Posted when a list entry is highlighted as cursor moves."""
+
+        def __init__(self, item: FuzzyItem, control) -> None:
+            super().__init__()
+            self.item = item
+            self._control_widget = control
+
+        @property
+        def control(self):
             return self._control_widget
 
     BINDINGS = [Binding("down", "focus_list", show=False)]
@@ -73,6 +84,9 @@ class FuzzyList(Widget):
             lv.append(li)
         if len(lv) > 0:
             lv.index = 0
+            first = getattr(lv.children[0], "fuzzy_payload", None)
+            if first:
+                self.post_message(self.Highlighted(first, self))
 
     @on(Input.Changed, "#fuzzy-input")
     async def _filter(self, event: Input.Changed) -> None:
@@ -98,3 +112,10 @@ class FuzzyList(Widget):
         item = getattr(event.item, "fuzzy_payload", None)
         if item is not None:
             self.post_message(self.Chosen(item, self))
+
+    @on(ListView.Highlighted, "#fuzzy-list")
+    def _highlighted(self, event: ListView.Highlighted) -> None:
+        if event.item is not None:
+            item = getattr(event.item, "fuzzy_payload", None)
+            if item is not None:
+                self.post_message(self.Highlighted(item, self))
