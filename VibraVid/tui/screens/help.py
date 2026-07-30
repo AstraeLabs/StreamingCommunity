@@ -14,6 +14,7 @@ _HELP = [
     ("q", "Queue"),
     ("h", "History"),
     (",", "Settings"),
+    ("s", "System info & logs"),
     ("?", "Toggle this help"),
     ("Ctrl+P", "Command palette"),
     ("Ctrl+Q", "Quit"),

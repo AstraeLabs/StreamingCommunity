@@ -186,3 +186,121 @@ FuzzyList {
 #downloads-actions Button {
     margin-right: 2;
 }
+
+/* ── Settings ─────────────────────────────────────────────────────────── */
+
+#settings-sidebar {
+    width: 26;
+    dock: left;
+    border-right: solid $primary-background-lighten-2;
+    padding: 0 1;
+}
+
+#settings-content {
+    width: 1fr;
+    padding: 0 1;
+}
+
+#settings-form {
+    height: 1fr;
+    padding: 1 0;
+}
+
+.settings-banner {
+    border: solid $warning;
+    color: $warning;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+.settings-field {
+    height: auto;
+    margin-bottom: 1;
+    align: left middle;
+}
+
+.field-label {
+    width: 32;
+    text-style: bold;
+    color: $accent;
+}
+
+.sub-title {
+    text-style: bold;
+    color: $accent;
+    padding-top: 1;
+    padding-bottom: 1;
+}
+
+#settings-actions {
+    height: auto;
+    padding: 1 0;
+    align: left middle;
+}
+
+#settings-actions Button {
+    margin-right: 1;
+}
+
+#settings-status {
+    padding-left: 1;
+}
+
+/* ── System ───────────────────────────────────────────────────────────── */
+
+#tab-deps, #tab-logs, #tab-updates {
+    padding: 0 1;
+}
+
+#deps-table {
+    height: auto;
+    max-height: 12;
+    margin-bottom: 1;
+}
+
+#drm-box {
+    height: auto;
+    padding: 1;
+    border: solid $primary-background-lighten-2;
+    margin-bottom: 1;
+}
+
+#log-control-bar {
+    height: auto;
+    margin-bottom: 1;
+    align: left middle;
+}
+
+#log-control-bar Button {
+    margin-left: 2;
+}
+
+#log-layout {
+    height: 1fr;
+}
+
+#log-file-list {
+    width: 30;
+    dock: left;
+    border-right: solid $primary-background-lighten-2;
+}
+
+#log-viewer {
+    width: 1fr;
+    height: 1fr;
+    border: solid $primary-background-lighten-2;
+    background: $surface;
+}
+
+#update-box {
+    height: 1fr;
+    padding: 1;
+}
+
+#system-info-text {
+    margin-bottom: 1;
+}
+
+#update-status {
+    padding-top: 1;
+}

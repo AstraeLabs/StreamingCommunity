@@ -18,6 +18,8 @@ from VibraVid.tui.screens.downloads import DownloadsScreen
 from VibraVid.tui.screens.help import HelpScreen
 from VibraVid.tui.screens.home import HomeScreen
 from VibraVid.tui.screens.placeholder import PlaceholderScreen
+from VibraVid.tui.screens.settings import SettingsScreen
+from VibraVid.tui.screens.system import SystemScreen
 from VibraVid.utils.upload.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -26,12 +28,13 @@ MIN_WIDTH = 80
 MIN_HEIGHT = 24
 
 # Areas reachable from the global keymap. Real screens land in later
-# milestones: downloads -> M2, queue/history -> M3, settings -> M4.
+# milestones: downloads -> M2, queue/history -> M3, settings/system -> M4.
 AREAS = {
     "downloads": ("Downloads", "Live progress with per-track bars, cancel and retry.", "M2"),
     "queue": ("Queue", "Batch queue, shared with the --queue-* CLI commands.", "M3"),
     "history": ("History", "Past downloads with status, paths and errors.", "M3"),
     "settings": ("Settings", "config.json and login.json editors.", "M4"),
+    "system": ("System", "Dependencies, DRM, logs and update check.", "M4"),
 }
 
 
@@ -48,6 +51,7 @@ class VibraVidApp(App):
         Binding("q", "open_area('queue')", "Queue"),
         Binding("h", "open_area('history')", "History"),
         Binding("comma", "open_area('settings')", "Settings"),
+        Binding("s", "open_area('system')", "System"),
         Binding("question_mark", "help", "Help"),
         Binding("ctrl+q", "quit", "Quit"),
     ]
@@ -68,9 +72,16 @@ class VibraVidApp(App):
 
     def action_open_area(self, area: str) -> None:
         if area == "downloads":
-            # Downloads is implemented in M2
             if not isinstance(self.screen, DownloadsScreen):
                 self.push_screen(DownloadsScreen())
+            return
+        if area == "settings":
+            if not isinstance(self.screen, SettingsScreen):
+                self.push_screen(SettingsScreen())
+            return
+        if area == "system":
+            if not isinstance(self.screen, SystemScreen):
+                self.push_screen(SystemScreen())
             return
         if isinstance(self.screen, PlaceholderScreen) and self.screen.area == area:
             return
