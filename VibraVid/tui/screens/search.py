@@ -363,6 +363,7 @@ class SearchScreen(Screen):
         if not self._highlighted_payload:
             return
         site, item = self._highlighted_payload[0], self._highlighted_payload[1]
+        providers = self._highlighted_payload[2] if len(self._highlighted_payload) > 2 else [(site, item)]
         is_movie = getattr(item, "is_movie", False)
         is_song = getattr(item, "is_song", False)
 
@@ -370,7 +371,7 @@ class SearchScreen(Screen):
             self._start_direct_download(site, item)
         else:
             from VibraVid.tui.screens.detail import TitleDetailScreen
-            self.app.push_screen(TitleDetailScreen(site, item))
+            self.app.push_screen(TitleDetailScreen(site, item, providers=providers))
 
     @work(thread=True, exclusive=True, group="download")
     def _start_direct_download(self, site: str, item: object) -> None:

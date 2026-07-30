@@ -3,7 +3,7 @@
 """Title detail screen: metadata, season/episode multi-select, DSL preview, directional nav & QoL shortcuts."""
 
 import logging
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from textual import on, work
 from textual.app import ComposeResult
@@ -40,20 +40,32 @@ def compact_ranges(numbers: Set[int], total: int) -> str:
 
 
 class TitleDetailScreen(Screen):
-    """Shows one catalog item; for series lets the user pick episodes."""
+    """Shows one catalog item; for series lets the user pick episodes across providers."""
 
     BINDINGS = [
         Binding("a", "select_all_episodes", "Select All"),
         Binding("u", "deselect_all_episodes", "Deselect All"),
     ]
 
-    def __init__(self, site: str, item) -> None:
+    def __init__(
+        self,
+        site: str,
+        item,
+        providers: Optional[List[Tuple[str, object]]] = None,
+    ) -> None:
         super().__init__()
-        self._site = site
+        if not providers:
+            providers = [(site, item)]
+        self._providers: List[Tuple[str, object]] = list(providers)
+        self._current_site: str = site
         self._item = item
         self._seasons: List = []
         self._current_season: Optional[int] = None
         self._episode_selections: Dict[int, Set[int]] = {}
+
+    @property
+    def _site(self) -> str:
+        return self._current_site
 
     @property
     def _is_single(self) -> bool:
@@ -69,13 +81,19 @@ class TitleDetailScreen(Screen):
                 yield Static("Seasons & Episodes (Right -> Episodes | Left <- Seasons | Space -> Toggle | a -> Select All | u -> Clear)", classes="panel-title")
                 yield LoadingIndicator(id="seasons-loading")
                 with Horizontal(id="series-browser"):
+                    with Vertical(id="providers-box"):
+                        yield Static("Provider", classes="box-title")
+                        yield ListView(id="providers")
                     with Vertical(id="seasons-box"):
+                        yield Static("Stagioni", classes="box-title")
                         yield ListView(id="seasons")
                     with Vertical(id="episodes-box"):
+                        yield Static("Episodi", classes="box-title")
                         yield SelectionList(id="episodes")
                 yield Static("", id="dsl-preview", classes="dsl-preview")
                 with Horizontal(id="actions-row"):
-                    yield Button("Download selected episodes", id="btn-download", variant="primary")
+                    yield Button("Download selected episodes", id="dl", variant="primary")
+                    yield Button("+ Add to Queue", id="queue")
         yield CustomFooter()
 
     def _meta_line(self) -> str:
@@ -101,36 +119,85 @@ class TitleDetailScreen(Screen):
             self.query_one("#dsl-preview", Static).update("selections = None (single item)")
             self.query_one("#dl", Button).focus()
             return
+        self._load_providers()
+        self._load_seasons()
+
+    def _load_providers(self) -> None:
+        providers_list = self.query_one("#providers", ListView)
+        providers_list.clear()
+        selected_idx = 0
+        for idx, (site_name, p_item) in enumerate(self._providers):
+            item_widget = ListItem(Static(site_name), id=f"provider-{idx}")
+            item_widget.provider_payload = (site_name, p_item)
+            providers_list.append(item_widget)
+            if site_name == self._current_site:
+                selected_idx = idx
+        if self._providers:
+            providers_list.index = selected_idx
+
+    @on(ListView.Highlighted, "#providers")
+    @on(ListView.Selected, "#providers")
+    def _on_provider_selected(self, event: ListView.Highlighted | ListView.Selected) -> None:
+        item = getattr(event, "item", None)
+        payload = getattr(item, "provider_payload", None) if item else None
+        if not payload:
+            return
+        site_name, p_item = payload
+        if site_name == self._current_site and p_item == self._item:
+            return
+
+        self._current_site = site_name
+        self._item = p_item
+
+        self.query_one(".detail-meta", Static).update(self._meta_line())
+
+        self.query_one("#seasons", ListView).clear()
+        self.query_one("#episodes", SelectionList).clear_options()
+        self._episode_selections.clear()
+        self._current_season = None
+
+        self.query_one("#seasons-loading", LoadingIndicator).display = True
         self._load_seasons()
 
     # ── Directional Navigation (Left / Right) ──────────────────────────────
 
     def action_nav_left(self) -> None:
-        """Left Arrow: move from Episodes to Seasons, or go back to parent screen."""
+        """Left Arrow: move between Download/Queue -> Episodes -> Seasons -> Providers -> pop_screen."""
         if self._is_single:
             self.app.pop_screen()
             return
 
+        providers = self.query_one("#providers", ListView)
+        seasons = self.query_one("#seasons", ListView)
         episodes = self.query_one("#episodes", SelectionList)
         dl_btn = self.query_one("#dl", Button)
         queue_btn = self.query_one("#queue", Button)
+        seasons_box = self.query_one("#seasons-box")
 
-        if self.focused in (episodes, dl_btn, queue_btn):
-            self.query_one("#seasons", ListView).focus()
+        if self.focused in (dl_btn, queue_btn):
+            episodes.focus()
+        elif self.focused == episodes:
+            seasons.focus()
+        elif self.focused in (seasons, seasons_box) or (self.focused and self.focused in seasons_box.walk_children()):
+            providers.focus()
         else:
-            # If already on seasons, ascend/pop screen
             self.app.pop_screen()
 
     def action_nav_right(self) -> None:
-        """Right Arrow: move from Seasons to Episodes, or to Download button."""
+        """Right Arrow: move between Providers -> Seasons -> Episodes -> Download button."""
         if self._is_single:
             self.query_one("#dl", Button).focus()
             return
 
+        providers = self.query_one("#providers", ListView)
         seasons = self.query_one("#seasons", ListView)
         episodes = self.query_one("#episodes", SelectionList)
+        providers_box = self.query_one("#providers-box")
+        seasons_box = self.query_one("#seasons-box")
 
-        if self.focused == seasons or (self.focused and self.query_one("#seasons-box").contains_widget(self.focused)):
+        if self.focused in (providers, providers_box) or (self.focused and self.focused in providers_box.walk_children()):
+            seasons.focus()
+        elif self.focused in (seasons, seasons_box) or (self.focused and self.focused in seasons_box.walk_children()):
             episodes.focus()
         elif self.focused == episodes:
             self.query_one("#dl", Button).focus()
