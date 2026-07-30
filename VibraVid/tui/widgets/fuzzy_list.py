@@ -23,15 +23,8 @@ class FuzzyItem(NamedTuple):
 
 
 class HoverListItem(ListItem):
-    """ListItem that updates ListView selection when hovered over with the mouse."""
-
-    def on_enter(self, event: events.Enter) -> None:
-        if self.parent and hasattr(self.parent, "index"):
-            try:
-                idx = list(self.parent.children).index(self)
-                self.parent.index = idx
-            except Exception:
-                pass
+    """ListItem container for FuzzyList items."""
+    pass
 
 
 class FuzzyList(Widget):

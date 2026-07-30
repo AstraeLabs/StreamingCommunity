@@ -11,6 +11,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Header, Input, LoadingIndicator, ListView, Static
 from VibraVid.tui import bridge
+from VibraVid.tui.widgets.custom_footer import CustomFooter
 from VibraVid.tui.widgets.fuzzy_list import FuzzyItem, FuzzyList
 
 logger = logging.getLogger(__name__)
@@ -97,9 +98,10 @@ class SearchScreen(Screen):
         open_btn = self.query_one("#preview-open-btn", Button)
         queue_btn = self.query_one("#preview-queue-btn", Button)
 
-        if self.focused in (open_btn, queue_btn) or (self.focused and self.query_one("#preview-container").contains_widget(self.focused)):
+        preview_container = self.query_one("#preview-container")
+        if self.focused in (open_btn, queue_btn) or (self.focused and self.focused in preview_container.walk_children()):
             results.focus()
-        elif self.focused == results or (self.focused and results.contains_widget(self.focused)):
+        elif self.focused == results or (self.focused and self.focused in results.walk_children()):
             query_input.focus()
         elif self.focused == year_input:
             query_input.focus()
@@ -115,7 +117,7 @@ class SearchScreen(Screen):
 
         if self.focused in (query_input, year_input):
             results.focus()
-        elif self.focused == results or (self.focused and results.contains_widget(self.focused)):
+        elif self.focused == results or (self.focused and self.focused in results.walk_children()):
             if self._highlighted_payload and open_btn.display:
                 open_btn.focus()
 
@@ -395,4 +397,3 @@ class SearchScreen(Screen):
         open_btn = self.query_one("#preview-open-btn", Button)
         if open_btn.display:
             open_btn.focus()
-            self.app.notify(f"Selected '{getattr(item, 'name', 'item')}'. Press ENTER to proceed or -> to queue.", severity="information")
