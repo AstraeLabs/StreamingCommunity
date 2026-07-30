@@ -1,119 +1,148 @@
 # 29.07.26
 
-"""Home screen: category sidebar + site list with instant directional focus."""
+"""Home screen: Search Engine style landing page with central search bar & category scope selectors."""
 
 import logging
 from typing import Dict, List, Optional
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import ListItem, ListView, Static
+from textual.widgets import Button, Input, Static
 
 from VibraVid.tui.bridge import SiteInfo, sites_by_category
 from VibraVid.tui.screens.search import SearchScreen
 from VibraVid.tui.widgets.custom_footer import CustomFooter
-from VibraVid.tui.widgets.fuzzy_list import FuzzyItem, FuzzyList
 
 logger = logging.getLogger(__name__)
 
-CATEGORY_LABELS = {
-    "anime": "Anime",
-    "film_serie": "Film & Series",
-    "serie": "Series",
-    "tor": "Torrent",
-    "song": "Music",
-}
-GLOBAL_ID = "cat-global"
+ASCII_LOGO = """[bold cyan]
+██╗   ██╗██╗██████╗ ██████╗  █████╗ ██╗   ██╗██╗██████╗ 
+██║   ██║██║██╔══██╗██╔══██╗██╔══██╗██║   ██║██║██╔══██╗
+██║   ██║██║██████╔╝██████╔╝███████║██║   ██║██║██║  ██║
+╚██╗ ██╔╝██║██╔══██╗██╔══██╗██╔══██║╚██╗ ██╔╝██║██║  ██║
+ ╚████╔╝ ██║██████╔╝██║  ██║██║  ██║ ╚████╔╝ ██║██████╔╝
+[/bold cyan]"""
 
 
 class HomeScreen(Screen):
-    """Landing screen with category sidebar and site list."""
+    """Search Engine style main screen with central search, category selectors & provider pills."""
 
     def __init__(self) -> None:
         super().__init__()
+        self._selected_scope: str = "global"  # global, anime, film, serie, music
+        self._selected_site: Optional[str] = None
         self._grouped: Dict[str, List[SiteInfo]] = {}
-        self._categories: List[str] = []
 
     def compose(self) -> ComposeResult:
-        with Horizontal():
-            with Vertical(id="sidebar"):
-                yield Static("Categories", classes="panel-title")
-                yield ListView(id="categories")
-            with Vertical(id="site-panel"):
-                yield Static("Sites / Providers", classes="panel-title")
-                yield FuzzyList(placeholder="Filter sites... [/]", id="sites")
+        with Vertical(id="home-container"):
+            with Vertical(id="home-center-box"):
+                yield Static(ASCII_LOGO, id="home-logo")
+                yield Static("[dim]Motore di ricerca universale per Streaming, Anime, Film, Serie e Musica[/dim]", id="home-tagline")
+
+                with Horizontal(id="home-search-bar"):
+                    yield Input(placeholder="Cerca un titolo (es. Batman, Naruto, One Piece)...", id="main-search-input")
+                    yield Button("Cerca 🔍", id="btn-submit-search", variant="primary")
+
+                yield Static("[bold white]Seleziona Categoria di Ricerca:[/bold white]", classes="home-label")
+                with Horizontal(id="home-scope-pills"):
+                    yield Button("🌐 Global (Tutti)", id="scope-global", variant="primary", classes="scope-pill")
+                    yield Button("🌸 Anime", id="scope-anime", classes="scope-pill")
+                    yield Button("🎬 Film", id="scope-film", classes="scope-pill")
+                    yield Button("📺 Serie TV", id="scope-serie", classes="scope-pill")
+                    yield Button("🎵 Musica", id="scope-music", classes="scope-pill")
+
+                yield Static("[bold white]Oppure Filtra per Provider / Sito Specifico:[/bold white]", classes="home-label")
+                with VerticalScroll(id="home-sites-scroll"):
+                    with Horizontal(id="home-sites-pills"):
+                        yield Button("🌐 Tutti i Provider (Default)", id="site-all", variant="primary", classes="site-pill")
+                        # Site pills populated dynamically in on_mount
+
         yield CustomFooter()
 
     def on_mount(self) -> None:
         self._grouped = sites_by_category()
-        known = [c for c in CATEGORY_LABELS if c in self._grouped]
-        extra = sorted(c for c in self._grouped if c not in CATEGORY_LABELS)
-        self._categories = known + extra
+        sites_box = self.query_one("#home-sites-pills", Horizontal)
 
-        cat_list = self.query_one("#categories", ListView)
-        for cat in self._categories:
-            label = CATEGORY_LABELS.get(cat, cat.capitalize())
-            cat_list.append(
-                ListItem(Static(label, classes=f"category-label cat-{cat}"), id=f"cat-{cat}")
-            )
-        cat_list.append(
-            ListItem(Static("(global) Global search", classes="category-label cat-global"), id=GLOBAL_ID)
-        )
-        if self._categories:
-            cat_list.index = 0
-            self._show_category(self._categories[0])
-            cat_list.focus()
+        added_sites = set()
+        for cat, site_list in self._grouped.items():
+            for site in site_list:
+                if site.name not in added_sites:
+                    added_sites.add(site.name)
+                    btn_id = f"site-btn-{site.name.replace('_', '-')}"
+                    label = f"[{cat.upper()}] {site.name.capitalize()}"
+                    sites_box.mount(Button(label, id=btn_id, classes="site-pill"))
 
-    def _show_category(self, category: str) -> None:
-        items = []
-        for site in self._grouped.get(category, []):
-            suffix = "" if site.source == "default" else f"  ({site.source})"
-            items.append(FuzzyItem(key=site.name, label=f"{site.name.capitalize()}{suffix}", payload=site))
-        self.query_one("#sites", FuzzyList).set_items(items)
+        self.query_one("#main-search-input", Input).focus()
 
-    # ── Directional navigation ────────────────────────────────────────────
+    # ── Scope and Site Pill Click Handlers ─────────────────────────────────
+
+    @on(Button.Pressed, ".scope-pill")
+    def _on_scope_pressed(self, event: Button.Pressed) -> None:
+        for btn_id in ("#scope-global", "#scope-anime", "#scope-film", "#scope-serie", "#scope-music"):
+            btn = self.query_one(btn_id, Button)
+            btn.variant = "default"
+
+        event.button.variant = "primary"
+        if event.button.id == "scope-anime":
+            self._selected_scope = "anime"
+        elif event.button.id == "scope-film":
+            self._selected_scope = "film"
+        elif event.button.id == "scope-serie":
+            self._selected_scope = "serie"
+        elif event.button.id == "scope-music":
+            self._selected_scope = "music"
+        else:
+            self._selected_scope = "global"
+
+    @on(Button.Pressed, ".site-pill")
+    def _on_site_pressed(self, event: Button.Pressed) -> None:
+        pills = self.query_all(".site-pill")
+        for pill in pills:
+            pill.variant = "default"
+
+        event.button.variant = "primary"
+        if event.button.id == "site-all":
+            self._selected_site = None
+        else:
+            # Extract site name from button id site-btn-<name>
+            site_name = event.button.id[len("site-btn-"):].replace("-", "_")
+            self._selected_site = site_name
+
+    # ── Search Submission ──────────────────────────────────────────────────
+
+    @on(Input.Submitted, "#main-search-input")
+    @on(Button.Pressed, "#btn-submit-search")
+    def _on_search(self) -> None:
+        query = self.query_one("#main-search-input", Input).value.strip()
+        if not query:
+            self.app.notify("Inserisci un titolo prima di cercare!", severity="warning")
+            return
+
+        screen = SearchScreen(site=self._selected_site, initial_query=query)
+        if self._selected_scope != "global":
+            screen._current_filter_category = self._selected_scope
+        self.app.push_screen(screen)
+
+    # ── Keyboard Directional Navigation ────────────────────────────────────
 
     def action_nav_left(self) -> None:
-        """Left arrow: move focus from Sites panel to Categories sidebar."""
-        cat_list = self.query_one("#categories", ListView)
-        cat_list.focus()
+        """Left Arrow: move to previous sibling button if focused on pill."""
+        focused = self.focused
+        if isinstance(focused, Button) and focused.parent:
+            children = [c for c in focused.parent.children if isinstance(c, Button)]
+            if focused in children:
+                idx = children.index(focused)
+                if idx > 0:
+                    children[idx - 1].focus()
 
     def action_nav_right(self) -> None:
-        """Right arrow: move focus from Categories to Sites list, highlighting the first site."""
+        """Right Arrow: move to next sibling button if focused on pill."""
         focused = self.focused
-        cat_list = self.query_one("#categories", ListView)
-        sites = self.query_one("#sites", FuzzyList)
-        fuzzy_list = sites.query_one("#fuzzy-list", ListView)
-
-        if focused == cat_list or (focused and self.query_one("#sidebar").contains_widget(focused)):
-            fuzzy_list.focus()
-            if len(fuzzy_list) > 0 and fuzzy_list.index is None:
-                fuzzy_list.index = 0
-        else:
-            if fuzzy_list.highlighted_child:
-                fuzzy_list.action_select_cursor()
-
-    @on(ListView.Highlighted, "#categories")
-    def _on_category_highlighted(self, event: ListView.Highlighted) -> None:
-        if event.item is None or event.item.id in (None, GLOBAL_ID):
-            return
-        self._show_category(event.item.id[len("cat-"):])
-
-    @on(ListView.Selected, "#categories")
-    def _on_category_selected(self, event: ListView.Selected) -> None:
-        if event.item is not None and event.item.id == GLOBAL_ID:
-            self.app.push_screen(SearchScreen(site=None))
-        else:
-            sites = self.query_one("#sites", FuzzyList)
-            fuzzy_list = sites.query_one("#fuzzy-list", ListView)
-            fuzzy_list.focus()
-            if len(fuzzy_list) > 0:
-                fuzzy_list.index = 0
-
-    @on(FuzzyList.Chosen, "#sites")
-    def _on_site_chosen(self, event: FuzzyList.Chosen) -> None:
-        site: Optional[SiteInfo] = event.item.payload
-        if site is not None:
-            self.app.push_screen(SearchScreen(site=site.name))
+        if isinstance(focused, Button) and focused.parent:
+            children = [c for c in focused.parent.children if isinstance(c, Button)]
+            if focused in children:
+                idx = children.index(focused)
+                if idx < len(children) - 1:
+                    children[idx + 1].focus()

@@ -150,30 +150,86 @@ OptionList > .option-list--option-highlighted {
 .cat-tor { color: $cat-tor; text-style: bold; }
 .cat-global { color: $cat-global; text-style: bold; }
 
-/* ── Home Screen ──────────────────────────────────────────────────────── */
+/* ── Home Screen Search Engine Layout ──────────────────────────────────── */
 
-#sidebar {
-    width: 26;
-    dock: left;
-    background: $bg-surface;
-    border-right: solid $bg-overlay;
-    padding: 1 1;
+#home-container {
+    align: center middle;
+    padding: 1 4;
 }
 
-#site-panel {
-    width: 1fr;
-    background: $bg-base;
-    padding: 1 2;
+#home-center-box {
+    width: 90;
+    max-width: 95%;
+    height: auto;
+    align: center middle;
 }
 
-.panel-title {
+#home-logo {
+    text-align: center;
+    margin-bottom: 0;
+}
+
+#home-tagline {
+    text-align: center;
+    color: $fg-muted;
+    margin-bottom: 1;
+}
+
+#home-search-bar {
+    height: auto;
+    margin-bottom: 1;
+    align: center middle;
+}
+
+#main-search-input {
+    width: 4fr;
+    margin-right: 1;
+}
+
+#btn-submit-search {
+    min-width: 14;
+    height: 3;
+}
+
+.home-label {
     text-style: bold;
     color: $accent-primary;
-    padding-bottom: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+    text-align: center;
 }
 
-.site-source {
-    color: $fg-muted;
+#home-scope-pills {
+    height: auto;
+    margin-bottom: 1;
+    align: center middle;
+}
+
+.scope-pill {
+    min-width: 14;
+    height: 3;
+    margin-right: 1;
+}
+
+#home-sites-scroll {
+    height: 6;
+    max-height: 8;
+    border: round $bg-overlay;
+    background: $bg-surface;
+    padding: 1 1;
+    margin-bottom: 1;
+}
+
+#home-sites-pills {
+    height: auto;
+    align: left middle;
+}
+
+.site-pill {
+    min-width: 16;
+    height: 3;
+    margin-right: 1;
+    margin-bottom: 1;
 }
 
 /* ── Search Screen ────────────────────────────────────────────────────── */
