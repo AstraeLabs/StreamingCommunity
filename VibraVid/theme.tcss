@@ -237,12 +237,13 @@ OptionList > .option-list--option-highlighted {
     margin-right: 0;
 }
 
-#home-sites-scroll {
-    height: 10;
-    max-height: 12;
+#home-sites-box {
+    height: auto;
+    min-height: 4;
+    max-height: 10;
     border: round $bg-overlay;
     background: $bg-base;
-    padding: 1 1;
+    padding: 1 2;
     margin-bottom: 1;
 }
 
@@ -252,9 +253,31 @@ OptionList > .option-list--option-highlighted {
 }
 
 .site-pill {
-    min-width: 14;
-    height: 3;
-    margin-right: 1;
+    min-width: 0;
+    height: 1;
+    border: none;
+    background: $bg-surface;
+    color: $fg-default;
+    padding: 0 1;
+    margin-right: 0;
+    margin-bottom: 1;
+}
+
+.site-pill:hover {
+    background: $bg-overlay;
+    color: $accent-primary;
+}
+
+.site-pill.-primary {
+    background: $accent-primary;
+    color: #15161e;
+    text-style: bold;
+}
+
+.site-dot {
+    color: $accent-secondary;
+    height: 1;
+    padding: 0 0;
     margin-bottom: 1;
 }
 

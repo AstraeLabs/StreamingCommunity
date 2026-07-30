@@ -62,7 +62,7 @@ class HomeScreen(Screen):
                     yield Static("Filtra Provider / Sito Specifico:", classes="home-section-title-left")
                     yield Input(placeholder="Filtra provider... (es. anime, streaming)", id="provider-filter-input")
 
-                with VerticalScroll(id="home-sites-scroll"):
+                with Container(id="home-sites-box"):
                     with Horizontal(id="home-sites-wrap"):
                         yield Button("🌐 Tutti i Provider", id="site-all", variant="primary", classes="site-pill")
 
@@ -83,14 +83,17 @@ class HomeScreen(Screen):
 
     def _render_provider_pills(self, sites: List[SiteInfo]) -> None:
         sites_wrap = self.query_one("#home-sites-wrap", Horizontal)
-        # Keep the "Tutti i Provider" button and mount site buttons
-        current_buttons = [c for c in sites_wrap.children if isinstance(c, Button) and c.id != "site-all"]
-        for b in current_buttons:
-            b.remove()
+        for child in list(sites_wrap.children):
+            child.remove()
+
+        is_all_active = (self._selected_site is None)
+        all_variant = "primary" if is_all_active else "default"
+        sites_wrap.mount(Button("🌐 Tutti i Provider", id="site-all", variant=all_variant, classes="site-pill"))
 
         for site in sites:
+            sites_wrap.mount(Static(" • ", classes="site-dot"))
             btn_id = f"site-btn-{site.name.replace('_', '-')}"
-            label = f"{site.name.capitalize()}"
+            label = site.name.capitalize()
             is_active = (self._selected_site == site.name)
             variant = "primary" if is_active else "default"
             sites_wrap.mount(Button(label, id=btn_id, variant=variant, classes="site-pill"))

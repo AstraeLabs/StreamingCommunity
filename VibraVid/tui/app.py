@@ -52,18 +52,18 @@ class VibraVidApp(App):
     SUB_TITLE = f"v{__version__}"
 
     BINDINGS = [
-        Binding("escape", "back", "Back", priority=True),
+        Binding("escape", "back", "Back", show=False, priority=True),
         Binding("left", "nav_left", "Left/Back", show=False),
         Binding("right", "nav_right", "Right/Select", show=False),
-        Binding("H", "go_home", "Home"),
+        Binding("H", "go_home", "Home", show=False),
         Binding("home", "go_home", "Home", show=False),
-        Binding("d", "open_area('downloads')", "Downloads"),
-        Binding("q", "open_area('queue')", "Queue"),
-        Binding("h", "open_area('history')", "History"),
-        Binding("comma", "open_area('settings')", "Settings"),
-        Binding("s", "open_area('system')", "System"),
-        Binding("question_mark", "help", "Help"),
-        Binding("ctrl+q", "quit", "Quit"),
+        Binding("d", "open_area('downloads')", "Downloads", show=False),
+        Binding("q", "open_area('queue')", "Queue", show=False),
+        Binding("h", "open_area('history')", "History", show=False),
+        Binding("comma", "open_area('settings')", "Settings", show=False),
+        Binding("s", "open_area('system')", "System", show=False),
+        Binding("question_mark", "help", "Help", show=False),
+        Binding("ctrl+q", "quit", "Quit", show=False),
     ]
 
     def __init__(self) -> None:
