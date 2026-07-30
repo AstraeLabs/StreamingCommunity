@@ -148,6 +148,7 @@ CATALOGS = {
         "press_esc_to_close": "Premere ESC o ? per chiudere",
         # Help Screen Keybindings
         "hk_home": "Torna alla schermata iniziale (Home)",
+        "hk_search": "Apri la schermata di Ricerca (Search)",
         "hk_downloads": "Apri la schermata Scaricamenti (Downloads)",
         "hk_queue": "Apri la Coda di download (Queue)",
         "hk_history": "Apri la Cronologia (History)",
@@ -344,6 +345,7 @@ CATALOGS = {
         "press_esc_to_close": "Press ESC or ? to close",
         # Help Screen Keybindings
         "hk_home": "Return to Home screen",
+        "hk_search": "Open Search screen",
         "hk_downloads": "Open Downloads screen",
         "hk_queue": "Open download Queue screen",
         "hk_history": "Open History screen",

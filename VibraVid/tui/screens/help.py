@@ -10,13 +10,14 @@ from textual.widgets import Static
 from VibraVid.tui.i18n import t
 
 _GLOBAL_KEYS = [
-    ("H / Home", "hk_home"),
-    ("d", "hk_downloads"),
-    ("q", "hk_queue"),
-    ("h", "hk_history"),
-    (",", "hk_settings"),
-    ("s", "hk_system"),
-    ("?", "hk_help"),
+    ("F1 / H", "hk_home"),
+    ("F2", "hk_search"),
+    ("F3 / d", "hk_downloads"),
+    ("F4 / q", "hk_queue"),
+    ("F5 / h", "hk_history"),
+    ("F6 / ,", "hk_settings"),
+    ("F7 / s", "hk_system"),
+    ("F8 / F9 / ?", "hk_help"),
     ("ESC", "hk_back"),
     ("Ctrl+Q", "hk_quit"),
 ]

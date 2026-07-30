@@ -55,13 +55,22 @@ class VibraVidApp(App):
         Binding("escape", "back", "Back", show=False, priority=True),
         Binding("left", "nav_left", "Left/Back", show=False),
         Binding("right", "nav_right", "Right/Select", show=False),
+        Binding("f1", "go_home", "Home", show=False),
         Binding("H", "go_home", "Home", show=False),
         Binding("home", "go_home", "Home", show=False),
+        Binding("f2", "go_search", "Search", show=False),
+        Binding("f3", "open_area('downloads')", "Downloads", show=False),
         Binding("d", "open_area('downloads')", "Downloads", show=False),
+        Binding("f4", "open_area('queue')", "Queue", show=False),
         Binding("q", "open_area('queue')", "Queue", show=False),
+        Binding("f5", "open_area('history')", "History", show=False),
         Binding("h", "open_area('history')", "History", show=False),
+        Binding("f6", "open_area('settings')", "Settings", show=False),
         Binding("comma", "open_area('settings')", "Settings", show=False),
+        Binding("f7", "open_area('system')", "System", show=False),
         Binding("s", "open_area('system')", "System", show=False),
+        Binding("f8", "help", "Help", show=False),
+        Binding("f9", "help", "Help", show=False),
         Binding("question_mark", "help", "Help", show=False),
         Binding("ctrl+q", "quit", "Quit", show=False),
     ]
@@ -94,6 +103,12 @@ class VibraVidApp(App):
         if not isinstance(self.screen, HomeScreen):
             while len(self.screen_stack) > 1 and not isinstance(self.screen, HomeScreen):
                 self.pop_screen()
+
+    def action_go_search(self) -> None:
+        """Jump directly to the global SearchScreen."""
+        from VibraVid.tui.screens.search import SearchScreen
+        if not isinstance(self.screen, SearchScreen):
+            self.push_screen(SearchScreen(site=None))
 
     def action_nav_left(self) -> None:
         """Move left between columns, or ascend/go back one level."""

@@ -1320,15 +1320,14 @@ vibravid --tui
 
 | Shortcut | Screen | Description |
 |----------|--------|-------------|
-| `F1` | **Home** | Category selection (Film, Series, Anime, Music) and site filter shortcut cards |
+| `F1` / `H` | **Home** | Category selection (Film, Series, Anime, Music) and site filter shortcut cards |
 | `F2` | **Search** | Global search with deduplicated results and live metadata preview card |
-| `F3` | **Title Detail** | Multi-provider selector sidebar, season/episode selection list, and DSL preview |
-| `F4` | **Downloads** | Real-time progress table, track/stream inspector, and completed downloads |
-| `F5` | **Batch Queue** | Enqueue jobs, retry failed items, and manage CLI batch commands |
-| `F6` | **Download History** | Completed downloads table, output file path inspection, and re-queue actions |
-| `F7` | **Settings Editor** | Interactive section configuration editor with live save & reload |
-| `F8` | **System & DRM** | External binary checker, Widevine DRM device status, and log viewer |
-| `F9` | **Help Guide** | Full keyboard shortcut reference and navigation guide |
+| `F3` / `d` | **Downloads** | Real-time progress table, track/stream inspector, and completed downloads |
+| `F4` / `q` | **Batch Queue** | Enqueue jobs, retry failed items, and manage CLI batch commands |
+| `F5` / `h` | **Download History** | Completed downloads table, output file path inspection, and re-queue actions |
+| `F6` / `,` | **Settings Editor** | Interactive section configuration editor with live save & reload |
+| `F7` / `s` | **System & DRM** | External binary checker, Widevine DRM device status, and log viewer |
+| `F8` / `F9` / `?` | **Help Guide** | Full keyboard shortcut reference and navigation guide |
 
 ### Screenshots
 
@@ -1338,9 +1337,16 @@ vibravid --tui
 
 | Key | Context | Action |
 |-----|---------|--------|
-| `?` / `F9` | Global | Open Keyboard Help overlay |
-| `ESC` / `b` | Global | Go back / Close modal / Exit screen |
-| `q` | Global | Quit TUI |
+| `F1` / `H` | Global | Jump to Home screen |
+| `F2` | Global | Jump to Search screen |
+| `F3` / `d` | Global | Open Active Downloads screen |
+| `F4` / `q` | Global | Open Batch Queue screen |
+| `F5` / `h` | Global | Open Download History screen |
+| `F6` / `,` | Global | Open Settings Editor screen |
+| `F7` / `s` | Global | Open System Diagnostics & DRM screen |
+| `F8` / `F9` / `?` | Global | Open Keyboard Help overlay |
+| `ESC` / `b` | Global | Go back one level / Close modal |
+| `Ctrl+Q` | Global | Quit TUI application |
 | `← / →` | Title Detail | Navigate between `[Providers] ↔ [Seasons] ↔ [Episodes] ↔ [Download]` |
 | `↑ / ↓` | Lists / Tables | Move selection highlight up / down |
 | `Space` | Title Detail | Toggle episode selection |
