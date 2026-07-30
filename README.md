@@ -33,6 +33,7 @@
 - [Advanced Features](#advanced-features)
 - [ARR Integration](#arr-integration)
 - [Docker](#docker)
+- [TUI (Terminal User Interface)](#tui-terminal-user-interface)
 - [Gui](./.github/docs/en/gui.md)
 - [Known Issues](#known-issues)
 - [Related Projects](#related-projects)
@@ -1285,6 +1286,63 @@ With the socket mounted, **Update now** drives the host Docker daemon directly: 
 docker compose pull
 docker compose up -d
 ```
+
+---
+
+## TUI (Terminal User Interface)
+
+VibraVid includes a modern terminal-based user interface built with [Textual](https://github.com/Textualize/textual), providing an interactive experience for managing downloads without a web browser.
+
+### Launching the TUI
+
+```bash
+# Launch the TUI
+python tui.py
+
+# Or if installed via pip/termux
+vibravid --tui
+```
+
+### Features
+
+- **Interactive queue management** — Add, remove, reorder, and retry downloads
+- **Real-time progress tracking** — Live download progress with speed and ETA
+- **Search and browse** — Search across all supported sites with category filters
+- **Configuration editor** — Edit settings directly from the TUI
+- **History view** — Browse completed downloads with status and metadata
+- **Keyboard-driven** — Full keyboard navigation, no mouse required
+- **Small terminal support** — Works in terminals as small as 60×20 characters
+
+### Requirements
+
+The TUI requires Python 3.9+ and the `textual` package (included in `requirements.txt`).
+
+### Platform Support
+
+The TUI works on all platforms supported by VibraVid:
+
+- **macOS** — Terminal.app, iTerm2, Warp, or any modern terminal
+- **Linux** — Any terminal with 256-color support (GNOME Terminal, Konsole, Alacritty, etc.)
+- **Windows** — Windows Terminal recommended (cmd.exe works but has limited Unicode support)
+- **Termux (Android)** — Native terminal support, no X11 required
+
+### Screenshots
+
+<!-- TODO: Add screenshot -->
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `?` | Show help |
+| `q` | Quit |
+| `↑/↓` | Navigate |
+| `Enter` | Select/Confirm |
+| `Tab` | Switch focus |
+
+### Packaging
+
+When building VibraVid with PyInstaller, ensure Textual modules are included. See [PACKAGING.md](PACKAGING.md) for detailed instructions.
 
 ---
 
