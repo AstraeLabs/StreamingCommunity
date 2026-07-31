@@ -32,8 +32,12 @@ _NAV_KEYS = [
 _CONTEXT_KEYS = [
     ("a", "hk_select_all"),
     ("u", "hk_deselect_all"),
+    ("r", "hk_range_modal"),
+    ("v", "hk_visual_range"),
+    ("i", "hk_invert_selection"),
+    ("Shift+Frecce", "hk_range_arrows"),
+    ("Shift+Click", "hk_range_click"),
     ("Ctrl+S", "hk_save_section"),
-    ("r", "hk_reload_system"),
 ]
 
 

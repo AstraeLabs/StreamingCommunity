@@ -446,6 +446,21 @@ class SearchScreen(Screen):
         # Re-focus results list so item highlights in blue and arrow keys work immediately
         self.query_one("#results", FuzzyList).action_focus_list()
 
-        # Re-focus results list so item highlights in blue and arrow keys work immediately
-        self.query_one("#results", FuzzyList).action_focus_list()
+    @on(FuzzyList.Activated, "#results")
+    def _on_activated(self, event: FuzzyList.Activated) -> None:
+        """When an item is double-clicked: trigger the primary action button (Open detail / Download movie)."""
+        payload = event.item.payload
+        if not payload:
+            return
+        self._highlighted_payload = payload
+        site, item = payload[0], payload[1]
+        providers = payload[2] if len(payload) > 2 else [(site, item)]
+        is_movie = getattr(item, "is_movie", False)
+        is_song = getattr(item, "is_song", False)
+
+        if is_movie or is_song:
+            self._start_direct_download(site, item)
+        else:
+            from VibraVid.tui.screens.detail import TitleDetailScreen
+            self.app.push_screen(TitleDetailScreen(site, item, providers=providers))
 

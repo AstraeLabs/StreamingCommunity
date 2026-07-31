@@ -3,6 +3,7 @@
 """Filter-as-you-type list: an Input over a ListView of labelled items with mouse hover & directional events."""
 
 import logging
+import time
 from difflib import SequenceMatcher
 from typing import Any, NamedTuple
 
@@ -25,6 +26,23 @@ class FuzzyItem(NamedTuple):
 class HoverListItem(ListItem):
     """ListItem container for FuzzyList items."""
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._last_click_time: float = 0.0
+
+    def on_click(self, event: events.Click) -> None:
+        now = time.time()
+        fuzzy_list = self.query_ancestor(FuzzyList)
+        if fuzzy_list:
+            fuzzy_list.action_focus_list()
+            if (now - self._last_click_time < 0.5) and hasattr(self, "fuzzy_payload"):
+                fuzzy_list.post_message(fuzzy_list.Activated(self.fuzzy_payload, fuzzy_list))
+                self._last_click_time = 0.0
+                event.prevent_default()
+                event.stop()
+                return
+        self._last_click_time = now
+
 
 class FuzzyList(Widget):
     """Input filter + ListView; reorders and filters items while typing."""
@@ -44,14 +62,22 @@ class FuzzyList(Widget):
     class Highlighted(Message):
         """Posted when a list entry is highlighted via mouse hover or arrow keys."""
 
+        control: "FuzzyList | None" = None
+
         def __init__(self, item: FuzzyItem, control) -> None:
             super().__init__()
             self.item = item
-            self._control_widget = control
+            self.control = control
 
-        @property
-        def control(self):
-            return self._control_widget
+    class Activated(Message):
+        """Posted when the user double-clicks a list entry."""
+
+        control: "FuzzyList | None" = None
+
+        def __init__(self, item: FuzzyItem, control) -> None:
+            super().__init__()
+            self.item = item
+            self.control = control
 
     BINDINGS = [Binding("down", "focus_list", show=False)]
 
@@ -59,6 +85,8 @@ class FuzzyList(Widget):
         super().__init__(**kwargs)
         self._items: list[FuzzyItem] = []
         self._placeholder = placeholder
+        self._last_click_time: float = 0.0
+        self._last_click_key: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Input(placeholder=self._placeholder, id="fuzzy-input")
@@ -127,4 +155,20 @@ class FuzzyList(Widget):
     @on(events.Click, "ListItem")
     def _on_item_click(self, event: events.Click) -> None:
         self.action_focus_list()
+        target_item = event.widget if isinstance(event.widget, ListItem) else None
+        if target_item is None:
+            for anc in event.widget.ancestors:
+                if isinstance(anc, ListItem):
+                    target_item = anc
+                    break
+        if target_item and hasattr(target_item, "fuzzy_payload"):
+            fuzzy_item = target_item.fuzzy_payload
+            now = time.time()
+            if (now - self._last_click_time < 0.4) and (self._last_click_key == fuzzy_item.key):
+                self.post_message(self.Activated(fuzzy_item, self))
+                self._last_click_time = 0.0
+                self._last_click_key = None
+            else:
+                self._last_click_time = now
+                self._last_click_key = fuzzy_item.key
 

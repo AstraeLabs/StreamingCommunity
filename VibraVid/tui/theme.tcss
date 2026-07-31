@@ -695,12 +695,12 @@ FuzzyList {
 
 /* ── Overlay Modals & Help ────────────────────────────────────────────── */
 
-PlaceholderScreen, HelpScreen, EnqueueModal {
+PlaceholderScreen, HelpScreen, EnqueueModal, RangeSelectModal {
     align: center middle;
     background: rgba(15, 16, 22, 0.8);
 }
 
-#placeholder-box, #enqueue-modal-box {
+#placeholder-box, #enqueue-modal-box, #range-modal-box {
     width: 68;
     max-width: 90%;
     height: auto;

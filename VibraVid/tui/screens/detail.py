@@ -22,7 +22,9 @@ from textual.widgets._selection_list import Selection
 
 from VibraVid.tui import bridge
 from VibraVid.tui.i18n import t
+from VibraVid.tui.screens.range_modal import RangeSelectModal
 from VibraVid.tui.widgets.custom_footer import CustomFooter
+from VibraVid.tui.widgets.range_selection_list import RangeSelectionList, parse_range_expression
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,9 @@ class TitleDetailScreen(Screen):
     BINDINGS = [
         Binding("a", "select_all_episodes", t("select_all")),
         Binding("u", "deselect_all_episodes", t("clear_selection")),
+        Binding("r", "range_select_modal", t("range_selection")),
+        Binding("v", "toggle_visual_anchor", t("visual_range")),
+        Binding("i", "invert_episodes", t("invert_selection")),
     ]
 
     def __init__(
@@ -97,7 +102,7 @@ class TitleDetailScreen(Screen):
                         yield ListView(id="seasons")
                     with Vertical(id="episodes-box"):
                         yield Static(t("episodes"), classes="box-title")
-                        yield SelectionList(id="episodes")
+                        yield RangeSelectionList(id="episodes")
                 yield Static("", id="dsl-preview", classes="dsl-preview")
                 with Horizontal(id="actions-row"):
                     yield Button(t("download_selected_episodes"), id="dl", variant="primary")
@@ -216,7 +221,7 @@ class TitleDetailScreen(Screen):
         """Shortcut 'a': Select all episodes in current season."""
         if self._current_season is None or self._is_single:
             return
-        episodes: SelectionList = self.query_one("#episodes", SelectionList)
+        episodes: RangeSelectionList = self.query_one("#episodes", RangeSelectionList)
         episodes.select_all()
         self.app.notify(t("selected_all_episodes_msg"), severity="information")
 
@@ -224,9 +229,64 @@ class TitleDetailScreen(Screen):
         """Shortcut 'u': Clear all episode selections in current season."""
         if self._current_season is None or self._is_single:
             return
-        episodes: SelectionList = self.query_one("#episodes", SelectionList)
+        episodes: RangeSelectionList = self.query_one("#episodes", RangeSelectionList)
         episodes.deselect_all()
         self.app.notify(t("cleared_episodes_msg"), severity="information")
+
+    @on(RangeSelectionList.RequestRangeModal, "#episodes")
+    def _on_request_range_modal(self) -> None:
+        self.action_range_select_modal()
+
+    def action_range_select_modal(self) -> None:
+        """Shortcut 'r': Open range expression modal dialog."""
+        if self._current_season is None or self._is_single:
+            return
+
+        def _apply_range(expr: str | None) -> None:
+            if not expr or self._current_season is None:
+                return
+            season_data = next((s for s in self._seasons if s.number == self._current_season), None)
+            if not season_data:
+                return
+            available_eps = [ep.number for ep in (getattr(season_data, "episodes", []) or [])]
+            matched = parse_range_expression(expr, available_eps)
+            episodes: RangeSelectionList = self.query_one("#episodes", RangeSelectionList)
+            episodes.deselect_all()
+            for ep_num in matched:
+                episodes.select(ep_num)
+            self.app.notify(
+                t("episodes_range_selected", count=len(matched), expr=expr),
+                severity="information",
+            )
+
+        self.app.push_screen(RangeSelectModal(), _apply_range)
+
+    def action_toggle_visual_anchor(self) -> None:
+        """Shortcut 'v': Toggle visual anchor mode on episode list."""
+        if self._current_season is None or self._is_single:
+            return
+        episodes: RangeSelectionList = self.query_one("#episodes", RangeSelectionList)
+        is_active, start_idx, end_idx = episodes.toggle_visual_anchor()
+        if is_active:
+            ep_val = (
+                episodes.get_option_at_index(start_idx).value
+                if start_idx is not None and start_idx < episodes.option_count
+                else "?"
+            )
+            self.app.notify(
+                f"Ancora impostata a E{ep_val}. Spostati e premi 'v' o INVIO per selezionare il range.",
+                severity="information",
+            )
+        else:
+            self.app.notify("Range di episodi selezionato!", severity="information")
+
+    def action_invert_episodes(self) -> None:
+        """Shortcut 'i': Invert episode selection in current season."""
+        if self._current_season is None or self._is_single:
+            return
+        episodes: RangeSelectionList = self.query_one("#episodes", RangeSelectionList)
+        episodes.invert_selection()
+        self.app.notify("Selezione episodi invertita!", severity="information")
 
     # ── Seasons loading (worker) ──────────────────────────────────────────
 
