@@ -3,10 +3,9 @@
 import os
 import platform
 import subprocess
-from typing import Tuple
 
 
-def open_file(path: str) -> Tuple[bool, str]:
+def open_file(path: str) -> tuple[bool, str]:
     """Launch a file with the system default application.
 
     Returns (success, message).
@@ -27,7 +26,7 @@ def open_file(path: str) -> Tuple[bool, str]:
         return False, f"Impossibile aprire il file: {e}"
 
 
-def open_folder(path: str) -> Tuple[bool, str]:
+def open_folder(path: str) -> tuple[bool, str]:
     """Open the directory in the OS file manager, highlighting the file if supported.
 
     Returns (success, message).

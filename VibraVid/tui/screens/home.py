@@ -76,7 +76,7 @@ class HomeScreen(Screen):
         self._grouped = sites_by_category()
         self._all_sites = []
         added_names = set()
-        for cat, site_list in self._grouped.items():
+        for site_list in self._grouped.values():
             for site in site_list:
                 if site.name not in added_names:
                     added_names.add(site.name)

@@ -89,7 +89,7 @@ _EQUIVALENT_CMD_EXCLUDED_DESTS = {
 equivalent_command_builder = EquivalentCommandBuilder(excluded_dests=_EQUIVALENT_CMD_EXCLUDED_DESTS)
 
 
-def run_function(func: Callable[..., None], search_terms: str = None, selections: dict = None) -> None:
+def run_function(func: Callable[..., None], search_terms: str | None = None, selections: dict | None = None) -> None:
     """Run function once or indefinitely based on close_console flag."""
     if selections:
         func(search_terms, selections=selections)

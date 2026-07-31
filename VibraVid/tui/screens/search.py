@@ -72,7 +72,7 @@ def deduplicate_search_results(
             groups[key] = (site, item, [(site, item)])
             ordered_keys.append(key)
         else:
-            primary_site, primary_item, providers = groups[key]
+            _primary_site, _primary_item, providers = groups[key]
             providers.append((site, item))
 
     return [groups[k] for k in ordered_keys]
