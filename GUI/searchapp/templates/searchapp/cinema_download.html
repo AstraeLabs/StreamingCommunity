@@ -1,0 +1,536 @@
+{% extends "searchapp/cinema_base.html" %}
+
+{% block title %}ARROWAR{% endblock %}
+
+{# c'è un hero: la barra parte trasparente e si riempie allo scroll #}
+{% block top_float %} is-float{% endblock %}
+
+{% block content %}
+
+{% comment %}
+	Reso vuoto e riempito da JS col primo job attivo. Se non gira niente resta
+	lo stato di riposo: non si nasconde, altrimenti la pagina "salta" quando un
+	download parte.
+{% endcomment %}
+<section class="cn-hero" id="cn-hero">
+	<div class="cn-hero-art" id="cn-hero-art"></div>
+	<div class="cn-hero-veil"></div>
+
+	<div class="cn-hero-in">
+		<div class="cn-kicker" id="cn-hero-kicker">
+			<span class="cn-st is-wait">Idle</span>
+		</div>
+
+		<h1 class="cn-blast" id="cn-hero-title">
+			Nothing running<em id="cn-hero-sub">Queue is empty</em>
+		</h1>
+
+		<p class="cn-hero-line" id="cn-hero-line">
+			When a download starts you'll find it here, with real-time progress.
+		</p>
+
+		<div class="cn-hero-prog" id="cn-hero-prog" hidden>
+			<div class="cn-hero-fig">
+				<span class="cn-pct" id="cn-hero-pct">0<span>%</span></span>
+				<span class="cn-of" id="cn-hero-of"></span>
+			</div>
+			<div class="cn-bar"><i id="cn-hero-bar" style="width:0%"></i></div>
+			<div class="cn-facts" id="cn-hero-facts"></div>
+		</div>
+
+		<div class="cn-acts">
+			<button class="cn-cta" type="button" id="cn-hero-stop" hidden>Stop</button>
+			<a class="cn-cta is-ghost" href="{% url 'search_page' %}">Search something</a>
+		</div>
+	</div>
+</section>
+
+{# ── FILE ─────────────────────────────────────────────────────────────────── #}
+<section class="cn-strip">
+	<div class="cn-strip-hd">
+		<h2>Now</h2><span class="cn-n" id="cn-n-active">0</span>
+	</div>
+	<div class="cn-lines" id="cn-reel-active"></div>
+	<p class="cn-empty" id="cn-empty-active">No downloads running.</p>
+</section>
+
+<section class="cn-strip">
+	<div class="cn-strip-hd">
+		<h2>Queued</h2><span class="cn-n" id="cn-n-queue">0</span>
+	</div>
+	<div class="cn-reel" id="cn-reel-queue"></div>
+	<p class="cn-empty" id="cn-empty-queue">Queue is empty.</p>
+</section>
+
+<section class="cn-strip">
+	<div class="cn-strip-hd">
+		<h2>From your watchlist</h2><span class="cn-n">{{ watchlist_items|length }}</span>
+		<a class="cn-more" href="{% url 'watchlist' %}">Manage</a>
+	</div>
+	{% if watchlist_items %}
+		<div class="cn-reel">
+			{% for item in watchlist_items %}
+				<article class="cn-tile" style="--cn-p1:{{ item.p1 }};--cn-p2:{{ item.p2 }}" tabindex="0">
+					<div class="cn-poster">
+						{% if item.is_new %}<span class="cn-flag cn-st is-run">New</span>{% endif %}
+						{% if item.poster %}
+							<img src="{{ item.poster }}" alt="" loading="lazy" decoding="async"
+							     onerror="this.remove()">
+						{% endif %}
+						<div class="cn-poster-fill">
+							<div class="cn-rule"></div>
+							<div class="cn-ptitle">{{ item.name }}</div>
+							<div class="cn-pmeta">{{ item.site }}</div>
+						</div>
+					</div>
+					<span class="cn-cap">{{ item.name }}</span>
+					<span class="cn-sub">{{ item.site }}</span>
+				</article>
+			{% endfor %}
+		</div>
+	{% else %}
+		<p class="cn-empty">No shows being watched. Add one from search.</p>
+	{% endif %}
+</section>
+
+<section class="cn-strip">
+	<div class="cn-strip-hd">
+		<h2>Recent results</h2><span class="cn-n" id="cn-n-hist">0</span>
+	</div>
+	<div class="cn-reel" id="cn-reel-hist"></div>
+	<p class="cn-empty" id="cn-empty-hist">No completed downloads yet.</p>
+</section>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+(function () {
+	"use strict";
+	var URL_DOWNLOADS = "{% url 'get_downloads_json' %}?history=20";
+	var URL_KILL      = "{% url 'kill_download' %}";
+	var URL_POSTERS   = "{% url 'resolve_tmdb_posters' %}";
+	var CSRF          = "{{ csrf_token }}";
+	var esc = CN.esc, titleize = CN.titleize, duotone = CN.duotone, pct = CN.pct;
+
+	function outcome(d) {
+		var status = String(d.status || "").toLowerCase();
+		if (status === "completed" || status === "success") {
+			return { label: "Done", badge: "is-done", rule: "var(--cn-go)", note: "" };
+		}
+		if (status === "cancelled" || String(d.error || "").toLowerCase() === "cancelled") {
+			return { label: "Cancelled", badge: "is-wait", rule: "var(--cn-cool)", note: "stopped" };
+		}
+		if (status === "timed_out") {
+			return { label: "Timed out", badge: "is-warn", rule: "var(--cn-gold)", note: "no signal" };
+		}
+		var why = String(d.error || "").split("\n")[0].trim();
+		if (why.length > 48) why = why.slice(0, 47) + "…";
+		return { label: "Failed", badge: "is-dead", rule: "var(--cn-hot)", note: why || "failed" };
+	}
+
+	function poster(item, opts) {
+		var url = item.poster || posterCache[item.series_name || item.title || item.name];
+		var art = url
+			? '<img src="' + esc(url) + '" alt="" loading="lazy" decoding="async" onerror="this.remove()">'
+			: "";
+		return '' +
+			'<div class="cn-poster">' +
+				(opts.flag || "") + (opts.ring || "") + art +
+				'<div class="cn-poster-fill">' +
+					'<div class="cn-rule"' + (opts.ruleColor ? ' style="background:' + opts.ruleColor + '"' : "") + '></div>' +
+					'<div class="cn-ptitle">' + esc(titleize(opts.posterTitle || item.title || item.name)) + '</div>' +
+					'<div class="cn-pmeta">' + esc(opts.posterMeta || item.site) + '</div>' +
+				'</div>' +
+				(opts.bar || "") +
+			'</div>';
+	}
+
+	function tile(item, opts) {
+		var key = item.series_name || item.title || item.name;
+		var d = duotone(key);
+		return '<article class="cn-tile' + (opts.wide ? " is-wide" : "") + '"' +
+			' data-key="' + esc(key) + '"' +
+			' style="--cn-p1:' + d[0] + ';--cn-p2:' + d[1] + '" tabindex="0">' +
+			poster(item, opts) +
+			(opts.cap ? '<span class="cn-cap">' + esc(titleize(opts.cap)) + "</span>" : "") +
+			(opts.sub ? '<span class="cn-sub">' + esc(opts.sub) + "</span>" : "") +
+			"</article>";
+	}
+
+	function elapsedText(startTime) {
+		if (!startTime) return "";
+		var s = Math.max(0, Math.floor(Date.now() / 1000 - startTime));
+		var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+		if (h) return h + "h " + String(m).padStart(2, "0") + "m";
+		if (m) return m + "m " + String(sec).padStart(2, "0") + "s";
+		return sec + "s";
+	}
+
+	function activeRowInner(item, downloadId) {
+		var key = item.series_name || item.title || item.name;
+		var d = duotone(key);
+		var url = item.poster || posterCache[key];
+		var art = url
+			? '<img src="' + esc(url) + '" alt="" loading="lazy" decoding="async" onerror="this.remove()">'
+			: "";
+		var elapsed = elapsedText(item.start_time);
+		var facts = [item.site, item.quality, elapsed && (elapsed + " elapsed")].filter(Boolean).join(" · ");
+		var tasks = item.tasks || {};
+		var taskNames = Object.keys(tasks);
+		var streams = taskNames.length > 1
+			? taskNames.map(function (k) {
+				return esc(k.replace(/_/g, " ")) + " " + (tasks[k].progress || 0).toFixed(0) + "%";
+			}).join(" · ")
+			: "";
+		return '<span class="cn-thumb" style="--cn-p1:' + d[0] + ';--cn-p2:' + d[1] + '">' +
+				art + '<b>' + esc(titleize(key).slice(0, 1).toUpperCase()) + '</b>' +
+			'</span>' +
+			'<span class="cn-grow">' +
+				'<span class="cn-t">' + esc(titleize(item.title || key)) + '</span>' +
+				'<span class="cn-s">' + esc(facts) + '</span>' +
+				(item.path ? '<span class="cn-s cn-ln-path">' + esc(item.path) + '</span>' : "") +
+				'<span class="cn-ln-bar"><i style="width:' + item.pctText + '%"></i></span>' +
+				(streams ? '<span class="cn-s">' + streams + '</span>' : "") +
+			'</span>' +
+			'<span class="cn-r">' + (item.size ? esc(item.size) + ' · ' : '') + esc(item.speed || '') + ' · ' + item.pctText + '%</span>' +
+			'<button class="cn-cta is-ghost" type="button" data-stop="' + esc(downloadId) + '" ' +
+				'style="padding:8px 16px;font-size:13px">Stop</button>';
+	}
+
+	function activeRow(item, downloadId) {
+		return '<div class="cn-ln cn-ln-active" data-id="' + esc(downloadId) + '"' +
+			(item.path ? ' title="' + esc(item.path) + '"' : "") + '>' +
+			activeRowInner(item, downloadId) +
+		'</div>';
+	}
+
+	function reelPatch(reel, rows) {
+		var existing = {};
+		Array.prototype.forEach.call(reel.children, function (node) {
+			existing[node.dataset.id] = node;
+		});
+
+		var wanted = {};
+		rows.forEach(function (r) { wanted[r.id] = true; });
+		Object.keys(existing).forEach(function (id) {
+			if (!wanted[id]) existing[id].remove();
+		});
+
+		var prev = null;
+		rows.forEach(function (r) {
+			var node = existing[r.id];
+			if (!node) {
+				var holder = document.createElement("div");
+				holder.innerHTML = r.html();
+				node = holder.firstElementChild;
+				node.dataset.id = r.id;
+			} else if (node.dataset.sig !== r.sig) {
+				r.patch(node);
+			}
+			node.dataset.sig = r.sig;
+			var target = prev ? prev.nextSibling : reel.firstChild;
+			if (node !== target) reel.insertBefore(node, target);
+			prev = node;
+		});
+	}
+
+	function fill(reelId, emptyId, countId, rows) {
+		var reel = document.getElementById(reelId);
+		reelPatch(reel, rows);
+		reel.hidden = rows.length === 0;
+		document.getElementById(emptyId).hidden = rows.length > 0;
+		document.getElementById(countId).textContent = rows.length;
+	}
+
+	function tileId(item, prefix, index) {
+		return prefix + ":" + (item.id || item.title || item.name || index);
+	}
+
+	// Scorciatoie per i pezzi che una patch aggiorna.
+	function setText(node, selector, text) {
+		var el = node.querySelector(selector);
+		if (el && el.textContent !== text) el.textContent = text;
+	}
+	function setWidth(node, selector, percent) {
+		var el = node.querySelector(selector);
+		if (el) el.style.width = percent + "%";
+	}
+
+	var heroId = null;
+	var heroEntry = null;
+	function artKey(d) { return d.series_name || d.title; }
+	var backdropCache = {};
+	var backdropAsked = {};
+
+	function askBackdrop(d) {
+		var key = artKey(d);
+		if (!key || backdropAsked[key]) return;
+		backdropAsked[key] = true;
+
+		fetch(URL_POSTERS, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+			body: JSON.stringify({ items: [{
+				index: key, name: key, site: d.site, backdrop: true,
+				is_movie: String(d.type || "").toLowerCase() === "movie"
+			}] })
+		})
+			.then(function (r) { return r.json(); })
+			.then(function (data) {
+				var url = (data.posters || {})[key];
+				if (!url) return;
+				backdropCache[key] = url;
+				if (heroEntry) paintHeroArt(heroEntry);
+			})
+			.catch(function () { /* niente backdrop: resta la locandina sfocata */ });
+	}
+
+	var wideCache = {};
+
+	function paintHeroArt(d) {
+		var art  = document.getElementById("cn-hero-art");
+		var tone = duotone(d.title);
+		var back = backdropCache[artKey(d)];
+		var url  = back || d.poster || "";
+
+		art.style.backgroundImage = url ? 'url("' + url + '")' : "";
+		art.style.setProperty("--cn-h1", tone[0]);
+		art.style.setProperty("--cn-h2", tone[1]);
+
+		if (!url || back) {
+			art.classList.remove("is-soft");
+			return;
+		}
+		if (url in wideCache) {
+			art.classList.toggle("is-soft", !wideCache[url]);
+			return;
+		}
+
+		art.classList.add("is-soft");
+		var probe = new Image();
+		probe.onload = function () {
+			wideCache[url] = probe.naturalWidth >= probe.naturalHeight * 1.3;
+			if ((backdropCache[artKey(d)] || d.poster || "") === url) {
+				art.classList.toggle("is-soft", !wideCache[url]);
+			}
+		};
+		probe.src = url;
+	}
+
+	function renderHero(active) {
+		var prog = document.getElementById("cn-hero-prog");
+		var stop = document.getElementById("cn-hero-stop");
+		var kick = document.getElementById("cn-hero-kicker");
+		var art  = document.getElementById("cn-hero-art");
+
+		if (!active.length) {
+			heroId = null;
+			document.getElementById("cn-hero-title").innerHTML =
+				'Nothing running<em id="cn-hero-sub">Queue is empty</em>';
+			document.getElementById("cn-hero-line").textContent =
+				"When a download starts you'll find it here, with real-time progress.";
+			kick.innerHTML = '<span class="cn-st is-wait">Idle</span>';
+			prog.hidden = true;
+			stop.hidden = true;
+			art.style.backgroundImage = "";
+			art.classList.remove("is-soft");
+			heroEntry = null;
+			return;
+		}
+
+		var d = active[0];
+		heroId = d.id;
+		var p = pct(d.progress);
+
+		kick.innerHTML =
+			'<span class="cn-st is-run">' + esc(d.status || "Running") + "</span>" +
+			'<span class="cn-tag" style="color:var(--cn-mute)">' + esc(d.site) +
+			(d.is_anime ? " · anime" : "") + "</span>";
+
+		document.getElementById("cn-hero-title").innerHTML =
+			esc(titleize(d.title)) + '<em>' + esc(d.quality || d.type || "") + "</em>";
+		document.getElementById("cn-hero-line").textContent = d.path || "";
+
+		document.getElementById("cn-hero-pct").innerHTML = p.toFixed(0) + "<span>%</span>";
+		document.getElementById("cn-hero-of").textContent =
+			[d.size, d.segments ? "segments " + d.segments : ""].filter(Boolean).join(" · ");
+		document.getElementById("cn-hero-bar").style.width = p + "%";
+
+		var facts = [];
+		if (d.speed) facts.push("<span><b>" + esc(d.speed) + "</b></span>");
+		if (d.quality) facts.push("<span>quality <b>" + esc(d.quality) + "</b></span>");
+		if (d.language) facts.push("<span>audio <b>" + esc(d.language) + "</b></span>");
+		document.getElementById("cn-hero-facts").innerHTML = facts.join("");
+
+		heroEntry = d;
+		askBackdrop(d);
+		paintHeroArt(d);
+
+		prog.hidden = false;
+		stop.hidden = false;
+	}
+
+	document.getElementById("cn-hero-stop").addEventListener("click", function () {
+		if (!heroId) return;
+		fetch(URL_KILL, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+			body: JSON.stringify({ download_id: heroId })
+		}).then(refresh).catch(function () { /* il giro successivo riallinea */ });
+	});
+
+	document.getElementById("cn-reel-active").addEventListener("click", function (e) {
+		var btn = e.target.closest("[data-stop]");
+		if (!btn) return;
+		btn.disabled = true;
+		fetch(URL_KILL, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+			body: JSON.stringify({ download_id: btn.dataset.stop })
+		}).then(refresh).catch(function () { btn.disabled = false; });
+	});
+
+	function refresh() {
+		return fetch(URL_DOWNLOADS)
+			.then(function (r) { return r.json(); })
+			.then(function (data) {
+				var active = data.active || [];
+				var queue  = data.scheduled || [];
+				var hist   = data.history || [];
+
+				renderHero(active);
+
+				fill("cn-reel-active", "cn-empty-active", "cn-n-active", active.map(function (d, i) {
+					var p = pct(d.progress);
+					var status = d.status || "Running";
+					d.pctText = p.toFixed(0);
+					var downloadId = d.id || tileId(d, "a", i);
+					return {
+						id: tileId(d, "a", i),
+						sig: status + "|" + p.toFixed(0) + "|" + (d.speed || "") + "|" + elapsedText(d.start_time),
+						html: function () {
+							return activeRow(d, downloadId);
+						},
+						patch: function (node) {
+							node.innerHTML = activeRowInner(d, downloadId);
+							if (d.path) node.title = d.path;
+						}
+					};
+				}));
+
+				fill("cn-reel-queue", "cn-empty-queue", "cn-n-queue", queue.map(function (d, i) {
+					var place = "#" + (i + 1);
+					return {
+						id: tileId(d, "q", i),
+						sig: place,
+						html: function () {
+							return tile(d, {
+								flag: '<span class="cn-flag cn-st is-wait">' + place + "</span>",
+								ruleColor: "var(--cn-cool)",
+								posterMeta: d.season ? "S" + d.season : d.type,
+								cap: d.title,
+								sub: d.site
+							});
+						},
+						// quando la coda avanza cambia solo il numero d'ordine
+						patch: function (node) { setText(node, ".cn-flag", place); }
+					};
+				}));
+
+				fill("cn-reel-hist", "cn-empty-hist", "cn-n-hist", hist.slice(0, 20).map(function (d, i) {
+					var e = outcome(d);
+					var sub = e.note ? (d.site ? d.site + " · " + e.note : e.note) : d.site;
+					return {
+						id: tileId(d, "h", i),
+						sig: e.label + "|" + sub,
+						html: function () {
+							return tile(d, {
+								flag: '<span class="cn-flag cn-st ' + e.badge + '">' + e.label + "</span>",
+								ruleColor: e.rule,
+								posterMeta: d.site,
+								cap: d.title,
+								sub: sub
+							});
+						},
+						patch: function (node) {
+							var flag = node.querySelector(".cn-flag");
+							if (flag) {
+								flag.className = "cn-flag cn-st " + e.badge;
+								flag.textContent = e.label;
+							}
+							setText(node, ".cn-sub", sub);
+						}
+					};
+				}));
+
+				upgradePosters(active.concat(queue, hist.slice(0, 20)));
+			})
+			.catch(function () { /* rete giù: si riprova al giro dopo */ });
+	}
+
+	var posterAsked = {};
+
+	function upgradePosters(entries) {
+		var wanted = [];
+		entries.forEach(function (d) {
+			var key = artKey(d);
+			if (!key || d.poster || posterAsked[key]) return;
+			posterAsked[key] = true;
+			wanted.push({
+				index: key,
+				name: key,
+				site: d.site,
+				is_movie: String(d.type || "").toLowerCase() === "movie"
+			});
+		});
+		if (!wanted.length) return;
+
+		fetch(URL_POSTERS, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+			body: JSON.stringify({ items: wanted })
+		})
+			.then(function (r) { return r.json(); })
+			.then(function (data) {
+				var found = data.posters || {};
+				var any = false;
+				Object.keys(found).forEach(function (k) { posterCache[k] = found[k]; any = true; });
+				if (any) applyCachedPosters();
+			})
+			.catch(function () { /* TMDB non raggiungibile: resta la locandina composta */ });
+	}
+
+	function applyCachedPosters() {
+		document.querySelectorAll(".cn-tile[data-key]").forEach(function (tile) {
+			var url = posterCache[tile.getAttribute("data-key")];
+			if (!url) return;
+			var box = tile.querySelector(".cn-poster");
+			if (!box || box.querySelector("img")) return;
+			var img = new Image();
+			img.loading = "lazy"; img.decoding = "async"; img.alt = "";
+			img.onerror = function () { img.remove(); };
+			img.src = url;
+			box.insertBefore(img, box.querySelector(".cn-poster-fill"));
+		});
+	}
+
+	document.querySelectorAll(".cn-reel").forEach(function (r) {
+		r.addEventListener("wheel", function (e) {
+			if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+			if (r.scrollWidth <= r.clientWidth) return;
+			e.preventDefault();
+			r.scrollLeft += e.deltaY;
+		}, { passive: false });
+	});
+
+	refresh();
+	var timer = setInterval(refresh, 1000);
+	document.addEventListener("visibilitychange", function () {
+		clearInterval(timer);
+		if (!document.hidden) { refresh(); timer = setInterval(refresh, 1000); }
+	});
+})();
+</script>
+{% endblock %}

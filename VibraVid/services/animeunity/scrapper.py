@@ -3,9 +3,8 @@
 import logging
 import threading
 
+from VibraVid.services._base.object import Episode, EpisodeManager
 from VibraVid.utils.http_client import create_client, get_headers
-from VibraVid.services._base.object import EpisodeManager, Episode
-
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +13,7 @@ class ScrapeSerieAnime:
     def __init__(self, url: str):
         """
         Initialize the media scraper for a specific website.
-        
+
         Args:
             url (str): Url of the streaming site
         """
@@ -32,12 +31,12 @@ class ScrapeSerieAnime:
             self.is_series = True
             self.series_name = series_name
             self.obj_episode_manager: EpisodeManager = EpisodeManager()
-            
+
     def get_count_episodes(self):
         """
         Retrieve total number of episodes for the selected media.
         This includes partial episodes (like episode 6.5).
-        
+
         Returns:
             int: Total episode count including partial episodes
         """
@@ -48,7 +47,7 @@ class ScrapeSerieAnime:
         if self.episodes_cache:
             return len(self.episodes_cache)
         return None
-    
+
     def _fetch_all_episodes(self):
         """
         Fetch all episodes data at once and cache it
@@ -59,18 +58,15 @@ class ScrapeSerieAnime:
                 response = client.get(f"{self.url}/info_api/{self.media_id}/")
             response.raise_for_status()
             initial_count = response.json()["episodes_count"]
-            
+
             all_episodes = []
             start_range = 0
-            
+
             # Fetch episodes in chunks
             while start_range <= initial_count:
                 end_range = min(start_range + 119, initial_count)
-                params={
-                    "start_range": start_range,
-                    "end_range": end_range
-                }
-                
+                params = {"start_range": start_range, "end_range": end_range}
+
                 with create_client(headers=self.headers) as client:
                     response = client.get(f"{self.url}/info_api/{self.media_id}/1", params=params)
                 response.raise_for_status()
@@ -78,7 +74,7 @@ class ScrapeSerieAnime:
                 chunk_episodes = response.json().get("episodes", [])
                 all_episodes.extend(chunk_episodes)
                 start_range = end_range + 1
-            
+
             self.episodes_cache = all_episodes
         except Exception as e:
             logger.error(f"Error fetching all episodes: {e}")
@@ -94,13 +90,8 @@ class ScrapeSerieAnime:
 
         if self.episodes_cache and 0 <= index_ep < len(self.episodes_cache):
             ep = self.episodes_cache[index_ep]
-            return Episode(
-                id=ep.get('id'),
-                number=ep.get('number'),
-                name=f"Episode {ep.get('number')}"
-            )
+            return Episode(id=ep.get("id"), number=ep.get("number"), name=f"Episode {ep.get('number')}")
         return None
-
 
     # ------------- FOR GUI -------------
     def getNumberSeason(self) -> int:

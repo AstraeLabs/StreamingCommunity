@@ -5,14 +5,20 @@ from rich.text import Text
 
 from VibraVid.utils import internet_manager
 
-
 SHOW_ELAPSED_REMAINING = True
 SHOW_SIZE = True
 SHOW_DURATION = False
 
 
 class CustomBarColumn(ProgressColumn):
-    def __init__(self, bar_width=30, complete_char="-", incomplete_char="-", complete_style="bright_magenta", incomplete_style="dim white"):
+    def __init__(
+        self,
+        bar_width=30,
+        complete_char="-",
+        incomplete_char="-",
+        complete_style="bright_magenta",
+        incomplete_style="dim white",
+    ):
         super().__init__()
         self.bar_width = bar_width
         self.complete_char = complete_char
@@ -51,7 +57,7 @@ class CompactTimeRemainingColumn(ProgressColumn):
     def render(self, task):
         if not SHOW_ELAPSED_REMAINING:
             return Text("")
-        
+
         # For live streams show content duration downloaded
         if task.fields.get("segment", "").endswith("/~"):
             duration = task.fields.get("duration", "")
@@ -59,7 +65,7 @@ class CompactTimeRemainingColumn(ProgressColumn):
                 d = duration.split("/")[0] if "/" in duration else duration
                 return Text.from_markup(f"[green]{d}[/green]")
             return Text.from_markup("[dim]--:--[/dim]")
-        
+
         remaining = task.time_remaining
         if remaining is None:
             return Text.from_markup("[cyan]--:--[/cyan]")

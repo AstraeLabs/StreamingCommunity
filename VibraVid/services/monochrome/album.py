@@ -3,9 +3,8 @@
 
 import logging
 
-from VibraVid.services._base.object import Season, SeasonManager
 from VibraVid.provider.amazon import amazon_music
-
+from VibraVid.services._base.object import Season, SeasonManager
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +38,17 @@ class AmazonAlbumScraper:
 
         self._tracks = []
         for i, t in enumerate(data.get("songs") or [], start=1):
-            self._tracks.append({
-                "id": t.get("id"),
-                "name": t.get("name") or "Unknown Track",
-                "number": i,
-                "url": t.get("url", ""),
-                "duration": t.get("duration") or 0,
-                "artist": (t.get("artist") or {}).get("name", "") or self.artist,
-                "cover": t.get("image") or self.cover_url,
-            })
+            self._tracks.append(
+                {
+                    "id": t.get("id"),
+                    "name": t.get("name") or "Unknown Track",
+                    "number": i,
+                    "url": t.get("url", ""),
+                    "duration": t.get("duration") or 0,
+                    "artist": (t.get("artist") or {}).get("name", "") or self.artist,
+                    "cover": t.get("image") or self.cover_url,
+                }
+            )
 
         self.series_name = self.title
         self.series_display_name = self.title
@@ -59,15 +60,17 @@ class AmazonAlbumScraper:
         """Return the tracklist as episode dicts for the shared managers."""
         episodes = []
         for t in self._tracks:
-            episodes.append({
-                "id": t["id"],
-                "name": t["name"],
-                "number": t["number"],
-                "url": t["url"],
-                "duration_seconds": t["duration"],
-                "artist": t["artist"],
-                "album": self.title,
-                "year": self.year,
-                "cover": t["cover"],
-            })
+            episodes.append(
+                {
+                    "id": t["id"],
+                    "name": t["name"],
+                    "number": t["number"],
+                    "url": t["url"],
+                    "duration_seconds": t["duration"],
+                    "artist": t["artist"],
+                    "album": self.title,
+                    "year": self.year,
+                    "cover": t["cover"],
+                }
+            )
         return episodes

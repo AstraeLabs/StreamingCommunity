@@ -2,28 +2,27 @@
 
 import platform
 from contextlib import nullcontext
-from typing import Any, Dict, Optional
+from typing import Any
 
 from rich.console import Console
 from rich.progress import Progress, TextColumn
 
-from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.ui.progress_bar import (
-    CustomBarColumn,
+    SHOW_ELAPSED_REMAINING,
     CompactTimeRemainingColumn,
+    CustomBarColumn,
     TransferStatsColumn,
-    SHOW_ELAPSED_REMAINING
 )
-
+from VibraVid.core.ui.tracker import context_tracker, download_tracker
 
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
 
 
 class DownloadBarManager:
-    def __init__(self, download_id: Optional[str] = None):
+    def __init__(self, download_id: str | None = None):
         self.download_id = download_id
-        self.tasks: Dict[str, Any] = {}
-        self.subtitle_sizes: Dict[str, str] = {}
+        self.tasks: dict[str, Any] = {}
+        self.subtitle_sizes: dict[str, str] = {}
         time_columns = []
         if SHOW_ELAPSED_REMAINING:
             time_columns = [
@@ -76,23 +75,31 @@ class DownloadBarManager:
                         duration="",
                         compact_metrics=compact_metrics,
                     )
-                    
+
     def add_external_track_task(self, label: str, track_key: str):
         if self.progress:
             if track_key not in self.tasks:
                 self.tasks[track_key] = self.progress.add_task(
                     self._wrap_label(label),
-                    total=100, segment="0/1", speed="0Bps", size="0B/0B", compact_metrics=False,
+                    total=100,
+                    segment="0/1",
+                    speed="0Bps",
+                    size="0B/0B",
+                    compact_metrics=False,
                 )
-                
+
     def get_task_id(self, task_key: str):
         return self.tasks.get(task_key)
 
-    def handle_progress_line(self, parsed: Optional[Dict[str, Any]]):
+    def handle_progress_line(self, parsed: dict[str, Any] | None):
         if not parsed:
             return
 
-        key = parsed.get("task_key") or parsed.get("_task_key") or f"{parsed.get('track', 'trk')}_{parsed.get('label', '')}"
+        key = (
+            parsed.get("task_key")
+            or parsed.get("_task_key")
+            or f"{parsed.get('track', 'trk')}_{parsed.get('label', '')}"
+        )
         label = parsed.get("label", key)
 
         # ── Create task if first time we see this key ──────────────────────
@@ -108,13 +115,15 @@ class DownloadBarManager:
                     duration="",
                     compact_metrics=compact_metrics,
                 )
-                if self.progress else "gui"
+                if self.progress
+                else "gui"
             )
 
         # ── Update tracker (for GUI mode) ──────────────────────────────────
         if self.download_id:
             download_tracker.update_progress(
-                self.download_id, key,
+                self.download_id,
+                key,
                 parsed.get("pct"),
                 parsed.get("speed"),
                 parsed.get("size"),
@@ -149,7 +158,7 @@ class DownloadBarManager:
         if "final_size" in parsed:
             self.progress.update(tid, size=parsed["final_size"], completed=100)
             lang_raw = parsed.get("_lang_code") or key.replace("sub_", "", 1).split("_")[0]
-            codec    = parsed.get("codec", "")
+            codec = parsed.get("codec", "")
             if lang_raw:
                 self.subtitle_sizes[f"{lang_raw}:{codec}" if codec else lang_raw] = parsed["final_size"]
 

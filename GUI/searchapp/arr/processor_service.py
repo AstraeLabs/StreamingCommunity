@@ -1,45 +1,41 @@
 # 07.05.26
 
-"""
-Processor Service — replaces the standalone Processor.py from VibraVidArr.
-
-Queries Sonarr/Radarr for missing items, applies tag-based filtering
-(whitelist/blacklist, hold, skip-s*), extracts the provider from tags,
-and returns a list of download-ready items.
-"""
-
 import logging
-from typing import Dict, List, Optional, Set
 
-from .clients.sonarr_client import SonarrClient
 from .clients.radarr_client import RadarrClient
+from .clients.sonarr_client import SonarrClient
 
 logger = logging.getLogger("ARR")
 
 
 class ArrProcessorService:
-
-    def __init__(self, sonarr: SonarrClient, radarr: RadarrClient, *, tags_mode: str = "BLACKLIST",
-                 active_tag_ids: Optional[List[int]] = None):
+    def __init__(
+        self,
+        sonarr: SonarrClient,
+        radarr: RadarrClient,
+        *,
+        tags_mode: str = "BLACKLIST",
+        active_tag_ids: list[int] | None = None,
+    ):
         self.sonarr = sonarr
         self.radarr = radarr
         self.tags_mode = tags_mode.upper()  # BLACKLIST | WHITELIST
-        self.active_tag_ids: List[int] = active_tag_ids or []
+        self.active_tag_ids: list[int] = active_tag_ids or []
 
         # Tag maps {id: label_lowercase}
-        self._sonarr_tags: Dict[int, str] = {}
-        self._radarr_tags: Dict[int, str] = {}
-        self._logged_skipped: Set[str] = set()
+        self._sonarr_tags: dict[int, str] = {}
+        self._radarr_tags: dict[int, str] = {}
+        self._logged_skipped: set[str] = set()
 
     # ── public ───────────────────────────────────────────
 
-    def get_missing_items(self) -> List[dict]:
+    def get_missing_items(self) -> list[dict]:
         """Return all missing items (series + movies) ready for download."""
         self._logged_skipped.clear()
         self._sonarr_tags = self.sonarr.get_tags_map() if self.sonarr else {}
         self._radarr_tags = self.radarr.get_tags_map() if self.radarr else {}
 
-        items: List[dict] = []
+        items: list[dict] = []
 
         if self.sonarr:
             try:
@@ -54,14 +50,14 @@ class ArrProcessorService:
                 items.extend(radarr_items)
             except Exception as exc:
                 logger.error(f"Failed to fetch Radarr missing: {exc}")
-                
+
         return items
 
     # ── Sonarr ───────────────────────────────────────────
 
-    def _get_sonarr_missing(self) -> List[dict]:
+    def _get_sonarr_missing(self) -> list[dict]:
         missing = self.sonarr.get_all_missing()
-        reduced: List[dict] = []
+        reduced: list[dict] = []
 
         for elem in missing:
             if self._filter_sonarr(elem):
@@ -108,7 +104,7 @@ class ArrProcessorService:
 
         return True
 
-    def _reduce_sonarr(self, base: List[dict], elem: dict) -> None:
+    def _reduce_sonarr(self, base: list[dict], elem: dict) -> None:
         serie = next((s for s in base if s["id"] == elem["series"]["id"]), None)
         if not serie:
             serie = {
@@ -129,34 +125,38 @@ class ArrProcessorService:
             season = {"number": elem["seasonNumber"], "episodes": []}
             serie["seasons"].append(season)
 
-        season["episodes"].append({
-            "id": elem["id"],
-            "title": elem["title"],
-            "seasonNumber": elem["seasonNumber"],
-            "episodeNumber": elem["episodeNumber"],
-            "absoluteEpisodeNumber": elem.get("absoluteEpisodeNumber"),
-            "monitored": elem.get("monitored", True),
-        })
+        season["episodes"].append(
+            {
+                "id": elem["id"],
+                "title": elem["title"],
+                "seasonNumber": elem["seasonNumber"],
+                "episodeNumber": elem["episodeNumber"],
+                "absoluteEpisodeNumber": elem.get("absoluteEpisodeNumber"),
+                "monitored": elem.get("monitored", True),
+            }
+        )
 
     # ── Radarr ───────────────────────────────────────────
 
-    def _get_radarr_missing(self) -> List[dict]:
+    def _get_radarr_missing(self) -> list[dict]:
         missing = self.radarr.get_all_missing()
-        valid: List[dict] = []
+        valid: list[dict] = []
 
         for elem in missing:
             if self._filter_radarr(elem):
-                valid.append({
-                    "content_type": "movie",
-                    "id": elem["id"],
-                    "title": elem["title"],
-                    "year": elem.get("year"),
-                    "path": elem["path"],
-                    "tags": elem["tags"],
-                    "tmdbId": elem.get("tmdbId"),
-                    "monitored": elem.get("monitored", True),
-                    "provider": self._extract_provider(elem["tags"], "radarr"),
-                })
+                valid.append(
+                    {
+                        "content_type": "movie",
+                        "id": elem["id"],
+                        "title": elem["title"],
+                        "year": elem.get("year"),
+                        "path": elem["path"],
+                        "tags": elem["tags"],
+                        "tmdbId": elem.get("tmdbId"),
+                        "monitored": elem.get("monitored", True),
+                        "provider": self._extract_provider(elem["tags"], "radarr"),
+                    }
+                )
 
         return valid
 
@@ -196,7 +196,7 @@ class ArrProcessorService:
 
         return True
 
-    def _extract_provider(self, tag_ids: List[int], source: str) -> str:
+    def _extract_provider(self, tag_ids: list[int], source: str) -> str:
         tags_map = self._sonarr_tags if source == "sonarr" else self._radarr_tags
         for t_id in tag_ids:
             label = tags_map.get(t_id, "")

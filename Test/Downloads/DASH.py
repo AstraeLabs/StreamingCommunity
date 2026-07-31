@@ -4,7 +4,7 @@
 import os
 import sys
 
-src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.append(src_path)
 
 
@@ -18,9 +18,9 @@ setup_logger()
 conf_extension = config_manager.config.get("PROCESS", "extension")
 
 
-mpd_url = ''
+mpd_url = ""
 mpd_headers = {}
-license_url = ''
+license_url = ""
 license_headers = {}
 license_key = None
 
@@ -30,8 +30,9 @@ dash_process = DASH_Downloader(
     mpd_headers=mpd_headers,
     license_url=license_url,
     license_headers=license_headers,
-    output_path=fr".\Video\DASH.{conf_extension}",
+    output_path=rf".\Video\DASH.{conf_extension}",
     key=license_key,
+    drm_preference=DRMType.WIDEVINE
 )
 
 

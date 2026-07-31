@@ -4,41 +4,63 @@ import asyncio
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 from urllib.parse import urlparse
 
+from VibraVid.core.decryptor import KeysManager
+from VibraVid.core.decryptor._models import detect_encryption_info
+from VibraVid.core.ui.bar_manager import DownloadBarManager, console
+from VibraVid.core.ui.tracker import download_tracker
+from VibraVid.core.velora.bridge import run_download_plan
+from VibraVid.core.velora.curl_bridge import run_download_plan_curl_cffi
+from VibraVid.core.velora.subtitle import download_external_tracks_with_progress
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import get_proxy_url
-from VibraVid.core.ui.tracker import download_tracker
-from VibraVid.core.ui.bar_manager import DownloadBarManager, console
-from VibraVid.core.decryptor import KeysManager
 
-from VibraVid.core.velora.bridge import run_download_plan
-from VibraVid.core.velora.subtitle import download_external_tracks_with_progress
-from VibraVid.core.decryptor._models import detect_encryption_info
-
-from .base import BaseMediaDownloader
-from .downloader_live import LiveDownloadMixin
-from ._stream_vod import VodStreamMixin
-from ._multiperiod import MultiPeriodMixin
 from ._decrypt_pipeline import DecryptPipelineMixin
 from ._ism_postproc import IsmPostprocMixin
-from .util._stream_helpers import detect_seg_ext, join_interruptible, print_failed_segments_report, SilentDownloadBarManager, safe_name
-
+from ._multiperiod import MultiPeriodMixin
+from ._stream_vod import VodStreamMixin
+from .base import BaseMediaDownloader
+from .downloader_live import LiveDownloadMixin
+from .util._stream_helpers import (
+    SilentDownloadBarManager,
+    detect_seg_ext,
+    join_interruptible,
+    print_failed_segments_report,
+    safe_name,
+)
 
 logger = logging.getLogger("manual")
 CONCURRENT_DL = config_manager.config.get_bool("DOWNLOAD", "concurrent_download")
-THREAD_COUNT = config_manager.config.get_int("DOWNLOAD",  "thread_count")
-RETRY_COUNT = config_manager.config.get_int("REQUESTS",  "max_retry")
-REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS",  "timeout")
+THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
+RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")
+REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
 VERIFY_TLS = config_manager.config.get_bool("REQUESTS", "verify")
 REALTIME_DECRYPT = config_manager.config.get_bool("DOWNLOAD", "realtime_decrypt")
 SEGMENT_DELAY_SECONDS = max(0.0, config_manager.config.get_float("DOWNLOAD", "segment_delay_seconds"))
 SEGMENT_DELAY_JITTER_SECONDS = max(0.0, config_manager.config.get_float("DOWNLOAD", "segment_delay_jitter_seconds"))
 
 
-class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, DecryptPipelineMixin, IsmPostprocMixin, BaseMediaDownloader):
-    def __init__(self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, max_segments: Union[int, Tuple[int, Optional[int]], None] = None, max_time: Union[float, Tuple[float, Optional[float]], None] = None, manifest_content: Optional[str] = None, manifest_protocol: Optional[str] = None, manifest_refresh_fn=None) -> None:
+class MediaDownloader(
+    LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, DecryptPipelineMixin, IsmPostprocMixin, BaseMediaDownloader
+):
+    def __init__(
+        self,
+        url: str,
+        output_dir: str,
+        filename: str,
+        headers: dict | None = None,
+        key: Any | None = None,
+        cookies: dict | None = None,
+        download_id: str | None = None,
+        site_name: str | None = None,
+        max_segments: int | tuple[int, int | None] | None = None,
+        max_time: float | tuple[float, float | None] | None = None,
+        manifest_content: str | None = None,
+        manifest_protocol: str | None = None,
+        manifest_refresh_fn=None,
+    ) -> None:
         super().__init__(
             url=url,
             output_dir=output_dir,
@@ -57,7 +79,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
 
         # Cancellation
         self._stop_event: threading.Event = threading.Event()
-        self._active_loops: List[asyncio.AbstractEventLoop] = []
+        self._active_loops: list[asyncio.AbstractEventLoop] = []
         self._loops_lock: threading.Lock = threading.Lock()
 
         # Live-decryption tracking
@@ -72,7 +94,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
         self.decrypt_failures: list = []
         self._decrypt_failures_lock = threading.Lock()
 
-    def start_download(self, show_progress: bool = True) -> Dict[str, Any]:
+    def start_download(self, show_progress: bool = True) -> dict[str, Any]:
         if self.download_id:
             download_tracker.update_status(self.download_id, "Downloading ...")
 
@@ -80,11 +102,9 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
         self._prepare_labels()
 
         selected_media = [
-            s for s in self.streams
-            if s.selected and not s.is_external
-            and s.type in ("video", "audio", "subtitle")
+            s for s in self.streams if s.selected and not s.is_external and s.type in ("video", "audio", "subtitle")
         ]
-        all_support_live = (all(s.supports_live_decryption for s in selected_media) if selected_media else False)
+        all_support_live = all(s.supports_live_decryption for s in selected_media) if selected_media else False
 
         if all_support_live and selected_media and REALTIME_DECRYPT:
             self._session_live_decrypt = True
@@ -107,14 +127,12 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
             else:
                 logger.info("Using post-download decryption.")
 
-        ext_result: Dict[str, Any] = {"ext_subs": [], "ext_auds": []}
-        spawned_threads: List[threading.Thread] = []
+        ext_result: dict[str, Any] = {"ext_subs": [], "ext_auds": []}
+        spawned_threads: list[threading.Thread] = []
 
         try:
             bar_ctx = (
-                DownloadBarManager(self.download_id)
-                if show_progress
-                else SilentDownloadBarManager(self.download_id)
+                DownloadBarManager(self.download_id) if show_progress else SilentDownloadBarManager(self.download_id)
             )
 
             with bar_ctx as bar_manager:
@@ -154,27 +172,31 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                     except Exception as exc:
                         logger.error(f"Stream download error ({s.type}/{s.language}): {exc}", exc_info=True)
 
+                # Live recordings can legitimately run far longer than join_interruptible's default 2h hard_timeout
+                is_live_session = any(getattr(s, "is_live", False) for s in selected_media)
+                media_hard_timeout = float("inf") if is_live_session else 7200.0
+
                 if CONCURRENT_DL:
                     ext_thread = threading.Thread(target=_run_externals, daemon=True)
                     spawned_threads.append(ext_thread)
                     ext_thread.start()
 
-                    media_threads: List[threading.Thread] = []
+                    media_threads: list[threading.Thread] = []
                     for stream in selected_media:
                         t = threading.Thread(target=_run_stream, args=(stream,), daemon=True)
                         media_threads.append(t)
                         spawned_threads.append(t)
                         t.start()
 
-                    join_interruptible(media_threads, self._stop_event)
+                    join_interruptible(media_threads, self._stop_event, hard_timeout=media_hard_timeout)
                     bar_manager.finish_all_tasks()
                     join_interruptible([ext_thread], self._stop_event, hard_timeout=300.0)
 
                 else:
                     logger.info("Sequential download: video -> audio -> subtitles -> external tracks.")
-                    video_streams  = [s for s in selected_media if s.type == "video"]
-                    audio_streams  = [s for s in selected_media if s.type == "audio"]
-                    sub_streams    = [s for s in selected_media if s.type == "subtitle"]
+                    video_streams = [s for s in selected_media if s.type == "video"]
+                    audio_streams = [s for s in selected_media if s.type == "audio"]
+                    sub_streams = [s for s in selected_media if s.type == "subtitle"]
 
                     for stream in video_streams:
                         if self._stop_check():
@@ -182,7 +204,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                         t = threading.Thread(target=lambda s=stream: _run_stream(s), daemon=True)
                         spawned_threads.append(t)
                         t.start()
-                        join_interruptible([t], self._stop_event)
+                        join_interruptible([t], self._stop_event, hard_timeout=media_hard_timeout)
 
                     for stream in audio_streams:
                         if self._stop_check():
@@ -190,7 +212,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                         t = threading.Thread(target=lambda s=stream: _run_stream(s), daemon=True)
                         spawned_threads.append(t)
                         t.start()
-                        join_interruptible([t], self._stop_event)
+                        join_interruptible([t], self._stop_event, hard_timeout=media_hard_timeout)
 
                     for stream in sub_streams:
                         if self._stop_check():
@@ -198,7 +220,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                         t = threading.Thread(target=lambda s=stream: _run_stream(s), daemon=True)
                         spawned_threads.append(t)
                         t.start()
-                        join_interruptible([t], self._stop_event)
+                        join_interruptible([t], self._stop_event, hard_timeout=media_hard_timeout)
 
                     bar_manager.finish_all_tasks()
 
@@ -237,7 +259,9 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
         # A stop (Ctrl+C or a tracker-level request, e.g. a live source going
         # offline) can still have produced a fully merged file by the time we
         # get here — only treat it as a cancellation if nothing was produced.
-        was_stopped = self._stop_event.is_set() or bool(self.download_id and download_tracker.is_stopped(self.download_id))
+        was_stopped = self._stop_event.is_set() or bool(
+            self.download_id and download_tracker.is_stopped(self.download_id)
+        )
         if was_stopped and not self.status.get("video") and not self.status.get("audios"):
             return {"error": "cancelled"}
 
@@ -265,7 +289,16 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
     def _stop_check(self) -> bool:
         return self._stop_event.is_set() or bool(self.download_id and download_tracker.is_stopped(self.download_id))
 
-    def _run_dl(self, segs: List[Dict], out_dir: Path, headers: Dict, progress_cb, stream=None, event_cb=None, default_ext: str = "ts") -> List[Path]:
+    def _run_dl(
+        self,
+        segs: list[dict],
+        out_dir: Path,
+        headers: dict,
+        progress_cb,
+        stream=None,
+        event_cb=None,
+        default_ext: str = "ts",
+    ) -> list[Path]:
         try:
             plan_task_key = self._stream_task_key(stream) if stream else "download"
             if stream and stream.type == "video":
@@ -277,7 +310,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
             elif stream and stream.type == "subtitle":
                 plan_label = self._sub_labels_by_task_key.get(plan_task_key, "")
                 if not plan_label:
-                    lang_raw  = (stream.language or "und").lower()
+                    lang_raw = (stream.language or "und").lower()
                     plan_label = self._sub_labels.get(lang_raw) or self._sub_labels.get(lang_raw.split("-")[0]) or ""
 
             else:
@@ -291,14 +324,16 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                 if seg_ext == "m4s":
                     seg_ext = "mp4"
 
-                tasks.append({
-                    "task_key": plan_task_key,
-                    "label": plan_label_or_key,
-                    "display_label": plan_label_or_key,
-                    "url": seg["url"],
-                    "path": str(out_dir / f"seg_{seg['number']:05d}.{seg_ext}"),
-                    "headers": seg.get("headers", {}),
-                })
+                tasks.append(
+                    {
+                        "task_key": plan_task_key,
+                        "label": plan_label_or_key,
+                        "display_label": plan_label_or_key,
+                        "url": seg["url"],
+                        "path": str(out_dir / f"seg_{seg['number']:05d}.{seg_ext}"),
+                        "headers": seg.get("headers", {}),
+                    }
+                )
 
             plan = {
                 "project": "Velora",
@@ -319,7 +354,9 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                 "headers": headers,
                 "tasks": tasks,
             }
-            results = run_download_plan(plan, progress_cb=progress_cb, event_cb=event_cb, stop_check=self._stop_check)
+            use_curl_cffi = config_manager.config.get_bool("DOWNLOAD", "use_curl_cffi_segments")
+            backend = run_download_plan_curl_cffi if use_curl_cffi else run_download_plan
+            results = backend(plan, progress_cb=progress_cb, event_cb=event_cb, stop_check=self._stop_check)
             return [Path(item["path"]) for item in results if item.get("path")]
 
         except Exception as exc:
@@ -332,8 +369,9 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
                 logger.warning(f"[PROBE] Probe target not found or empty: {target_path}")
                 return
 
-            from VibraVid.setup import get_ffprobe_path
             from VibraVid.core.muxing.helper.info import Mediainfo
+            from VibraVid.setup import get_ffprobe_path
+
             ffprobe_path = get_ffprobe_path()
 
             async def _run_probes() -> None:
@@ -367,7 +405,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
         track_ids = info.track_ids or []
         logger.info(f"[PROBE][{target_path.name}] Scheme: {scheme}, KID: {kid}, Track IDs: {track_ids}")
 
-    def _build_headers(self) -> Dict:
+    def _build_headers(self) -> dict:
         h = dict(self.headers)
 
         if self.cookies:
@@ -388,7 +426,7 @@ class MediaDownloader(LiveDownloadMixin, VodStreamMixin, MultiPeriodMixin, Decry
         if stream.type == "video":
             return f"{self.filename}.{ext}"
 
-        raw_lang = (getattr(stream, "resolved_language", "") or stream.language or "und")
+        raw_lang = getattr(stream, "resolved_language", "") or stream.language or "und"
         lang = safe_name(raw_lang.lower())
         if stream.type == "subtitle":
             if getattr(stream, "forced", False):

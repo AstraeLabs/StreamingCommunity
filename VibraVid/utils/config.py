@@ -1,37 +1,37 @@
 # 29.01.24
 
+import json
+import logging
 import os
 import re
 import sys
-import json
-import logging
-from typing import Any, List, Dict
-
+from typing import Any
 
 from curl_cffi import requests
 from rich.console import Console
 
 from . import _startup_prefetch
 
-
 console = Console()
 logger = logging.getLogger(__name__)
 
-CONFIG_FILENAME = 'config.json'
-LOGIN_FILENAME = 'login.json'
-DOMAINS_FILENAME = 'domains.json'
-GITHUB_DOMAINS_PATH = '.github/script/domains.json'
+CONFIG_FILENAME = "config.json"
+LOGIN_FILENAME = "login.json"
+DOMAINS_FILENAME = "domains.json"
+GITHUB_DOMAINS_PATH = ".github/script/domains.json"
 
-CONFIG_DOWNLOAD_URL = 'https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/config.json'
-CONFIG_LOGIN_DOWNLOAD_URL = 'https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/login.json'
-DOMAINS_DOWNLOAD_URL = 'https://domains-tracker.server66.workers.dev'
+CONFIG_DOWNLOAD_URL = "https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/config.json"
+CONFIG_LOGIN_DOWNLOAD_URL = "https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/login.json"
+DOMAINS_DOWNLOAD_URL = "https://domains-tracker.server66.workers.dev"
 
 
 _MISSING = object()
 
 
 class ConfigAccessor:
-    def __init__(self, config_dict: Dict, cache: Dict, cache_prefix: str, cache_enabled: bool = True, repair_callback=None):
+    def __init__(
+        self, config_dict: dict, cache: dict, cache_prefix: str, cache_enabled: bool = True, repair_callback=None
+    ):
         self._config_dict = config_dict
         self._cache = cache
         self._cache_prefix = cache_prefix
@@ -72,7 +72,6 @@ class ConfigAccessor:
                 self._repair_attempted = True
                 logger.info(f"Section '{section}' missing — attempting one-time config repair.")
                 if self._repair_callback():
-
                     # Reset the flag: repair succeeded and saved a new config,
                     # so future misses may be legitimate and warrant another attempt.
                     self._repair_attempted = False
@@ -142,7 +141,7 @@ class ConfigAccessor:
                 if isinstance(value, list):
                     return value
                 if isinstance(value, str):
-                    return [item.strip() for item in value.split(',')]
+                    return [item.strip() for item in value.split(",")]
                 return [value]
 
             elif data_type is dict:
@@ -156,7 +155,7 @@ class ConfigAccessor:
         except Exception as e:
             error_msg = f"Error converting: {data_type.__name__} to value '{value}' with error: {e}"
             console.print(f"[red]{error_msg}")
-            raise ValueError(f"Error converting: {data_type.__name__} to value '{value}' with error: {e}")
+            raise ValueError(f"Error converting: {data_type.__name__} to value '{value}' with error: {e}") from e
 
     def get_int(self, section: str, key: str, default: Any = _MISSING) -> int:
         """Read an integer from the configuration."""
@@ -170,13 +169,17 @@ class ConfigAccessor:
         """Read a boolean from the configuration."""
         return self.get(section, key, bool, default=default)
 
-    def get_list(self, section: str, key: str, default: Any = _MISSING) -> List[str]:
+    def get_list(self, section: str, key: str, default: Any = _MISSING) -> list[str]:
         """Read a list from the configuration."""
         return self.get(section, key, list, default=default)
 
     def get_dict(self, section: str, key: str, default: Any = _MISSING) -> dict:
         """Read a dictionary from the configuration."""
         return self.get(section, key, dict, default=default)
+
+    def get_section(self, section: str, default: dict | None = None) -> dict:
+        """Return the entire section as a dict (e.g. all cookies/keys for a service's login block), uncached and un-typed."""
+        return dict(self._config_dict.get(section) or (default or {}))
 
     def set_key(self, section: str, key: str, value: Any) -> None:
         """
@@ -211,9 +214,9 @@ def save_config_compact(data, f):
     json_str = json.dumps(data, indent=4)
     json_str = re.sub(
         r'\[\s*\n\s*((?:"[^"]*"|\d+|true|false|null)(?:\s*,\s*(?:"[^"]*"|\d+|true|false|null))*\s*)\n\s*\]',
-        lambda m: '[' + m.group(1).replace('\n', '').replace(' ', '') + ']',
+        lambda m: "[" + m.group(1).replace("\n", "").replace(" ", "") + "]",
         json_str,
-        flags=re.MULTILINE | re.DOTALL
+        flags=re.MULTILINE | re.DOTALL,
     )
     f.write(json_str)
 
@@ -224,30 +227,28 @@ class ConfigManager:
         self.base_path = None
 
         # Strategy 0: Environment variable override
-        env_base_path = os.environ.get('VIBRAVID_BASE_PATH')
+        env_base_path = os.environ.get("VIBRAVID_BASE_PATH")
         if env_base_path:
             self.base_path = env_base_path
             logger.info("Base path set from environment variable VIBRAVID_BASE_PATH: " + self.base_path)
         # Strategy 1: PyInstaller binary
-        elif getattr(sys, 'frozen', False):
+        elif getattr(sys, "frozen", False):
             self.base_path = os.path.dirname(sys.executable)
             logger.info("Running in PyInstaller binary mode, base path set: " + self.base_path)
         else:
             # Strategy 2: Try to find Conf in source directory (development mode)
-            package_base = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-            package_conf = os.path.join(package_base, 'Conf')
+            package_base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            package_conf = os.path.join(package_base, "Conf")
             logger.info(f"Checking for Conf directory in package base: {package_conf}")
 
             if os.path.exists(package_conf):
                 self.base_path = package_base
             else:
-                # Strategy 3: pip install without -e: use current working directory
-                # This allows users to place Conf in their working directory
                 self.base_path = os.getcwd()
-                logger.info("Conf directory not found in package, using current working directory as base path: " + self.base_path)
+                logger.info(f"Conf directory not found in package, using current working directory as base path: {self.base_path}")
 
         # Initialize conf directory path
-        self.conf_path = os.path.join(self.base_path, 'Conf')
+        self.conf_path = os.path.join(self.base_path, "Conf")
 
         # Create conf directory if it doesn't exist
         if not os.path.exists(self.conf_path):
@@ -269,14 +270,16 @@ class ConfigManager:
         self._domains_data = {}
 
         # Enhanced caching system
-        self.cache: Dict[str, Any] = {}
+        self.cache: dict[str, Any] = {}
         self._cache_enabled = True
 
         # Create accessors — repair_callback only on config, not on login/domain
         self.config = ConfigAccessor(
-            self._config_data, self.cache, "config",
+            self._config_data,
+            self.cache,
+            "config",
             self._cache_enabled,
-            repair_callback=self._repair_missing_config_keys
+            repair_callback=self._repair_missing_config_keys,
         )
         self.login = ConfigAccessor(self._login_data, self.cache, "login", self._cache_enabled)
         self.domain = ConfigAccessor(self._domains_data, self.cache, "domain", self._cache_enabled)
@@ -299,14 +302,14 @@ class ConfigManager:
             self._download_file(CONFIG_DOWNLOAD_URL, self.config_file_path, "config.json")
 
         try:
-            with open(self.config_file_path, 'r') as f:
+            with open(self.config_file_path) as f:
                 self._config_data.clear()
                 self._config_data.update(json.load(f))
 
             # Environment variable overrides (highest priority)
-            env_root = os.environ.get('VIBRAVID_OUTPUT_ROOT')
+            env_root = os.environ.get("VIBRAVID_OUTPUT_ROOT")
             if env_root:
-                self._config_data.setdefault('OUTPUT', {})['root_path'] = env_root
+                self._config_data.setdefault("OUTPUT", {})["root_path"] = env_root
                 logger.info(f"OUTPUT.root_path overridden via VIBRAVID_OUTPUT_ROOT={env_root}")
 
             # Termux/Android: default output path to shared storage if not already absolute
@@ -325,13 +328,13 @@ class ConfigManager:
 
     def _apply_termux_defaults(self) -> None:
         """Apply Termux/Android-specific configuration defaults when running on Termux."""
-        is_termux = 'TERMUX_VERSION' in os.environ or os.path.exists('/data/data/com.termux/files/usr/bin')
+        is_termux = "TERMUX_VERSION" in os.environ or os.path.exists("/data/data/com.termux/files/usr/bin")
         if not is_termux:
             return
 
-        root_path = self._config_data.get('OUTPUT', {}).get('root_path', 'Video')
-        if root_path == 'Video' or not root_path.startswith('/'):
-            self._config_data.setdefault('OUTPUT', {})['root_path'] = '/sdcard/Movies/VibraVid'
+        root_path = self._config_data.get("OUTPUT", {}).get("root_path", "Video")
+        if root_path == "Video" or not root_path.startswith("/"):
+            self._config_data.setdefault("OUTPUT", {})["root_path"] = "/sdcard/Movies/VibraVid"
             logger.info("OUTPUT.root_path defaulted to /sdcard/Movies/VibraVid for Termux compatibility")
 
     def _load_login(self) -> None:
@@ -348,7 +351,7 @@ class ConfigManager:
                 return
 
         try:
-            with open(self.login_file_path, 'r') as f:
+            with open(self.login_file_path) as f:
                 self._login_data.clear()
                 self._login_data.update(json.load(f))
 
@@ -363,17 +366,17 @@ class ConfigManager:
     def _precache_config_values(self) -> None:
         """Pre-cache commonly used configuration values."""
         common_keys = [
-            ('DOWNLOAD', 'thread_count', int),
-            ('DOWNLOAD', 'concurrent_download', bool),
-            ('DOWNLOAD', 'cleanup_tmp_folder', bool),
-            ('PROCESS', 'use_gpu', bool),
-            ('PROCESS', 'param_video', str),
-            ('PROCESS', 'param_audio', str),
-            ('PROCESS', 'param_final', str),
-            ('REQUESTS', 'timeout', int),
-            ('REQUESTS', 'max_retry', int),
-            ('REQUESTS', 'use_proxy', bool),
-            ('REQUESTS', 'proxy', dict)
+            ("DOWNLOAD", "thread_count", int),
+            ("DOWNLOAD", "concurrent_download", bool),
+            ("DOWNLOAD", "cleanup_tmp_folder", bool),
+            ("PROCESS", "use_gpu", bool),
+            ("PROCESS", "param_video", str),
+            ("PROCESS", "param_audio", str),
+            ("PROCESS", "param_final", str),
+            ("REQUESTS", "timeout", int),
+            ("REQUESTS", "max_retry", int),
+            ("REQUESTS", "use_proxy", bool),
+            ("REQUESTS", "proxy", dict),
         ]
 
         for section, key, data_type in common_keys:
@@ -394,7 +397,7 @@ class ConfigManager:
         logger.info("Reference configuration downloaded successfully, attempting to load again")
 
         try:
-            with open(self.config_file_path, 'r') as f:
+            with open(self.config_file_path) as f:
                 self._config_data.clear()
                 self._config_data.update(json.load(f))
 
@@ -413,7 +416,7 @@ class ConfigManager:
         console.print("[yellow]Missing config key detected, downloading reference config to fill gaps...")
         logger.info("Attempting to repair missing config keys from remote reference")
         try:
-            response = requests.get(CONFIG_DOWNLOAD_URL, headers={'User-Agent': "Mozilla/5.0"})
+            response = requests.get(CONFIG_DOWNLOAD_URL, headers={"User-Agent": "Mozilla/5.0"})
             if response.status_code != 200:
                 console.print(f"[red]Could not download reference config: HTTP {response.status_code}")
                 return False
@@ -438,7 +441,7 @@ class ConfigManager:
 
             if changed:
                 self.save_config()
-                
+
                 # Invalidate only config-prefixed entries so login/domain cache is untouched
                 stale = [k for k in self.cache if k.startswith("config.")]
                 for k in stale:
@@ -456,16 +459,16 @@ class ConfigManager:
 
     def _update_settings_from_config(self) -> None:
         """Update internal settings from loaded configurations."""
-        default_section = self._config_data.get('DEFAULT', {})
-        self.fetch_domain_online = default_section.get('fetch_domain_online', True)
+        default_section = self._config_data.get("DEFAULT", {})
+        self.fetch_domain_online = default_section.get("fetch_domain_online", True)
 
     def _download_file(self, url: str, file_path: str, file_name: str) -> None:
         """Download a file from a URL."""
         try:
-            response = requests.get(url, headers={'User-Agent': "Mozilla/5.0"})
+            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
 
             if response.status_code == 200:
-                with open(file_path, 'wb') as f:
+                with open(file_path, "wb") as f:
                     f.write(response.content)
             else:
                 error_msg = f"HTTP Error: {response.status_code}, Response: {response.text[:100]}"
@@ -506,7 +509,7 @@ class ConfigManager:
     def _save_domains_to_appropriate_location(self) -> None:
         """Save domains to the conf directory."""
         try:
-            with open(self.domains_path, 'w', encoding='utf-8') as f:
+            with open(self.domains_path, "w", encoding="utf-8") as f:
                 json.dump(self._domains_data, f, indent=4, ensure_ascii=False)
         except Exception as save_error:
             console.print(f"[red]Could not save domains to file: {str(save_error)}")
@@ -515,7 +518,7 @@ class ConfigManager:
         """Load site data from local domains.json file."""
         try:
             if os.path.exists(self.domains_path):
-                with open(self.domains_path, 'r', encoding='utf-8') as f:
+                with open(self.domains_path, encoding="utf-8") as f:
                     self._domains_data.clear()
                     self._domains_data.update(json.load(f))
 
@@ -525,7 +528,7 @@ class ConfigManager:
                 console.print(f"[dim]Fallback domain path: {self.github_domains_path}[/dim]")
                 logger.info(f"Loading domains from GitHub structure: {self.github_domains_path}")
 
-                with open(self.github_domains_path, 'r', encoding='utf-8') as f:
+                with open(self.github_domains_path, encoding="utf-8") as f:
                     self._domains_data.clear()
                     self._domains_data.update(json.load(f))
 
@@ -552,7 +555,7 @@ class ConfigManager:
             logger.info(f"Attempting fallback to local domains file: {self.domains_path}")
 
             try:
-                with open(self.domains_path, 'r', encoding='utf-8') as f:
+                with open(self.domains_path, encoding="utf-8") as f:
                     self._domains_data.clear()
                     self._domains_data.update(json.load(f))
                 console.print("[green]Fallback to conf domains successful")
@@ -563,7 +566,7 @@ class ConfigManager:
         if os.path.exists(self.github_domains_path):
             console.print("[yellow]Attempting fallback to GitHub structure domains.json file...")
             try:
-                with open(self.github_domains_path, 'r', encoding='utf-8') as f:
+                with open(self.github_domains_path, encoding="utf-8") as f:
                     self._domains_data.clear()
                     self._domains_data.update(json.load(f))
                 console.print("[green]Fallback to GitHub structure successful")
@@ -595,7 +598,7 @@ class ConfigManager:
     def save_config(self) -> None:
         """Save the main configuration to file."""
         try:
-            with open(self.config_file_path, 'w') as f:
+            with open(self.config_file_path, "w") as f:
                 save_config_compact(self._config_data, f)
         except Exception as e:
             console.print(f"[red]Error saving configuration: {e}")
@@ -604,7 +607,7 @@ class ConfigManager:
         """Save the login configuration to file."""
         logger.info("Saving login configuration to file")
         try:
-            with open(self.login_file_path, 'w') as f:
+            with open(self.login_file_path, "w") as f:
                 json.dump(self._login_data, f, indent=4)
         except Exception as e:
             console.print(f"[red]Error saving login configuration: {e}")
@@ -613,7 +616,7 @@ class ConfigManager:
         """Save the domains configuration to file."""
         logger.info("Saving domains configuration to file")
         try:
-            with open(self.domains_path, 'w', encoding='utf-8') as f:
+            with open(self.domains_path, "w", encoding="utf-8") as f:
                 json.dump(self._domains_data, f, indent=4, ensure_ascii=False)
         except Exception as e:
             console.print(f"[red]Error saving domains configuration: {e}")

@@ -1,7 +1,6 @@
 # 01.04.24
 
 from pathlib import Path
-from typing import Optional, Tuple, Union
 
 
 def normalize_path_key(path_value: str) -> str:
@@ -50,7 +49,7 @@ def fmt_dur(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
 
 
-def parse_time_scalar(s: str) -> Optional[float]:
+def parse_time_scalar(s: str) -> float | None:
     """Parse "HH:MM:SS", "MM:SS", or plain seconds → seconds. None on malformed input."""
     s = s.strip()
     if not s:
@@ -66,7 +65,7 @@ def parse_time_scalar(s: str) -> Optional[float]:
         return None
 
 
-def parse_max_time(value: Union[None, int, float, str, Tuple[float, Optional[float]]]) -> Tuple[float, Optional[float]]:
+def parse_max_time(value: None | int | float | str | tuple[float, float | None]) -> tuple[float, float | None]:
     """Parse a "--max-time" value into a ``(start_seconds, end_seconds)`` range."""
     if isinstance(value, tuple):
         return value
@@ -91,7 +90,7 @@ def parse_max_time(value: Union[None, int, float, str, Tuple[float, Optional[flo
     return (0.0, end) if end and end > 0 else (0.0, None)
 
 
-def parse_max_segments(value: Union[None, int, str, Tuple[int, Optional[int]]]) -> Tuple[int, Optional[int]]:
+def parse_max_segments(value: None | int | str | tuple[int, int | None]) -> tuple[int, int | None]:
     """Parse a "--max-segments" value into a ``(start_index, end_index)`` range."""
     if isinstance(value, tuple):
         return value

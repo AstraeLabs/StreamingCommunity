@@ -1,12 +1,13 @@
 # In-app self-update logic.
 
-import os
-import sys
 import json
-import shutil
 import logging
-import threading
+import os
+import re
+import shutil
 import subprocess
+import sys
+import threading
 
 from django.conf import settings
 
@@ -24,7 +25,7 @@ def _looks_poisoned(path: str) -> bool:
 
 def _read_update_stash() -> dict:
     try:
-        with open(_UPDATE_STASH, "rt", encoding="utf-8") as fh:
+        with open(_UPDATE_STASH, encoding="utf-8") as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
     except Exception:
@@ -34,7 +35,7 @@ def _read_update_stash() -> dict:
 def _write_update_stash(workdir: str, config_files: str) -> None:
     try:
         os.makedirs(os.path.dirname(_UPDATE_STASH), exist_ok=True)
-        with open(_UPDATE_STASH, "wt", encoding="utf-8") as fh:
+        with open(_UPDATE_STASH, "w", encoding="utf-8") as fh:
             json.dump({"workdir": workdir, "config_files": config_files}, fh)
     except Exception as exc:
         logger.debug("Could not persist update stash: %s", exc)
@@ -44,7 +45,7 @@ def _is_docker() -> bool:
     if os.path.exists("/.dockerenv"):
         return True
     try:
-        with open("/proc/1/cgroup", "rt") as fh:
+        with open("/proc/1/cgroup") as fh:
             data = fh.read()
         return "docker" in data or "containerd" in data or "kubepods" in data
     except Exception:
@@ -55,6 +56,7 @@ def detect_mode() -> str:
     """Return one of: 'installer', 'docker', 'source'."""
     try:
         from VibraVid.setup import get_is_binary_installation
+
         if get_is_binary_installation():
             return "installer"
     except Exception:
@@ -68,11 +70,20 @@ def detect_mode() -> str:
 
 def _self_container_id() -> str | None:
     """Best-effort discovery of the current container's id."""
-    cid = os.environ.get("HOSTNAME")
-    if cid:
+    try:
+        with open("/proc/self/mountinfo") as fh:
+            for line in fh:
+                m = re.search(r"/containers/([0-9a-f]{64})/", line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+
+    cid = os.environ.get("HOSTNAME", "")
+    if len(cid) >= 12 and all(c in "0123456789abcdef" for c in cid.lower()):
         return cid
     try:
-        with open("/proc/self/cgroup", "rt") as fh:
+        with open("/proc/self/cgroup") as fh:
             for line in fh:
                 parts = line.strip().split("/")
                 for part in reversed(parts):
@@ -92,7 +103,7 @@ def _remap_under(workdir: str, path: str, mount: str) -> str:
     """
     w = workdir.rstrip("\\/")
     if path.startswith(w):
-        rel = path[len(w):]
+        rel = path[len(w) :]
     else:
         rel = "/" + os.path.basename(path.replace("\\", "/"))
     rel = rel.replace("\\", "/").lstrip("/")
@@ -114,24 +125,34 @@ def _update_docker() -> dict:
 
     docker = shutil.which("docker")
     if not docker:
-        return {"success": False, "needs_manual": True,
-                "message": "The 'docker' CLI is not available in the container."}
+        return {
+            "success": False,
+            "needs_manual": True,
+            "message": "The 'docker' CLI is not available in the container.",
+        }
 
     cid = _self_container_id()
     if not cid:
-        return {"success": False,
-                "message": "Unable to determine the current container."}
+        return {"success": False, "message": "Unable to determine the current container."}
 
     # Read compose labels + image ref of the running container.
     try:
         raw = subprocess.check_output(
             [docker, "inspect", "--format", "{{json .Config.Labels}}\n{{.Config.Image}}", cid],
-            text=True, timeout=20, stderr=subprocess.STDOUT,
+            text=True,
+            timeout=20,
+            stderr=subprocess.STDOUT,
+            encoding="utf-8",
+            errors="replace",
         )
     except subprocess.CalledProcessError as exc:
         msg = (exc.output or "").strip()
         if "permission denied" in msg.lower():
-            return {"success": False, "needs_manual": True, "message": "Permission denied on the Docker socket: the container user is not in the socket's group."}
+            return {
+                "success": False,
+                "needs_manual": True,
+                "message": "Permission denied on the Docker socket: the container user is not in the socket's group.",
+            }
         return {"success": False, "message": f"docker inspect failed: {msg}"}
     except Exception as exc:
         return {"success": False, "message": f"docker inspect failed: {exc}"}
@@ -150,11 +171,12 @@ def _update_docker() -> dict:
         return {
             "success": False,
             "needs_manual": True,
-            "message": ("The container was not started with docker compose; update manually with 'docker compose pull && docker compose up -d'."),
+            "message": (
+                "The container was not started with docker compose; update manually with 'docker compose pull && docker compose up -d'."
+            ),
         }
     if not image_ref:
-        return {"success": False,
-                "message": "Unable to determine the container image."}
+        return {"success": False, "message": "Unable to determine the container image."}
 
     # A previous in-app update may have poisoned the working_dir label to
     # PROJECT_MOUNT. Prefer the host path persisted on a clean run; fall back to
@@ -163,7 +185,7 @@ def _update_docker() -> dict:
     if _looks_poisoned(workdir) and stash.get("workdir"):
         workdir = stash["workdir"]
         config_files = config_files or stash.get("config_files")
-        
+
     if _looks_poisoned(workdir) or not config_files:
         return {
             "success": False,
@@ -178,15 +200,12 @@ def _update_docker() -> dict:
 
     _write_update_stash(workdir, config_files)
     project_mount = PROJECT_MOUNT
-    targets = [
-        _remap_under(workdir, cf.strip(), project_mount)
-        for cf in config_files.split(",") if cf.strip()
-    ]
+    targets = [_remap_under(workdir, cf.strip(), project_mount) for cf in config_files.split(",") if cf.strip()]
     if not targets:
         return {"success": False, "message": "No compose file found."}
 
     cfg_flags = " ".join(f"-f '{t}'" for t in targets)
-    compose = (f"docker compose -p '{project}' "f"--project-directory '{project_mount}' {cfg_flags}")
+    compose = f"docker compose -p '{project}' --project-directory '{project_mount}' {cfg_flags}"
     script = f"sleep 2; {compose} pull && {compose} up -d --remove-orphans"
 
     helper = [
@@ -196,10 +215,14 @@ def _update_docker() -> dict:
         "-w", project_mount,
         "--entrypoint", "sh",
         image_ref,
-        "-c", script,
+        "-c",
+        script,
     ]
     try:
-        subprocess.run(helper, check=True, timeout=30, capture_output=True, text=True)
+        subprocess.run(
+            helper, check=True, timeout=30, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        )
     except subprocess.CalledProcessError as exc:
         return {"success": False, "message": f"Failed to start updater: {(exc.stderr or exc.stdout or '').strip()}"}
     except Exception as exc:
@@ -235,6 +258,7 @@ def _repo_root() -> str | None:
 
 def _delayed_reexec() -> None:
     import time
+
     time.sleep(2)
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
@@ -248,7 +272,9 @@ def _update_source() -> dict:
     # No remote -> nothing to pull (common for source downloads).
     try:
         remotes = subprocess.check_output(
-            [git, "-C", repo, "remote"], text=True, timeout=15).strip()
+            [git, "-C", repo, "remote"], text=True, timeout=15,
+            encoding="utf-8", errors="replace",
+        ).strip()
     except Exception as exc:
         return {"success": False, "message": f"git remote failed: {exc}"}
     if not remotes:
@@ -260,11 +286,11 @@ def _update_source() -> dict:
 
     try:
         out = subprocess.run(
-            [git, "-C", repo, "pull", "--ff-only"],
-            check=True, timeout=180, capture_output=True, text=True)
+            [git, "-C", repo, "pull", "--ff-only"], check=True, timeout=180, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        )
     except subprocess.CalledProcessError as exc:
-        return {"success": False,
-                "message": f"git pull failed: {(exc.stderr or exc.stdout or '').strip()}"}
+        return {"success": False, "message": f"git pull failed: {(exc.stderr or exc.stdout or '').strip()}"}
     except Exception as exc:
         return {"success": False, "message": f"git pull failed: {exc}"}
 

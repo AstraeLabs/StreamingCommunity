@@ -1,14 +1,12 @@
 # 13.03.26
 
-from typing import Optional, Set
 
 from rich.table import Table
 from rich.text import Text
 
-from VibraVid.core.utils.codec import get_channel_label
 from VibraVid.core.manifest.stream import Stream as _Stream
-from VibraVid.utils.console.shared_styles import create_styled_table, TableStyle
-
+from VibraVid.core.utils.codec import get_channel_label
+from VibraVid.utils.console.shared_styles import TableStyle, create_styled_table
 
 _COL_VIDEO = "cyan"
 _COL_AUDIO = "green"
@@ -34,7 +32,7 @@ _HDR_STYLE = {
 TABLE_STYLE = TableStyle.MODERN_ROUNDED
 
 
-def _c(text: str, colour: Optional[str]) -> Text:
+def _c(text: str, colour: str | None) -> Text:
     return Text(str(text), style=colour) if colour else Text(str(text))
 
 
@@ -47,7 +45,13 @@ def sort_streams_key(s):
     return (order, int(is_ext), -bitrate)
 
 
-def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Optional[int] = None, window_size: int = 15, highlight_cursor: bool = True) -> Table:
+def build_table(
+    streams: list,
+    selected: set[int] | None = None,
+    cursor: int | None = None,
+    window_size: int = 15,
+    highlight_cursor: bool = True,
+) -> Table:
     """
     Build and return a Rich stream-selection table.
 
@@ -66,7 +70,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
         ("Codec", "left"),
         ("Channels", "center"),
         ("Extra", "center"),
-        ("Language", "left")
+        ("Language", "left"),
     ]
     for name, justify in cols:
         table.add_column(name, justify=justify, no_wrap=True)
@@ -83,7 +87,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
             start = max(0, end - window_size)
     else:
         start, end = 0, total
-    
+
     _ellipsis = ("...", "", "", "", "", "", "", "", "", "", "")
     if interactive and start > 0:
         table.add_row(*_ellipsis)
@@ -99,7 +103,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
         if isinstance(s, _Stream):
             stype_label = s.get_type_display()
 
-            is_sel = (s.selected if not interactive else (orig_idx in (selected or set())))
+            is_sel = s.selected if not interactive else (orig_idx in (selected or set()))
             res = s.resolution if s.type == "video" else ""
             hdr = s.get_hdr_display() if s.type == "video" else ""
             bitrate = s.bitrate_display if s.bitrate else ""
@@ -113,7 +117,7 @@ def build_table(streams: list, selected: Optional[Set[int]] = None, cursor: Opti
             stype_label = getattr(s, "type", "")
             if is_ext and "*EXT" not in stype_label:
                 stype_label = f"{stype_label} *EXT"
-            is_sel = (orig_idx in (selected or set()) if interactive else getattr(s, "selected", False))
+            is_sel = orig_idx in (selected or set()) if interactive else getattr(s, "selected", False)
             res = getattr(s, "resolution", "") if stype_raw.lower() == "video" else ""
             hdr = ""
             bw = getattr(s, "bandwidth", "") or ""

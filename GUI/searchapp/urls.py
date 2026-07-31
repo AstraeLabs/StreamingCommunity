@@ -5,23 +5,24 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path("", views.search_home, name="search_home"),
+    # Search is the home page.
+    path("", views.cinema_search, name="search_home"),
+    path("", views.cinema_search, name="search_page"),
     path("search/", views.search, name="search"),
+    path("api/resolve-tmdb-posters/", views.resolve_tmdb_posters, name="resolve_tmdb_posters"),
     path("download/", views.start_download, name="start_download"),
     path("series-metadata/", views.series_metadata, name="series_metadata"),
     path("series-detail/", views.series_detail, name="series_detail"),
-    path("api/resolve-tmdb-posters/", views.resolve_tmdb_posters, name="resolve_tmdb_posters"),
-    path("api/resolve-tmdb-episode-stills/", views.resolve_tmdb_episode_stills, name="resolve_tmdb_episode_stills"),
 
-    # Download
-    path("downloads/", views.download_dashboard, name="download_dashboard"),
+    # Download (formerly the home dashboard)
+    path("downloads/", views.cinema_download, name="download_dashboard"),
     path("api/get-downloads/", views.get_downloads_json, name="get_downloads_json"),
     path("api/kill-download/", views.kill_download, name="kill_download"),
     path("api/kill-and-clear-queue/", views.kill_and_clear_queue, name="kill_and_clear_queue"),
     path("api/clear-history/", views.clear_download_history, name="clear_download_history"),
-    
+
     # Watchlist
-    path("watchlist/", views.watchlist, name="watchlist"),
+    path("watchlist/", views.cinema_watchlist, name="watchlist"),
     path("watchlist/add/", views.add_to_watchlist, name="add_to_watchlist"),
     path("watchlist/remove/<int:item_id>/", views.remove_from_watchlist, name="remove_from_watchlist"),
     path("watchlist/update/<int:item_id>/", views.update_watchlist_item, name="update_watchlist_item"),
@@ -31,11 +32,10 @@ urlpatterns = [
     path("watchlist/auto-interval/", views.set_watchlist_polling_interval, name="set_watchlist_polling_interval"),
     path("watchlist/clear/", views.clear_watchlist, name="clear_watchlist"),
     path("api/watchlist-status/", views.watchlist_status, name="watchlist_status"),
-    
-    # Settings
-    path("settings/", views.settings_editor, name="settings_editor"),
-    path("api/save-settings/", views.save_settings, name="save_settings"),
 
+    # Settings
+    path("settings/", views.cinema_system, name="settings_editor"),
+    path("api/save-settings/", views.save_settings, name="save_settings"),
     path("api/reload-config/", views.reload_config, name="reload_config"),
     path("api/upload-service/", views.upload_service_zip, name="upload_service_zip"),
     path("api/registry-status/", views.registry_status, name="registry_status"),

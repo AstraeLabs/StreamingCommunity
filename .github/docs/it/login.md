@@ -22,10 +22,9 @@
 
 1. **Apri** [Mediaset](https://mediasetinfinity.mediaset.it/) ed **effettua il login**.
 2. **Apri gli Strumenti per Sviluppatori** (<kbd>F12</kbd>).
-3. Vai alla scheda **Application** → **Cookies**.
-4. Filtra per **acd**
-4. **Cerca** il cookie `adminBeToken`.
-5. **Copia il valore** di `adminBeToken`.
+3. Vai alla scheda **Application** (o **Storage** su Firefox) → **Session Storage** → seleziona il dominio `mediasetinfinity.mediaset.it`.
+4. **Trova** la chiave `accountData`.
+5. **Copia il valore** del campo `adminBeToken` al suo interno.
 
 ### Screenshot di Riferimento
 ![posizione beToken](../img/login/mediasetinfinity_beToken.png)
@@ -62,4 +61,23 @@
 5. Aggiungili a `Conf/login.json`:
    ```json
    "primevideo": <incolla_il_json_copiato_qui>
+   ```
+
+---
+
+## Apple TV+: Ottieni i Cookie tramite Estensione
+
+### Prerequisiti
+
+- Installa l'estensione del browser [CookieInspector] da DISCORD
+
+### Passaggi
+
+1. **Apri** [Apple TV+](https://tv.apple.com/) ed **effettua il login**.
+2. **Clicca** sull'icona dell'estensione CookieInspector nella barra degli strumenti del browser.
+3. **Clicca** sul pulsante "Get Cookies".
+4. **Clicca** "Copy JSON" per copiare i dati di autenticazione.
+5. Aggiungili a `Conf/login.json`:
+   ```json
+   "appletv": <incolla_il_json_copiato_qui>
    ```

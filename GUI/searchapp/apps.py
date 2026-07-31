@@ -1,9 +1,12 @@
 # 06.06.25
 
+import logging
 import os
 import sys
 
 from django.apps import AppConfig
+
+logger = logging.getLogger(__name__)
 
 
 class SearchappConfig(AppConfig):
@@ -21,7 +24,7 @@ class SearchappConfig(AppConfig):
 
             setup_logger()
         except Exception as exc:
-            print(f"[Logger] Failed to initialize: {exc}")
+            logger.exception("[Logger] Failed to initialize: %s", exc)
 
         # Start the auto loop for the watchlist
         try:
@@ -29,7 +32,7 @@ class SearchappConfig(AppConfig):
 
             start_watchlist_auto_loop()
         except Exception as exc:
-            print(f"[WatchlistAuto] Failed to start: {exc}")
+            logger.exception("[WatchlistAuto] Failed to start: %s", exc)
 
         # Start the auto loop for ARR (Automatic Release Recognition)
         try:
@@ -37,23 +40,24 @@ class SearchappConfig(AppConfig):
 
             start_arr_auto_loop()
         except Exception as exc:
-            print(f"[ARR] Failed to start auto loop: {exc}")
+            logger.exception("[ARR] Failed to start auto loop: %s", exc)
 
         # Apply the download concurrency limit on startup
         try:
-            from .arr.arr_service import _load_arr_config
             from . import views
+            from .arr.arr_service import _load_arr_config
 
             cfg = _load_arr_config()
             views.set_max_download_slots(int(cfg.get("max_concurrent_downloads", 1) or 1))
         except Exception as exc:
-            print(f"[Downloads] Failed to set max concurrent slots: {exc}")
+            logger.exception("[Downloads] Failed to set max concurrent slots: %s", exc)
 
         # Check the Velora binary for updates (network call, so run off the main thread)
         try:
             import threading
+
             from VibraVid.utils.upload.update import check_velora_update
 
             threading.Thread(target=check_velora_update, daemon=True).start()
         except Exception as exc:
-            print(f"[Velora] Failed to start update check: {exc}")
+            logger.exception("[Velora] Failed to start update check: %s", exc)

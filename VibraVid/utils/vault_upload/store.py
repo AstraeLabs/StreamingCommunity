@@ -1,14 +1,13 @@
 # 12.06.26
 
-import os
 import logging
+import os
 import threading
-from typing import Optional
 
 import requests
 
-from VibraVid.utils.http_client import create_client
 from VibraVid.utils.config import config_manager
+from VibraVid.utils.http_client import create_client
 from VibraVid.utils.vault_upload import client
 
 logger = logging.getLogger(__name__)
@@ -37,7 +36,9 @@ class ExternalUploadVault:
             except Exception:
                 pass
 
-    def search(self, title: str, media_type: Optional[str] = None, season: Optional[int] = None, episode: Optional[int] = None) -> Optional[dict]:
+    def search(
+        self, title: str, media_type: str | None = None, season: int | None = None, episode: int | None = None
+    ) -> dict | None:
         if not self.base_url or not title:
             return None
 
@@ -58,7 +59,17 @@ class ExternalUploadVault:
             logger.debug(f"upload store search error: {e}")
             return None
 
-    def upload(self, file_path: str, title: Optional[str] = None, media_type: Optional[str] = None, season: Optional[int] = None, episode: Optional[int] = None, category: Optional[str] = None, expiry_days: Optional[int] = None, on_progress=None) -> Optional[str]:
+    def upload(
+        self,
+        file_path: str,
+        title: str | None = None,
+        media_type: str | None = None,
+        season: int | None = None,
+        episode: int | None = None,
+        category: str | None = None,
+        expiry_days: int | None = None,
+        on_progress=None,
+    ) -> str | None:
         if not self.base_url or not os.path.isfile(file_path):
             return None
 
@@ -70,9 +81,16 @@ class ExternalUploadVault:
             endpoint = r.json()["endpoint"]
 
             key, nonce = client.new_file_key()
-            up = client.upload_file(self.upload_client, file_path, endpoint, key, nonce, filename=filename, on_progress=on_progress)
+            up = client.upload_file(
+                self.upload_client, file_path, endpoint, key, nonce, filename=filename, on_progress=on_progress
+            )
 
-            register = {"filename": filename, "size": up.get("size", size), "storageUrl": up["url"], "key": client.pack_key(key, nonce)}
+            register = {
+                "filename": filename,
+                "size": up.get("size", size),
+                "storageUrl": up["url"],
+                "key": client.pack_key(key, nonce),
+            }
             if title:
                 register["title"] = title
             if expiry_days is not None:
@@ -94,7 +112,7 @@ class ExternalUploadVault:
             logger.error(f"upload store upload error: {e}", exc_info=True)
             return None
 
-    def download(self, xh: str, dest_path: str, password: Optional[str] = None, on_progress=None) -> Optional[str]:
+    def download(self, xh: str, dest_path: str, password: str | None = None, on_progress=None) -> str | None:
         if not self.base_url or not xh:
             return None
 
@@ -109,14 +127,24 @@ class ExternalUploadVault:
                 return None
 
             key, nonce = client.unpack_key(key_packed)
-            client.download_decrypt(self.storage, url, dest_path, key, nonce, total=info.get("size"), on_progress=on_progress)
+            client.download_decrypt(
+                self.storage, url, dest_path, key, nonce, total=info.get("size"), on_progress=on_progress
+            )
             logger.info(f"upload store: downloaded -> {dest_path}")
             return dest_path
         except Exception as e:
             logger.error(f"upload store download error: {e}", exc_info=True)
             return None
 
-    def fetch_if_present(self, dest_path: str, title: str, media_type: Optional[str] = None, season: Optional[int] = None, episode: Optional[int] = None, on_progress=None) -> Optional[str]:
+    def fetch_if_present(
+        self,
+        dest_path: str,
+        title: str,
+        media_type: str | None = None,
+        season: int | None = None,
+        episode: int | None = None,
+        on_progress=None,
+    ) -> str | None:
         hit = self.search(title, media_type, season, episode)
         if not hit:
             return None

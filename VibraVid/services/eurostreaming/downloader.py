@@ -1,21 +1,20 @@
 # 29.05.26
 # By @UrloMythus
 
-import os
 import logging
+import os
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager, start_message, os_manager
-from VibraVid.services._base import site_constants, Entries, series_folder
-from VibraVid.services._base.tv_display_manager import map_episode_path
-from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 from VibraVid.core.downloader import HLS_Downloader
 from VibraVid.player.loadm import LoadmSource
 from VibraVid.player.maxstream import MaxStreamSource
+from VibraVid.services._base import Entries, series_folder, site_constants
+from VibraVid.services._base.tv_display_manager import map_episode_path
+from VibraVid.services._base.tv_download_manager import process_episode_download, process_season_selection
+from VibraVid.utils import config_manager, os_manager, start_message
 
 from .scrapper import GetSerieInfo
-
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -26,7 +25,12 @@ def download_film(select_title: Entries):
     console.print(f"[yellow]Eurostreaming does not provide movies — skipping '{select_title.name}'.")
 
 
-def _download_episode(obj_episode, season_number: int, episode_number: int, scrape_serie: GetSerieInfo,):
+def _download_episode(
+    obj_episode,
+    season_number: int,
+    episode_number: int,
+    scrape_serie: GetSerieInfo,
+):
     """
     Downloads a specific episode from the specified season.
     """
@@ -39,7 +43,7 @@ def _download_episode(obj_episode, season_number: int, episode_number: int, scra
         return None
 
     referer = site_constants.FULL_URL
-    if host == 'loadm':
+    if host == "loadm":
         source = LoadmSource(link_url, referer=referer)
     else:
         source = MaxStreamSource(link_url, referer=referer)
@@ -49,18 +53,26 @@ def _download_episode(obj_episode, season_number: int, episode_number: int, scra
         logger.error(f"[Eurostreaming] No stream URL via {host} for S{season_number}E{episode_number:02d}")
         return None
 
-    path_components, filename = map_episode_path(scrape_serie.series_display_name, scrape_serie.year, season_number, episode_number, obj_episode.name,)
+    path_components, filename = map_episode_path(
+        scrape_serie.series_display_name,
+        scrape_serie.year,
+        season_number,
+        episode_number,
+        obj_episode.name,
+    )
     out_dir = os_manager.get_sanitize_path(series_folder(*path_components))
     out_path = os.path.join(out_dir, f"{filename}.{extension_output}")
 
     return HLS_Downloader(
-        m3u8_url = stream_url,
-        headers = playback_headers,
-        output_path = out_path,
+        m3u8_url=stream_url,
+        headers=playback_headers,
+        output_path=out_path,
     ).start()
 
 
-def download_series(select_title: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie = None) -> None:
+def download_series(
+    select_title: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie=None
+) -> None:
     """
     Handle downloading a complete series.
     """
@@ -72,15 +84,16 @@ def download_series(select_title: Entries, season_selection: str = None, episode
 
     def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
         """Callback to handle episode downloads for a specific season"""
+
         def download_video_callback(obj_episode, season_idx, episode_idx):
             return _download_episode(obj_episode, season_idx, episode_idx, scrape_serie)
-        
+
         process_episode_download(
             index_season_selected=season_number,
             scrape_serie=scrape_serie,
             download_video_callback=download_video_callback,
             download_all=download_all,
-            episode_selection=episode_selection
+            episode_selection=episode_selection,
         )
 
     process_season_selection(
@@ -88,5 +101,5 @@ def download_series(select_title: Entries, season_selection: str = None, episode
         seasons_count=seasons_count,
         season_selection=season_selection,
         episode_selection=episode_selection,
-        download_episode_callback=download_episode_callback
+        download_episode_callback=download_episode_callback,
     )

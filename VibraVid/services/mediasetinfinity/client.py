@@ -2,20 +2,20 @@
 
 import base64
 import json
+import logging
 import re
 import time
 import uuid
-import logging
 import xml.etree.ElementTree as ET
 
 from bs4 import BeautifulSoup
 from rich.console import Console
 
+from VibraVid.services._base.login_status import ACCOUNT, ANONYMOUS, print_login
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 
-from .regions import region_conf, get_region
-
+from .regions import get_region, region_conf
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -58,7 +58,6 @@ class MediasetAPI:
                 self.adminBeToken = login_token
                 self.account_id = _decode_jwt_payload(login_token).get("oid")
                 self.is_anonymous = False
-                console.print(f"[green]Authenticated with login adminBeToken ({conf['label']})")
             else:
                 console.print("[yellow]Login adminBeToken expired, falling back to anonymous token...")
                 self.adminBeToken = self.generate_betoken()
@@ -67,8 +66,33 @@ class MediasetAPI:
             self.adminBeToken = self.generate_betoken()
             self.account_id = _decode_jwt_payload(self.adminBeToken).get("oid")
 
+        # Passed as a value, not a resolver: this name is decoded from the token with no network
+        # call, so it must not be gated behind DEFAULT.get_me like the ones that cost a request.
+        print_login(
+            ANONYMOUS if self.is_anonymous else ACCOUNT,
+            user="" if self.is_anonymous else self._account_name(),
+        )
+
         self.sha256Hash = None
         self._hash_attempted = False
+
+    def _account_name(self) -> str:
+        """
+        Account name carried by the adminBeToken itself - no network call needed.
+
+        The address lives at ctx.attributes.email; the sibling ctx.email and ctx.fullName are
+        present but come back empty, so reading those alone would look like a missing account.
+        """
+        if not self.adminBeToken:
+            return ""
+
+        try:
+            ctx = json.loads(_decode_jwt_payload(self.adminBeToken).get("ctx") or "{}")
+        except (TypeError, ValueError):
+            return self.account_id or ""
+
+        attributes = ctx.get("attributes") or {}
+        return attributes.get("email") or ctx.get("fullName") or self.account_id or ""
 
     def get_app_name(self):
         soup = BeautifulSoup(self.fetch_html(head_only=True), "html.parser")
@@ -86,6 +110,10 @@ class MediasetAPI:
 
     def getBearerToken(self):
         return self.adminBeToken
+
+    def get_basic_token(self):
+        raw = f":{self.adminBeToken}"
+        return base64.b64encode(raw.encode('utf-8')).decode('utf-8').strip()
 
     def getAccountId(self):
         return self.account_id
@@ -118,14 +146,15 @@ class MediasetAPI:
 
     def getHash2c(self):
         from .regions import REGIONS
+
         it_home = REGIONS["it"]["home_url"]
         with create_client(headers=self.headers) as client:
             html = client.get(it_home).text
-        
+
         scripts = self.find_relevant_script(html)[0:1]
         if not scripts:
             return None
-        
+
         pairs = self.extract_pairs_from_scripts(scripts)
         return list(pairs.keys())[-5]
 
@@ -153,7 +182,6 @@ def get_client():
 
 
 def get_playback_url(CONTENT_ID):
-    """Get the playback mediaSelector for a content id (region-aware v2/v3)."""
     conf = region_conf()
     api = get_client()
 
@@ -164,8 +192,10 @@ def get_playback_url(CONTENT_ID):
 
     json_data = {"contentId": CONTENT_ID, "streamType": "VOD"}
     params = None
-    if conf["playback_api"] == "v3":
+    if conf.get("playback_api") == "v3":
         json_data.update({"delivery": "Streaming", "createDevice": True, "overrideAppName": api.app_name})
+        params = {"sid": api.sid}
+    elif conf.get("playback_api") == "v2":
         params = {"sid": api.sid}
 
     try:
@@ -188,7 +218,7 @@ def get_playback_url(CONTENT_ID):
         return resp_json["response"]["mediaSelector"]
 
     except Exception as e:
-        raise RuntimeError(f"Failed to get playback URL error: {e}")
+        raise RuntimeError(f"Failed to get playback URL error: {e}") from e
 
 
 def get_metadata_by_guid(guid, feed):
@@ -243,7 +273,7 @@ def parse_smil_for_media_info(smil_xml):
         subtitles_by_lang.setdefault(sub["language"], []).append(sub)
 
     subtitles = []
-    for lang, subs in subtitles_by_lang.items():
+    for _lang, subs in subtitles_by_lang.items():
         vtt_subs = [s for s in subs if s["format"] == "vtt"]
         srt_subs = [s for s in subs if s["format"] == "srt"]
         if vtt_subs:
@@ -271,14 +301,14 @@ def get_tracking_info(PLAYBACK_JSON):
     asset_types = _build_asset_types(conf, api.is_anonymous)
 
     params = {
-        "format": "SMIL",
+        "format": PLAYBACK_JSON.get("format", "SMIL"),
         "auth": api.getBearerToken(),
-        "formats": "MPEG-DASH",
-        "assetTypes": asset_types,
-        "balance": "true",
-        "auto": "true",
-        "tracking": "true",
-        "delivery": "Streaming",
+        "formats": PLAYBACK_JSON.get("formats", "MPEG-DASH"),
+        "assetTypes": PLAYBACK_JSON.get("assetTypes", asset_types),
+        "balance": PLAYBACK_JSON.get("balance", "true"),
+        "auto": PLAYBACK_JSON.get("auto", "true"),
+        "tracking": PLAYBACK_JSON.get("tracking", "true"),
+        "delivery": PLAYBACK_JSON.get("delivery", "Streaming"),
     }
     if "publicUrl" in PLAYBACK_JSON:
         params["publicUrl"] = PLAYBACK_JSON["publicUrl"]
@@ -296,14 +326,15 @@ def get_tracking_info(PLAYBACK_JSON):
 def generate_license_url(tracking_info):
     """Build the theplatform Widevine license URL + params (shared IT/ES)."""
     api = get_client()
-    account_id = api.getAccountId()
-    if not account_id:
-        account_id = tracking_info["tracking_data"].get("aid", "")
+    account_id = tracking_info["tracking_data"].get("aid", "") or api.getAccountId()
 
     params = {
         "releasePid": tracking_info["tracking_data"].get("pid"),
         "account": f"http://access.auth.theplatform.com/data/Account/{account_id}",
         "schema": "1.0",
-        "token": api.getBearerToken(),
     }
-    return "https://widevine.entitlement.theplatform.eu/wv/web/ModularDrm/getRawWidevineLicense", params
+    headers = {
+        "authorization": f"Basic {api.get_basic_token()}",
+        "user-agent": get_userAgent(),
+    }
+    return "https://widevine.entitlement.theplatform.eu/wv/web/ModularDrm/getRawWidevineLicense", params, headers

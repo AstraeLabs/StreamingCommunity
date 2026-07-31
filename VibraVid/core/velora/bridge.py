@@ -9,22 +9,22 @@ import tempfile
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
+from VibraVid.core.velora.util.formatting import estimate_total_size, format_size, format_speed, normalize_path_key
 from VibraVid.setup import get_velora_path
-from VibraVid.core.velora.util.formatting import normalize_path_key, format_size, format_speed, estimate_total_size
-
 
 logger = logging.getLogger("velora_bridge")
 _QUEUE_SENTINEL = object()
 _EVENT_CB_LOCK = threading.Lock()
 _PROGRESS_CB_LOCK = threading.Lock()
 DEFAULT_WAIT_TIMEOUT_SECONDS = 900.0
-SPEED_WINDOW_SECONDS = 1.75
+SPEED_WINDOW_SECONDS = 3.0
 
 
-def _safe_event_cb(event_cb: Optional[Callable[[Dict[str, Any]], None]], event: Dict[str, Any]) -> None:
+def _safe_event_cb(event_cb: Callable[[dict[str, Any]], None] | None, event: dict[str, Any]) -> None:
     if not event_cb:
         return
     try:
@@ -34,7 +34,9 @@ def _safe_event_cb(event_cb: Optional[Callable[[Dict[str, Any]], None]], event: 
         logger.debug(f"event_cb raised: {exc}")
 
 
-def _safe_progress_cb(progress_cb: Optional[Callable[[int, int, int, float], None]], done: int, total: int, total_bytes: int, speed: float) -> None:
+def _safe_progress_cb(
+    progress_cb: Callable[[int, int, int, float], None] | None, done: int, total: int, total_bytes: int, speed: float
+) -> None:
     if not progress_cb:
         return
     try:
@@ -111,7 +113,7 @@ def _stop_process_orderly(process: subprocess.Popen[str], graceful_timeout: floa
     _terminate_process_tree(process, graceful_timeout=graceful_timeout)
 
 
-def _format_header_keys(headers: Optional[Dict[str, Any]]) -> str:
+def _format_header_keys(headers: dict[str, Any] | None) -> str:
     """Return a comma-separated, sorted list of non-sensitive header key names."""
     if not headers:
         return ""
@@ -124,7 +126,7 @@ def _format_header_keys(headers: Optional[Dict[str, Any]]) -> str:
     return ",".join(sorted(display_keys))
 
 
-def _format_bridge_event(event: Dict[str, Any]) -> str:
+def _format_bridge_event(event: dict[str, Any]) -> str:
     """Format a Velora event dict into a human-readable string for logging."""
     event_name = (event.get("event") or "").lower()
     label = event.get("display_label") or event.get("label") or event.get("task_key") or "download"
@@ -134,11 +136,11 @@ def _format_bridge_event(event: Dict[str, Any]) -> str:
     elapsed_seconds = event.get("elapsed_seconds")
 
     if event_name == "start":
-        return (f"START {label} | tasks={event.get('task_count', '?')} | concurrency={event.get('concurrency', '?')}")
+        return f"START {label} | tasks={event.get('task_count', '?')} | concurrency={event.get('concurrency', '?')}"
 
     if event_name == "summary":
-        elapsed_display = (f"{float(elapsed_seconds):.1f}s" if isinstance(elapsed_seconds, (int, float)) else "?")
-        return (f"SUMMARY {label} | completed={event.get('completed', '?')}/{event.get('total', '?')} | bytes={format_size(int(event.get('bytes') or 0))} | elapsed={elapsed_display}")
+        elapsed_display = f"{float(elapsed_seconds):.1f}s" if isinstance(elapsed_seconds, (int, float)) else "?"
+        return f"SUMMARY {label} | completed={event.get('completed', '?')}/{event.get('total', '?')} | bytes={format_size(int(event.get('bytes') or 0))} | elapsed={elapsed_display}"
 
     if event_name == "progress":
         return f"TICK {label} | segments={event.get('segments', '?')} | size={event.get('size', '?')} | speed={event.get('speed', '?')}"
@@ -153,9 +155,7 @@ def _format_bridge_event(event: Dict[str, Any]) -> str:
                 f"segments={event.get('segments', '?')}",
                 f"size={event.get('size', '?')}",
                 f"speed={event.get('speed', '?')}",
-                f"in={float(elapsed_seconds):.1f}s"
-                if isinstance(elapsed_seconds, (int, float))
-                else None,
+                f"in={float(elapsed_seconds):.1f}s" if isinstance(elapsed_seconds, (int, float)) else None,
                 f"skipped={bool(event.get('skipped', False))}",
             ]
         )
@@ -165,14 +165,12 @@ def _format_bridge_event(event: Dict[str, Any]) -> str:
         parts = [f"GET {url}" if url else "GET", f"PATH: {path}" if path else None]
         if headers:
             parts.append(f"HEADERS: {headers}")
-        
+
         parts.extend(
             [
                 f"RETRY={event.get('attempt', '?')}/{event.get('retry_count', '?')}",
                 f"ERROR: {event.get('message', event.get('error', ''))}",
-                f"in={float(elapsed_seconds):.1f}s"
-                if isinstance(elapsed_seconds, (int, float))
-                else None,
+                f"in={float(elapsed_seconds):.1f}s" if isinstance(elapsed_seconds, (int, float)) else None,
             ]
         )
         return f"RETRY {label} | " + " | ".join(p for p in parts if p)
@@ -181,16 +179,14 @@ def _format_bridge_event(event: Dict[str, Any]) -> str:
         parts = [f"GET {url}" if url else "GET", f"PATH: {path}" if path else None]
         if headers:
             parts.append(f"HEADERS: {headers}")
-        
+
         parts.extend(
             [
                 f"ERROR: {event.get('message', '')}",
                 f"RETRY={event.get('attempt', '?')}/{event.get('retry_count', '?')}"
                 if event.get("attempt") is not None
                 else None,
-                f"in={float(elapsed_seconds):.1f}s"
-                if isinstance(elapsed_seconds, (int, float))
-                else None,
+                f"in={float(elapsed_seconds):.1f}s" if isinstance(elapsed_seconds, (int, float)) else None,
             ]
         )
         return f"ERROR {label} | " + " | ".join(p for p in parts if p)
@@ -201,14 +197,21 @@ def _format_bridge_event(event: Dict[str, Any]) -> str:
     return f"{event_name.upper() or 'EVENT'} {label} | {event}"
 
 
-def _normalize_event_task_key(event: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_event_task_key(event: dict[str, Any]) -> dict[str, Any]:
     if "_task_key" in event and "task_key" not in event:
         event = dict(event)
         event["task_key"] = event.pop("_task_key")
-    
+
     return event
 
-def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int, int, int, float], None]] = None, event_cb: Optional[Callable[[Dict[str, Any]], None]] = None, stop_check: Optional[Callable[[], bool]] = None, wait_timeout_seconds: float = DEFAULT_WAIT_TIMEOUT_SECONDS) -> List[Dict[str, Any]]:
+
+def run_download_plan(
+    plan: dict[str, Any],
+    progress_cb: Callable[[int, int, int, float], None] | None = None,
+    event_cb: Callable[[dict[str, Any]], None] | None = None,
+    stop_check: Callable[[], bool] | None = None,
+    wait_timeout_seconds: float = DEFAULT_WAIT_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
     """
     Launch the Velora binary for *plan* and stream its events back to the caller.
 
@@ -228,21 +231,19 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
     if total == 0:
         return []
 
-    task_lookup_by_path: Dict[str, Dict[str, Any]] = {
-        normalize_path_key(task.get("path", "")): task
-        for task in tasks
-        if task.get("path")
+    task_lookup_by_path: dict[str, dict[str, Any]] = {
+        normalize_path_key(task.get("path", "")): task for task in tasks if task.get("path")
     }
 
-    plan_path: Optional[str] = None
-    process: Optional[subprocess.Popen[str]] = None
-    stop_thread: Optional[threading.Thread] = None
-    reader_thread: Optional[threading.Thread] = None
-    results: List[Dict[str, Any]] = []
+    plan_path: str | None = None
+    process: subprocess.Popen[str] | None = None
+    stop_thread: threading.Thread | None = None
+    reader_thread: threading.Thread | None = None
+    results: list[dict[str, Any]] = []
     done_count = 0
     total_bytes = 0
     started_at = time.monotonic()
-    speed_window: "deque[tuple[float, int]]" = deque()
+    speed_window: deque[tuple[float, int]] = deque()
     speed_window.append((started_at, 0))
 
     try:
@@ -256,7 +257,9 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
             json.dump(plan, tmp, ensure_ascii=False)
             tmp.flush()
 
-        command = (["dotnet", binary_path, plan_path] if binary_path.lower().endswith(".dll") else [binary_path, plan_path])
+        command = (
+            ["dotnet", binary_path, plan_path] if binary_path.lower().endswith(".dll") else [binary_path, plan_path]
+        )
 
         process = subprocess.Popen(
             command,
@@ -272,7 +275,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
         )
 
         # Read stdout in a dedicated thread → queue so the main loop cannot block forever if the process crashes silently.
-        line_queue: "queue.Queue[object]" = queue.Queue()
+        line_queue: queue.Queue[object] = queue.Queue()
 
         def _stdout_reader() -> None:
             assert process is not None and process.stdout is not None
@@ -286,6 +289,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
         reader_thread.start()
 
         if stop_check:
+
             def _watch_stop() -> None:
                 assert process is not None
                 logger.debug("Stop-watcher thread started")
@@ -294,7 +298,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                         logger.warning("Stop requested, forwarding stop event to Velora...")
                         _stop_process_orderly(process, graceful_timeout=5.0)
                         return
-                    
+
                     time.sleep(0.25)
                 logger.debug("Stop-watcher thread exiting (process already dead)")
 
@@ -324,7 +328,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                 continue
 
             try:
-                event: Dict[str, Any] = json.loads(line)
+                event: dict[str, Any] = json.loads(line)
             except json.JSONDecodeError:
                 logger.info(f"Failed to decode JSON from Velora: {line}")
                 continue
@@ -363,7 +367,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
                     logger.warning(_format_bridge_event(event))
                 else:
                     logger.info(_format_bridge_event(event))
-                
+
                 if event_cb:
                     normalized_event = dict(event)
                     normalized_event.setdefault("task_key", plan.get("task_key", "download"))
@@ -490,7 +494,7 @@ def run_download_plan(plan: Dict[str, Any], progress_cb: Optional[Callable[[int,
             reader_thread.join(timeout=5.0)
             if reader_thread.is_alive():
                 logger.warning("Reader thread didn't finish in 5s")
-        
+
         # Join stop-watcher thread with longer timeout
         if stop_thread and stop_thread.is_alive():
             logger.debug("Waiting for stop-watcher thread...")

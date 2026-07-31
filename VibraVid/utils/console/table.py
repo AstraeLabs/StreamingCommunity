@@ -1,15 +1,14 @@
-# 03.03.24
+﻿# 03.03.24
 
 import logging
-from typing import Dict, List, Any
+from typing import Any
 
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.text import Text
 
 from .message import start_message
-from .shared_styles import create_styled_table, TableStyle
-
+from .shared_styles import TableStyle, create_styled_table
 
 logger = logging.getLogger(__name__)
 TABLE_STYLE = TableStyle.MODERN_ROUNDED
@@ -21,38 +20,38 @@ class TVShowManager:
         Initialize TVShowManager with default values.
         """
         self.console = Console()
-        self.tv_shows: List[Dict[str, Any]] = []
+        self.tv_shows: list[dict[str, Any]] = []
         self.slice_start = 0
         self.slice_end = 10
         self.step = self.slice_end
         self.column_info = []
         self.table_style = TABLE_STYLE
 
-    def add_column(self, column_info: Dict[str, Dict[str, str]]) -> None:
+    def add_column(self, column_info: dict[str, dict[str, str]]) -> None:
         """
         Add column information.
 
         Parameters:
-            - column_info (Dict[str, Dict[str, str]]): Dictionary containing column names, their colors, and justification.
+            column_info (Dict[str, Dict[str, str]]): Dictionary containing column names, their colors, and justification.
         """
         self.column_info = column_info
 
-    def add_tv_show(self, tv_show: Dict[str, Any]) -> None:
+    def add_tv_show(self, tv_show: dict[str, Any]) -> None:
         """
         Add a TV show to the list of TV shows.
 
         Parameters:
-            - tv_show (Dict[str, Any]): Dictionary containing TV show details.
+            tv_show (Dict[str, Any]): Dictionary containing TV show details.
         """
         if tv_show:
             self.tv_shows.append(tv_show)
 
-    def display_data(self, data_slice: List[Dict[str, Any]]) -> None:
+    def display_data(self, data_slice: list[dict[str, Any]]) -> None:
         """
         Display TV show data in a tabular format.
 
         Parameters:
-            - data_slice (List[Dict[str, Any]]): List of dictionaries containing TV show details to display.
+            data_slice (List[Dict[str, Any]]): List of dictionaries containing TV show details to display.
         """
         if not data_slice:
             logger.error("Nothing to display.")
@@ -74,7 +73,7 @@ class TVShowManager:
                 col_name = Text(col_name, style=header_color)
 
             table.add_column(
-                col_name, 
+                col_name,
                 style=color,
                 justify=justify,
                 width=width,
@@ -83,14 +82,14 @@ class TVShowManager:
             )
 
         # Add rows dynamically based on available TV show data
-        for idx, entry in enumerate(data_slice):
+        for _idx, entry in enumerate(data_slice):
             if entry:
                 row_data = []
                 for col_name in self.column_info.keys():
-                    value = str(entry.get(col_name, ''))
+                    value = str(entry.get(col_name, ""))
                     max_len = self.column_info[col_name].get("max_length", None)
                     if max_len and len(value) > max_len:
-                        value = value[:max_len-3] + "..."
+                        value = value[: max_len - 3] + "..."
                     row_data.append(value)
 
                 table.add_row(*row_data)
@@ -102,8 +101,8 @@ class TVShowManager:
         Run the TV show manager application.
 
         Parameters:
-            - force_int_input(bool): If True, only accept integer inputs from 0 to max_int_input
-            - max_int_input (int): range of row to show
+            force_int_input(bool): If True, only accept integer inputs from 0 to max_int_input
+            max_int_input (int): range of row to show
 
         Returns:
             str: Last command executed before breaking out of the loop.
@@ -123,11 +122,11 @@ class TVShowManager:
             start_message()
 
             # Check and adjust slice indices if out of bounds
-            current_slice = self.tv_shows[self.slice_start:self.slice_end]
+            current_slice = self.tv_shows[self.slice_start : self.slice_end]
             if not current_slice and total_items > 0:
                 self.slice_start = 0
                 self.slice_end = min(self.step, total_items)
-                current_slice = self.tv_shows[self.slice_start:self.slice_end]
+                current_slice = self.tv_shows[self.slice_start : self.slice_end]
 
             result_func = self.display_data(current_slice)
             if result_func == 404:
@@ -135,14 +134,14 @@ class TVShowManager:
                 return ""
 
             # Add page info below the table
-            page_info = f"[dim][{self.slice_start+1}-{min(self.slice_end, total_items)} of {total_items}][/dim]"
+            page_info = f"[dim][{self.slice_start + 1}-{min(self.slice_end, total_items)} of {total_items}][/dim]"
             self.console.print(page_info, justify="center")
 
             # Pagination prompt
             self.console.print("[green]Press [red]Enter [green]for next page, [red]'q' [green]to quit.")
 
             if not force_int_input:
-                prompt_msg = ("\n[cyan]Insert media index [yellow]'1'[cyan], [yellow]'*' [cyan]to download all media, [yellow]'1-2' [cyan]for a range of media or [yellow]'3-*' [cyan]to download from a specific index to the end")
+                prompt_msg = "\n[cyan]Insert media index [yellow]'1'[cyan], [yellow]'*' [cyan]to download all media, [yellow]'1-2' [cyan]for a range of media or [yellow]'3-*' [cyan]to download from a specific index to the end"
                 key = Prompt.ask(prompt_msg)
             else:
                 choices = [""] + [str(i) for i in range(max_int_input + 1)] + ["q", "quit"]

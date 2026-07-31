@@ -7,39 +7,40 @@ from dataclasses import dataclass, field
 @dataclass
 class MockStream:
     """Mock stream object simulating real manifest streams."""
+
     type: str  # "video", "audio", "subtitle"
-    
+
     # Common
     id: str = None
     codecs: str = None
     bitrate: int = None
-    
+
     # Video specific
     height: int = None
     width: int = None
     resolution: str = None
-    
+
     # Audio/Subtitle specific
     language: str = None
     resolved_language: str = None
-    
+
     # Subtitle specific
     forced: bool = False
     is_cc: bool = False
     is_sdh: bool = False
-    
+
     # Flags
     default: bool = False
     playlist_url: str = "mock://playlist"
 
     # Runtime state (not persisted)
     selected: bool = field(default=False, repr=False)
-    
+
     def __repr__(self):
         if self.type == "video":
-            return f"Video({self.height}p, {self.codecs}, {self.bitrate//1000}kbps, id={self.id})"
+            return f"Video({self.height}p, {self.codecs}, {self.bitrate // 1000}kbps, id={self.id})"
         elif self.type == "audio":
-            return f"Audio({self.language}/{self.resolved_language}, {self.codecs}, {self.bitrate//1000}kbps, id={self.id})"
+            return f"Audio({self.language}/{self.resolved_language}, {self.codecs}, {self.bitrate // 1000}kbps, id={self.id})"
         elif self.type == "subtitle":
             return f"Sub({self.language}/{self.resolved_language}, forced={self.forced}, cc={self.is_cc}, id={self.id})"
         return f"{self.type}(id={self.id})"
@@ -116,9 +117,33 @@ def create_full_manifest_streams():
 def create_audio_streams_with_default():
     """Example: Audio streams where one is marked as default."""
     return [
-        MockStream(type="audio", language="eng", resolved_language="en-US", codecs="mp4a", bitrate=128_000, id="a0", default=True),
-        MockStream(type="audio", language="ita", resolved_language="it-IT", codecs="ac-3", bitrate=256_000, id="a1", default=False),
-        MockStream(type="audio", language="fra", resolved_language="fr-FR", codecs="mp4a", bitrate=192_000, id="a2", default=False),
+        MockStream(
+            type="audio",
+            language="eng",
+            resolved_language="en-US",
+            codecs="mp4a",
+            bitrate=128_000,
+            id="a0",
+            default=True,
+        ),
+        MockStream(
+            type="audio",
+            language="ita",
+            resolved_language="it-IT",
+            codecs="ac-3",
+            bitrate=256_000,
+            id="a1",
+            default=False,
+        ),
+        MockStream(
+            type="audio",
+            language="fra",
+            resolved_language="fr-FR",
+            codecs="mp4a",
+            bitrate=192_000,
+            id="a2",
+            default=False,
+        ),
     ]
 
 

@@ -4,11 +4,10 @@ import json
 import logging
 import subprocess
 
-from VibraVid.setup import get_ffprobe_path
+from VibraVid.core.muxing.helper._ffprobe_cache import ffprobe_cached
 from VibraVid.core.utils.codec import get_short_codec
 from VibraVid.core.utils.language import language_variants
-from VibraVid.core.muxing.helper._ffprobe_cache import ffprobe_cached
-
+from VibraVid.setup import get_ffprobe_path
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +38,15 @@ def _classify_resolution(width, height) -> str:
 
 
 _EMPTY_METADATA = {
-    "quality": "", "language": "", "video_codec": "", "audio_codec": "",
-    "audio_tracks": [], "audio_flags": "",
-    "sub_language": "", "sub_flags": "", "subtitle_tracks": [],
+    "quality": "",
+    "language": "",
+    "video_codec": "",
+    "audio_codec": "",
+    "audio_tracks": [],
+    "audio_flags": "",
+    "sub_language": "",
+    "sub_flags": "",
+    "subtitle_tracks": [],
 }
 
 
@@ -55,24 +60,24 @@ def _disposition_flags(disposition: dict) -> list:
 @ffprobe_cached
 def get_media_metadata(file_path: str) -> dict:
     """Extract quality (resolution), languages, codecs and flags from a media file using ffprobe."""
-    cmd = [get_ffprobe_path(), '-v', 'error', '-show_streams', '-print_format', 'json', file_path]
+    cmd = [get_ffprobe_path(), "-v", "error", "-show_streams", "-print_format", "json", file_path]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             logger.error(f"ffprobe error while extracting metadata for file {file_path}: {result.stderr.strip()}")
             return dict(_EMPTY_METADATA)
 
         info = json.loads(result.stdout)
-        streams = info.get('streams', [])
+        streams = info.get("streams", [])
         quality_val = ""
         vcodec_val = ""
 
         for s in streams:
-            if s.get('codec_type') == 'video':
-                quality_val = _classify_resolution(s.get('width'), s.get('height'))
+            if s.get("codec_type") == "video":
+                quality_val = _classify_resolution(s.get("width"), s.get("height"))
 
-                raw_vcodec = s.get('codec_name', '')
+                raw_vcodec = s.get("codec_name", "")
                 vcodec_val = get_short_codec("video", raw_vcodec)
                 break
 
@@ -81,9 +86,9 @@ def get_media_metadata(file_path: str) -> dict:
         audio_tracks = []
         audio_flags_found = []
         for s in streams:
-            if s.get('codec_type') == 'audio':
-                lang = s.get('tags', {}).get('language') or ""
-                raw_acodec = s.get('codec_name', '')
+            if s.get("codec_type") == "audio":
+                lang = s.get("tags", {}).get("language") or ""
+                raw_acodec = s.get("codec_name", "")
                 short_acodec = get_short_codec("audio", raw_acodec)
 
                 if lang:
@@ -93,43 +98,47 @@ def get_media_metadata(file_path: str) -> dict:
                     if short_acodec and short_acodec not in acodecs_found:
                         acodecs_found.append(short_acodec)
 
-                    flags = _disposition_flags(s.get('disposition', {}) or {})
+                    flags = _disposition_flags(s.get("disposition", {}) or {})
                     audio_flags_found.extend(f for f in flags if f not in audio_flags_found)
-                    audio_tracks.append({
-                        "language": lang_up,
-                        "codec": short_acodec,
-                        "flags": flags,
-                        **language_variants(lang),
-                    })
+                    audio_tracks.append(
+                        {
+                            "language": lang_up,
+                            "codec": short_acodec,
+                            "flags": flags,
+                            **language_variants(lang),
+                        }
+                    )
 
         sub_languages_found = []
         sub_flags_found = []
         subtitle_tracks = []
         for s in streams:
-            if s.get('codec_type') == 'subtitle':
-                lang = s.get('tags', {}).get('language') or ""
+            if s.get("codec_type") == "subtitle":
+                lang = s.get("tags", {}).get("language") or ""
                 if not lang:
                     continue
-                
+
                 lang_up = lang.upper()
                 if lang_up not in sub_languages_found:
                     sub_languages_found.append(lang_up)
 
-                disposition = s.get('disposition', {}) or {}
-                forced = bool(disposition.get('forced'))
-                sdh = bool(disposition.get('hearing_impaired'))
+                disposition = s.get("disposition", {}) or {}
+                forced = bool(disposition.get("forced"))
+                sdh = bool(disposition.get("hearing_impaired"))
                 cc = sdh  # muxer only exposes a single hearing_impaired flag; CC and SDH share it
                 flags = _disposition_flags(disposition)
                 sub_flags_found.extend(f for f in flags if f not in sub_flags_found)
 
-                subtitle_tracks.append({
-                    "language": lang_up,
-                    "forced": forced,
-                    "sdh": sdh,
-                    "cc": cc,
-                    "flags": flags,
-                    **language_variants(lang),
-                })
+                subtitle_tracks.append(
+                    {
+                        "language": lang_up,
+                        "forced": forced,
+                        "sdh": sdh,
+                        "cc": cc,
+                        "flags": flags,
+                        **language_variants(lang),
+                    }
+                )
 
         return {
             "quality": quality_val,

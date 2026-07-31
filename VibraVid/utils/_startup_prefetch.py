@@ -2,7 +2,6 @@
 
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Dict, Optional
 
 from curl_cffi import requests
 
@@ -19,7 +18,7 @@ RELEASES_URL = f"https://api.github.com/repos/{_AUTHOR}/{_TITLE}/releases"
 _HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="startup-prefetch")
-_futures: Dict[str, Future] = {}
+_futures: dict[str, Future] = {}
 
 
 def _fetch_domains():
@@ -58,7 +57,7 @@ def start() -> None:
             _futures[key] = _executor.submit(func)
 
 
-def collect(key: str, timeout: Optional[float] = None):
+def collect(key: str, timeout: float | None = None):
     """Block for a prefetched result. Returns None if never started or it raised."""
     future = _futures.get(key)
     if future is None:

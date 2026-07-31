@@ -1,40 +1,50 @@
 # 01.04.25
 
-import re
 import gzip
-import queue
-import time
 import logging
+import queue
+import re
 import threading
-from rich.markup import escape
+import time
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from rich.markup import escape
+
+from VibraVid.core.decryptor import Decryptor
+from VibraVid.core.manifest.stream import track_label
+from VibraVid.core.muxing.helper.video import binary_merge_segments
+from VibraVid.core.ui.bar_manager import DownloadBarManager, console
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client
-from VibraVid.core.ui.bar_manager import DownloadBarManager, console
-from VibraVid.core.decryptor import Decryptor
-from VibraVid.core.muxing.helper.video import binary_merge_segments
-from VibraVid.core.manifest.stream import track_label
 
 from ..decryptor._segment_crypto import decrypt_aes128
-from .util.formatting import (
-    normalize_path_key,
-    format_size   as _fmt_size,
-    format_speed  as _fmt_speed,
-    estimate_total_size as _estimate_total_size,
-    fmt_dur as _fmt_dur,
-)
-from .util._stream_helpers import detect_seg_ext, merged_segment_ext, describe_key_for_log, collect_failed_segments
+from .util._stream_helpers import collect_failed_segments, describe_key_for_log, detect_seg_ext, merged_segment_ext
 from .util._subtitle_segments import merge_vtt_files
 from .util._verify import verify_decrypted_media
-
+from .util.formatting import (
+    estimate_total_size as _estimate_total_size,
+)
+from .util.formatting import (
+    fmt_dur as _fmt_dur,
+)
+from .util.formatting import (
+    format_size as _fmt_size,
+)
+from .util.formatting import (
+    format_speed as _fmt_speed,
+)
+from .util.formatting import (
+    normalize_path_key,
+)
 
 logger = logging.getLogger("manual")
-REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS",  "timeout")
+REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
 MAX_TOKEN_REFRESH_ROUNDS = config_manager.config.get_int("DOWNLOAD", "max_token_refresh_rounds")
-TOKEN_REFRESH_BACKOFF_SECONDS = config_manager.config.get_float("DOWNLOAD", "token_refresh_backoff_seconds", default=2.0)
+TOKEN_REFRESH_BACKOFF_SECONDS = config_manager.config.get_float(
+    "DOWNLOAD", "token_refresh_backoff_seconds", default=2.0
+)
 TOKEN_REFRESH_STALL_ROUNDS = max(1, config_manager.config.get_int("DOWNLOAD", "token_refresh_stall_rounds", default=3))
 DECRYPT_WORKER_COUNT = max(1, config_manager.config.get_int("DOWNLOAD", "decrypt_worker_count"))
 
@@ -59,10 +69,10 @@ class DecryptPipelineMixin:
             drm = getattr(stream, "drm", None)
             if not (self.key and drm is not None and drm.is_encrypted()):
                 return
-            
+
             if getattr(stream, "type", "") == "subtitle":
                 return
-            
+
             if not out_path.exists() or out_path.stat().st_size <= 0:
                 return
 
@@ -83,14 +93,23 @@ class DecryptPipelineMixin:
         except Exception as exc:
             logger.warning(f"Track decrypt verification skipped for {getattr(stream, 'type', '?')}: {exc}")
 
-    def _download_stream_generic(self, dl_segs: List[Dict], stream, protocol: str, default_ext: str, bar_manager: DownloadBarManager, live_decryption: bool = False, seg_url_refresh_fn=None) -> None:
+    def _download_stream_generic(
+        self,
+        dl_segs: list[dict],
+        stream,
+        protocol: str,
+        default_ext: str,
+        bar_manager: DownloadBarManager,
+        live_decryption: bool = False,
+        seg_url_refresh_fn=None,
+    ) -> None:
         task_key = self._stream_task_key(stream)
         total = len(dl_segs)
         stream_dir = self._make_stream_dir(stream, protocol)
         all_headers = self._build_headers()
         protocol_lower = protocol.lower()
 
-        key_cache: Dict[str, bytes] = {}
+        key_cache: dict[str, bytes] = {}
         segment_meta_by_path = {}
         for seg in dl_segs:
             seg_ext = detect_seg_ext(seg.get("url", ""), default=default_ext)
@@ -112,27 +131,27 @@ class DecryptPipelineMixin:
         )
 
         _total_duration: float = sum(s.get("duration", 0.0) for s in dl_segs if s.get("seg_type") != "init")
-        _media_segs_only: List[Dict] = [s for s in dl_segs if s.get("seg_type") != "init"]
-        _seg_dur_cumulative: List[float] = []
+        _media_segs_only: list[dict] = [s for s in dl_segs if s.get("seg_type") != "init"]
+        _seg_dur_cumulative: list[float] = []
         _acc = 0.0
         for _s in _media_segs_only:
             _acc += _s.get("duration", 0.0)
             _seg_dur_cumulative.append(_acc)
 
-        decrypt_queue: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
-        decrypt_errors: List[str] = []      # per-segment decryption error messages (diagnostics)
-        seg_errors: List[str] = []          # per-segment HTTP/transport error messages (diagnostics)
-        decrypt_threads: List[threading.Thread] = []
+        decrypt_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
+        decrypt_errors: list[str] = []  # per-segment decryption error messages (diagnostics)
+        seg_errors: list[str] = []  # per-segment HTTP/transport error messages (diagnostics)
+        decrypt_threads: list[threading.Thread] = []
         probe_lock = threading.Lock()
         # ISM fragments are raw moof+mdat with no ftyp/moov of their own — DRM info
         # was already probed on the manifest-synthesized init (_probe_ism_init)
         # before this ran, so skip the (always-empty) per-segment probe here.
         probe_done = protocol_lower == "ism"
         key_cache_lock = threading.Lock()
-        dash_init_box: List[Optional[Path]] = [None]
+        dash_init_box: list[Path | None] = [None]
         dash_init_lock = threading.Lock()
 
-        def _probe_once(target_path: Optional[Path], reason: str) -> None:
+        def _probe_once(target_path: Path | None, reason: str) -> None:
             nonlocal probe_done
             if probe_done or not target_path:
                 return
@@ -152,7 +171,7 @@ class DecryptPipelineMixin:
             threading.Thread(target=self._probe_media_file, args=(target_path,), daemon=True).start()
 
         def _replace_segment_file(source_path: Path, target_path: Path, reason: str) -> None:
-            last_exc: Optional[Exception] = None
+            last_exc: Exception | None = None
             for attempt in range(1, 9):
                 try:
                     if target_path.exists():
@@ -177,27 +196,39 @@ class DecryptPipelineMixin:
             if last_exc:
                 raise last_exc
 
-        def _progress(done: int, total_: int, total_bytes: int, speed_bps: float, speed_label: Optional[str] = None) -> None:
+        def _progress(
+            done: int, total_: int, total_bytes: int, speed_bps: float, speed_label: str | None = None
+        ) -> None:
             pct = int((done / total_) * 100) if total_ else 0
             estimated_total = _estimate_total_size(total_bytes, done, total_) if done > 0 else total_bytes
-            size_display = (f"{_fmt_size(total_bytes)}/{_fmt_size(estimated_total)}" if done < total_ else f"{_fmt_size(total_bytes)}/{_fmt_size(total_bytes)}")
+            size_display = (
+                f"{_fmt_size(total_bytes)}/{_fmt_size(estimated_total)}"
+                if done < total_
+                else f"{_fmt_size(total_bytes)}/{_fmt_size(total_bytes)}"
+            )
             duration_display = ""
 
             if _total_duration > 0:
                 media_done = max(0, done - (1 if any(s.get("seg_type") == "init" for s in dl_segs) else 0))
-                elapsed_dur = _seg_dur_cumulative[media_done - 1] if media_done > 0 and media_done <= len(_seg_dur_cumulative) else 0.0
+                elapsed_dur = (
+                    _seg_dur_cumulative[media_done - 1]
+                    if media_done > 0 and media_done <= len(_seg_dur_cumulative)
+                    else 0.0
+                )
                 duration_display = f"{_fmt_dur(elapsed_dur)}/{_fmt_dur(_total_duration)}"
 
-            bar_manager.handle_progress_line({
-                "task_key": task_key,
-                "pct":      pct,
-                "segments": f"{done}/{total_}",
-                "size":     size_display,
-                "speed":    speed_label if speed_label is not None else _fmt_speed(speed_bps),
-                "duration": duration_display,
-            })
+            bar_manager.handle_progress_line(
+                {
+                    "task_key": task_key,
+                    "pct": pct,
+                    "segments": f"{done}/{total_}",
+                    "size": size_display,
+                    "speed": speed_label if speed_label is not None else _fmt_speed(speed_bps),
+                    "duration": duration_display,
+                }
+            )
 
-        def _decrypt_hls_segment(fp: Path, seg: Dict[str, Any]) -> None:
+        def _decrypt_hls_segment(fp: Path, seg: dict[str, Any]) -> None:
             enc = seg.get("enc") or {}
             method = str(enc.get("method") or "NONE").upper()
             if method != "AES-128":
@@ -214,7 +245,9 @@ class DecryptPipelineMixin:
                     with key_cache_lock:
                         key_data = key_cache.get(key_url)
                         if key_data is None:
-                            with create_client(headers=all_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
+                            with create_client(
+                                headers=all_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True
+                            ) as c:
                                 r = c.get(key_url)
                                 r.raise_for_status()
                                 key_data = r.content
@@ -224,7 +257,6 @@ class DecryptPipelineMixin:
 
                             key_cache[key_url] = key_data
                             logger.info(f"HLS AES-128 key fetched: iv={enc.get('iv')} key={key_data.hex()}")
-
 
             logger.debug(f"AES-128 LIVE decrypt path={fp} with key={describe_key_for_log(key_data)}")
             decrypted = decrypt_aes128(fp.read_bytes(), key_data, enc.get("iv"), int(seg.get("number", 0) or 0))
@@ -236,7 +268,9 @@ class DecryptPipelineMixin:
             if int(seg.get("number", -1) or -1) == _first_media_number:
                 _probe_once(fp, "hls-first-decrypted-segment")
 
-        def _decrypt_dash_segment(fp: Path, seg: Dict[str, Any], dash_decryptor: Decryptor, init_path: Optional[Path]) -> None:
+        def _decrypt_dash_segment(
+            fp: Path, seg: dict[str, Any], dash_decryptor: Decryptor, init_path: Path | None
+        ) -> None:
             if seg.get("seg_type") == "init":
                 logger.info(f"DASH init segment ready -> {fp.name}")
                 return
@@ -244,10 +278,12 @@ class DecryptPipelineMixin:
             dec_tmp = fp.with_suffix(fp.suffix + ".dec")
             init_path_str = str(init_path) if init_path and init_path.exists() else None
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f'CENC LIVE decrypt path={fp} init={init_path_str or "None"} with key={describe_key_for_log(self.key)}')
+                logger.debug(f"CENC LIVE decrypt path={fp} init={init_path_str or 'None'} with key={describe_key_for_log(self.key)}")
 
             ok, message, _data = dash_decryptor.decrypt_segment_live(
-                encrypted_path=str(fp), decrypted_path=str(dec_tmp), raw_keys=self.key,
+                encrypted_path=str(fp),
+                decrypted_path=str(dec_tmp),
+                raw_keys=self.key,
                 init_path=init_path_str,
             )
 
@@ -263,7 +299,7 @@ class DecryptPipelineMixin:
                 _probe_once(fp, "dash-first-decrypted-segment")
 
         dash_decryptor = Decryptor() if protocol_lower == "dash" and live_decryption and self.key else None
-        dash_pending: List[tuple] = []  # (fp, seg) media segments seen before the init segment
+        dash_pending: list[tuple] = []  # (fp, seg) media segments seen before the init segment
 
         def _decrypt_worker() -> None:
             while True:
@@ -290,7 +326,7 @@ class DecryptPipelineMixin:
 
                     if protocol_lower == "dash" and live_decryption and self.key:
                         if seg.get("seg_type") == "init":
-                            flush: List[tuple] = []
+                            flush: list[tuple] = []
                             cached_now = False
                             with dash_init_lock:
                                 if dash_init_box[0] is None:
@@ -317,26 +353,28 @@ class DecryptPipelineMixin:
                     logger.error(f"Segment decrypt error ({protocol_lower}/{task_key}): {exc}")
                     decrypt_queue.task_done()
 
-        needs_hls_decrypt = protocol_lower == "hls" and any(str((seg.get("enc") or {}).get("method") or "NONE").upper() == "AES-128" for seg in dl_segs)
+        needs_hls_decrypt = protocol_lower == "hls" and any(
+            str((seg.get("enc") or {}).get("method") or "NONE").upper() == "AES-128" for seg in dl_segs
+        )
         _stream_is_encrypted = stream.drm is not None and stream.drm.is_encrypted()
         needs_dash_live = protocol_lower == "dash" and live_decryption and bool(self.key) and _stream_is_encrypted
 
         if needs_hls_decrypt or needs_dash_live:
             worker_count = DECRYPT_WORKER_COUNT if needs_dash_live else 1
-            logger.debug(f'{protocol.upper()} decrypt worker pool started ({worker_count}x, {"AES-128" if needs_hls_decrypt else "live DASH"})')
+            logger.debug(f"{protocol.upper()} decrypt worker pool started ({worker_count}x, {'AES-128' if needs_hls_decrypt else 'live DASH'})")
             for _ in range(worker_count):
                 t = threading.Thread(target=_decrypt_worker, daemon=True)
                 t.start()
                 decrypt_threads.append(t)
 
-        def _handle_download_event(event: Dict[str, Any]) -> None:
+        def _handle_download_event(event: dict[str, Any]) -> None:
             event_name = (event.get("event") or "").lower()
             if event_name == "error":
                 msg = event.get("message") or event.get("error")
                 if msg:
                     seg_errors.append(str(msg))
                 return
-            
+
             if event_name in {"start", "summary", "retry", "cancelled", "progress"}:
                 return
 
@@ -358,9 +396,13 @@ class DecryptPipelineMixin:
                     _probe_once(Path(path_value), f"{protocol.upper()}-range-split-header")
 
             else:
-                should_probe_now = seg and not decrypt_threads and (
-                    seg.get("seg_type") == "init"
-                    or (seg.get("seg_type") == "media" and seg.get("number") == _first_media_number)
+                should_probe_now = (
+                    seg
+                    and not decrypt_threads
+                    and (
+                        seg.get("seg_type") == "init"
+                        or (seg.get("seg_type") == "media" and seg.get("number") == _first_media_number)
+                    )
                 )
 
                 if should_probe_now:
@@ -369,7 +411,41 @@ class DecryptPipelineMixin:
             if decrypt_threads:
                 decrypt_queue.put(dict(event))
 
-        paths = self._run_dl(dl_segs, stream_dir, all_headers, _progress, stream=stream, event_cb=_handle_download_event, default_ext=default_ext)
+        # Segments whose bytes travel inside the manifest itself (e.g. a base64 init segment) have no URL to request
+        inline_paths: list[Path] = []
+        net_segs = dl_segs
+        if any(seg.get("inline_data") for seg in dl_segs):
+            net_segs = []
+            for seg in dl_segs:
+                data = seg.get("inline_data")
+                if not data:
+                    net_segs.append(seg)
+                    continue
+
+                seg_ext = detect_seg_ext(seg.get("url", ""), default=default_ext)
+                if seg_ext == "m4s":
+                    seg_ext = "mp4"
+
+                inline_path = stream_dir / f"seg_{seg['number']:05d}.{seg_ext}"
+                inline_path.write_bytes(data)
+                inline_paths.append(inline_path)
+                logger.debug(f"Inline segment written from manifest -> {inline_path.name} ({len(data)} B)")
+                if seg.get("seg_type") == "init":
+                    _probe_once(inline_path, "inline-init-segment")
+
+            logger.info(f"{protocol.upper()}: {len(inline_paths)} inline segment(s) from manifest, {len(net_segs)} to download")
+
+        paths = list(inline_paths)
+        if net_segs:
+            paths += self._run_dl(
+                net_segs,
+                stream_dir,
+                all_headers,
+                _progress,
+                stream=stream,
+                event_cb=_handle_download_event,
+                default_ext=default_ext,
+            )
 
         # Token-refresh retry: when segments fail (e.g. the CDN manifest token expired mid-download -> HTTP 403, or a transient CDN-side 503 that clears up after a short wait).
         if seg_url_refresh_fn and not self._stop_check():
@@ -390,12 +466,24 @@ class DecryptPipelineMixin:
 
                 failed_numbers = [n for n, _ in failed]
                 fresh_map = seg_url_refresh_fn(failed_numbers)
-                retry_segs = [{**seg_by_number[n], "url": fresh_map[n]} for n in failed_numbers if n in fresh_map and n in seg_by_number]
+                retry_segs = [
+                    {**seg_by_number[n], "url": fresh_map[n]}
+                    for n in failed_numbers
+                    if n in fresh_map and n in seg_by_number
+                ]
                 if not retry_segs:
                     break
 
                 logger.warning(f"Token refresh round {rounds}: retrying {len(retry_segs)} segment(s) with a fresh token")
-                retry_paths = self._run_dl(retry_segs, stream_dir, all_headers, _progress, stream=stream, event_cb=_handle_download_event, default_ext=default_ext)
+                retry_paths = self._run_dl(
+                    retry_segs,
+                    stream_dir,
+                    all_headers,
+                    _progress,
+                    stream=stream,
+                    event_cb=_handle_download_event,
+                    default_ext=default_ext,
+                )
                 paths.extend(retry_paths)
                 new_failed = collect_failed_segments(dl_segs, paths, stream_dir, default_ext)
 
@@ -418,7 +506,8 @@ class DecryptPipelineMixin:
 
         if paths is not None:
             _stream_label_rich = (
-                self._video_label if stream.type == "video"
+                self._video_label
+                if stream.type == "video"
                 else self._audio_labels.get((stream.language or "und").lower(), stream.language or "und")
                 if stream.type == "audio"
                 else stream.language or "und"
@@ -429,14 +518,19 @@ class DecryptPipelineMixin:
             if failed:
                 failed_numbers = {n for n, _ in failed}
                 aes_failed = sum(
-                    1 for seg in dl_segs
-                    if seg["number"] in failed_numbers and str((seg.get("enc") or {}).get("method") or "NONE").upper() == "AES-128"
+                    1
+                    for seg in dl_segs
+                    if seg["number"] in failed_numbers
+                    and str((seg.get("enc") or {}).get("method") or "NONE").upper() == "AES-128"
                 )
-                aes_note = f" ({aes_failed} had an AES-128 key pending — never fetched, segment missing before decrypt)" if aes_failed else ""
+                aes_note = (
+                    f" ({aes_failed} had an AES-128 key pending — never fetched, segment missing before decrypt)"
+                    if aes_failed
+                    else ""
+                )
                 if seg_errors:
                     top = "; ".join(
-                        f"{m} (x{n})"
-                        for m, n in Counter(e.strip() for e in seg_errors if e.strip()).most_common(3)
+                        f"{m} (x{n})" for m, n in Counter(e.strip() for e in seg_errors if e.strip()).most_common(3)
                     )
                     logger.warning(f"{_plain_label}: {len(failed)}/{total} segment(s) failed to download — most common error(s): {top}{aes_note}")
                 else:
@@ -475,13 +569,15 @@ class DecryptPipelineMixin:
 
         merge_total_size = sum(p.stat().st_size for p in paths if p.exists())
         logger.info(f"Merge starting -> {out_path.name} ({len(paths)} segs, {_fmt_size(merge_total_size)})")
-        bar_manager.handle_progress_line({
-            "task_key": task_key,
-            "pct": 100,
-            "segments": f"{total}/{total}",
-            "size": f"{_fmt_size(merge_total_size)}/{_fmt_size(merge_total_size)}",
-            "speed": "Merge",
-        })
+        bar_manager.handle_progress_line(
+            {
+                "task_key": task_key,
+                "pct": 100,
+                "segments": f"{total}/{total}",
+                "size": f"{_fmt_size(merge_total_size)}/{_fmt_size(merge_total_size)}",
+                "speed": "Merge",
+            }
+        )
 
         def _sniff_vtt_content(raw: bytes) -> bool:
             """Prova a leggere i primi byte come testo; se sono gzip, decomprime prima."""
@@ -534,12 +630,13 @@ class DecryptPipelineMixin:
         def _normalize_out_path() -> None:
             if is_plain_subtitle or out_path.suffix.lower() not in (".mp4", ".m4s", ".m4a"):
                 return
-            
+
             from VibraVid.core.muxing.helper.video import normalize_timestamps
+
             norm_path = normalize_timestamps(out_path, logger)
             if norm_path is None:
                 return
-            
+
             try:
                 out_path.unlink(missing_ok=True)
                 norm_path.rename(out_path)
@@ -549,30 +646,40 @@ class DecryptPipelineMixin:
 
         if not ((not live_decryption) and self.key and stream_is_encrypted):
             _normalize_out_path()
-        
-        
+
         decrypted_ok = False
         decrypt_already_reported = False
-        if (not live_decryption) and self.key and stream_is_encrypted and out_path.exists() and out_path.stat().st_size > 0 and not is_plain_subtitle:
+        if (
+            (not live_decryption)
+            and self.key
+            and stream_is_encrypted
+            and out_path.exists()
+            and out_path.stat().st_size > 0
+            and not is_plain_subtitle
+        ):
             post_merge_path = out_path.with_suffix(out_path.suffix + ".dec")
 
             # Continue this track's own progress bar for the decrypt phase: keep the track
             # label, just swap the status (the "@ Merge" text) for the decrypt method/backend
-            def _decrypt_cb(parsed: Optional[Dict[str, Any]]) -> None:
+            def _decrypt_cb(parsed: dict[str, Any] | None) -> None:
                 if not parsed:
                     return
 
                 # Only the bar position (pct) and the status text change; segment count and
                 # size stay as the merge left them — just "@ Merge" -> "@ CTR".
-                bar_manager.handle_progress_line({
-                    "task_key": task_key,
-                    "pct": parsed.get("pct"),
-                    "speed": parsed.get("status") or "Decrypt",
-                })
+                bar_manager.handle_progress_line(
+                    {
+                        "task_key": task_key,
+                        "pct": parsed.get("pct"),
+                        "speed": parsed.get("status") or "Decrypt",
+                    }
+                )
 
             try:
                 decryptor = Decryptor()
-                if decryptor.decrypt(str(out_path), self.key, str(post_merge_path), stream_type=stream.type, progress_cb=_decrypt_cb):
+                if decryptor.decrypt(
+                    str(out_path), self.key, str(post_merge_path), stream_type=stream.type, progress_cb=_decrypt_cb
+                ):
                     decrypted_ok = True
                     try:
                         out_path.unlink(missing_ok=True)
@@ -592,7 +699,13 @@ class DecryptPipelineMixin:
                     logger.warning(f"Post-merge decryption failed for {out_path.name} (kid={kid_hint or 'unknown'})")
                     bar_manager.handle_progress_line({"task_key": task_key, "speed": "Failed"})
                     with self._decrypt_failures_lock:
-                        self.decrypt_failures.append({"label": track_label, "track": out_path.name, "message": f"required KID(s): {kid_hint or 'unknown'}"})
+                        self.decrypt_failures.append(
+                            {
+                                "label": track_label,
+                                "track": out_path.name,
+                                "message": f"required KID(s): {kid_hint or 'unknown'}",
+                            }
+                        )
                     if post_merge_path.exists():
                         try:
                             post_merge_path.unlink()

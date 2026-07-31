@@ -1,7 +1,7 @@
 # 09.05.26
 
-from urllib.parse import urlparse, urljoin
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 
 def calc_base_url(url: str) -> str:

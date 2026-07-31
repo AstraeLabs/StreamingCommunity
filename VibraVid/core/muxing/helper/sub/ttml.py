@@ -1,35 +1,33 @@
 # 16.04.24
 
+import logging
 import os
 import re
-import logging
 import xml.etree.ElementTree as et
-from typing import Optional, List
 from pathlib import Path
 
-from rich.console import Console
 import ttconv.imsc.reader as imsc_reader
 import ttconv.srt.writer as srt_writer
 import ttconv.vtt.writer as vtt_writer
+from rich.console import Console
 from ttconv.srt.config import SRTWriterConfiguration
 from ttconv.vtt.config import VTTWriterConfiguration
 
 from .sanitize import sanitize_srt_file, sanitize_vtt_file
-
 
 # suppress ttconv logging (Merging ISD paragraphs/regions)
 logging.getLogger("ttconv").setLevel(logging.WARNING)
 
 console = Console()
 logger = logging.getLogger(__name__)
-_XML10_INVALID = re.compile('[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]')
-_TS_RE = re.compile(r'(\d{1,}:[0-5]\d:[0-5]\d[,\.]\d{3})\s*-->\s*(\d{1,}:[0-5]\d:[0-5]\d[,\.]\d{3})')
+_XML10_INVALID = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
+_TS_RE = re.compile(r"(\d{1,}:[0-5]\d:[0-5]\d[,\.]\d{3})\s*-->\s*(\d{1,}:[0-5]\d:[0-5]\d[,\.]\d{3})")
 
 
-def _get_declared_xml_encoding(block: bytes) -> Optional[str]:
+def _get_declared_xml_encoding(block: bytes) -> str | None:
     """Extract encoding from XML declaration if present."""
     try:
-        head = block[:256].decode('ascii', errors='ignore')
+        head = block[:256].decode("ascii", errors="ignore")
         match = re.search(r'<\?xml[^>]*encoding=["\']([^"\']+)["\']', head, re.IGNORECASE)
         if match:
             return match.group(1).strip()
@@ -40,25 +38,27 @@ def _get_declared_xml_encoding(block: bytes) -> Optional[str]:
 
 def _sanitize_xml(s: str) -> str:
     """Remove characters that are invalid in XML 1.0."""
-    return _XML10_INVALID.sub('', s)
+    return _XML10_INVALID.sub("", s)
 
 
 def _decode_ttml_block(block: bytes) -> str:
     """Decode TTML block with declared encoding first, then safe fallbacks."""
-    candidates: List[str] = []
+    candidates: list[str] = []
     declared = _get_declared_xml_encoding(block)
     if declared:
         candidates.append(declared)
 
-    candidates.extend([
-        'utf-8-sig',
-        'utf-8',
-        'utf-16',
-        'utf-16-le',
-        'utf-16-be',
-        'cp1252',
-        'latin-1',
-    ])
+    candidates.extend(
+        [
+            "utf-8-sig",
+            "utf-8",
+            "utf-16",
+            "utf-16-le",
+            "utf-16-be",
+            "cp1252",
+            "latin-1",
+        ]
+    )
 
     tried = set()
     for encoding in candidates:
@@ -70,8 +70,8 @@ def _decode_ttml_block(block: bytes) -> str:
 
             # A TTML block must start with '<' after stripping any BOM.
             # Skip encodings that mangle the start (e.g. UTF-16 turning '<tt' into CJK).
-            stripped_start = decoded.lstrip('﻿￾')
-            if stripped_start and stripped_start[0] != '<':
+            stripped_start = decoded.lstrip("﻿￾")
+            if stripped_start and stripped_start[0] != "<":
                 continue
 
             logger.debug(f"Decoded TTML block with encoding: {encoding}")
@@ -80,13 +80,13 @@ def _decode_ttml_block(block: bytes) -> str:
             logger.debug(f"Failed to decode TTML block with encoding: {encoding}")
             continue
 
-    raise UnicodeDecodeError('utf-8', block, 0, min(len(block), 1), 'could not decode TTML block with supported encodings')
+    raise UnicodeDecodeError("utf-8", block, 0, min(len(block), 1), "could not decode TTML block with supported encodings")
 
 
-def _parse_timestamp(ts: str) -> Optional[float]:
+def _parse_timestamp(ts: str) -> float | None:
     """Parse an SRT (00:00:00,000) or VTT (00:00:00.000) timestamp to seconds."""
-    ts = ts.strip().replace(',', '.')
-    parts = ts.split(':')
+    ts = ts.strip().replace(",", ".")
+    parts = ts.split(":")
     if len(parts) != 3:
         return None
     try:
@@ -104,7 +104,7 @@ def _format_timestamp(seconds: float, is_vtt: bool) -> str:
     s = seconds % 60
     if is_vtt:
         return f"{h:02d}:{m:02d}:{s:06.3f}"
-    return f"{h:02d}:{m:02d}:{s:06.3f}".replace('.', ',')
+    return f"{h:02d}:{m:02d}:{s:06.3f}".replace(".", ",")
 
 
 def _normalize_subtitle_timestamps(content: str, target_format: str) -> str:
@@ -128,7 +128,7 @@ def _normalize_subtitle_timestamps(content: str, target_format: str) -> str:
     if offset < 3600.0:
         return content
 
-    is_vtt = target_format.lower() == 'vtt'
+    is_vtt = target_format.lower() == "vtt"
 
     def _repl(m: "re.Match") -> str:
         start = _parse_timestamp(m.group(1))
@@ -142,7 +142,7 @@ def _normalize_subtitle_timestamps(content: str, target_format: str) -> str:
     return _TS_RE.sub(_repl, content)
 
 
-def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, target_format: str = 'srt') -> bool:
+def convert_ttml_to_format(ttml_path: str, output_path: str | None = None, target_format: str = "srt") -> bool:
     """
     Convert TTML file or .m4s fragment containing TTML to SRT or VTT format.
 
@@ -159,21 +159,21 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
         return False
 
     target_format = target_format.lower()
-    if target_format not in ['srt', 'vtt']:
+    if target_format not in ["srt", "vtt"]:
         console.print(f"[red]Unsupported target format for TTML conversion: {target_format}")
         return False
 
     if output_path is None:
-        output_path = str(Path(ttml_path).with_suffix(f'.{target_format}'))
+        output_path = str(Path(ttml_path).with_suffix(f".{target_format}"))
 
     try:
-        with open(ttml_path, 'rb') as f:
+        with open(ttml_path, "rb") as f:
             data = f.read()
 
         # Extract TTML blocks from plain XML or fragmented MP4 payloads.
         # Supports both XML declaration-prefixed documents and raw <tt> blocks.
         raw_blocks = re.findall(
-            br'(?:<\?xml[^>]*\?>\s*)?<tt\b.*?</tt>',
+            rb"(?:<\?xml[^>]*\?>\s*)?<tt\b.*?</tt>",
             data,
             re.DOTALL,
         )
@@ -183,7 +183,7 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
         ttml_blocks = []
         for blk in raw_blocks:
             try:
-                blk.decode('utf-8')
+                blk.decode("utf-8")
                 ttml_blocks.append(blk)
             except UnicodeDecodeError:
                 logger.debug(f"Discarding non-UTF-8 block that matched TTML pattern in {os.path.basename(ttml_path)}")
@@ -192,11 +192,11 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
         if not ttml_blocks:
             # Try to see if it's a plain TTML without the XML declaration or just one block
             try:
-                text_content = data.decode('utf-8', errors='ignore')
-                if '<tt' in text_content and '</tt>' in text_content:
-                    match = re.search(r'<tt.*?</tt>', text_content, re.DOTALL)
+                text_content = data.decode("utf-8", errors="ignore")
+                if "<tt" in text_content and "</tt>" in text_content:
+                    match = re.search(r"<tt.*?</tt>", text_content, re.DOTALL)
                     if match:
-                        ttml_blocks = [match.group(0).encode('utf-8')]
+                        ttml_blocks = [match.group(0).encode("utf-8")]
             except Exception:
                 pass
 
@@ -204,7 +204,7 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
             console.print(f"[red]No valid TTML blocks found in {ttml_path}")
             return False
 
-        all_captions: List[str] = []
+        all_captions: list[str] = []
 
         for index, block in enumerate(ttml_blocks, start=1):
             try:
@@ -217,7 +217,7 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
                 model = imsc_reader.to_model(tree)
 
                 if model is not None:
-                    if target_format == 'srt':
+                    if target_format == "srt":
                         srt_config = SRTWriterConfiguration()
                         content = srt_writer.from_model(model, srt_config)
                     else:  # vtt
@@ -236,21 +236,21 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
             return False
 
         # Combine output
-        delimiter = "\n\n" if target_format == 'srt' else "\n"
+        delimiter = "\n\n" if target_format == "srt" else "\n"
         output_content = delimiter.join(all_captions)
         output_content = _normalize_subtitle_timestamps(output_content, target_format)
 
         # Add VTT header if needed
-        if target_format == 'vtt' and not output_content.startswith("WEBVTT"):
+        if target_format == "vtt" and not output_content.startswith("WEBVTT"):
             output_content = "WEBVTT\n\n" + output_content
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(output_content)
 
         # Sanitize based on format
-        if target_format == 'srt':
+        if target_format == "srt":
             sanitize_srt_file(output_path)
-        elif target_format == 'vtt':
+        elif target_format == "vtt":
             sanitize_vtt_file(output_path)
 
         logger.info(f"convert_ttml_to_format: Successfully converted {os.path.basename(ttml_path)} to {target_format.upper()} with {len(ttml_blocks)} TTML blocks processed")
@@ -261,12 +261,12 @@ def convert_ttml_to_format(ttml_path: str, output_path: Optional[str] = None, ta
         return False
 
 
-def extract_srt_from_m4s(m4s_file_path: str, output_srt_path: Optional[str] = None) -> str:
+def extract_srt_from_m4s(m4s_file_path: str, output_srt_path: str | None = None) -> str:
     """Compatibility wrapper for the user requested function name."""
     if convert_ttml_to_format(m4s_file_path, output_srt_path):
         if output_srt_path is None:
-            output_srt_path = str(Path(m4s_file_path).with_suffix('.srt'))
-        with open(output_srt_path, 'r', encoding='utf-8') as f:
+            output_srt_path = str(Path(m4s_file_path).with_suffix(".srt"))
+        with open(output_srt_path, encoding="utf-8") as f:
             return f.read()
     else:
         raise ValueError("Failed to extract SRT from m4s")

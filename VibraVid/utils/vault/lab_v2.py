@@ -3,14 +3,12 @@
 import logging
 import threading
 from base64 import b64decode
-from typing import List, Optional
 
 from rich.console import Console
-from VibraVid.utils.vault._url_utils import clean_license_url
 
 from VibraVid.utils.config import config_manager
 from VibraVid.utils.http_client import create_client, get_headers
-
+from VibraVid.utils.vault._url_utils import clean_license_url
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -19,7 +17,7 @@ VAULT_URL = db_config.get("lab_v2", {}).get("url", "")
 TOKEN = db_config.get("lab_v2", {}).get("token", "")
 
 
-def _extract_kid_from_pssh(pssh_b64: str) -> Optional[str]:
+def _extract_kid_from_pssh(pssh_b64: str) -> str | None:
     """Extract KID hex string from a PlayReady PSSH base64 blob."""
     try:
         data = b64decode(pssh_b64)
@@ -45,6 +43,7 @@ class LabDBVault:
 
     def _prewarm(self) -> None:
         """Open the TLS connection in a background thread so the first real lookup doesn't pay the handshake."""
+
         def _warm():
             try:
                 with self._session_lock:
@@ -99,7 +98,7 @@ class LabDBVault:
         """
         pass
 
-    def set_keys(self, keys_list: List[str], license_url: str, pssh: str = None, kid_to_label: Optional[dict] = None) -> int:
+    def set_keys(self, keys_list: list[str], license_url: str, pssh: str = None, kid_to_label: dict | None = None) -> int:
         """
         Store multiple DRM keys in the lab vault.
 
@@ -108,7 +107,7 @@ class LabDBVault:
         """
         pass
 
-    def get_keys_by_pssh(self, license_url: str, pssh: str) -> List[str]:
+    def get_keys_by_pssh(self, license_url: str, pssh: str) -> list[str]:
         """
         Retrieve all keys for a given license URL and PSSH.
 
@@ -117,14 +116,14 @@ class LabDBVault:
         """
         pass
 
-    def get_keys_by_kids(self, license_url: Optional[str], kids: List[str], pssh: str = None) -> List[str]:
+    def get_keys_by_kids(self, license_url: str | None, kids: list[str], pssh: str = None) -> list[str]:
         """
         Retrieve keys for one or more KIDs
         """
         if not kids:
             return []
 
-        results: List[str] = []
+        results: list[str] = []
 
         for kid_raw in kids:
             kid = self._normalize_kid(kid_raw)
@@ -149,7 +148,7 @@ class LabDBVault:
 
         return results
 
-    def get_keys_by_kid(self, license_url: Optional[str], kid: str) -> List[str]:
+    def get_keys_by_kid(self, license_url: str | None, kid: str) -> list[str]:
         """Convenience wrapper for a single KID lookup."""
         return self.get_keys_by_kids(license_url, [kid])
 

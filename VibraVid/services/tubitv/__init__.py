@@ -1,18 +1,17 @@
-# 16.12.25
+﻿# 16.12.25
 
 import re
 
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import TVShowManager
-from VibraVid.utils.http_client import create_client, get_userAgent, check_region_availability
-from VibraVid.services._base import site_constants, EntriesManager, Entries
+from VibraVid.services._base import Entries, EntriesManager, site_constants
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
+from VibraVid.utils import TVShowManager
+from VibraVid.utils.http_client import check_region_availability, create_client, get_userAgent
 
-from .downloader import download_series, download_film
 from .client import get_bearer_token, tubi_email, tubi_password
-
+from .downloader import download_film, download_series
 
 indice = 9
 _useFor = "Film_Serie"
@@ -37,7 +36,7 @@ def affinity_score(element, keyword):
     title = element.get("title", "").lower()
     description = element.get("description", "").lower()
     tags = [t.lower() for t in element.get("tags", [])]
-    
+
     if keyword.lower() in title:
         score += 10
     if keyword.lower() in description:
@@ -50,9 +49,9 @@ def affinity_score(element, keyword):
 def title_search(query: str) -> int:
     """
     Search for titles on Tubi TV based on a search query.
-      
+
     Parameters:
-        - query (str): The query to search for.
+        query (str): The query to search for.
 
     Returns:
         int: The number of titles found.
@@ -92,11 +91,11 @@ def title_search(query: str) -> int:
     try:
         contents_dict = response.json().get('contents', {})
         elements = list(contents_dict.values())
-        
+
         # Sort by affinity score
         elements_sorted = sorted(
-            elements, 
-            key=lambda x: affinity_score(x, query), 
+            elements,
+            key=lambda x: affinity_score(x, query),
             reverse=True
         )
 
@@ -111,18 +110,18 @@ def title_search(query: str) -> int:
             year = element.get("year", "")
             content_id = element.get("id", "")
             title = element.get("title", "")
-            
+
             # Build URL
             if type_content == "tv":
                 url = f"https://tubitv.com/series/{content_id}/{title_to_slug(title)}"
             else:
                 url = f"https://tubitv.com/movies/{content_id}/{title_to_slug(title)}"
-            
+
             # Get thumbnail
             thumbnail = ""
             if "thumbnails" in element and element["thumbnails"]:
                 thumbnail = element["thumbnails"][0]
-            
+
             entries_manager.add(Entries(
                 name=title,
                 type=type_content,
@@ -130,11 +129,11 @@ def title_search(query: str) -> int:
                 image=thumbnail,
                 url=url,
             ))
-            
+
         except Exception as e:
             console.print(f"[yellow]Error parsing a title entry: {e}")
             continue
-    
+
     return len(entries_manager)
 
 def process_search_result(select_title, selections=None, scrape_serie=None):

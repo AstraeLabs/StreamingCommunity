@@ -1,16 +1,16 @@
 # 01.04.26
 
-from typing import Optional
 
 try:
     from Cryptodome.Cipher import AES as _AES
     from Cryptodome.Util.Padding import unpad as _unpad
+
     _HAS_AES = True
 except ImportError:
     _HAS_AES = False
 
 
-def decrypt_aes128(data: bytes, key_data: bytes, iv_hex: Optional[str], seg_num: int) -> bytes:
+def decrypt_aes128(data: bytes, key_data: bytes, iv_hex: str | None, seg_num: int) -> bytes:
     """
     Decrypt one AES-128-CBC HLS segment in-process.
 
@@ -22,7 +22,7 @@ def decrypt_aes128(data: bytes, key_data: bytes, iv_hex: Optional[str], seg_num:
     """
     if not _HAS_AES:
         raise RuntimeError("PyCryptodome required for AES-128 decryption.\nInstall:  pip install pycryptodome")
-    
+
     iv_bytes = bytes.fromhex(iv_hex) if iv_hex else seg_num.to_bytes(16, "big")
     cipher = _AES.new(key_data, _AES.MODE_CBC, iv_bytes)
     try:

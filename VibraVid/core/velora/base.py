@@ -1,44 +1,42 @@
 # 10.04.26
 
-import re
 import logging
 import platform
+import re
 import threading
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Set, Tuple
+from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager
+from VibraVid.core.decryptor import KeysManager
+from VibraVid.core.manifest.custom import CustomParser, is_custom_manifest
+from VibraVid.core.manifest.ism import ISMParser
 from VibraVid.core.manifest.m3u8 import HLSParser
 from VibraVid.core.manifest.mpd import DashParser
-from VibraVid.core.manifest.ism import ISMParser
 from VibraVid.core.manifest.stream import Stream
-from VibraVid.provider.tmdb import tmdb_client
-
-from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.core.ui.bar_manager import DownloadBarManager
+from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.core.ui.ui import build_table
+from VibraVid.core.utils.codec import AUDIO_EXTENSIONS, SUBTITLE_CODEC_MAP, SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS
+from VibraVid.core.utils.language import LANGUAGE_MAP, language_variants, resolve_locale, subtitle_flags
 from VibraVid.core.utils.selector import StreamSelector, StreamSelectorFormatter
-from VibraVid.core.utils.language import resolve_locale, LANGUAGE_MAP, language_variants, subtitle_flags
 from VibraVid.core.utils.stream_selector_ui import InteractiveStreamSelector
-from VibraVid.core.utils.codec import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, SUBTITLE_EXTENSIONS, SUBTITLE_CODEC_MAP
-from VibraVid.core.velora.subtitle import build_ext_track_label, is_valid_format, ext_from_url, normalize_sub_filename
-from VibraVid.core.velora.util._subtitle_segments import resolve_subtitle_segments_sync, get_subtitle_resolve_workers
-from VibraVid.core.decryptor import KeysManager
-
+from VibraVid.core.velora.subtitle import build_ext_track_label, ext_from_url, is_valid_format, normalize_sub_filename
+from VibraVid.core.velora.util._subtitle_segments import get_subtitle_resolve_workers, resolve_subtitle_segments_sync
+from VibraVid.provider.tmdb import tmdb_client
+from VibraVid.utils import config_manager
 
 logger = logging.getLogger(__name__)
 auto_select = config_manager.config.get_bool("DOWNLOAD", "auto_select")
 
 
-
-def lang_variants(normalized_lang: str) -> Set[str]:
+def lang_variants(normalized_lang: str) -> set[str]:
     """Return every LANGUAGE_MAP key that resolves to *normalized_lang*."""
     if not normalized_lang:
         return set()
-    variants: Set[str] = {normalized_lang, normalized_lang.lower()}
+    variants: set[str] = {normalized_lang, normalized_lang.lower()}
     variants.add(normalized_lang.split("-")[0].lower())
     for key, value in LANGUAGE_MAP.items():
         if value == normalized_lang or value.lower() == normalized_lang.lower():
@@ -48,7 +46,20 @@ def lang_variants(normalized_lang: str) -> Set[str]:
 
 
 class BaseMediaDownloader:
-    def __init__(self, url: str, output_dir: str, filename: str, headers: Optional[Dict] = None, key: Optional[Any] = None, cookies: Optional[Dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, manifest_content: Optional[str] = None, manifest_protocol: Optional[str] = None, manifest_refresh_fn=None) -> None:
+    def __init__(
+        self,
+        url: str,
+        output_dir: str,
+        filename: str,
+        headers: dict | None = None,
+        key: Any | None = None,
+        cookies: dict | None = None,
+        download_id: str | None = None,
+        site_name: str | None = None,
+        manifest_content: str | None = None,
+        manifest_protocol: str | None = None,
+        manifest_refresh_fn=None,
+    ) -> None:
         self.url = url
         self.output_dir = Path(output_dir)
         self.filename = filename
@@ -62,12 +73,13 @@ class BaseMediaDownloader:
         self.site_name = site_name
 
         # Manifest and stream data
-        self.streams: List[Stream] = []
+        self.streams: list[Stream] = []
         self.manifest_type: str = "Unknown"
-        self.raw_m3u8: Optional[Path] = None
-        self.raw_mpd: Optional[Path] = None
-        self.raw_ism: Optional[Path] = None
-        self.status: Optional[dict] = None
+        self.raw_m3u8: Path | None = None
+        self.raw_mpd: Path | None = None
+        self.raw_ism: Path | None = None
+        self.raw_custom: Path | None = None
+        self.status: dict | None = None
 
         # Custom selection filters (take precedence over config)
         self._sv: str = "best"
@@ -79,22 +91,22 @@ class BaseMediaDownloader:
         self.external_audios: list = []
         self.external_other_tracks: list = []
         self.other_tracks: list = []
-        self.custom_filters: Optional[Dict] = None
-        self.license_url: Optional[str] = None
-        self.drm_type: Optional[str] = None
+        self.custom_filters: dict | None = None
+        self.license_url: str | None = None
+        self.drm_type: str | None = None
 
         # Manual override for HLS segment encryption (method/key_bytes/iv)
-        self.hls_enc_override: Optional[Dict] = None
+        self.hls_enc_override: dict | None = None
 
         # Progress-bar label tables — built in _prepare_labels()
         self._video_label: str = ""
         self._video_task_key: str = "vid_main"
         self._has_video: bool = True
-        self._audio_labels: Dict[str, str] = {}
-        self._audio_task_keys: List[Tuple[str, str]] = []
-        self._sub_labels: Dict[str, str] = {}
-        self._sub_labels_by_task_key: Dict[str, str] = {}
-        self._sub_task_keys: List[Tuple[str, str]] = []
+        self._audio_labels: dict[str, str] = {}
+        self._audio_task_keys: list[tuple[str, str]] = []
+        self._sub_labels: dict[str, str] = {}
+        self._sub_labels_by_task_key: dict[str, str] = {}
+        self._sub_task_keys: list[tuple[str, str]] = []
 
         # Thread-safe output filename collision tracking (subtitle streams)
         self._assigned_sub_names: set = set()
@@ -106,19 +118,20 @@ class BaseMediaDownloader:
 
         if self.download_id:
             _type = (
-                "Movie" if config_manager.config.get("OUTPUT", "movie_folder_name") in str(self.output_dir)
-                else "TV"    if config_manager.config.get("OUTPUT", "serie_folder_name") in str(self.output_dir)
-                else "Anime" if config_manager.config.get("OUTPUT", "anime_folder_name") in str(self.output_dir)
+                "Movie"
+                if config_manager.config.get("OUTPUT", "movie_folder_name") in str(self.output_dir)
+                else "TV"
+                if config_manager.config.get("OUTPUT", "serie_folder_name") in str(self.output_dir)
+                else "Anime"
+                if config_manager.config.get("OUTPUT", "anime_folder_name") in str(self.output_dir)
                 else "other"
             )
-            download_tracker.start_download(
-                self.download_id, self.filename, self.site_name or "Unknown", _type
-            )
+            download_tracker.start_download(self.download_id, self.filename, self.site_name or "Unknown", _type)
 
     def set_key(self, key: Any) -> None:
         self.key = key.get_keys_list() if isinstance(key, KeysManager) else key
 
-    def parse_stream(self, show_table: bool = True) -> List[Stream]:
+    def parse_stream(self, show_table: bool = True) -> list[Stream]:
         """Fetch manifest → parse streams → apply selection → print table."""
         if self.download_id:
             download_tracker.update_status(self.download_id, "Parsing ...")
@@ -133,6 +146,8 @@ class BaseMediaDownloader:
             effective = "dash"
         elif url_lower.endswith(".ism") or url_lower.endswith(".ism/manifest"):
             effective = "ism"
+        elif content and is_custom_manifest(content):
+            effective = "custom"
         else:
             effective = proto or "hls"
 
@@ -141,6 +156,8 @@ class BaseMediaDownloader:
             parser = DashParser(self.url, self.headers, content=content)
         elif effective == "ism":
             parser = ISMParser(self.url, self.headers, content=content)
+        elif effective == "custom":
+            parser = CustomParser(self.url, self.headers, content=content)
         else:
             parser = HLSParser(self.url, self.headers, content=content)
 
@@ -154,6 +171,9 @@ class BaseMediaDownloader:
         elif isinstance(parser, ISMParser):
             self.raw_ism = parser.save_raw(self._tmp_dir)
             self.manifest_type = "ISM"
+        elif isinstance(parser, CustomParser):
+            self.raw_custom = parser.save_raw(self._tmp_dir)
+            self.manifest_type = "DASH"
         else:
             self.raw_m3u8 = parser.save_raw(self._tmp_dir)
             self.manifest_type = "HLS"
@@ -171,8 +191,11 @@ class BaseMediaDownloader:
             selected = self._ext_track_matches(ext, "subtitle")
             ext["_selected"] = selected
             fake = Stream(
-                type="subtitle", language=lang, name=ext.get("name", ""),
-                selected=selected, is_external=True,
+                type="subtitle",
+                language=lang,
+                name=ext.get("name", ""),
+                selected=selected,
+                is_external=True,
             )
             fake.id = "EXT"
             self.streams.append(fake)
@@ -182,8 +205,11 @@ class BaseMediaDownloader:
             selected = self._ext_lang_matches(lang, "audio")
             ext["_selected"] = selected
             fake = Stream(
-                type="audio", language=lang, name=ext.get("name", ""),
-                selected=selected, is_external=True,
+                type="audio",
+                language=lang,
+                name=ext.get("name", ""),
+                selected=selected,
+                is_external=True,
             )
             fake.id = "EXT"
             self.streams.append(fake)
@@ -200,8 +226,11 @@ class BaseMediaDownloader:
                 lang = ""
 
             fake = Stream(
-                type=kind, language=lang, name=ext.get("name", ""),
-                selected=True, is_external=True,
+                type=kind,
+                language=lang,
+                name=ext.get("name", ""),
+                selected=True,
+                is_external=True,
             )
 
             fake.id = "EXT"
@@ -211,7 +240,7 @@ class BaseMediaDownloader:
                     fake.video_range = "DV"
                 elif tag_up in ("HDR10", "HDR10PLUS", "HDR10+", "HDR"):
                     fake.video_range = "HDR10+"
-            
+
             self.streams.append(fake)
 
         if show_table and self.streams:
@@ -220,19 +249,19 @@ class BaseMediaDownloader:
 
         return self.streams
 
-    def get_metadata(self) -> Tuple[str, str, str]:
+    def get_metadata(self) -> tuple[str, str, str]:
         return (str(self.raw_m3u8), str(self.raw_mpd), str(self.raw_ism))
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> dict:
         return self.status or self._build_status([], [])
 
-    def start_download(self) -> Dict[str, Any]:
+    def start_download(self) -> dict[str, Any]:
         raise NotImplementedError("Subclasses must implement start_download()")
 
     def _apply_selection(self) -> None:
-        f     = self.custom_filters or {}
-        v_cfg = f.get("video")    or config_manager.config.get("DOWNLOAD", "select_video")
-        a_cfg = f.get("audio")    or config_manager.config.get("DOWNLOAD", "select_audio")
+        f = self.custom_filters or {}
+        v_cfg = f.get("video") or config_manager.config.get("DOWNLOAD", "select_video")
+        a_cfg = f.get("audio") or config_manager.config.get("DOWNLOAD", "select_audio")
         s_cfg = f.get("subtitle") or config_manager.config.get("DOWNLOAD", "select_subtitle")
         selector = StreamSelector(v_cfg, a_cfg, s_cfg, formatter=StreamSelectorFormatter())
         self._sv, self._sa, self._ss = selector.apply(self.streams)
@@ -258,13 +287,13 @@ class BaseMediaDownloader:
             base_token = token.split("_")[0]
             if base_token in lang_l or lang_l.startswith(base_token):
                 return True
-            
+
             # ISO-639-2 three-letter → two-letter prefix match ("ita" → "it")
             if len(base_token) == 3 and base_token.isalpha() and lang_l.startswith(base_token[:2]):
                 return True
         return False
 
-    def _ext_track_matches(self, track: Dict, track_type: str) -> bool:
+    def _ext_track_matches(self, track: dict, track_type: str) -> bool:
         """
         Return True if *track* (a full external track dict with flag fields)
         matches the configured selection filter, including flag requirements.
@@ -304,19 +333,19 @@ class BaseMediaDownloader:
                     track_flags.add("sdh")
                 if not req_flags.issubset(track_flags):
                     continue
-            
+
             return True
 
         return False
 
     def _prepare_labels(self) -> None:
-        sel_video = [s for s in self.streams if s.type == "video"    and s.selected and not s.is_external]
-        sel_audio = [s for s in self.streams if s.type == "audio"    and s.selected and not s.is_external]
-        sel_subs  = [s for s in self.streams if s.type == "subtitle" and s.selected and not s.is_external]
+        sel_video = [s for s in self.streams if s.type == "video" and s.selected and not s.is_external]
+        sel_audio = [s for s in self.streams if s.type == "audio" and s.selected and not s.is_external]
+        sel_subs = [s for s in self.streams if s.type == "subtitle" and s.selected and not s.is_external]
 
         # Keep only one subtitle stream per language+flag variant (e.g. "en", "en-forced", "en-sdh", etc.)
-        _seen_sub_variants: Set[str] = set()
-        _unique_subs: List[Stream] = []
+        _seen_sub_variants: set[str] = set()
+        _unique_subs: list[Stream] = []
         for s in sel_subs:
             variant = f"{(s.resolved_language or s.language or 'und').lower()}{self._sub_discriminator(s)}"
             if variant in _seen_sub_variants:
@@ -333,14 +362,14 @@ class BaseMediaDownloader:
             codec = v.get_short_codec() or v.codecs or ""
             res = v.resolution or "main"
             parts = []
-            
+
             if codec:
                 parts.append(f"[yellow]\\[{codec}][/yellow]")
             if res:
                 parts.append(f"[green]{res}[/green]")
             if v.bitrate:
                 parts.append(f"[blue]{v.bitrate_display}[/blue]")
-            
+
             self._video_label = " ".join(parts)
             codec_key = re.sub(r"[^a-z0-9]+", "", codec.lower()) if codec else ""
             self._video_task_key = f"vid_{res}_{codec_key}" if codec_key else f"vid_{res}"
@@ -350,7 +379,7 @@ class BaseMediaDownloader:
 
         self._audio_labels = {}
         self._audio_task_keys = []
-        seen_normalized: Set[str] = set()
+        seen_normalized: set[str] = set()
 
         for s in sel_audio:
             lang = s.resolved_language or s.language or "und"
@@ -366,7 +395,7 @@ class BaseMediaDownloader:
 
             if s.default:
                 parts.append("[bold red][DEFAULT][/bold red]")
-            
+
             label = " ".join(parts)
             raw = (s.language or "und").lower()
             normalized = resolve_locale(raw) if raw else ""
@@ -388,14 +417,14 @@ class BaseMediaDownloader:
         self._sub_labels = {}
         self._sub_labels_by_task_key = {}
         self._sub_task_keys = []
-        seen_sub_keys: Set[str] = set()
+        seen_sub_keys: set[str] = set()
 
         for s in sel_subs:
             label = self._sub_stream_label(s)
             raw = (s.language or "und").lower()
             key_lang = (s.resolved_language or s.language or "und").lower()
             task_lang = key_lang.split("-")[0]
-            task_key  = f"sub_{task_lang}{self._sub_discriminator(s)}"
+            task_key = f"sub_{task_lang}{self._sub_discriminator(s)}"
 
             name = (s.name or "").strip()
             if name:
@@ -428,11 +457,11 @@ class BaseMediaDownloader:
             lang_raw = s.language or "und"
             sfx = re.search(r"[-_](forced|cc|sdh|hi)$", lang_raw, re.I)
             lang_sfx = sfx.group(1).lower() if sfx else ""
-            forced  = s.forced  or lang_sfx == "forced"
-            cc      = s.is_cc   or lang_sfx == "cc"
-            sdh     = s.is_sdh  or lang_sfx == "sdh"
+            forced = s.forced or lang_sfx == "forced"
+            cc = s.is_cc or lang_sfx == "cc"
+            sdh = s.is_sdh or lang_sfx == "sdh"
             default = s.default and not forced
- 
+
             lang = s.resolved_language or lang_raw or "und"
             parts = [f"[bold white]{lang}[/bold white]"]
             flags = []
@@ -447,7 +476,7 @@ class BaseMediaDownloader:
                 flags.append("[DEFAULT]")
             if flags:
                 parts.append(f"[bold red]{' '.join(flags)}[/bold red]")
- 
+
             if getattr(s, "is_wvtt_mp4", False):
                 ext_tag = "WVTT"
             else:
@@ -459,38 +488,38 @@ class BaseMediaDownloader:
                     # Try to derive from codec string
                     codec_lc = (s.codecs or "").lower().strip()
                     ext_tag = SUBTITLE_CODEC_MAP.get(codec_lc, "VTT")
- 
+
             return f"[yellow]\\[{ext_tag}][/yellow] {' '.join(parts)}"
         except Exception:
             return s.language or "und"
 
-    def _get_prebuilt_tasks(self) -> List[Tuple[str, str]]:
-        tasks: List[Tuple[str, str]] = []
+    def _get_prebuilt_tasks(self) -> list[tuple[str, str]]:
+        tasks: list[tuple[str, str]] = []
         if self._has_video:
             tasks.append((self._video_task_key, f"[bold cyan]Vid[/bold cyan] {self._video_label}"))
- 
-        seen: Set[str] = set()
+
+        seen: set[str] = set()
         for lang_code, label in self._audio_task_keys:
             key = f"aud_{lang_code}"
             if key not in seen:
                 seen.add(key)
                 tasks.append((key, f"[bold cyan]Aud[/bold cyan] {label}"))
- 
+
         # ── Subtitle media streams (wvtt-mp4 and any other non-external subs) ─
         for task_key, label in self._sub_task_keys:
             if task_key not in seen:
                 seen.add(task_key)
                 tasks.append((task_key, f"[bold cyan]Sub[/bold cyan] {label}"))
- 
+
         return tasks
 
-    def _resolve_external_subtitle(self, s: Stream) -> Optional[Dict]:
+    def _resolve_external_subtitle(self, s: Stream) -> dict | None:
         sub_url = s.playlist_url or (s.segments[0].url if s.segments else None)
         if not sub_url:
             return None
 
         ext = ext_from_url(sub_url, "")
-        segments: List[Tuple[str, float]] = [(sub_url, 0.0)]
+        segments: list[tuple[str, float]] = [(sub_url, 0.0)]
         if not ext or not is_valid_format(ext, "subtitle"):
             segments, ext = resolve_subtitle_segments_sync(sub_url, self.headers)
             if not ext or not is_valid_format(ext, "subtitle"):
@@ -499,15 +528,15 @@ class BaseMediaDownloader:
                 return None
 
         entry = {
-            "url":       segments[0][0],
-            "segments":  [{"url": u, "duration": d} for u, d in segments],
-            "language":  s.language or "und",
-            "name":      s.name or "",
-            "forced":    s.forced,
-            "sdh":       s.is_sdh,
-            "cc":        s.is_cc,
-            "default":   s.default,
-            "type":      ext,
+            "url": segments[0][0],
+            "segments": [{"url": u, "duration": d} for u, d in segments],
+            "language": s.language or "und",
+            "name": s.name or "",
+            "forced": s.forced,
+            "sdh": s.is_sdh,
+            "cc": s.is_cc,
+            "default": s.default,
+            "type": ext,
             "_selected": True,
         }
         logger.info(f"Subtitle -> external: {s.language}  segments={len(segments)}  url={segments[0][0]}")
@@ -517,13 +546,14 @@ class BaseMediaDownloader:
     def _promote_hls_subtitles_to_external(self) -> None:
         """Move selected HLS subtitle streams into self.external_subtitles."""
         candidates = [
-            s for s in self.streams
+            s
+            for s in self.streams
             if s.type == "subtitle" and s.selected and not s.is_external and self.manifest_type == "HLS"
         ]
         if not candidates:
             return
 
-        new_ext_subs: List[Dict] = []
+        new_ext_subs: list[dict] = []
         workers = get_subtitle_resolve_workers()
         if workers <= 1:
             for s in candidates:
@@ -542,11 +572,10 @@ class BaseMediaDownloader:
 
     def _register_external_track_tasks(self, bar_manager: DownloadBarManager) -> None:
         """Add progress-bar tasks for every selected external subtitle/audio track."""
-        seen_task_keys: Dict[str, int] = {}
-        for _track, _ttype in (
-            [(s, "subtitle") for s in self.external_subtitles if s.get("_selected", True)]
-            + [(a, "audio")  for a in self.external_audios    if a.get("_selected", True)]
-        ):
+        seen_task_keys: dict[str, int] = {}
+        for _track, _ttype in [(s, "subtitle") for s in self.external_subtitles if s.get("_selected", True)] + [
+            (a, "audio") for a in self.external_audios if a.get("_selected", True)
+        ]:
             _label = build_ext_track_label(_track, _ttype)
             _lang = _track.get("language", "und")
             _base_lang, _flag_suffix = normalize_sub_filename(_lang, _track)
@@ -555,11 +584,11 @@ class BaseMediaDownloader:
             seen_task_keys[_base_key] = _count + 1
             _task_key = _base_key if _count == 0 else f"{_base_key}_{_count + 1}"
             _track["_task_key"] = _task_key
-            _track["_label"]    = _label
+            _track["_label"] = _label
             bar_manager.add_external_track_task(_label, _task_key)
 
-    def _build_status(self, ext_subs: List, ext_auds: List = None) -> Dict:
-        status: Dict[str, Any] = {
+    def _build_status(self, ext_subs: list, ext_auds: list = None) -> dict:
+        status: dict[str, Any] = {
             "video": None,
             "audios": [],
             "subtitles": ext_subs or [],
@@ -593,45 +622,53 @@ class BaseMediaDownloader:
             if ext in AUDIO_EXTENSIONS and f.name.lower().startswith(fname_l):
                 if status["video"] and Path(status["video"]["path"]).name == f.name:
                     continue
-                track_name = f.stem[len(self.filename):].lstrip(".")
-                status["audios"].append({
-                    "path": str(f), "name": track_name, "size": f.stat().st_size,
-                    **language_variants(track_name),
-                })
+                track_name = f.stem[len(self.filename) :].lstrip(".")
+                status["audios"].append(
+                    {
+                        "path": str(f),
+                        "name": track_name,
+                        "size": f.stat().st_size,
+                        **language_variants(track_name),
+                    }
+                )
                 continue
 
-            stem_lower = f.stem.lower()   # e.g. "filename.en"
+            stem_lower = f.stem.lower()  # e.g. "filename.en"
 
             # ── wvtt-mp4 subtitles ───────────────────────────────────────────
             if ext in (".wvtt", ".mp4") and stem_lower.startswith(fname_l + "."):
                 if status["video"] and Path(status["video"]["path"]).name == f.name:
                     continue
-                lang_part = stem_lower[len(fname_l) + 1:]
-                status["subtitles"].append({
-                    "path":        str(f),
-                    "language":    lang_part,
-                    "type":        "wvtt",
-                    "size":        f.stat().st_size,
-                    "is_wvtt_mp4": True,
-                    **subtitle_flags(lang_part),
-                    **language_variants(lang_part),
-                })
+                lang_part = stem_lower[len(fname_l) + 1 :]
+                status["subtitles"].append(
+                    {
+                        "path": str(f),
+                        "language": lang_part,
+                        "type": "wvtt",
+                        "size": f.stat().st_size,
+                        "is_wvtt_mp4": True,
+                        **subtitle_flags(lang_part),
+                        **language_variants(lang_part),
+                    }
+                )
                 continue
 
             # ── plain-text DASH subtitles (vtt, ttml, srt, …) ───────────────
             # Naming: {filename}.{lang}.{ext}  e.g. "show.cs-cz.vtt"
             if ext in SUBTITLE_EXTENSIONS and stem_lower.startswith(fname_l + "."):
-                lang_part = stem_lower[len(fname_l) + 1:]  # e.g. "cs-cz"
-                fmt = ext.lstrip(".")                       # e.g. "vtt"
-                status["subtitles"].append({
-                    "path":     str(f),
-                    "language": lang_part,
-                    "name":     lang_part,
-                    "type":     fmt,
-                    "size":     f.stat().st_size,
-                    **subtitle_flags(lang_part),
-                    **language_variants(lang_part),
-                })
+                lang_part = stem_lower[len(fname_l) + 1 :]  # e.g. "cs-cz"
+                fmt = ext.lstrip(".")  # e.g. "vtt"
+                status["subtitles"].append(
+                    {
+                        "path": str(f),
+                        "language": lang_part,
+                        "name": lang_part,
+                        "type": fmt,
+                        "size": f.stat().st_size,
+                        **subtitle_flags(lang_part),
+                        **language_variants(lang_part),
+                    }
+                )
                 continue
 
         return status

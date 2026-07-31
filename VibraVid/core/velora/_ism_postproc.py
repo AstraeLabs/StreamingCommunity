@@ -1,24 +1,23 @@
 # 01.04.25
 
+import logging
 import os
 import shutil
 import struct
 import tempfile
 import uuid
-import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from rich.markup import escape
 
-from VibraVid.setup import get_bento4_decrypt_path
-from VibraVid.core.ui.bar_manager import console
 from VibraVid.core.decryptor import Decryptor
 from VibraVid.core.muxing.helper.video import _segment_number
+from VibraVid.core.ui.bar_manager import console
+from VibraVid.setup import get_bento4_decrypt_path
 
-from .util._ism_boxes import build_ism_init_segment, ISM_TIMESCALE
+from .util._ism_boxes import ISM_TIMESCALE, build_ism_init_segment
 from .util._verify import verify_decrypted_media
-
 
 logger = logging.getLogger("manual")
 
@@ -27,11 +26,11 @@ def _iter_boxes(buf, start: int, end: int):
     """Yield ``(offset, size, type, header_len)`` for each MP4 box in ``buf[start:end]``."""
     off = start
     while off + 8 <= end:
-        size = struct.unpack(">I", buf[off:off + 4])[0]
-        typ = bytes(buf[off + 4:off + 8])
+        size = struct.unpack(">I", buf[off : off + 4])[0]
+        typ = bytes(buf[off + 4 : off + 8])
         hdr = 8
         if size == 1:
-            size = struct.unpack(">Q", buf[off + 8:off + 16])[0]
+            size = struct.unpack(">Q", buf[off + 8 : off + 16])[0]
             hdr = 16
         elif size == 0:
             size = end - off
@@ -43,7 +42,7 @@ def _iter_boxes(buf, start: int, end: int):
 
 class IsmPostprocMixin:
     @staticmethod
-    def _get_mp4fragment_path() -> Optional[str]:
+    def _get_mp4fragment_path() -> str | None:
         decrypt_path = get_bento4_decrypt_path()
         if decrypt_path and os.path.isfile(decrypt_path):
             base_dir = os.path.dirname(decrypt_path)
@@ -56,7 +55,7 @@ class IsmPostprocMixin:
         return shutil.which("mp4fragment")
 
     @staticmethod
-    def _read_fragment_track_id(data: bytes) -> Optional[int]:
+    def _read_fragment_track_id(data: bytes) -> int | None:
         """Return the ``track_ID`` declared in the first fragment's moof>traf>tfhd."""
         buf = memoryview(data)
 
@@ -66,16 +65,16 @@ class IsmPostprocMixin:
             for traf_off, traf_size, traf_typ, traf_hdr in _iter_boxes(buf, moof_off + moof_hdr, moof_off + moof_size):
                 if traf_typ != b"traf":
                     continue
-                for tf_off, tf_size, tf_typ, tf_hdr in _iter_boxes(buf, traf_off + traf_hdr, traf_off + traf_size):
+                for tf_off, _tf_size, tf_typ, tf_hdr in _iter_boxes(buf, traf_off + traf_hdr, traf_off + traf_size):
                     if tf_typ != b"tfhd":
                         continue
                     p = tf_off + tf_hdr  # skip box header; then version/flags (4) + track_ID (4)
-                    return struct.unpack(">I", buf[p + 4:p + 8])[0]
-        
+                    return struct.unpack(">I", buf[p + 4 : p + 8])[0]
+
         return None
 
     @staticmethod
-    def _build_ism_init(stream, kid_hex: str, track_id: Optional[int] = None) -> bytes:
+    def _build_ism_init(stream, kid_hex: str, track_id: int | None = None) -> bytes:
         """Build a valid ftyp + moov for the encrypted ISM stream."""
         media_segs = [s for s in stream.segments if s.seg_type == "media"]
         seg_count = max(len(media_segs), 1)
@@ -123,6 +122,7 @@ class IsmPostprocMixin:
                     ch_val = int(float(ch_src))
                 except Exception:
                     import re
+
                     m = re.search(r"(\d+)", str(ch_src or ""))
                     ch_val = int(m.group(1)) if m else 0
 
@@ -172,21 +172,23 @@ class IsmPostprocMixin:
             for traf_off, traf_size, traf_typ, traf_hdr in _iter_boxes(buf, moof_off + moof_hdr, moof_off + moof_size):
                 if traf_typ != b"traf":
                     continue
-                for tf_off, tf_size, tf_typ, tf_hdr in _iter_boxes(buf, traf_off + traf_hdr, traf_off + traf_size):
+                for tf_off, _tf_size, tf_typ, tf_hdr in _iter_boxes(buf, traf_off + traf_hdr, traf_off + traf_size):
                     if tf_typ != b"tfhd":
                         continue
                     p = tf_off + tf_hdr
-                    flags = struct.unpack(">I", buf[p:p + 4])[0] & 0xFFFFFF
+                    flags = struct.unpack(">I", buf[p : p + 4])[0] & 0xFFFFFF
                     q = p + 4 + 4  # skip version/flags + track_ID
                     if flags & 0x000001:  # base-data-offset-present
                         q += 8
                     if flags & 0x000002:  # sample-description-index-present
-                        if struct.unpack(">I", buf[q:q + 4])[0] != 1:
+                        if struct.unpack(">I", buf[q : q + 4])[0] != 1:
                             struct.pack_into(">I", buf, q, 1)
 
         return bytes(buf)
 
-    def _ism_postproc(self, seg_paths: List[Path], out_path: Path, stream, bar_manager, task_key: str, total: int) -> bool:
+    def _ism_postproc(
+        self, seg_paths: list[Path], out_path: Path, stream, bar_manager, task_key: str, total: int
+    ) -> bool:
         audio_codec = (getattr(stream, "codecs", "") or "").lower()
         codec_private_optional = audio_codec in ("ec-3", "eac3", "ac-3", "ac3")
         if not stream.codec_private_data and not codec_private_optional:
@@ -216,7 +218,7 @@ class IsmPostprocMixin:
                 return False
 
             # 2. Generate init (ftyp+moov) using the SAME track_ID the fragments carry (read from the first fragment) so ffmpeg can match tfhd -> trak/trex.
-            frag_track_id: Optional[int] = None
+            frag_track_id: int | None = None
             try:
                 frag_track_id = self._read_fragment_track_id(valid_segs[0][0].read_bytes())
             except Exception as exc:
@@ -229,7 +231,7 @@ class IsmPostprocMixin:
                 out.write(init_data)
                 for seg_path, _ in valid_segs:
                     out.write(self._normalize_ism_fragment_sdi(seg_path.read_bytes()))
-            
+
         except Exception as exc:
             logger.error(f"ISM unified file creation failed: {exc}")
             return False
@@ -238,15 +240,17 @@ class IsmPostprocMixin:
 
         # Continue the track's own bar for the decrypt phase (status "@ Merge" -> "@ CTR",
         # bar restarts) instead of spawning a separate "Dec ..." bar.
-        def _decrypt_cb(parsed: Optional[Dict[str, Any]]) -> None:
+        def _decrypt_cb(parsed: dict[str, Any] | None) -> None:
             if not parsed:
                 return
 
-            bar_manager.handle_progress_line({
-                "task_key": task_key,
-                "pct": parsed.get("pct"),
-                "speed": parsed.get("status") or "Decrypt",
-            })
+            bar_manager.handle_progress_line(
+                {
+                    "task_key": task_key,
+                    "pct": parsed.get("pct"),
+                    "speed": parsed.get("status") or "Decrypt",
+                }
+            )
 
         decryptor = Decryptor()
         ok = decryptor.decrypt(

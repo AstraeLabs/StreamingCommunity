@@ -1,40 +1,51 @@
-# 29.01.26
+﻿# 29.01.26
 
-import json
 import base64
+import json
 import logging
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from rich.console import Console
 
-from VibraVid.setup import get_info_wvd, binary_paths
-from VibraVid.utils.http_client import create_client
 from VibraVid.core.decryptor import KeysManager
-from VibraVid.core.drm.system import normalize_kid, accumulate_content_key
-
+from VibraVid.core.drm.system import accumulate_content_key, normalize_kid
+from VibraVid.setup import binary_paths, get_info_wvd
+from VibraVid.utils.http_client import create_client
 
 console = Console()
 logger = logging.getLogger(__name__)
 
 
-def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str = None, cdm_remote_api: list[str] = None, headers: dict = None, key: str = None, license_data: dict = None, license_certificate: str = None, prefer_remote_cdm: bool = True, license_request_fn: Optional[Callable[[bytes], bytes]] = None):
+def get_widevine_keys(
+    pssh_list: list[dict],
+    license_url: str,
+    cdm_device_path: str = None,
+    cdm_remote_api: list[str] = None,
+    headers: dict = None,
+    key: str = None,
+    license_data: dict = None,
+    license_certificate: str = None,
+    prefer_remote_cdm: bool = True,
+    license_request_fn: Callable[[bytes, dict], bytes] | None = None,
+):
     """
     Extract Widevine CONTENT keys (KID/KEY) from a license.
 
     Args:
-        - pssh_list (list[dict]): List of dicts {'pssh': ..., 'kid': ..., 'type': ...}
-        - license_url (str): Widevine license URL.
-        - cdm_device_path (str): Path to local CDM file (device.wvd). Optional if using remote.
-        - cdm_remote_api (list[str]): Remote CDM API config. Optional if using local device.
-        - headers (dict): Optional HTTP headers for the license request (from fetch).
-        - key (str): Optional raw license data to bypass HTTP request.
-        - license_data (dict): Optional pre-fetched license data.
-        - license_certificate (str): Optional base64-encoded SignedMessage for CDM Privacy Mode. If None or empty, set_service_certificate is not called.
-        - prefer_remote_cdm (bool): Prefer remote CDM over local. If True and remote config missing, raises error instead of fallback.
-        - license_request_fn (Callable[[bytes], bytes]): Optional callback that takes the raw
-          challenge bytes and returns the raw license bytes. When provided, the built-in HTTP
-          POST to license_url is bypassed — used by services whose license endpoint is a custom
-          signed API call rather than a plain POST (e.g. Amazon Music).
+        pssh_list (list[dict]): List of dicts {'pssh': ..., 'kid': ..., 'type': ...}
+        license_url (str): Widevine license URL.
+        cdm_device_path (str): Path to local CDM file (device.wvd). Optional if using remote.
+        cdm_remote_api (list[str]): Remote CDM API config. Optional if using local device.
+        headers (dict): Optional HTTP headers for the license request (from fetch).
+        key (str): Optional raw license data to bypass HTTP request.
+        license_data (dict): Optional pre-fetched license data.
+        license_certificate (str): Optional base64-encoded SignedMessage for CDM Privacy Mode. If None or empty, set_service_certificate is not called.
+        prefer_remote_cdm (bool): Prefer remote CDM over local. If True and remote config missing, raises error instead of fallback.
+        license_request_fn (Callable[[bytes, dict], bytes]): Optional callback that takes the raw
+          challenge bytes and the current pssh_list item ({'pssh', 'kid', 'type'}) being licensed,
+          and returns the raw license bytes. When provided, the built-in HTTP POST to license_url
+          is bypassed — used by services whose license endpoint is a custom signed API call rather
+          than a plain POST, and/or needs per-KID request data.
 
     Returns:
         list: List of strings "KID:KEY" (only CONTENT keys) or None if error.
@@ -51,20 +62,20 @@ def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: 
             "[red]Error: prefer_remote_cdm=true but no remote CDM config found. Database lookup will continue."
             f"\n[yellow]If no database key exists, place device.wvd in:[/] [white]{binary_paths.get_binary_directory()}[/white]"
         )
-        
+
         # Return None here to skip CDM extraction but allow database lookup in manager._resolve_keys
         return None
-    
+
     if not prefer_remote_cdm and cdm_device_path is None:
         logger.error("Widevine: prefer_remote_cdm=false but no local CDM device found")
         console.print(
             "[red]Error: prefer_remote_cdm=false but no local CDM device found. Database lookup will continue."
             f"\n[yellow]If no database key exists, place device.wvd in:[/] [white]{binary_paths.get_binary_directory()}[/white]"
         )
-        
+
         # Return None here to skip CDM extraction but allow database lookup in manager._resolve_keys
         return None
-    
+
     if cdm_device_path is None and cdm_remote_api is None:
         logger.error("Must provide either cdm_device_path or cdm_remote_api")
         console.print(
@@ -73,16 +84,33 @@ def get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: 
         )
         return None
 
-    return _get_widevine_keys(pssh_list, license_url, cdm_device_path, cdm_remote_api, headers, license_data, license_certificate, license_request_fn)
+    return _get_widevine_keys(
+        pssh_list,
+        license_url,
+        cdm_device_path,
+        cdm_remote_api,
+        headers,
+        license_data,
+        license_certificate,
+        license_request_fn,
+    )
 
 
-def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str, cdm_remote_api: list[str], headers: dict = None, license_data: dict = None, license_certificate: str = None, license_request_fn: Optional[Callable[[bytes], bytes]] = None):
+def _get_widevine_keys(
+    pssh_list: list[dict],
+    license_url: str,
+    cdm_device_path: str,
+    cdm_remote_api: list[str],
+    headers: dict = None,
+    license_data: dict = None,
+    license_certificate: str = None,
+    license_request_fn: Callable[[bytes, dict], bytes] | None = None,
+):
     """Extract Widevine keys using local or remote CDM device."""
     from pywidevine.cdm import Cdm
-    from pywidevine.device import Device
-    from pywidevine.device import DeviceTypes
-    from pywidevine.remotecdm import RemoteCdm
+    from pywidevine.device import Device, DeviceTypes
     from pywidevine.pssh import PSSH
+    from pywidevine.remotecdm import RemoteCdm
 
     device = None
     cdm = None
@@ -130,7 +158,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
     extracted_kids = set()
 
     try:
-        for i, item in enumerate(pssh_list):
+        for _i, item in enumerate(pssh_list):
             pssh = item["pssh"]
             kid_info = normalize_kid(item.get("kid", "N/A"))
             type_info = item.get("type", "unknown")
@@ -148,7 +176,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
             # Custom license request (service-supplied): bypass the built-in HTTP POST.
             if license_request_fn is not None:
                 try:
-                    license_bytes = license_request_fn(challenge)
+                    license_bytes = license_request_fn(challenge, item)
                 except Exception as e:
                     logger.error(f"Custom license request error for {kid_info}: {e}")
                     console.print(f"[red]License request error for PSSH {pssh[:30]}...: {e}")
@@ -163,9 +191,9 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
                     for key_obj in cdm.get_keys(session_id):
                         if key_obj.type != "CONTENT":
                             continue
-                        
+
                         accumulate_content_key(all_content_keys, extracted_kids, key_obj.kid.hex, key_obj.key.hex())
-                            
+
                 except Exception as e:
                     console.print(f"[red]Error extracting keys for PSSH {pssh[:30]}...: {e}")
                 continue
@@ -203,7 +231,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
 
             if response.status_code != 200:
                 logger.error(f"License error for {kid_info}: HTTP {response.status_code}")
-                console.print(f"[red]License error for PSSH {pssh[:15]}...: {response.status_code}\nResponse: {response.content.decode('latin-1')[:100]}\nUrl: {license_url}\n")
+                console.print(f"[red]Status error for {pssh}: {response.status_code}\nResponse text: {response.content.decode('latin-1')}\nLicense url: {license_url}\nHeaders: {req_headers}\n")
                 continue
 
             # Parse license response
@@ -222,7 +250,7 @@ def _get_widevine_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
                         logger.error(f"No license field in JSON response for {kid_info}: {list(resp_json.keys())}")
                         console.print(f"[red]No license field in JSON response for PSSH {pssh[:30]}...] — keys: {list(resp_json.keys())}")
                         continue
-                    
+
                 except Exception as e:
                     logger.error(f"Error parsing JSON license response for {kid_info}: {e}")
                     console.print(f"[red]Error parsing JSON license response for PSSH {pssh[:30]}...: {e}")

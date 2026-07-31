@@ -7,16 +7,15 @@ from concurrent.futures import ThreadPoolExecutor
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import TVShowManager
-from VibraVid.services._base import site_constants, EntriesManager, Entries
-from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
-from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
 from VibraVid.core.ui.tracker import context_tracker
-
 from VibraVid.provider.amazon import amazon_music
+from VibraVid.services._base import Entries, EntriesManager, site_constants
+from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
+from VibraVid.services._base.tv_download_manager import process_episode_download, process_season_selection
+from VibraVid.utils import TVShowManager
+
 from .album import AmazonAlbumScraper
 from .downloader import download_song, download_track_from_album
-
 
 indice = 18
 _useFor = "Song"
@@ -51,8 +50,10 @@ def title_search(query: str) -> int:
         entry = Entries(
             id=r.get("id"),
             name=f"{artist} - {title}" if artist else title,
-            type="song", year="",
-            image=r.get("image", ""), url=r["url"],
+            type="song",
+            year="",
+            image=r.get("image", ""),
+            url=r["url"],
         )
         entry.title = title
         entry.artist = artist
@@ -65,8 +66,10 @@ def title_search(query: str) -> int:
         entry = Entries(
             id=r.get("id"),
             name=f"{artist} - {name}" if artist else name,
-            type="album", year="",
-            image=r.get("image", ""), url=r["url"],
+            type="album",
+            year="",
+            image=r.get("image", ""),
+            url=r["url"],
         )
         entry.artist = artist
         entry.album = name
@@ -159,7 +162,13 @@ def process_search_result(select_title, selections=None, scrape_serie=None):
     )
 
 
-def search(string_to_search: str = None, get_onlyDatabase: bool = False, direct_item: dict = None, selections: dict = None, scrape_serie=None):
+def search(
+    string_to_search: str = None,
+    get_onlyDatabase: bool = False,
+    direct_item: dict = None,
+    selections: dict = None,
+    scrape_serie=None,
+):
     """Wrapper for the generalized search function."""
     return base_search(
         title_search_func=title_search,

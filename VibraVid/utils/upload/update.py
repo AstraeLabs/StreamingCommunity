@@ -1,22 +1,23 @@
 # 01.03.23
 
-import os
-import re
-import sys
-import stat
+import importlib.metadata
 import json
 import logging
+import os
+import re
+import stat
 import subprocess
-import importlib.metadata
+import sys
 
 from rich.console import Console
 
-from .version import __version__ as source_code_version, __author__, __title__
-from VibraVid.utils import config_manager, _startup_prefetch
-from VibraVid.utils.http_client import get_headers, create_client
 from VibraVid.setup import get_is_binary_installation
 from VibraVid.setup.binary_paths import binary_paths
+from VibraVid.utils import _startup_prefetch, config_manager
+from VibraVid.utils.http_client import create_client, get_headers
 
+from .version import __author__, __title__
+from .version import __version__ as source_code_version
 
 # Variable
 if get_is_binary_installation():
@@ -62,83 +63,83 @@ def auto_update():
     if not get_is_binary_installation():
         console.print("[#E63946]Auto-update works only for binary installations")
         return False
-    
+
     try:
         console.print("[#00BCD4]Checking for updates...")
         releases = fetch_github_releases()
         latest = releases[0]
-        latest_version = latest.get('name', '').replace('v', '').replace('.', '')
-        
+        latest_version = latest.get("name", "").replace("v", "").replace(".", "")
+
         # Current version
         try:
             current = importlib.metadata.version(__title__)
         except Exception:
             current = source_code_version
-        current_version = str(current).replace('v', '').replace('.', '')
-        
+        current_version = str(current).replace("v", "").replace(".", "")
+
         # Version comparison
         if current_version == latest_version:
             console.print(f"[#06A77D]Already on latest version: {current}")
             return False
         console.print(f"[#FFD60A]Current: {current} -> Latest: {latest.get('name')}")
-        
+
         # Find appropriate asset
         system = binary_paths._detect_system()
-        patterns = {'windows': '.exe', 'linux': 'linux', 'darwin': 'macos'}
-        pattern = patterns.get(system, '')
-        
+        patterns = {"windows": ".exe", "linux": "linux", "darwin": "macos"}
+        pattern = patterns.get(system, "")
+
         asset = None
-        for a in latest.get('assets', []):
-            if pattern in a['name'].lower():
+        for a in latest.get("assets", []):
+            if pattern in a["name"].lower():
                 asset = a
                 break
         console.print(f"[#00BCD4]Downloading {asset['name']}...")
-        
+
         # Download
         with create_client(headers=get_headers(), timeout=300, follow_redirects=True) as client:
-            response = client.get(asset['browser_download_url'])
+            response = client.get(asset["browser_download_url"])
 
         if response.status_code != 200:
             console.print("[#E63946]Download failed")
             return False
-        
+
         # Save new executable
         current_exe = sys.executable
         new_exe = current_exe + ".new"
-        with open(new_exe, 'wb') as f:
+        with open(new_exe, "wb") as f:
             f.write(response.content)
         console.print("[#06A77D]Download completed!")
-        
+
         # Write update script
-        if system == 'windows':
+        if system == "windows":
             script = current_exe + ".bat"
-            with open(script, 'w') as f:
-                f.write('@echo off\n')
-                f.write('timeout /t 2 /nobreak >nul\n')
+            with open(script, "w") as f:
+                f.write("@echo off\n")
+                f.write("timeout /t 2 /nobreak >nul\n")
                 f.write(f'move /y "{new_exe}" "{current_exe}"\n')
                 f.write(f'start "" "{current_exe}"\n')
                 f.write('del "%~f0"\n')
-            
+
             os.startfile(script)
-        
+
         else:
             os.chmod(new_exe, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
-            
+
             script = current_exe + ".sh"
-            with open(script, 'w') as f:
-                f.write('#!/bin/bash\n')
-                f.write('sleep 2\n')
+            with open(script, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write("sleep 2\n")
                 f.write(f'mv "{new_exe}" "{current_exe}"\n')
                 f.write(f'chmod +x "{current_exe}"\n')
                 f.write(f'"{current_exe}" &\n')
                 f.write(f'rm "{script}"\n')
-            
+
             os.chmod(script, stat.S_IRWXU)
             os.system(f'nohup "{script}" &')
-        
+
         console.print("[#00BCD4]Restarting...")
         sys.exit(0)
-        
+
     except Exception as e:
         console.print(f"[#E63946]Update failed: {e}")
         return False
@@ -162,7 +163,7 @@ def _fetch_latest_velora_version():
             stripped = line.strip()
             if stripped.startswith("version") and "=" in stripped:
                 return stripped.split("=", 1)[1].strip().strip('"').strip("'")
-        
+
     except Exception as e:
         logger.debug(f"Failed to fetch latest Velora version: {e}")
     return None
@@ -224,7 +225,13 @@ def check_velora_update() -> dict:
     needs_update = local_tuple is None or (latest_tuple is not None and local_tuple < latest_tuple)
     if not needs_update:
         logger.debug(f"Velora is up to date (local: {local_version}, latest: {latest_version})")
-        return {"success": True, "updated": False, "local": local_version, "latest": latest_version, "message": f"Velora is up to date ({local_version})."}
+        return {
+            "success": True,
+            "updated": False,
+            "local": local_version,
+            "latest": latest_version,
+            "message": f"Velora is up to date ({local_version}).",
+        }
 
     console.print(f"[#FFD60A]Velora outdated (local: {local_version or 'unknown'} -> latest: {latest_version}), updating...")
 
@@ -243,7 +250,13 @@ def check_velora_update() -> dict:
         console.print("[#E63946]Velora re-download failed")
         return {"success": False, "message": "Velora re-download failed."}
 
-    return {"success": True, "updated": True, "local": local_version, "latest": latest_version, "message": f"Velora updated: {local_version or 'unknown'} -> {latest_version}."}
+    return {
+        "success": True,
+        "updated": True,
+        "local": local_version,
+        "latest": latest_version,
+        "message": f"Velora updated: {local_version or 'unknown'} -> {latest_version}.",
+    }
 
 
 def update():
@@ -262,9 +275,9 @@ def update():
 
         # Get latest version tag
         if response_releases:
-            last_version = response_releases[0].get('tag_name', 'Unknown')
+            last_version = response_releases[0].get("tag_name", "Unknown")
         else:
-            last_version = 'Unknown'
+            last_version = "Unknown"
 
     else:
         last_version = "Unknown"
@@ -280,15 +293,17 @@ def update():
     try:
         CACHE_FILE = os.path.join(config_manager.base_path, ".cache", "ip.json")
         if os.path.exists(CACHE_FILE):
-            data_json = json.load(open(CACHE_FILE, "r"))
+            data_json = json.load(open(CACHE_FILE))
             country_code = data_json.get("country_code")
     except Exception:
         pass
-    
-    logger.info(f"Execution mode: {get_execution_mode()}, System: {binary_paths._detect_system()}, Version: {current_version}, Latest: {last_version}, Country: {country_code}")
-    console.print(f"      [green]{get_execution_mode()} [dim]·[/] [red]{current_version} [dim]·[/] [cyan]{binary_paths.system} {binary_paths.arch} [dim]·[/] [purple]{country_code if country_code else 'None'} [dim]·[/] [link=https://discord.com/invite/8vV68UGRc7][#5865F2]Discord[/link] [dim]·[/] [link=https://ko-fi.com/arrowar][#ea4aaa]Donate[/link]")
 
-    if str(current_version).lower().replace("v.", "").replace("v", "") != str(last_version).lower().replace("v.", "").replace("v", ""):
+    logger.info(f"Execution mode: {get_execution_mode()}, System: {binary_paths._detect_system()}, Version: {current_version}, Latest: {last_version}, Country: {country_code}")
+    console.print(f"      [green]{get_execution_mode()} [dim]·[/] [red]{current_version} [dim]·[/] [cyan]{binary_paths.system} {binary_paths.arch} [dim]·[/] [purple]{country_code if country_code else 'None'} [dim]·[/] [link=https://discord.com/invite/8vV68UGRc7][#5865F2]Discord[/link] [dim]·[/] [link=https://www.paypal.com/donate/?hosted_button_id=UXTWMT8P6HE2C][#ea4aaa]Donate[/link]")
+
+    if str(current_version).lower().replace("v.", "").replace("v", "") != str(last_version).lower().replace(
+        "v.", ""
+    ).replace("v", ""):
         if last_version == "Unknown" or last_version == "Beta Build":
             return
 

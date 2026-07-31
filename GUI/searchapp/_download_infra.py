@@ -1,17 +1,19 @@
 # 09.06.26
 
+import atexit
+import concurrent.futures
+import logging
 import os
 import re
-import time
 import signal
-import atexit
 import threading
-import concurrent.futures
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any
 
-from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.cli.run import execute_hooks
+from VibraVid.core.ui.tracker import download_tracker
 
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "download_executor",
@@ -37,11 +39,11 @@ __all__ = [
 
 
 download_executor = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="DownloadWorker")
-scheduled_downloads: Dict[str, Dict[str, Any]] = {}
+scheduled_downloads: dict[str, dict[str, Any]] = {}
 scheduled_downloads_lock = threading.Lock()
 cancelled_scheduled_downloads: set[str] = set()
 
-# ── Download concurrency limiter 
+# ── Download concurrency limiter
 _download_slot_cond = threading.Condition()
 _active_downloads = 0
 _max_download_slots = 1
@@ -69,7 +71,10 @@ def _release_download_slot() -> None:
         _download_slot_cond.notify()
 
 
-def _add_scheduled_download(download_id: str, title: str, site: str, media_type: str = "Film", season: str = None, episodes: str = None) -> None:
+def _add_scheduled_download(
+    download_id: str, title: str, site: str, media_type: str = "Film", season: str = None, episodes: str = None,
+    poster: str = None,
+) -> None:
     with scheduled_downloads_lock:
         scheduled_downloads[download_id] = {
             "id": download_id,
@@ -78,6 +83,7 @@ def _add_scheduled_download(download_id: str, title: str, site: str, media_type:
             "type": media_type,
             "season": season,
             "episodes": episodes,
+            "poster": poster,
             "scheduled_at": time.time(),
         }
         cancelled_scheduled_downloads.discard(download_id)
@@ -116,7 +122,7 @@ def _same_series(title: str, series_base: str) -> bool:
     return _extract_series_base_title(title).casefold() == series_base.casefold()
 
 
-def _get_scheduled_downloads(exclude_ids: Optional[set] = None) -> List[Dict[str, Any]]:
+def _get_scheduled_downloads(exclude_ids: set | None = None) -> list[dict[str, Any]]:
     exclude_ids = exclude_ids or set()
     with scheduled_downloads_lock:
         return sorted(
@@ -125,12 +131,12 @@ def _get_scheduled_downloads(exclude_ids: Optional[set] = None) -> List[Dict[str
         )
 
 
-def _enrich_active_downloads_with_series(active_downloads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _enrich_active_downloads_with_series(active_downloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Attach series_name for active TV downloads so GUI can show the parent series."""
     with scheduled_downloads_lock:
         scheduled_by_id = {k: dict(v) for k, v in scheduled_downloads.items()}
 
-    enriched: List[Dict[str, Any]] = []
+    enriched: list[dict[str, Any]] = []
     for item in active_downloads:
         row = dict(item)
         media_type = str(row.get("type") or "").lower()
@@ -158,22 +164,16 @@ def _enrich_active_downloads_with_series(active_downloads: List[Dict[str, Any]])
     return enriched
 
 
-def _prune_scheduled_downloads(_active_downloads: List[Dict[str, Any]], history: List[Dict[str, Any]]) -> None:
-    history_ids = {item.get("id") for item in history if item.get("id")}
+def _prune_scheduled_downloads(_active_downloads: list[dict[str, Any]], history: list[dict[str, Any]]) -> None:
+    """Remove scheduled downloads that are older than 6 hours."""
     now = time.time()
     max_age_seconds = 6 * 60 * 60
 
     with scheduled_downloads_lock:
-        to_remove = []
-        for download_id, item in scheduled_downloads.items():
-
-            # Keep entries visible while not completed; remove only once they
-            # reach history (completed/failed/cancelled) or become stale.
-            if download_id in history_ids:
-                to_remove.append(download_id)
-                continue
-            if now - float(item.get("scheduled_at", now)) > max_age_seconds:
-                to_remove.append(download_id)
+        to_remove = [
+            download_id for download_id, item in scheduled_downloads.items()
+            if now - float(item.get("scheduled_at", now)) > max_age_seconds
+        ]
 
         for download_id in to_remove:
             scheduled_downloads.pop(download_id, None)
@@ -181,8 +181,9 @@ def _prune_scheduled_downloads(_active_downloads: List[Dict[str, Any]], history:
 
 
 def shutdown_downloads():
-    """Shutdown downloads and kill processes on exit."""
-    print("Shutting down downloads...")
+    """Shutdown the download executor and clear scheduled downloads."""
+    logging.disable(logging.CRITICAL)
+
     with scheduled_downloads_lock:
         scheduled_downloads.clear()
         cancelled_scheduled_downloads.clear()
@@ -201,7 +202,7 @@ def _submit_download_task(fn):
             download_executor = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="DownloadWorker")
             return download_executor.submit(fn)
         except Exception as exc:
-            print(f"[Error] Could not recreate download executor: {exc}")
+            logger.exception("Could not recreate download executor: %s", exc)
             raise
 
 
@@ -214,10 +215,12 @@ def signal_handler(signum, frame):
     shutdown_thread = threading.Thread(target=shutdown_downloads, daemon=True)
     shutdown_thread.start()
 
-    print("Running post-run hooks...")
-    execute_hooks('post_run')
+    logger.info("Running post-run hooks...")
+    hooks_thread = threading.Thread(target=execute_hooks, args=("post_run",), daemon=True)
+    hooks_thread.start()
+    hooks_thread.join(timeout=5)
 
-    print("Downloads shutdown started, exiting immediately...")
+    logger.info("Downloads shutdown started, exiting immediately...")
     os._exit(0)
 
 

@@ -1,15 +1,13 @@
 # 16.07.26
 # by @danpro00
 
-import os
-import time
 import logging
+import os
 import threading
-from typing import Optional
+import time
 
 from VibraVid.utils import config_manager, disk_cache
 from VibraVid.utils.http_client import create_client
-
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +27,9 @@ class AmazonError(Exception):
 
 
 class _JWTCache:
+    """Process-wide cache for the exchanged Turnstile JWT, persisted to disk_cache."""
     _lock = threading.Lock()
-    _token: Optional[str] = None
+    _token: str | None = None
     _expiry: float = 0.0
     _loaded = False
 
@@ -45,7 +44,7 @@ class _JWTCache:
             cls._expiry = float(data.get("expiry") or 0)
 
     @classmethod
-    def get(cls) -> Optional[str]:
+    def get(cls) -> str | None:
         with cls._lock:
             cls._ensure_loaded()
             if cls._token and disk_cache.is_fresh({"expiry": cls._expiry}, buffer_seconds=60):
@@ -61,7 +60,7 @@ class _JWTCache:
             disk_cache.save(_CACHE_SERVICE, _CACHE_NAME, {"token": cls._token, "expiry": cls._expiry})
 
 
-def _bypasser_url() -> Optional[str]:
+def _bypasser_url() -> str | None:
     """Resolve the bypasser sidecar endpoint from env (compose) or config."""
     url = os.environ.get("BYPASSER_URL")
     if not url:
@@ -111,7 +110,7 @@ def _acquire_turnstile_response(timeout: int = _TURNSTILE_TIMEOUT_SECONDS) -> st
             "The monochrome Amazon Music download requires the bypasser sidecar, "
             "but no endpoint is configured. Set BYPASSER_URL (e.g. "
             "http://bypasser:8192 in docker-compose, or http://localhost:8192 "
-            "locally) or MONOCHROME.bypasser_url in config.json."
+            "locally) or REQUESTS.bypasser_url in config.json."
         )
     return _solve_via_bypasser(MONOCHROME_ORIGIN, timeout)
 
@@ -155,17 +154,30 @@ def get_track_link(title: str, duration: int, album: str, artist: str, quality: 
     client = create_client(headers={"Origin": MONOCHROME_ORIGIN})
     try:
         resp = client.get(AMAZON_API_URL, headers={"X-Turnstile-JWT": jwt}, params=params, timeout=30)
+
+        # Retry once if the JWT was rejected (401) — it may have expired or been revoked.
         if resp.status_code == 401:
             logger.info("[monochrome/amazon] JWT rejected, refreshing and retrying once…")
             jwt = get_jwt(force_refresh=True)
             resp = client.get(AMAZON_API_URL, headers={"X-Turnstile-JWT": jwt}, params=params, timeout=30)
-        resp.raise_for_status()
+
+        # Raise an error for any non-200 response, including 404 (track not found) or 403 (quality not available).
+        if resp.status_code >= 400:
+            detail = ""
+            try:
+                body = resp.json()
+                if isinstance(body, dict):
+                    detail = str(body.get("message") or body.get("error") or "").strip()
+            except Exception:
+                detail = (resp.text or "")[:200].strip()
+            raise AmazonError(f"amz.geeked.wtf HTTP {resp.status_code}" + (f": {detail}" if detail else ""))
+
         return resp.json()
     finally:
         client.close()
 
 
-def extract_stream_url(amazon_response: dict) -> Optional[str]:
+def extract_stream_url(amazon_response: dict) -> str | None:
     """Pull the CDN stream url out of an amz.geeked.wtf track response."""
     for key in ("stream_url", "url", "download_url", "link"):
         val = amazon_response.get(key)
@@ -178,6 +190,6 @@ def extract_stream_url(amazon_response: dict) -> Optional[str]:
     return None
 
 
-def extract_decryption_key(amazon_response: dict) -> Optional[str]:
+def extract_decryption_key(amazon_response: dict) -> str | None:
     """Hex AES-128 key (CENC) if the track is encrypted; None if it's in the clear."""
     return amazon_response.get("decryption_key") or None

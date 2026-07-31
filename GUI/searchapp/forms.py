@@ -4,7 +4,6 @@ from django import forms
 
 from .api import get_available_sites, get_site_categories
 
-
 GLOBAL_ALL_TOKEN = "__all__"
 GLOBAL_CATEGORY_PREFIX = "__cat__:"
 _CATEGORY_LABELS = {
@@ -12,6 +11,7 @@ _CATEGORY_LABELS = {
     "Serie": "Serie TV",
     "Anime": "Anime",
     "song": "Musica",
+    "Song": "Musica",
 }
 
 
@@ -25,7 +25,7 @@ def get_site_choices():
         label = _CATEGORY_LABELS.get(cat, cat.replace("_", " ").title())
         global_opts.append((f"{GLOBAL_CATEGORY_PREFIX}{cat}", f"🌐 {label}"))
 
-    single_opts = [(site, site.replace('_', ' ').title()) for site in sites]
+    single_opts = [(site, site.replace("_", " ").title()) for site in sites]
 
     return [
         ("Siti singoli", single_opts),
@@ -54,10 +54,10 @@ class SearchForm(forms.Form):
             }
         ),
     )
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['site'].choices = get_site_choices()
+        self.fields["site"].choices = get_site_choices()
 
 
 class DownloadForm(forms.Form):

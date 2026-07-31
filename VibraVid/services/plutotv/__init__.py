@@ -3,14 +3,13 @@
 from rich.console import Console
 from rich.prompt import Prompt
 
+from VibraVid.services._base import Entries, EntriesManager, site_constants
+from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 from VibraVid.utils import TVShowManager
 from VibraVid.utils.http_client import create_client
-from VibraVid.services._base import site_constants, EntriesManager, Entries
-from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 
-from .downloader import download_series
 from .client import get_api
-
+from .downloader import download_series
 
 indice = 17
 _useFor = "Serie"
@@ -24,10 +23,10 @@ table_show_manager = TVShowManager()
 def title_search(query: str) -> int:
     """
     Search for titles on Pluto TV
-    
+
     Parameters:
         query (str): Search query
-        
+
     Returns:
         int: Number of results found
     """
@@ -44,27 +43,23 @@ def title_search(query: str) -> int:
     except Exception as e:
         console.print(f"[red]Site: {site_constants.SITE_NAME}, request search error: {e}")
         return 0
-    
+
     # Parse response
-    data = response.json().get('data', [])
+    data = response.json().get("data", [])
     for dict_title in data:
         try:
-            if dict_title.get('type') == 'channel':
+            if dict_title.get("type") == "channel":
                 continue
 
-            define_type = 'tv' if dict_title.get('type') == 'series' else dict_title.get('type')
-            
-            entries_manager.add(Entries(
-                id=dict_title.get('id'),
-                name=dict_title.get('name'),
-                type=define_type,
-                image=None,
-                year=None
-            ))
-            
+            define_type = "tv" if dict_title.get("type") == "series" else dict_title.get("type")
+
+            entries_manager.add(
+                Entries(id=dict_title.get("id"), name=dict_title.get("name"), type=define_type, image=None, year=None)
+            )
+
         except Exception as e:
-            print(f"Error parsing entry: {e}")
-    
+            console.print(f"Error parsing entry: {e}")
+
     return len(entries_manager)
 
 
@@ -77,10 +72,17 @@ def process_search_result(select_title, selections=None, scrape_serie=None):
         media_search_manager=entries_manager,
         table_show_manager=table_show_manager,
         selections=selections,
-        scrape_serie=scrape_serie
+        scrape_serie=scrape_serie,
     )
 
-def search(string_to_search: str = None, get_onlyDatabase: bool = False, direct_item: dict = None, selections: dict = None, scrape_serie=None):
+
+def search(
+    string_to_search: str = None,
+    get_onlyDatabase: bool = False,
+    direct_item: dict = None,
+    selections: dict = None,
+    scrape_serie=None,
+):
     """Wrapper for the generalized search function."""
     return base_search(
         title_search_func=title_search,
@@ -92,5 +94,5 @@ def search(string_to_search: str = None, get_onlyDatabase: bool = False, direct_
         get_onlyDatabase=get_onlyDatabase,
         direct_item=direct_item,
         selections=selections,
-        scrape_serie=scrape_serie
+        scrape_serie=scrape_serie,
     )

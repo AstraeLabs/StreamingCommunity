@@ -1,9 +1,9 @@
 # 19.06.24
 
+from .object import Entries, EntriesManager
+from .output_path import anime_folder, live_folder, movie_folder, music_folder, series_folder
 from .site_costant import site_constants
 from .site_loader import load_search_functions
-from .object import EntriesManager, Entries
-from .output_path import movie_folder, series_folder, anime_folder, music_folder, live_folder
 
 __all__ = [
     "site_constants",

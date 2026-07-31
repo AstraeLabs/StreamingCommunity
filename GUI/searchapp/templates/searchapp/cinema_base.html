@@ -1,0 +1,75 @@
+{% load static %}
+<!doctype html>
+{% comment %}
+	Guscio della UI. Layout tutto in cinema.css, palette fissa (niente
+	selettore temi).
+{% endcomment %}
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="theme-color" content="#0B0B10" />
+		<title>{% block title %}ARROWAR{% endblock %}</title>
+
+		<link rel="icon" type="image/png" href="{% static 'searchapp/img/favicon.png' %}" />
+		<link rel="apple-touch-icon" href="{% static 'searchapp/img/favicon.png' %}" />
+
+		<link rel="stylesheet" href="{% static 'searchapp/cinema.css' %}" />
+		{% comment %}
+			Funzioni condivise (duotone, titleize, esc…). Nel <head> senza defer:
+			sono usate dagli script in fondo alle pagine, che girano dopo, e il
+			file è piccolo.
+		{% endcomment %}
+		<script src="{% static 'searchapp/app.js' %}?v={{ app_version }}"></script>
+		<script src="{% static 'searchapp/cinema.js' %}"></script>
+		{% block head %}{% endblock %}
+	</head>
+
+	<body class="cn">
+		<a class="cn-sr" href="#cn-main">Skip to content</a>
+
+		{% comment %}
+			`is-float` = barra trasparente sfumata sull'hero. La mettono solo le
+			pagine che un hero ce l'hanno (plancia e dettaglio serie), e viene
+			tolta al primo scroll dallo script in fondo: altrimenti il titolo
+			della fila si legge attraverso il logo (§7.4).
+		{% endcomment %}
+		<header class="cn-top{% block top_float %}{% endblock %}" id="cn-top">
+			<a class="cn-wordmark" href="{% url 'search_home' %}">ARRO<i>WAR</i></a>
+
+			<nav class="cn-menu" aria-label="Sections">
+				<a href="{% url 'search_home' %}"
+				   {% if nav_active == 'search' %}aria-current="page"{% endif %}>Search</a>
+				<a href="{% url 'download_dashboard' %}"
+				   {% if nav_active == 'download' %}aria-current="page"{% endif %}>Download</a>
+				<a href="{% url 'watchlist' %}"
+				   {% if nav_active == 'watchlist' %}aria-current="page"{% endif %}>Watchlist</a>
+				<a href="{% url 'settings_editor' %}"
+				   {% if nav_active == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+			</nav>
+
+			<div class="cn-top-right">
+				<span class="cn-vtag">v{{ app_version }}</span>
+				<a class="cn-donate" href="https://www.paypal.com/donate/?hosted_button_id=UXTWMT8P6HE2Cr" target="_blank" rel="noopener">Donate</a>
+			</div>
+		</header>
+
+		<main id="cn-main">
+			{% block content %}{% endblock %}
+		</main>
+
+		<script>
+			(function () {
+				var bar = document.getElementById("cn-top");
+				if (!bar.classList.contains("is-float")) return;
+				var onScroll = function () {
+					bar.classList.toggle("is-float", window.scrollY < 8);
+				};
+				addEventListener("scroll", onScroll, { passive: true });
+				onScroll();
+			})();
+		</script>
+
+		{% block scripts %}{% endblock %}
+	</body>
+</html>

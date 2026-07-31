@@ -1,10 +1,10 @@
 # 16.04.24
 
-from .merge import binary_merge_segments, _segment_number
-from .normalize import normalize_timestamps
 from .compat import get_stream_codecs, resolve_compatible_extension
-from .ts import is_mpegts_file, detect_ts_timestamp_issues, convert_ts_to_mp4
+from .merge import _segment_number, binary_merge_segments
 from .metadata import get_media_metadata
+from .normalize import normalize_timestamps
+from .ts import convert_ts_to_mp4, detect_ts_timestamp_issues, is_mpegts_file
 
 __all__ = [
     "binary_merge_segments",

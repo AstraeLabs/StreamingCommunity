@@ -1,15 +1,14 @@
 # 29.01.24
 
+import logging
 import os
 import sys
-import logging
 from datetime import datetime
-from pathlib import Path
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from VibraVid.utils import config_manager
 from VibraVid.utils._log_buffer import flush_startup_buffer
-
 
 # INFO    → info, warning, error, critical
 # WARNING → warning, error, critical
@@ -24,6 +23,7 @@ _log_file = None
 def get_log_file_path():
     """Return the current log file path, if logging has been initialized."""
     return str(_log_file) if _log_file is not None else None
+
 
 def setup_logger(name=None, no_log: bool = False):
     global _log_file
@@ -50,8 +50,7 @@ def setup_logger(name=None, no_log: bool = False):
         _log_file = log_dir / f"{timestamp}.log"
 
     log_format = logging.Formatter(
-        '[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] %(message)s',
-        datefmt='%H:%M:%S'
+        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] %(message)s", datefmt="%H:%M:%S"
     )
 
     logger = logging.getLogger(name)
@@ -61,17 +60,13 @@ def setup_logger(name=None, no_log: bool = False):
     root_logger.setLevel(LOG_LEVEL)
 
     already_has_file_handler = any(
-        isinstance(h, (RotatingFileHandler, logging.FileHandler))
-        for h in root_logger.handlers
+        isinstance(h, (RotatingFileHandler, logging.FileHandler)) for h in root_logger.handlers
     )
 
     if not already_has_file_handler:
         try:
             file_handler = RotatingFileHandler(
-                str(_log_file),
-                maxBytes=10*1024*1024,
-                backupCount=5,
-                encoding='utf-8'
+                str(_log_file), maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
             )
             file_handler.setFormatter(log_format)
             file_handler.setLevel(LOG_LEVEL)

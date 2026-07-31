@@ -1,39 +1,38 @@
 # 09.06.24
 
 import gc
+import logging
 import os
+import signal
+import threading
 import time
 import uuid
-import signal
-import logging
-import threading
 from collections import deque
 from contextlib import nullcontext
 from functools import partial
-from typing import Any, Dict, Optional
+from typing import Any
 
 from rich.progress import Progress, TextColumn
 
-from VibraVid.utils.http_client import create_client, get_userAgent
-from VibraVid.utils import config_manager, os_manager, internet_manager
-from VibraVid.utils.hooks import execute_hooks
-from VibraVid.utils.vault_upload.hook import try_fetch, upload_after
+from VibraVid.core.muxing import embed_poster, inject_chapters
 from VibraVid.core.muxing.helper.video import get_media_metadata
-from VibraVid.core.muxing import inject_chapters, embed_poster
-from VibraVid.core.ui.progress_bar import CustomBarColumn
-from VibraVid.core.ui.tracker import download_tracker, context_tracker
 from VibraVid.core.ui.bar_manager import DownloadBarManager, console
+from VibraVid.core.ui.progress_bar import CustomBarColumn
+from VibraVid.core.ui.tracker import context_tracker, download_tracker
+from VibraVid.utils import config_manager, internet_manager, os_manager
+from VibraVid.utils.hooks import execute_hooks
+from VibraVid.utils.http_client import create_client, get_userAgent
+from VibraVid.utils.vault_upload.hook import is_cached, try_fetch, upload_after
 
+from .util._drm_probe import PROBE_BYTES, PROBE_BYTES_FAST, DRMProbe
 from .util._interrupt import InterruptHandler
-from .util._drm_probe import DRMProbe, PROBE_BYTES, PROBE_BYTES_FAST
 from .util._post_decrypt import PostDownloadDecryptor
 from .util._supa_tracker import SupaTracker
 
-
 logger = logging.getLogger(__name__)
 
-SKIP_DOWNLOAD = config_manager.config.get_bool('DOWNLOAD', 'skip_download')
-DELAY_SS = config_manager.config.get_int('DOWNLOAD',  'delay_after_download')
+SKIP_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "skip_download")
+DELAY_SS = config_manager.config.get_int("DOWNLOAD", "delay_after_download")
 SPEED_WINDOW_SECONDS = 1.0
 
 
@@ -42,7 +41,23 @@ class MP4FileDownloader:
     _decryptor = PostDownloadDecryptor()
     _tracker = SupaTracker()
 
-    def __init__(self,url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None, max_percentage: Optional[float] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None, check_content_type: bool = True, sanitize_path: bool = True) -> None:
+    def __init__(
+        self,
+        url: str,
+        path: str,
+        referer: str | None = None,
+        headers_: dict | None = None,
+        download_id: str | None = None,
+        site_name: str | None = None,
+        label: str = "MP4",
+        key: Any = None,
+        max_percentage: float | None = None,
+        chapters: list | None = None,
+        poster_url: str | None = None,
+        check_content_type: bool = True,
+        sanitize_path: bool = True,
+        close_tracking: bool = True,
+    ) -> None:
         """
         Initialize the MP4FileDownloader.
 
@@ -60,6 +75,7 @@ class MP4FileDownloader:
             poster_url: Poster/still image URL to embed in the final file. Default: context_tracker.poster_url.
             check_content_type: Whether to check the content type of the response.
             sanitize_path: Whether to sanitize the local path.
+            close_tracking: Whether to close the GUI tracker entry on completion.
 
         Returns:
             None
@@ -71,22 +87,24 @@ class MP4FileDownloader:
         self.label = label
         self.key = key
         self.check_content_type = check_content_type
+        self.close_tracking = close_tracking
         self.max_percentage = self._normalize_max_percentage(max_percentage)
         self.chapters = chapters if chapters is not None else context_tracker.chapters
-        self.poster_url = poster_url if poster_url is not None else context_tracker.poster_url
+        self.poster_url = context_tracker.poster_url or poster_url or context_tracker.fallback_poster_url
+        context_tracker.poster_url = self.poster_url
 
         # Merge explicit args with context-level defaults
         self.download_id = download_id or context_tracker.download_id or str(uuid.uuid4())
-        self.site_name   = site_name   or context_tracker.site_name
-        self.media_type  = context_tracker.media_type or "Film"
+        self.site_name = site_name or context_tracker.site_name
+        self.media_type = context_tracker.media_type or "Film"
 
         # Internal state (reset per download() call)
         self._temp_path: str = f"{self.path}.temp"
         self._interrupt: InterruptHandler = InterruptHandler()
-        self._total: Optional[int] = None
+        self._total: int | None = None
         self._downloaded: int = 0
         self._incomplete_err: Any = False
-        self._speed_window: "deque[tuple[float, int]]" = deque()
+        self._speed_window: deque[tuple[float, int]] = deque()
 
         # In-flight DRM probe state
         self._probe_buf: bytearray = bytearray()
@@ -94,7 +112,7 @@ class MP4FileDownloader:
         self._probe_encrypted: bool = False
 
     @staticmethod
-    def _normalize_max_percentage(value: Optional[float]) -> float:
+    def _normalize_max_percentage(value: float | None) -> float:
         try:
             value_f = float(value)
         except (TypeError, ValueError):
@@ -118,7 +136,7 @@ class MP4FileDownloader:
         out_dir = os.path.dirname(self.path)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-        
+
         self._install_signal_handler()
 
         bar_mgr = DownloadBarManager(self.download_id)
@@ -171,6 +189,12 @@ class MP4FileDownloader:
             path=os.path.abspath(self.path),
         )
         download_tracker.update_status(self.download_id, "Downloading ...")
+
+    def _complete_tracking(self, success: bool, path: str | None = None, error: str | None = None) -> None:
+        """Close the GUI entry, unless the caller took over the lifecycle (close_tracking=False)."""
+        if not self.download_id or not self.close_tracking:
+            return
+        download_tracker.complete_download(self.download_id, success=success, path=path, error=error)
 
     def _build_headers(self) -> dict:
         headers: dict = {}
@@ -225,7 +249,9 @@ class MP4FileDownloader:
     def _preflight_probe(self, client, headers: dict) -> None:
         """Cheap Range probe (PROBE_BYTES_FAST) run before the real download starts"""
         try:
-            encrypted, scheme, drm_names, kid, pssh_b64 = self._probe.probe(self.url, headers, client, size=PROBE_BYTES_FAST)
+            encrypted, scheme, drm_names, kid, pssh_b64 = self._probe.probe(
+                self.url, headers, client, size=PROBE_BYTES_FAST
+            )
         except Exception as exc:
             logger.debug(f"Preflight DRM probe failed (non-fatal): {exc}")
             return
@@ -266,7 +292,9 @@ class MP4FileDownloader:
         encrypted, scheme, drm_names, kid, pssh_b64 = self._probe.inspect(raw)
         self._resolve_from_probe(encrypted, scheme, drm_names, kid, pssh_b64)
 
-    def _resolve_from_probe(self, encrypted: bool, scheme: Optional[str], drm_names: list, kid: Optional[str], pssh_b64: Optional[str]) -> None:
+    def _resolve_from_probe(
+        self, encrypted: bool, scheme: str | None, drm_names: list, kid: str | None, pssh_b64: str | None
+    ) -> None:
         """Shared outcome handling for both the fast preflight probe and the in-flight fallback"""
         if not encrypted:
             logger.info("Probe: no encryption markers found — clear stream.")
@@ -283,6 +311,7 @@ class MP4FileDownloader:
             return
 
         from VibraVid.core.drm.manager import DRMManager
+
         mgr = DRMManager()
         resolved = mgr.resolve_flat_key(kid, pssh_b64, self.key, drm_type=scheme or "mp4")
 
@@ -322,7 +351,7 @@ class MP4FileDownloader:
             response.close()
 
     @staticmethod
-    def _parse_content_length(response) -> Optional[int]:
+    def _parse_content_length(response) -> int | None:
         raw = response.headers.get("content-length")
         try:
             return int(raw) if raw is not None else None
@@ -424,7 +453,7 @@ class MP4FileDownloader:
         self._speed_window.append((now, self._downloaded))
         while len(self._speed_window) > 1 and now - self._speed_window[0][0] > SPEED_WINDOW_SECONDS:
             self._speed_window.popleft()
-        
+
         window_start_at, window_start_bytes = self._speed_window[0]
         speed = (self._downloaded - window_start_bytes) / max(now - window_start_at, 0.001)
         speed_str = internet_manager.format_transfer_speed(speed) if speed > 0 else "-- B/s"
@@ -461,14 +490,17 @@ class MP4FileDownloader:
 
     def _run_decrypt(self, bar_mgr: DownloadBarManager) -> None:
         """Decrypt while continuing the same "video" bar in place."""
-        def _decrypt_cb(parsed: Optional[Dict[str, Any]]) -> None:
+
+        def _decrypt_cb(parsed: dict[str, Any] | None) -> None:
             if not parsed:
                 return
-            bar_mgr.handle_progress_line({
-                "task_key": "video",
-                "pct": parsed.get("pct"),
-                "speed": parsed.get("status") or "Decrypt",
-            })
+            bar_mgr.handle_progress_line(
+                {
+                    "task_key": "video",
+                    "pct": parsed.get("pct"),
+                    "speed": parsed.get("status") or "Decrypt",
+                }
+            )
 
         self._decryptor.run(self.path, self.key, self.download_id, progress_cb=_decrypt_cb)
 
@@ -477,14 +509,12 @@ class MP4FileDownloader:
         # Temp file missing entirely
         if not os.path.exists(self._temp_path):
             console.print("[red]Download failed or file is empty.")
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="File missing or empty")
+            self._complete_tracking(success=False, error="File missing or empty")
             return None, self._interrupt.kill_download, "File missing or empty"
 
         # Explicitly cancelled
         if self._incomplete_err == "cancelled":
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
+            self._complete_tracking(success=False, error="cancelled")
             return None, True, "cancelled"
 
         # Explicit threshold stop requested by user/config
@@ -498,8 +528,7 @@ class MP4FileDownloader:
 
             self._resolve_media_tokens()
 
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error=self._incomplete_err)
+            self._complete_tracking(success=False, error=self._incomplete_err)
             return self.path, True, None
 
         # Atomic rename temp → final
@@ -509,8 +538,7 @@ class MP4FileDownloader:
         # Final file must exist now
         if not os.path.exists(self.path):
             console.print("[red]Download failed or file is empty.")
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="File missing or empty")
+            self._complete_tracking(success=False, error="File missing or empty")
             return None, self._interrupt.kill_download, "File missing or empty"
 
         if self._incomplete_err or (self._total and os.path.getsize(self.path) < self._total):
@@ -527,6 +555,7 @@ class MP4FileDownloader:
         # Poster/still art, as the final muxing step (mirrors BaseDownloader._embed_poster).
         # The flag is checked here, not at resolution time -- see that method.
         from VibraVid.services._base.tmdb_artwork import embed_enabled
+
         if self.poster_url and embed_enabled():
             self.path, _ = embed_poster(self.path, self.poster_url)
 
@@ -537,18 +566,13 @@ class MP4FileDownloader:
         upload_after(self.path)
 
         # GUI completion
-        if self.download_id:
-            download_tracker.complete_download(
-                self.download_id,
-                success=True,
-                path=os.path.abspath(self.path),
-            )
+        self._complete_tracking(success=True, path=os.path.abspath(self.path))
 
         # Analytics (fire-and-forget)
         self._tracker.fire(
-            title = context_tracker.title or os.path.basename(self.path),
-            media_type = self.media_type or "Film",
-            site = self.site_name or "",
+            title=context_tracker.title or os.path.basename(self.path),
+            media_type=self.media_type or "Film",
+            site=self.site_name or "",
         )
 
         execute_hooks("post_run")
@@ -558,7 +582,14 @@ class MP4FileDownloader:
 
         return self.path, self._interrupt.kill_download, None
 
-    _MEDIA_PLACEHOLDERS = ("%(quality)", "%(language)", "%(video_codec)", "%(audio_codec)", "%(audio_flags)", "%(sub_flags)")
+    _MEDIA_PLACEHOLDERS = (
+        "%(quality)",
+        "%(language)",
+        "%(video_codec)",
+        "%(audio_codec)",
+        "%(audio_flags)",
+        "%(sub_flags)",
+    )
 
     def _resolve_media_tokens(self) -> None:
         """Probe the finished file and resolve media tokens (quality/codec/language) in self.path.
@@ -625,11 +656,31 @@ class MP4FileDownloader:
         return False
 
 
-def MP4_Downloader(url: str, path: str, referer: Optional[str] = None, headers_: Optional[dict] = None, download_id: Optional[str] = None, site_name: Optional[str] = None, label: str = "MP4", key: Any = None, max_percentage: Optional[float] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None, check_content_type: bool = True, sanitize_path: bool = True) -> tuple:
+def MP4_Downloader(
+    url: str,
+    path: str,
+    referer: str | None = None,
+    headers_: dict | None = None,
+    download_id: str | None = None,
+    site_name: str | None = None,
+    label: str = "MP4",
+    key: Any = None,
+    max_percentage: float | None = None,
+    chapters: list | None = None,
+    poster_url: str | None = None,
+    check_content_type: bool = True,
+    sanitize_path: bool = True,
+    close_tracking: bool = True,
+) -> tuple:
     """Backward-compatible entry point — wraps ``MP4FileDownloader.download()``."""
     if context_tracker.resolve_only:
         from VibraVid.cli.command.queue import enqueue_down_from_context
+
         enqueue_down_from_context(url, path)
+        return path, False, None
+
+    if is_cached():
+        console.print("[dim]Skipping — already in cache.")
         return path, False, None
 
     if try_fetch(path):
@@ -649,6 +700,7 @@ def MP4_Downloader(url: str, path: str, referer: Optional[str] = None, headers_:
         poster_url=poster_url,
         check_content_type=check_content_type,
         sanitize_path=sanitize_path,
+        close_tracking=close_tracking,
     ).download()
 
     return result

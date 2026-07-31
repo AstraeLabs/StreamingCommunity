@@ -1,9 +1,8 @@
 # 23.07.26
 
-import os
 import logging
+import os
 import threading
-from typing import Dict, Optional
 from urllib.parse import urlparse
 
 from VibraVid.utils import config_manager
@@ -11,7 +10,7 @@ from VibraVid.utils.http_client import fetch_image_bytes
 
 logger = logging.getLogger(__name__)
 
-_locks: Dict[str, threading.Lock] = {}
+_locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
 
@@ -24,7 +23,7 @@ def _lock_for(path: str) -> threading.Lock:
         return lock
 
 
-def _tmdb_cache_path(url: str) -> Optional[str]:
+def _tmdb_cache_path(url: str) -> str | None:
     """Resolve `.cache/images/tmdb/<image_path_basename>` for a TMDB image URL"""
     try:
         name = os.path.basename(urlparse(url).path)
@@ -35,7 +34,7 @@ def _tmdb_cache_path(url: str) -> Optional[str]:
     return os.path.join(config_manager.base_path, ".cache", "images", "tmdb", name)
 
 
-def get_cached_tmdb_image(url: Optional[str]) -> Optional[bytes]:
+def get_cached_tmdb_image(url: str | None) -> bytes | None:
     """Return TMDB image bytes for *url*, from disk cache if present, else fetch + persist."""
     if not url:
         return None

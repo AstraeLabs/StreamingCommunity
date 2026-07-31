@@ -2,12 +2,12 @@
 
 import logging
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 from VibraVid.core.muxing.hybrid import probe_media_file
 from VibraVid.core.velora.downloader import MediaDownloader as ManualMediaDownloader
-
 
 logger = logging.getLogger(__name__)
 
@@ -32,16 +32,18 @@ def _split_track_type(track_type: str) -> tuple[str, str]:
     return kind, tag
 
 
-def _normalize_keys(keys: Optional[Iterable[str]]) -> List[str]:
+def _normalize_keys(keys: Iterable[str] | None) -> list[str]:
     if not keys:
         return []
     return [key.strip() for key in keys if isinstance(key, str) and key.strip()]
 
 
-def split_other_tracks(other_tracks: Optional[List[Dict[str, Any]]]) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
-    video_tracks: List[Dict[str, Any]] = []
-    audio_tracks: List[Dict[str, Any]] = []
-    subtitle_tracks: List[Dict[str, Any]] = []
+def split_other_tracks(
+    other_tracks: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    video_tracks: list[dict[str, Any]] = []
+    audio_tracks: list[dict[str, Any]] = []
+    subtitle_tracks: list[dict[str, Any]] = []
 
     for raw_track in other_tracks or []:
         track = dict(raw_track or {})
@@ -52,11 +54,11 @@ def split_other_tracks(other_tracks: Optional[List[Dict[str, Any]]]) -> tuple[Li
             audio_tracks.append(track)
         elif kind == "subtitle":
             subtitle_tracks.append(track)
-    
+
     return video_tracks, audio_tracks, subtitle_tracks
 
 
-def _kind_to_filters(_kind: str, _tag: str, quality: str = "worst") -> Dict[str, str]:
+def _kind_to_filters(_kind: str, _tag: str, quality: str = "worst") -> dict[str, str]:
     if _tag == "dv":
         q = (quality or "worst").strip().lower()
 
@@ -73,13 +75,13 @@ def _kind_to_filters(_kind: str, _tag: str, quality: str = "worst") -> Dict[str,
                 video_filter = quality
         else:
             video_filter = quality
-        
+
         return {"video": video_filter, "audio": "false", "subtitle": "false"}
-    
+
     return {"video": quality or "worst", "audio": "false", "subtitle": "false"}
 
 
-def _track_label(track: Dict[str, Any], kind: str, tag: str) -> str:
+def _track_label(track: dict[str, Any], kind: str, tag: str) -> str:
     if kind == "video":
         video_tag = _safe_token(tag or track.get("label") or "video", "video")
         return f"Vid {video_tag.upper()}"
@@ -95,7 +97,7 @@ def _track_label(track: Dict[str, Any], kind: str, tag: str) -> str:
     return f"Track {kind or 'other'}"
 
 
-def _pick_status_entry(status: Dict[str, Any], kind: str) -> Optional[Dict[str, Any]]:
+def _pick_status_entry(status: dict[str, Any], kind: str) -> dict[str, Any] | None:
     if status.get("video"):
         return status.get("video")
     if kind == "video":
@@ -106,27 +108,27 @@ def _pick_status_entry(status: Dict[str, Any], kind: str) -> Optional[Dict[str, 
     if kind == "subtitle":
         subtitles = status.get("subtitles") or status.get("external_subtitles") or []
         return subtitles[0] if subtitles else None
-    
+
     return None
 
 
 def download_other_tracks(
-    other_tracks: Optional[List[Dict[str, Any]]],
+    other_tracks: list[dict[str, Any]] | None,
     output_dir: Path,
     filename: str,
-    keys: Optional[Iterable[str]] = None,
-    headers: Optional[Dict[str, str]] = None,
-    cookies: Optional[Dict[str, str]] = None,
-    max_segments: Optional[int] = None,
-    max_time: Optional[float] = None,
+    keys: Iterable[str] | None = None,
+    headers: dict[str, str] | None = None,
+    cookies: dict[str, str] | None = None,
+    max_segments: int | None = None,
+    max_time: float | None = None,
     show_progress: bool = True,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Download extra video/audio/subtitle tracks with the manual backend.
 
     The track list uses the same compact form expected by the hybrid workflow,
     e.g. ``video:dv``, ``audio:en-US`` and ``sub:es-419``.
     """
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     if not other_tracks:
         return results
 
@@ -139,7 +141,7 @@ def download_other_tracks(
         track = dict(raw_track or {})
         kind, tag = _split_track_type(track.get("type", ""))
         if kind not in {"video", "audio"}:
-            logger.info(f'Skipping unsupported other_track type: {track.get("type")}')
+            logger.info(f"Skipping unsupported other_track type: {track.get('type')}")
             continue
 
         url = track.get("url")
@@ -173,24 +175,23 @@ def download_other_tracks(
         try:
             downloader.parse_stream(show_table=False)
             if kind == "video" and tag:
-                
                 # Set resolution to the tag label so _prepare_labels shows "Vid DV"
                 tag_up = _safe_token(tag, tag).upper()
                 for s in downloader.streams:
                     if s.selected and s.type == "video" and not s.is_external:
                         s.resolution = tag_up
                         break
-            
+
             elif kind == "audio":
                 lang = track.get("language") or tag or "und"
-                
+
                 # computes "Aud en" instead of "Vid main".
                 for s in downloader.streams:
                     if s.selected and s.type == "video" and not s.is_external:
                         s.type = "audio"
                         if lang and lang != "und":
                             s.language = lang
-            
+
             result = downloader.start_download(show_progress=show_progress)
         except Exception as exc:
             logger.error(f"Other track download failed ({label}): {exc}", exc_info=True)
@@ -218,7 +219,7 @@ def download_other_tracks(
         size = out_path.stat().st_size
         probe = probe_media_file(str(out_path)) if kind == "video" else {}
 
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "path": str(out_path),
             "url": url,
             "type": track.get("type", kind),
@@ -236,6 +237,6 @@ def download_other_tracks(
 
         logger.info(f"Downloaded other track {label} -> {out_path.name}")
         if probe:
-            logger.info(f'Probe other track {label}: hdr={probe.get("hdr")} dolby_vision={probe.get("dolby_vision")} video_codec={probe.get("video_codec")} base_info={probe.get("base_info")}')
+            logger.info(f"Probe other track {label}: hdr={probe.get('hdr')} dolby_vision={probe.get('dolby_vision')} video_codec={probe.get('video_codec')} base_info={probe.get('base_info')}")
 
     return results

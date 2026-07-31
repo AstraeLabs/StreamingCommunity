@@ -1,12 +1,11 @@
 # 19.09.25
 
-import os
 import glob
+import logging
+import os
 import platform
 import subprocess
-import logging
 import threading
-from typing import Dict, Optional
 
 from rich.console import Console
 
@@ -19,86 +18,86 @@ class BinaryPaths:
         self.system = self._detect_system()
         self.arch = self._detect_arch()
         self.libc = self._detect_libc()
-        self.home_dir = os.path.expanduser('~')
-        self.binary_dir_override = os.environ.get('VIBRAVID_BINARY_DIR') or os.environ.get('BINARY_DIR')
+        self.home_dir = os.path.expanduser("~")
+        self.binary_dir_override = os.environ.get("VIBRAVID_BINARY_DIR") or os.environ.get("BINARY_DIR")
         self.github_repo = "https://raw.githubusercontent.com/AstraeLabs/Binary/main"
-        self._paths_json_cache: Optional[dict] = None
-        self._resolved: Dict[str, str] = {}
+        self._paths_json_cache: dict | None = None
+        self._resolved: dict[str, str] = {}
         self._cache_lock = threading.Lock()
         self._download_lock = threading.Lock()
 
     def _detect_system(self) -> str:
         """Detect and normalize the operating system name."""
         system = platform.system().lower()
-        supported_systems = ['windows', 'darwin', 'linux']
+        supported_systems = ["windows", "darwin", "linux"]
         if system not in supported_systems:
             logger.warning(f"Unsupported OS detected ({system}), falling back to linux semantics")
-            return 'linux'
-        
+            return "linux"
+
         return system
 
     def _detect_arch(self) -> str:
         """Detect and normalize the system architecture."""
         machine = platform.machine().lower()
         arch_map = {
-            'amd64': 'x64',
-            'x86_64': 'x64',
-            'arm64': 'arm64',
-            'aarch64': 'arm64',
+            "amd64": "x64",
+            "x86_64": "x64",
+            "arm64": "arm64",
+            "aarch64": "arm64",
         }
-        return arch_map.get(machine, 'x64')
+        return arch_map.get(machine, "x64")
 
     def _detect_libc(self) -> str:
         """Detect whether this Linux host is running glibc or musl."""
-        if self.system != 'linux':
-            return 'glibc'
+        if self.system != "linux":
+            return "glibc"
 
         # 1) musl's dynamic loader has a distinctive, unmistakable name.
         musl_loader_globs = (
-            '/lib/ld-musl-*.so.1',
-            '/lib64/ld-musl-*.so.1',
-            '/usr/lib/ld-musl-*.so.1',
+            "/lib/ld-musl-*.so.1",
+            "/lib64/ld-musl-*.so.1",
+            "/usr/lib/ld-musl-*.so.1",
         )
         for pattern in musl_loader_globs:
             if glob.glob(pattern):
-                return 'musl'
+                return "musl"
 
         # 2) glibc exposes gnu_get_libc_version() in the process's own symbol table; musl does not, so this raises on musl systems.
         try:
             import ctypes
 
-            ctypes.CDLL(None).gnu_get_libc_version
-            return 'glibc'
+            _ = ctypes.CDLL(None).gnu_get_libc_version
+            return "glibc"
         except Exception:
             pass
 
         # 3) Last resort: musl's `ldd --version` prints a usage banner mentioning "musl libc" (and exits non-zero);
         try:
             result = subprocess.run(
-                ['ldd', '--version'],
+                ["ldd", "--version"],
                 capture_output=True,
                 text=True,
                 timeout=3,
             )
             combined = f"{result.stdout}{result.stderr}".lower()
-            if 'musl' in combined:
-                return 'musl'
+            if "musl" in combined:
+                return "musl"
         except Exception:
             pass
 
-        return 'glibc'
+        return "glibc"
 
     def get_binary_directory(self) -> str:
         """Return the platform-specific directory where binaries are stored."""
         if self.binary_dir_override:
             return self.binary_dir_override
 
-        if self.system == 'windows':
-            return os.path.join(os.path.splitdrive(self.home_dir)[0] + os.path.sep, 'binary')
-        elif self.system == 'darwin':
-            return os.path.join(self.home_dir, 'Applications', 'binary')
+        if self.system == "windows":
+            return os.path.join(os.path.splitdrive(self.home_dir)[0] + os.path.sep, "binary")
+        elif self.system == "darwin":
+            return os.path.join(self.home_dir, "Applications", "binary")
         else:  # linux
-            return os.path.join(self.home_dir, '.local', 'bin', 'binary')
+            return os.path.join(self.home_dir, ".local", "bin", "binary")
 
     def ensure_binary_directory(self, mode: int = 0o755) -> str:
         """Create the binary directory if it does not already exist."""
@@ -117,7 +116,7 @@ class BinaryPaths:
                 return self._paths_json_cache
 
             try:
-                from VibraVid.utils.http_client import get_headers, create_client
+                from VibraVid.utils.http_client import create_client, get_headers
 
                 url = f"{self.github_repo}/binary_paths.json"
                 logger.info(f"Loading binary paths JSON from {url}")
@@ -131,7 +130,7 @@ class BinaryPaths:
                 logger.error(f"Failed to load binary paths JSON: {e}", exc_info=True)
                 return {}
 
-    def get_binary_path(self, tool: str, binary_name: str) -> Optional[str]:
+    def get_binary_path(self, tool: str, binary_name: str) -> str | None:
         """Return the local path of *binary_name* if it has already been resolved (cache hit) or if the file exists on disk."""
         if binary_name in self._resolved:
             return self._resolved[binary_name]
@@ -149,7 +148,7 @@ class BinaryPaths:
         with self._download_lock:
             self._resolved.pop(binary_name, None)
 
-    def download_binary(self, tool: str, binary_name: str) -> Optional[str]:
+    def download_binary(self, tool: str, binary_name: str) -> str | None:
         """
         Download *binary_name* from GitHub and store it in the binary
         directory (thread-safe).
@@ -181,13 +180,13 @@ class BinaryPaths:
             paths_json = self._load_paths_json()
             base_key = f"{self.system}_{self.arch}_{tool}"
             musl_key = f"{base_key}_musl"
-            key = musl_key if self.libc == 'musl' and musl_key in paths_json else base_key
+            key = musl_key if self.libc == "musl" and musl_key in paths_json else base_key
             logger.info(f"Looking up binary paths for key {key}")
             console.log(f"[cyan]Downloading [red]{binary_name} [cyan]for [yellow]{tool} [cyan]on [red]{self.system} {self.arch} ({self.libc})")
 
             if key not in paths_json:
                 logger.error(f"No binary paths found for key {key} in binary paths JSON")
-                
+
                 # Fallback: the file may have been installed manually or by a previous session
                 # even though the remote manifest is unavailable (e.g. HTTP 404 / network error).
                 if os.path.isfile(local_path) and os.path.getsize(local_path) > 0:
@@ -208,16 +207,16 @@ class BinaryPaths:
                 # Write to a temporary file first, then rename atomically.
                 tmp_path = local_path + ".tmp"
                 try:
-                    from VibraVid.utils.http_client import get_headers, create_client
+                    from VibraVid.utils.http_client import create_client, get_headers
 
                     with create_client(headers=get_headers()) as client:
                         response = client.get(url)
                     response.raise_for_status()
 
-                    with open(tmp_path, 'wb') as f:
+                    with open(tmp_path, "wb") as f:
                         f.write(response.content)
 
-                    if self.system != 'windows':
+                    if self.system != "windows":
                         os.chmod(tmp_path, 0o755)
 
                     # Atomic rename: the binary becomes visible to other processes only after the write is fully complete.

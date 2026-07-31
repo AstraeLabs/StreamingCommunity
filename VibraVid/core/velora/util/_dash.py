@@ -1,28 +1,26 @@
 # 10.04.26
 
 import logging
-from typing import Dict, List, Tuple
 
 from VibraVid.utils.http_client import create_client
-
 
 logger = logging.getLogger(__name__)
 
 
-def split_http_ranges(total_size: int, chunk_size: int) -> List[Tuple[int, int]]:
+def split_http_ranges(total_size: int, chunk_size: int) -> list[tuple[int, int]]:
     """Partition *total_size* bytes into ``(start, end)`` inclusive Range pairs."""
-    ranges: List[Tuple[int, int]] = []
+    ranges: list[tuple[int, int]] = []
     start = 0
 
     while start < total_size:
         end = min(start + chunk_size - 1, total_size - 1)
         ranges.append((start, end))
         start = end + 1
-    
+
     return ranges
 
 
-def build_dash_ranged_segments(media_url: str, headers: Dict, chunk_size: int, request_timeout: int) -> List[Dict]:
+def build_dash_ranged_segments(media_url: str, headers: dict, chunk_size: int, request_timeout: int) -> list[dict]:
     """
     Return synthetic DASH chunk segments using HTTP Range headers, when the
     server advertises ``Accept-Ranges: bytes`` and the file is large enough
@@ -40,7 +38,7 @@ def build_dash_ranged_segments(media_url: str, headers: Dict, chunk_size: int, r
             try:
                 r = c.head(media_url)
                 r.raise_for_status()
-                content_len  = int((r.headers.get("content-length") or "0").strip() or "0")
+                content_len = int((r.headers.get("content-length") or "0").strip() or "0")
                 accept_ranges = (r.headers.get("accept-ranges") or "").lower()
                 head_ok = True
             except Exception as head_exc:
@@ -63,10 +61,10 @@ def build_dash_ranged_segments(media_url: str, headers: Dict, chunk_size: int, r
                                 content_len = int(cr.split("/")[-1].strip())
                             except ValueError:
                                 pass
-                    
+
                     elif r2.status_code == 200:
                         # server ignored the Range header and sent the whole file → content length is in Content-Length header, but no Range support
-                        content_len  = int((r2.headers.get("content-length") or "0").strip() or "0")
+                        content_len = int((r2.headers.get("content-length") or "0").strip() or "0")
                         accept_ranges = (r2.headers.get("accept-ranges") or "").lower()
 
                 except Exception as get_exc:
@@ -80,14 +78,14 @@ def build_dash_ranged_segments(media_url: str, headers: Dict, chunk_size: int, r
         logger.debug(f"DASH range-split | url={media_url} | size={content_len} | chunk={chunk_size} | parts={len(ranges)}")
         return [
             {
-                "url":     media_url,
-                "number":  0,
-                "enc":     {"method": "NONE"},
+                "url": media_url,
+                "number": 0,
+                "enc": {"method": "NONE"},
                 "headers": {"Range": f"bytes={start}-{end}"},
             }
             for start, end in ranges
         ]
-    
+
     except Exception as exc:
         logger.warning(f"DASH range-split failed for {media_url}: {exc} — caller will use single-file fallback")
         return []

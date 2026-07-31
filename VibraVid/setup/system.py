@@ -4,9 +4,17 @@ import os
 import sys
 import threading
 
-from .checker import check_bento4, check_ffmpeg, check_shaka_packager, check_dovi_tool, check_mkvmerge, check_mkvpropedit, check_velora
 from .binary_paths import binary_paths
-from .device_install import check_device_wvd_path, check_device_prd_path
+from .checker import (
+    check_bento4,
+    check_dovi_tool,
+    check_ffmpeg,
+    check_mkvmerge,
+    check_mkvpropedit,
+    check_shaka_packager,
+    check_velora,
+)
+from .device_install import check_device_prd_path, check_device_wvd_path
 
 
 def _is_alive(path) -> bool:
@@ -21,7 +29,7 @@ def _drop_cached(*names: str) -> None:
         binary_paths.invalidate_binary(f"{name}{ext}")
 
 
-is_binary_installation = getattr(sys, 'frozen', False)
+is_binary_installation = getattr(sys, "frozen", False)
 _ffmpeg_path = None
 _ffprobe_path = None
 _bento4_decrypt_path = None
@@ -73,6 +81,7 @@ def _initialize_paths():
 def get_is_binary_installation() -> bool:
     return is_binary_installation
 
+
 def get_ffmpeg_path() -> str:
     global _ffmpeg_path, _ffprobe_path
     if not _initialized:
@@ -81,6 +90,7 @@ def get_ffmpeg_path() -> str:
         _drop_cached("ffmpeg", "ffprobe")
         _ffmpeg_path, _ffprobe_path = check_ffmpeg()
     return _ffmpeg_path
+
 
 def get_ffprobe_path() -> str:
     global _ffmpeg_path, _ffprobe_path
@@ -91,6 +101,7 @@ def get_ffprobe_path() -> str:
         _ffmpeg_path, _ffprobe_path = check_ffmpeg()
     return _ffprobe_path
 
+
 def get_bento4_decrypt_path() -> str:
     global _bento4_decrypt_path
     if not _initialized:
@@ -100,15 +111,18 @@ def get_bento4_decrypt_path() -> str:
         _bento4_decrypt_path = check_bento4()
     return _bento4_decrypt_path
 
+
 def get_wvd_path() -> str:
     if not _initialized:
         _initialize_paths()
     return _wvd_path
 
+
 def get_prd_path() -> str:
     if not _initialized:
         _initialize_paths()
     return _prd_path
+
 
 def get_velora_path() -> str:
     global _velora_path
@@ -119,9 +133,11 @@ def get_velora_path() -> str:
         _velora_path = check_velora()
     return _velora_path
 
+
 def reset_velora_path() -> None:
     global _velora_path
     _velora_path = None
+
 
 def get_shaka_packager_path() -> str:
     global _shaka_packager_path
@@ -132,6 +148,7 @@ def get_shaka_packager_path() -> str:
         _shaka_packager_path = check_shaka_packager()
     return _shaka_packager_path
 
+
 def get_dovi_tool_path() -> str:
     global _dovi_tool_path
     if not _initialized:
@@ -140,6 +157,7 @@ def get_dovi_tool_path() -> str:
         _drop_cached("dovi_tool")
         _dovi_tool_path = check_dovi_tool()
     return _dovi_tool_path
+
 
 def get_mkvmerge_path() -> str:
     global _mkvmerge_path
@@ -150,6 +168,7 @@ def get_mkvmerge_path() -> str:
         _mkvmerge_path = check_mkvmerge()
     return _mkvmerge_path
 
+
 def get_mkvpropedit_path() -> str:
     global _mkvpropedit_path
     if not _initialized:
@@ -159,11 +178,13 @@ def get_mkvpropedit_path() -> str:
         _mkvpropedit_path = check_mkvpropedit()
     return _mkvpropedit_path
 
+
 def get_info_wvd(cdm_device_path):
     if cdm_device_path is None:
         return None
 
     from pywidevine.device import Device
+
     device = Device.load(cdm_device_path)
 
     info = {ci.name: ci.value for ci in device.client_id.client_info}
@@ -171,9 +192,8 @@ def get_info_wvd(cdm_device_path):
     device_name = info.get("device_name", "").lower()
     build_info = info.get("build_info", "").lower()
 
-    is_emulator = (
-        any(x in device_name for x in ["generic", "sdk", "emulator", "x86"])
-        or any(x in build_info for x in ["test-keys", "userdebug"])
+    is_emulator = any(x in device_name for x in ["generic", "sdk", "emulator", "x86"]) or any(
+        x in build_info for x in ["test-keys", "userdebug"]
     )
 
     if "tv" in model.lower():
@@ -196,7 +216,7 @@ def get_info_prd(cdm_device_path):
         return None
 
     from pyplayready.device import Device
-    from pyplayready.system.bcert import BCertObjType, BCertCertType
+    from pyplayready.system.bcert import BCertCertType, BCertObjType
 
     device = Device.load(cdm_device_path)
     cert_chain = device.group_certificate
@@ -207,7 +227,7 @@ def get_info_prd(cdm_device_path):
     security_level = basic.attribute.security_level if basic else device.security_level
 
     def un_pad(b: bytes) -> str:
-        return b.rstrip(b'\x00').decode("utf-8", errors="ignore")
+        return b.rstrip(b"\x00").decode("utf-8", errors="ignore")
 
     manufacturer = model = model_number = "N/A"
     mfr = leaf_cert.get_attribute(BCertObjType.MANUFACTURER)

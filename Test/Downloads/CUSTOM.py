@@ -4,7 +4,7 @@
 import os
 import sys
 
-src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.append(src_path)
 
 
@@ -18,24 +18,12 @@ conf_extension = config_manager.config.get("PROCESS", "extension")
 
 
 SOURCES = [
-    {
-        "url": "<url>",
-        "key": "<key>"
-        "type": "video"
-    },
-    {
-        "url": "<url>",
-        "key": "<key>"
-        "language": "en",
-        "type": "audio"
-    },
+    {"url": "<url>", "key": "<key>", "type": "video"},
+    {"url": "<url>", "key": "<key>", "language": "en", "type": "audio"},
 ]
 
 
-generic_process = Generic_Downloader(
-    sources=SOURCES,
-    output_path=fr".\Video\Custom.{conf_extension}"
-)
+generic_process = Generic_Downloader(sources=SOURCES, output_path=rf".\Video\Custom.{conf_extension}")
 
 
 out_path, need_stop, error = generic_process.start()

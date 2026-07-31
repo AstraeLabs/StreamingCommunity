@@ -2,11 +2,10 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
-from ..drm.system import _DRMSystems
 from VibraVid.utils._mp4dump import parse_file
 
+from ..drm.system import _DRMSystems
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ SCHEME_TO_MODE: dict[str, str] = {
     "cens": "ctr",
     "cbcs": "cbc",
     "cbc1": "cbc",
-    "fps":  "cbc",
+    "fps": "cbc",
     "fps ": "cbc",
 }
 
@@ -31,7 +30,7 @@ VIDEO_CODEC_MAP: dict[str, str] = {
     "hev1": "HEVC",
     "hevC": "HEVC",
     "hev0": "HEVC",
-    "vp9":  "VP9",
+    "vp9": "VP9",
     "av01": "AV1",
 }
 
@@ -39,12 +38,12 @@ VIDEO_CODEC_MAP: dict[str, str] = {
 @dataclass
 class EncryptionInfo:
     encrypted: bool = False
-    scheme: Optional[str] = None                        # e.g. "cenc", "cbcs"
-    kid: Optional[str] = None                           # default KID hex string
-    pssh_b64: Optional[str] = None                      # base64 PSSH box, synthesized from KID if needed (populated by _finalize)
-    video_codec: Optional[str] = None                   # e.g. "H.264", "HEVC"
-    encryption_method: Optional[str] = None             # e.g. "SAMPLE_AES"
-    track_ids: Optional[list[str]] = None               # list of track IDs (if available)
+    scheme: str | None = None  # e.g. "cenc", "cbcs"
+    kid: str | None = None  # default KID hex string
+    pssh_b64: str | None = None  # base64 PSSH box, synthesized from KID if needed (populated by _finalize)
+    video_codec: str | None = None  # e.g. "H.264", "HEVC"
+    encryption_method: str | None = None  # e.g. "SAMPLE_AES"
+    track_ids: list[str] | None = None  # list of track IDs (if available)
     pssh_boxes: list[dict] = field(default_factory=list)
 
 
@@ -61,7 +60,7 @@ def _find_all(atoms, box_type: str) -> list:
     return [a for a in _walk(atoms) if a.type == box_type]
 
 
-def _select_preferred_pssh(pssh_boxes: list[dict], kid: Optional[str]) -> Optional[str]:
+def _select_preferred_pssh(pssh_boxes: list[dict], kid: str | None) -> str | None:
     """Return a real base64 PSSH box for the preferred system (Widevine first)."""
     if not pssh_boxes:
         return None
@@ -156,7 +155,7 @@ def detect_encryption_info(file_path: str) -> EncryptionInfo:
     return info
 
 
-def extract_widevine_kid(file_path: str) -> Optional[str]:
+def extract_widevine_kid(file_path: str) -> str | None:
     """Extract the content-key KID from a Widevine PSSH payload, or ``None``."""
     try:
         atoms = parse_file(file_path, decode_senc_entries=False)
@@ -175,6 +174,6 @@ def extract_widevine_kid(file_path: str) -> Optional[str]:
         if isinstance(data, (bytes, bytearray)):
             idx = bytes(data).find(b"\x12\x10")
             if idx != -1 and len(data) >= idx + 18:
-                return data[idx + 2:idx + 18].hex()
-    
+                return data[idx + 2 : idx + 18].hex()
+
     return None

@@ -1,35 +1,38 @@
 # 16.04.24
 
-import os
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 from VibraVid.setup import get_ffmpeg_path
-
 
 logger = logging.getLogger(__name__)
 
 
-def _extract_mono_wav(input_path: str, output_wav: str, sample_rate: int, duration_seconds: Optional[float] = None) -> bool:
+def _extract_mono_wav(
+    input_path: str, output_wav: str, sample_rate: int, duration_seconds: float | None = None
+) -> bool:
     """Extract a mono WAV from the input media file using FFmpeg, resampling to sample_rate."""
     cmd = [get_ffmpeg_path(), "-y", "-i", input_path]
     if duration_seconds:
         cmd += ["-t", str(duration_seconds)]
-    
+
     cmd += [
-        "-ac", "1",
-        "-ar", str(sample_rate),
+        "-ac",
+        "1",
+        "-ar",
+        str(sample_rate),
         "-vn",
-        "-f", "wav",
+        "-f",
+        "wav",
         output_wav,
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             logger.error("_extract_mono_wav ffmpeg failed: %s", result.stderr[-400:])
             return False
@@ -53,7 +56,14 @@ def _to_mono(data, channel: int = 0):
     return data[:, ch]
 
 
-def detect_audio_offset(reference_path: str, target_path: str, max_offset_seconds: float = 30.0, sample_rate: int = 8000, mono_channel: int = 0, analysis_window_seconds: float = 600.0) -> Optional[float]:
+def detect_audio_offset(
+    reference_path: str,
+    target_path: str,
+    max_offset_seconds: float = 30.0,
+    sample_rate: int = 8000,
+    mono_channel: int = 0,
+    analysis_window_seconds: float = 600.0,
+) -> float | None:
     """Detect the time offset between two audio files by cross-correlating mono WAV extracts."""
     try:
         import numpy as np
@@ -69,7 +79,7 @@ def detect_audio_offset(reference_path: str, target_path: str, max_offset_second
         tgt_wav = os.path.join(tmp_dir, "tgt.wav")
 
         ok_ref = _extract_mono_wav(reference_path, ref_wav, sample_rate, analysis_window_seconds)
-        ok_tgt = _extract_mono_wav(target_path,    tgt_wav, sample_rate, analysis_window_seconds)
+        ok_tgt = _extract_mono_wav(target_path, tgt_wav, sample_rate, analysis_window_seconds)
 
         if not ok_ref or not ok_tgt:
             logger.error("detect_audio_offset: WAV extraction failed")
@@ -88,8 +98,8 @@ def detect_audio_offset(reference_path: str, target_path: str, max_offset_second
 
         ref_norm = ref_data.astype(np.float32)
         tgt_norm = tgt_data.astype(np.float32)
-        ref_norm /= (np.max(np.abs(ref_norm)) or 1.0)
-        tgt_norm /= (np.max(np.abs(tgt_norm)) or 1.0)
+        ref_norm /= np.max(np.abs(ref_norm)) or 1.0
+        tgt_norm /= np.max(np.abs(tgt_norm)) or 1.0
 
         max_lag = int(max_offset_seconds * sr)
 
@@ -100,7 +110,7 @@ def detect_audio_offset(reference_path: str, target_path: str, max_offset_second
         mask = np.abs(lags) <= max_lag
         corr_masked = np.where(mask, corr, -np.inf)
 
-        best_lag   = lags[np.argmax(corr_masked)]
+        best_lag = lags[np.argmax(corr_masked)]
         offset_sec = float(best_lag) / sr
 
         direction = "Early" if offset_sec > 0 else "Late"

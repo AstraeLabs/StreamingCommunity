@@ -9,7 +9,8 @@
         "disable_scraper_cache": false,
         "imp_service": ["default"],
         "installation": "essential",
-        "skip_ts_versions": false
+        "skip_ts_versions": false,
+        "get_me": false
     },
     "OUTPUT": {
         "root_path": "Video",
@@ -41,16 +42,17 @@
         "max_token_refresh_rounds": 10,
         "token_refresh_backoff_seconds": 4.0,
         "token_refresh_stall_rounds": 3,
-        "embed_tmdb_poster": false,
-        "cleanup_tmp_folder": true
+        "embed_poster": false,
+        "cleanup_tmp_folder": true,
+        "use_curl_cffi_segments": false
     },
     "PROCESS": {
         "engine": "ffmpeg",
         "use_gpu": false,
         "param_video": ["-c:v","libx265","-crf","28","-preset","medium"],
         "param_audio": ["-c:a","libopus","-b:a","128k"],
-        "param_final": ["-c","copy"],
         "param_song_ffmpeg": [],
+        "param_final": ["-c","copy"],
         "audio_order": [],
         "subtitle_order": [],
         "subtitle_disposition_language": "it-it_forced",
@@ -60,7 +62,7 @@
         "extension": "mkv"
     },
     "REQUESTS": {
-        "timeout": 20,
+        "timeout": 15,
         "max_retry": 8,
         "verify": true,
         "use_proxy": false,

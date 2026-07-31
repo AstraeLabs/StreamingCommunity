@@ -1,32 +1,61 @@
 # 10.04.26
 
 
-import re
-import time
-import threading
 import logging
+import re
+import threading
+import time
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from rich.console import Console
 
-from VibraVid.core.ui.bar_manager import DownloadBarManager
 from VibraVid.core.decryptor import KeysManager
-
+from VibraVid.core.ui.bar_manager import DownloadBarManager
 
 console = Console()
 logger = logging.getLogger("manual")
 
 _SEGMENT_EXTENSIONS = (
-    "mp4", "m4s", "m4v", "m4a", "m4i", "m4f",   # ISO-BMFF / fragmented-MP4 (incl. EXT-X-MAP init .m4i)
-    "cmfv", "cmfa", "cmft", "cmfs",             # CMAF
-    "m2ts", "ts",                               # MPEG-TS
-    "aac", "ac3", "ec3", "mp3", "mov", "webm",  # other media containers
-    "vtt", "srt", "ttml", "dfxp", "ass", "ssa", # subtitles
+    "mp4",
+    "m4s",
+    "m4v",
+    "m4a",
+    "m4i",
+    "m4f",  # ISO-BMFF / fragmented-MP4 (incl. EXT-X-MAP init .m4i)
+    "cmfv",
+    "cmfa",
+    "cmft",
+    "cmfs",  # CMAF
+    "m2ts",
+    "ts",  # MPEG-TS
+    "aac",
+    "ac3",
+    "ec3",
+    "mp3",
+    "mov",
+    "webm",  # other media containers
+    "vtt",
+    "srt",
+    "ttml",
+    "dfxp",
+    "ass",
+    "ssa",  # subtitles
 )
 _FMP4_MERGED_AS_MP4 = frozenset({"m4s", "m4v", "m4i", "m4f", "cmfv"})
 _SUBTITLE_EXTENSIONS = (
-    "webvtt", "vtt", "srt", "ass", "ssa", "ttml2", "ttml", "xml", "dfxp", "m4a", "aac", "mp3",
+    "webvtt",
+    "vtt",
+    "srt",
+    "ass",
+    "ssa",
+    "ttml2",
+    "ttml",
+    "xml",
+    "dfxp",
+    "m4a",
+    "aac",
+    "mp3",
 )
 _SUBTITLE_EXT_NORMALISED = {
     "webvtt": "vtt",
@@ -77,7 +106,9 @@ def describe_key_for_log(value: Any) -> str:
     return type(value).__name__
 
 
-def join_interruptible(threads: List[threading.Thread], stop_event: threading.Event, poll: float = 0.25, hard_timeout: float = 7200.0) -> None:
+def join_interruptible(
+    threads: list[threading.Thread], stop_event: threading.Event, poll: float = 0.25, hard_timeout: float = 7200.0
+) -> None:
     """
     Join *threads* in a polling loop so ``KeyboardInterrupt`` is always
     deliverable (unlike a plain ``thread.join()`` with a long timeout).
@@ -102,9 +133,7 @@ def collect_failed_segments(dl_segs: list, downloaded_paths: list, stream_dir, d
     successfully downloaded (missing file or zero-byte file).
     """
     downloaded_set = {
-        str(p.resolve()).casefold()
-        for p in (downloaded_paths or [])
-        if p.exists() and p.stat().st_size > 0
+        str(p.resolve()).casefold() for p in (downloaded_paths or []) if p.exists() and p.stat().st_size > 0
     }
 
     failed = []
@@ -130,7 +159,7 @@ def print_failed_segments_report(failed_by_stream: list) -> None:
     for stream_label, failed in failed_by_stream:
         if not failed:
             continue
-        
+
         logger.error(f"Failed segments for {stream_label!r}: {len(failed)} missing")
         console.print(f"[bold red]SS:[/bold red] [bold white]{stream_label}[/bold white] [red]({len(failed)} missing)[/red]")
 
@@ -141,10 +170,11 @@ class SilentDownloadBarManager(DownloadBarManager):
     Live/Progress setup.  Used when ``show_progress=False`` is passed to
     ``MediaDownloader.start_download()``.
     """
-    def __init__(self, download_id: Optional[str] = None) -> None:
+
+    def __init__(self, download_id: str | None = None) -> None:
         # Intentionally skip super().__init__() — we do not want Rich objects.
         self.download_id = download_id
-        self.progress    = None
+        self.progress = None
 
     def __enter__(self):
         return self
@@ -152,15 +182,20 @@ class SilentDownloadBarManager(DownloadBarManager):
     def __exit__(self, exc_type, exc_val, exc_tb):
         return False
 
-    def add_prebuilt_tasks(self, prebuilt_tasks):         
+    def add_prebuilt_tasks(self, prebuilt_tasks):
         return None
-    def add_external_track_tasks(self, *args, **kwargs):  
+
+    def add_external_track_tasks(self, *args, **kwargs):
         return None
-    def add_external_track_task(self, label, track_key):  
+
+    def add_external_track_task(self, label, track_key):
         return None
-    def get_task_id(self, task_key):                      
+
+    def get_task_id(self, task_key):
         return None
-    def handle_progress_line(self, parsed):               
+
+    def handle_progress_line(self, parsed):
         return None
-    def finish_all_tasks(self):                           
+
+    def finish_all_tasks(self):
         return None

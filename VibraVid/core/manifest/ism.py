@@ -1,47 +1,45 @@
 # 03.05.26
 
+import logging
 import re
 import time
-import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager
-from VibraVid.utils.http_client import create_client, get_headers
+from VibraVid.core.drm.system import DRMType, _DRMSystems
+from VibraVid.core.manifest._utils import fast_urljoin, is_simple_relative_ref, save_raw_manifest
 from VibraVid.core.manifest.stream import DRMInfo, Segment, Stream
 from VibraVid.core.utils.language import resolve_locale
-from VibraVid.core.manifest._utils import save_raw_manifest, is_simple_relative_ref, fast_urljoin
-from VibraVid.core.drm.system import _DRMSystems, DRMType
-
+from VibraVid.utils import config_manager
+from VibraVid.utils.http_client import create_client, get_headers
 
 console = Console()
 logger = logging.getLogger(__name__)
 
 _PLAYREADY_SYSTEM_ID = _DRMSystems.to_system_id(_DRMSystems.PLAYREADY)
-_WIDEVINE_SYSTEM_ID  = _DRMSystems.to_system_id(_DRMSystems.WIDEVINE)
+_WIDEVINE_SYSTEM_ID = _DRMSystems.to_system_id(_DRMSystems.WIDEVINE)
 
-_BITRATE_RE   = re.compile(r"\{[Bb]itrate\}")
+_BITRATE_RE = re.compile(r"\{[Bb]itrate\}")
 _STARTTIME_RE = re.compile(r"\{start[ _][Tt]ime\}|\{[Ss]tart[Tt]ime\}")
 
-_FOURCC_TO_CODEC: Dict[str, str] = {
-    "h264": "avc1", 
-    "avc1": "avc1", 
+_FOURCC_TO_CODEC: dict[str, str] = {
+    "h264": "avc1",
+    "avc1": "avc1",
     "avc ": "avc1",
-    "hevc": "hvc1", 
-    "hvc1": "hvc1", 
+    "hevc": "hvc1",
+    "hvc1": "hvc1",
     "hev1": "hvc1",
-    "aacl": "mp4a.40.2", 
-    "aach": "mp4a.40.5", 
+    "aacl": "mp4a.40.2",
+    "aach": "mp4a.40.5",
     "aacp": "mp4a.40.29",
-    "ec-3": "ec-3",  
+    "ec-3": "ec-3",
     "ac-3": "ac-3",
-    "wma2": "wma",   
+    "wma2": "wma",
     "wmap": "wmap",
-    "ttml": "ttml",  
+    "ttml": "ttml",
     "dfxp": "ttml",
 }
 
@@ -51,14 +49,14 @@ def _fourcc_to_codec(fourcc: str) -> str:
 
 
 class ISMParser:
-    def __init__(self, ism_url: str, headers: Optional[Dict[str, str]] = None, content: Optional[str] = None):
+    def __init__(self, ism_url: str, headers: dict[str, str] | None = None, content: str | None = None):
         self.ism_url = ism_url
         self.headers = headers or {}
         self._injected = content
-        self.raw_content: Optional[str] = content
-        self._root: Optional[ET.Element] = None
+        self.raw_content: str | None = content
+        self._root: ET.Element | None = None
         self._base_url = self._calc_base_url(ism_url)
-        self._timescale: int = 10_000_000   # ISM default: 100-nanosecond ticks
+        self._timescale: int = 10_000_000  # ISM default: 100-nanosecond ticks
         self._manifest_is_live: bool = False
 
     @staticmethod
@@ -81,7 +79,7 @@ class ISMParser:
     def fetch_manifest(self) -> bool:
         """Fetch (or use injected) manifest XML and parse it into ``self._root``."""
         start_parsing_time = time.time()
-        
+
         if self._injected:
             self.raw_content = self._injected
             try:
@@ -90,11 +88,12 @@ class ISMParser:
                 return True
             except ET.ParseError as exc:
                 logger.error(f"ISMParser: injected XML parse error: {exc}")
-                self._injected = None   # fall through to network fetch
+                self._injected = None  # fall through to network fetch
 
         if self.ism_url.startswith("file://"):
             try:
                 from urllib.request import url2pathname
+
                 local_path = Path(url2pathname(urlparse(self.ism_url).path))
                 self.raw_content = local_path.read_text(encoding="utf-8")
                 self._base_url = local_path.parent.as_uri() + "/"
@@ -125,7 +124,7 @@ class ISMParser:
     def save_raw(self, directory: Path) -> Path:
         return save_raw_manifest(self.raw_content, directory, "raw.ism")
 
-    def parse_streams(self) -> List[Stream]:
+    def parse_streams(self) -> list[Stream]:
         """
         Parse the ISM manifest into a flat list of :class:`Stream` objects.
 
@@ -137,7 +136,7 @@ class ISMParser:
             return []
 
         root = self._root
-        streams: List[Stream] = []
+        streams: list[Stream] = []
 
         # ── Global metadata ───────────────────────────────────────────────────
         self._timescale = int(root.get("TimeScale", "10000000") or "10000000")
@@ -179,7 +178,9 @@ class ISMParser:
                 continue
 
             for ql in si.findall("QualityLevel"):
-                s = self._parse_quality_level(ql, stype, lang_raw, si_name, default_lang, global_duration, url_template, timeline, global_drm)
+                s = self._parse_quality_level(
+                    ql, stype, lang_raw, si_name, default_lang, global_duration, url_template, timeline, global_drm
+                )
                 if s is not None:
                     streams.append(s)
                     logger.info(f"ISM add | {s}")
@@ -191,11 +192,11 @@ class ISMParser:
         logger.info(f"ISM manifest type: {'LIVE' if self._manifest_is_live else 'VOD'} | streams={len(streams)}")
         return streams
 
-    def _parse_chunk_timeline(self, si_element, global_duration: float) -> List[int]:
+    def _parse_chunk_timeline(self, si_element, global_duration: float) -> list[int]:
         """
         Expand ``<c>`` elements into a list of absolute start times (in timescale ticks).
         """
-        timeline: List[int] = []
+        timeline: list[int] = []
         current_time: int = 0
 
         for c in si_element.findall("c"):
@@ -233,10 +234,21 @@ class ISMParser:
 
         return timeline
 
-    def _parse_quality_level(self, ql, stype: str, lang_raw: str, si_name: str, default_lang: str, global_duration: float, url_template: str, timeline: List[int], global_drm: DRMInfo,) -> Optional[Stream]:
+    def _parse_quality_level(
+        self,
+        ql,
+        stype: str,
+        lang_raw: str,
+        si_name: str,
+        default_lang: str,
+        global_duration: float,
+        url_template: str,
+        timeline: list[int],
+        global_drm: DRMInfo,
+    ) -> Stream | None:
         """Parse a single ``<QualityLevel>`` into a :class:`Stream`."""
         bitrate = int(ql.get("Bitrate") or ql.get("bitrate") or "0")
-        fourcc  = ql.get("FourCC") or ql.get("Codec") or ""
+        fourcc = ql.get("FourCC") or ql.get("Codec") or ""
 
         s = Stream(type=stype, format="ism")
         s.bitrate = bitrate
@@ -283,7 +295,7 @@ class ISMParser:
         return s
 
     def _parse_video_fields(self, ql, s: Stream) -> None:
-        s.width  = int(ql.get("MaxWidth")  or ql.get("Width")  or "0")
+        s.width = int(ql.get("MaxWidth") or ql.get("Width") or "0")
         s.height = int(ql.get("MaxHeight") or ql.get("Height") or "0")
         if s.width and s.height:
             s.resolution = f"{s.width}x{s.height}"
@@ -324,7 +336,7 @@ class ISMParser:
         fc_low = (fourcc or "").lower()
         s.format = "ttml" if ("ttml" in fc_low or "dfxp" in fc_low or not fc_low) else fc_low
 
-    def _apply_chunk_timeline(self, stream: Stream, url_template: str, bitrate: int, timeline: List[int]) -> None:
+    def _apply_chunk_timeline(self, stream: Stream, url_template: str, bitrate: int, timeline: list[int]) -> None:
         """
         Expand a chunk timeline into ``stream.segments`` using the URL template.
         """
@@ -351,8 +363,8 @@ class ISMParser:
 
         for ph in protection.findall("ProtectionHeader"):
             system_id_raw = ph.get("SystemID") or ""
-            system_id     = _DRMSystems.norm_system_id(system_id_raw)
-            raw_data      = (ph.text or "").strip()
+            system_id = _DRMSystems.norm_system_id(system_id_raw)
+            raw_data = (ph.text or "").strip()
             if not raw_data:
                 continue
 
@@ -381,7 +393,7 @@ class ISMParser:
 
         return info
 
-    def get_drm_info(self) -> Dict:
+    def get_drm_info(self) -> dict:
         """
         Return DRM info in the canonical dict format used by
         ``HLSParser.get_drm_info`` and consumed by the downloader fallback::

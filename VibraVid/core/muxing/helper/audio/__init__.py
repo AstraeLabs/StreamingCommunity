@@ -1,10 +1,10 @@
 # 16.04.24
 
 from .codec import audio_ext_for_codec
-from .probe import has_audio, get_video_duration, check_duration_v_a
-from .offset import detect_audio_offset
-from .tagging import tag_track
 from .convert import convert_audio, process_song
+from .offset import detect_audio_offset
+from .probe import check_duration_v_a, get_video_duration, has_audio
+from .tagging import tag_track
 
 __all__ = [
     "audio_ext_for_codec",

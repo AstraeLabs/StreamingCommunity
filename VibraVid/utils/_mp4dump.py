@@ -15,7 +15,7 @@ class Reader:
         return len(self.data) - self.pos
 
     def read(self, n):
-        chunk = self.data[self.pos:self.pos + n]
+        chunk = self.data[self.pos : self.pos + n]
         self.pos += n
         return chunk
 
@@ -55,7 +55,7 @@ class Reader:
 
     def u8_array(self, n):
         n = min(n, len(self.data) - self.pos)
-        vals = self.data[self.pos:self.pos + n]
+        vals = self.data[self.pos : self.pos + n]
         self.pos += n
         return list(vals)
 
@@ -81,7 +81,7 @@ class Reader:
         item_size = struct.calcsize(fmt)
         n = min(n, (len(self.data) - self.pos) // item_size)
         size = item_size * n
-        chunk = self.data[self.pos:self.pos + size]
+        chunk = self.data[self.pos : self.pos + size]
         self.pos += size
         return list(struct.iter_unpack(fmt, chunk))
 
@@ -99,33 +99,100 @@ class Reader:
 
 
 FULL_BOX_TYPES = {
-    "mvhd", "tkhd", "mdhd", "hdlr", "vmhd", "smhd", "nmhd", "hmhd",
-    "dref", "url ", "urn ", "stsd", "stts", "ctts", "stsc", "stsz", "stz2",
-    "stco", "co64", "stss", "elst", "mfhd", "tfhd", "tfdt", "trun",
-    "sidx", "mehd", "trex", "meta",
-    "esds", "pssh", "schm", "tenc",
-    "saiz", "saio", "senc",
-    "iods", "leva", "emsg", "keys",
+    "mvhd",
+    "tkhd",
+    "mdhd",
+    "hdlr",
+    "vmhd",
+    "smhd",
+    "nmhd",
+    "hmhd",
+    "dref",
+    "url ",
+    "urn ",
+    "stsd",
+    "stts",
+    "ctts",
+    "stsc",
+    "stsz",
+    "stz2",
+    "stco",
+    "co64",
+    "stss",
+    "elst",
+    "mfhd",
+    "tfhd",
+    "tfdt",
+    "trun",
+    "sidx",
+    "mehd",
+    "trex",
+    "meta",
+    "esds",
+    "pssh",
+    "schm",
+    "tenc",
+    "saiz",
+    "saio",
+    "senc",
+    "iods",
+    "leva",
+    "emsg",
+    "keys",
 }
 
 CONTAINER_TYPES = {
-    "moov", "trak", "mdia", "minf", "dinf", "stbl", "edts", "mvex",
-    "moof", "traf", "mfra", "udta", "ipro", "sinf", "schi",
+    "moov",
+    "trak",
+    "mdia",
+    "minf",
+    "dinf",
+    "stbl",
+    "edts",
+    "mvex",
+    "moof",
+    "traf",
+    "mfra",
+    "udta",
+    "ipro",
+    "sinf",
+    "schi",
 }
 
 _NO_PAYLOAD_SLICE = CONTAINER_TYPES | {"meta", "tref", "mdat", "free", "skip", "wide"}
 
 TRACK_REFERENCE_TYPES = {
-    "hint", "cdsc", "font", "hind", "vdep", "vplx", "subt", "thmb",
-    "chap", "sync", "tmcd", "iled", "mpod",
+    "hint",
+    "cdsc",
+    "font",
+    "hind",
+    "vdep",
+    "vplx",
+    "subt",
+    "thmb",
+    "chap",
+    "sync",
+    "tmcd",
+    "iled",
+    "mpod",
 }
 
 ILST_NAME_TAGS = {
-    "\xa9nam": "name", "\xa9ART": "artist", "\xa9alb": "album",
-    "\xa9day": "date", "\xa9cmt": "comment", "\xa9gen": "genre",
-    "\xa9wrt": "composer", "\xa9too": "tool", "\xa9grp": "grouping",
-    "\xa9lyr": "lyrics", "trkn": "track_number", "disk": "disk_number",
-    "cpil": "compilation", "tmpo": "tempo", "covr": "cover_art",
+    "\xa9nam": "name",
+    "\xa9ART": "artist",
+    "\xa9alb": "album",
+    "\xa9day": "date",
+    "\xa9cmt": "comment",
+    "\xa9gen": "genre",
+    "\xa9wrt": "composer",
+    "\xa9too": "tool",
+    "\xa9grp": "grouping",
+    "\xa9lyr": "lyrics",
+    "trkn": "track_number",
+    "disk": "disk_number",
+    "cpil": "compilation",
+    "tmpo": "tempo",
+    "covr": "cover_art",
 }
 
 VIDEO_SAMPLE_ENTRY_TYPES = {"avc1", "avc3", "hev1", "hvc1", "mp4v", "s263", "vp09", "av01", "encv"}
@@ -142,6 +209,7 @@ class Atom:
         self.data = {}
         self.children = []
 
+
 def parse_box(buf: bytes, offset: int, limit: int):
     r = Reader(buf, offset)
     size32 = r.u32()
@@ -153,7 +221,7 @@ def parse_box(buf: bytes, offset: int, limit: int):
         header_size = 16
         total_size = size64
     elif size32 == 0:
-        total_size = (limit - offset)
+        total_size = limit - offset
     else:
         total_size = size32
 
@@ -175,7 +243,7 @@ def parse_box(buf: bytes, offset: int, limit: int):
     if box_type in _NO_PAYLOAD_SLICE:
         payload = b""
     else:
-        payload = buf[payload_start:payload_start + payload_size]
+        payload = buf[payload_start : payload_start + payload_size]
 
     _decode_payload(atom, buf, payload_start, payload, payload_size)
 
@@ -247,7 +315,7 @@ def parse_sample_entry(buf, offset, limit):
         compressor = p.read(32)
 
         name_len = compressor[0]
-        compressor_name = compressor[1:1 + name_len].decode("utf-8", errors="replace")
+        compressor_name = compressor[1 : 1 + name_len].decode("utf-8", errors="replace")
         p.read(2)
         p.read(2)
         atom.data["width"] = width
@@ -277,7 +345,7 @@ def parse_sample_entry(buf, offset, limit):
             atom.data["size_of_struct_only"] = p.u32()
             atom.data["sample_rate_64"] = struct.unpack(">d", p.read(8))[0]
             atom.data["channel_count"] = p.u32()
-            p.read(4)   # always 0x7F000000
+            p.read(4)  # always 0x7F000000
             atom.data["const_bits_per_channel"] = p.u32()
             atom.data["format_specific_flags"] = p.u32()
             atom.data["const_bytes_per_audio_packet"] = p.u32()
@@ -341,7 +409,7 @@ def _decode_descriptor(buf, offset, limit):
         while cpos < payload_end:
             child, cpos = _decode_descriptor(buf, cpos, payload_end)
             node["children"].append(child)
-    
+
     elif tag == 0x04:
         node["name"] = "DecoderConfig"
         p = Reader(payload)
@@ -353,9 +421,12 @@ def _decode_descriptor(buf, offset, limit):
         max_bitrate = p.u32()
         avg_bitrate = p.u32()
         node["fields"] = [
-            ("stream_type", stream_type), ("object_type", object_type),
-            ("up_stream", up_stream), ("buffer_size", buffer_size),
-            ("max_bitrate", max_bitrate), ("avg_bitrate", avg_bitrate),
+            ("stream_type", stream_type),
+            ("object_type", object_type),
+            ("up_stream", up_stream),
+            ("buffer_size", buffer_size),
+            ("max_bitrate", max_bitrate),
+            ("avg_bitrate", avg_bitrate),
         ]
         cpos = payload_start + p.pos
         while cpos < payload_end:
@@ -365,7 +436,7 @@ def _decode_descriptor(buf, offset, limit):
                 node["fields"].append(("DecoderSpecificInfo", hex_str))
             else:
                 node["children"].append(child)
-    
+
     elif tag in (0x02, 0x10, 0x11):
         node["name"] = "ObjectDescriptor" if tag == 0x02 else "InitialObjectDescriptor"
         p = Reader(payload)
@@ -409,7 +480,7 @@ def _looks_like_mdta_index_tag(box_type, buf, payload_start, payload_size):
     if payload_start + 8 > len(buf):
         return False
     inner_size = struct.unpack_from(">I", buf, payload_start)[0]
-    inner_type = buf[payload_start + 4:payload_start + 8]
+    inner_type = buf[payload_start + 4 : payload_start + 8]
     return inner_type == b"data" and 8 <= inner_size <= payload_size
 
 
@@ -481,11 +552,18 @@ def _decode_payload(atom, buf, payload_start, payload, payload_size):
         matrix = [r.s32() for _ in range(9)]
         width = r.u32()
         height = r.u32()
-        atom.data.update(dict(
-            track_id=track_id, duration=duration, layer=layer,
-            alternate_group=alternate_group, volume=volume, matrix=matrix,
-            width=width, height=height,
-        ))
+        atom.data.update(
+            dict(
+                track_id=track_id,
+                duration=duration,
+                layer=layer,
+                alternate_group=alternate_group,
+                volume=volume,
+                matrix=matrix,
+                width=width,
+                height=height,
+            )
+        )
         return
 
     if t == "mdhd":
@@ -500,9 +578,7 @@ def _decode_payload(atom, buf, payload_start, payload, payload_size):
             timescale = r.u32()
             duration = r.u32()
         lang_bits = r.u16()
-        chars = [((lang_bits >> 10) & 0x1F) + 0x60,
-                 ((lang_bits >> 5) & 0x1F) + 0x60,
-                 (lang_bits & 0x1F) + 0x60]
+        chars = [((lang_bits >> 10) & 0x1F) + 0x60, ((lang_bits >> 5) & 0x1F) + 0x60, (lang_bits & 0x1F) + 0x60]
         language = bytes(chars).decode("latin-1", errors="replace")
         atom.data["timescale"] = timescale
         atom.data["duration"] = duration
@@ -513,7 +589,7 @@ def _decode_payload(atom, buf, payload_start, payload, payload_size):
         r.read(4)
         handler_type = r.fourcc()
         r.read(12)
-        rest = payload[r.pos:]
+        rest = payload[r.pos :]
         name = rest.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
         atom.data["handler_type"] = handler_type
         atom.data["handler_name"] = name
@@ -534,8 +610,7 @@ def _decode_payload(atom, buf, payload_start, payload, payload_size):
     if t == "stsd":
         entry_count = r.u32()
         atom.data["entry_count"] = entry_count
-        atom.children = _parse_sample_entries(
-            buf, payload_start + r.pos, payload_size - r.pos)
+        atom.children = _parse_sample_entries(buf, payload_start + r.pos, payload_size - r.pos)
         return
 
     if t == "dref":
@@ -581,12 +656,16 @@ def _decode_payload(atom, buf, payload_start, payload, payload_size):
             if i + 1 < len(raw):
                 chunk_count = raw[i + 1][0] - first_chunk
             else:
-                chunk_count = 0 
-            entries.append(dict(
-                first_chunk=first_chunk, chunk_count=chunk_count,
-                samples_per_chunk=samples_per_chunk,
-                sample_desc_index=sample_desc_index))
-            
+                chunk_count = 0
+            entries.append(
+                dict(
+                    first_chunk=first_chunk,
+                    chunk_count=chunk_count,
+                    samples_per_chunk=samples_per_chunk,
+                    sample_desc_index=sample_desc_index,
+                )
+            )
+
         first_sample = 1
         for e in entries:
             e["first_sample"] = first_sample
@@ -689,7 +768,7 @@ def _decode_payload(atom, buf, payload_start, payload, payload_size):
             fields.append("sample_composition_time_offset")
             fmt += "i" if atom.version == 1 else "I"
         if fields:
-            entries = [dict(zip(fields, row)) for row in r.tuples(fmt, n)]
+            entries = [dict(zip(fields, row, strict=False)) for row in r.tuples(fmt, n)]
         else:
             entries = [{} for _ in range(n)]
         atom.data["sample_count"] = sample_count
@@ -717,15 +796,25 @@ def _decode_payload(atom, buf, payload_start, payload, payload_size):
             starts_with_sap = (b >> 31) & 0x1
             sap_type = (b >> 28) & 0x7
             sap_delta_time = b & 0x0FFFFFFF
-            entries.append(dict(
-                reference_type=reference_type, referenced_size=referenced_size,
-                subsegment_duration=subsegment_duration,
-                starts_with_sap=starts_with_sap, sap_type=sap_type,
-                sap_delta_time=sap_delta_time))
-        atom.data.update(dict(
-            reference_id=reference_id, timescale=timescale,
-            earliest_pts=earliest_pts, first_offset=first_offset,
-            entries=entries))
+            entries.append(
+                dict(
+                    reference_type=reference_type,
+                    referenced_size=referenced_size,
+                    subsegment_duration=subsegment_duration,
+                    starts_with_sap=starts_with_sap,
+                    sap_type=sap_type,
+                    sap_delta_time=sap_delta_time,
+                )
+            )
+        atom.data.update(
+            dict(
+                reference_id=reference_id,
+                timescale=timescale,
+                earliest_pts=earliest_pts,
+                first_offset=first_offset,
+                entries=entries,
+            )
+        )
         return
 
     if t == "mehd":
@@ -1020,8 +1109,7 @@ def _decode_payload(atom, buf, payload_start, payload, payload_size):
             b = r.u8()
             padding_flag = (b >> 7) & 0x1
             assignment_type = b & 0x7F
-            entry = dict(track_id=track_id, padding_flag=padding_flag,
-                         assignment_type=assignment_type)
+            entry = dict(track_id=track_id, padding_flag=padding_flag, assignment_type=assignment_type)
             if assignment_type == 0:
                 entry["grouping_type"] = r.fourcc()
             elif assignment_type == 1:
@@ -1073,6 +1161,7 @@ def _decode_payload(atom, buf, payload_start, payload, payload_size):
         return
 
     return
+
 
 class _Ctx:
     TOP_LEVEL = 0
@@ -1166,6 +1255,7 @@ class TextInspector:
             self.out.write(f"{name} = ")
         self.out.write(f"{value:f}")
         self._print_suffix()
+
 
 class JsonInspector:
     def __init__(self, verbosity=0):
@@ -1276,6 +1366,7 @@ class JsonInspector:
         self.out.write(self._prefix())
         self._field_name(name)
         self.out.write(f"{value:f}")
+
 
 def _inspect_children(atom, insp):
     for child in atom.children:
@@ -1481,8 +1572,8 @@ def _inspect_fields(atom, insp):
                     insp.add_field("sample_flags" if v >= 2 else "f", e["sample_flags"])
                 if "sample_composition_time_offset" in e:
                     insp.add_field(
-                        "sample_composition_time_offset" if v >= 2 else "c",
-                        e["sample_composition_time_offset"])
+                        "sample_composition_time_offset" if v >= 2 else "c", e["sample_composition_time_offset"]
+                    )
                 insp.end_object()
             insp.end_array()
         return
@@ -1593,8 +1684,7 @@ def _inspect_fields(atom, insp):
         insp.add_field("general_profile_space", d["general_profile_space"])
         insp.add_field("general_tier_flag", d["general_tier_flag"])
         insp.add_field("general_profile_idc", d["general_profile_idc"])
-        insp.add_field("general_profile_compatibility_flags",
-                       f"{d['general_profile_compatibility_flags']:08x}")
+        insp.add_field("general_profile_compatibility_flags", f"{d['general_profile_compatibility_flags']:08x}")
         insp.add_field("general_constraint_indicator_flags", _hex_brackets(d["general_constraint_indicator_flags"]))
         insp.add_field("general_level_idc", d["general_level_idc"])
         insp.add_field("min_spatial_segmentation_idc", d["min_spatial_segmentation_idc"])
@@ -1799,8 +1889,7 @@ def _inspect_fields(atom, insp):
 
 def _inspect_atom(atom, insp):
     display_name = atom.data.get("_resolved_key_name", atom.type)
-    insp.start_atom(display_name, atom.version, atom.flags,
-                     atom.header_size, atom.total_size)
+    insp.start_atom(display_name, atom.version, atom.flags, atom.header_size, atom.total_size)
     _inspect_fields(atom, insp)
     insp.end_atom()
 
@@ -1862,7 +1951,7 @@ def _redecode_senc(senc_atom, buf, iv_size):
     d = senc_atom.data
     if iv_size == 0:
         return
-    
+
     raw = d.get("raw_entries", b"")
     pos = 0
     n = len(raw)
@@ -1872,7 +1961,7 @@ def _redecode_senc(senc_atom, buf, iv_size):
     for _ in range(sample_count):
         if pos + iv_size > n:
             break
-        iv = raw[pos:pos + iv_size]
+        iv = raw[pos : pos + iv_size]
         pos += iv_size
         entry = {"iv": iv}
         if has_subsample:
@@ -1882,7 +1971,7 @@ def _redecode_senc(senc_atom, buf, iv_size):
             pos += 2
             take = min(subsample_count, (n - pos) // 6)
             if take:
-                subsamples = list(struct.iter_unpack(">HI", raw[pos:pos + 6 * take]))
+                subsamples = list(struct.iter_unpack(">HI", raw[pos : pos + 6 * take]))
                 pos += 6 * take
             else:
                 subsamples = []
@@ -1934,12 +2023,10 @@ def _resolve_mdta_tags(top_atoms):
                 for tag in ilst_box.children:
                     if tag.type in ILST_NAME_TAGS:
                         continue  # tag classico iTunes, non un indice mdta
-                    raw_index = struct.unpack(
-                        ">I", tag.type.encode("latin-1"))[0]
+                    raw_index = struct.unpack(">I", tag.type.encode("latin-1"))[0]
                     if 1 <= raw_index <= len(entries):
                         e = entries[raw_index - 1]
-                        tag.data["_resolved_key_name"] = (
-                            f"{e['key_namespace']}.{e['key_value']}")
+                        tag.data["_resolved_key_name"] = f"{e['key_namespace']}.{e['key_value']}"
         for child in atom.children:
             walk(child)
 
@@ -1960,6 +2047,7 @@ def _open_buffer(filename: str):
         def closer():
             mm.close()
             f.close()
+
         return mm, closer
     except (ValueError, OSError):
         f.seek(0)

@@ -1,60 +1,54 @@
 # 10.12.23
 
-import os
-import re
-import sys
+import argparse
 import json
 import logging
-import argparse
+import os
+import re
 import subprocess
+import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import config_manager, start_message, setup_logger, get_log_file_path
-from VibraVid.core.ui.tracker import context_tracker
-from VibraVid.services._base import load_search_functions
-from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
-from VibraVid.utils.upload import git_update, binary_update
-from VibraVid.setup.system import _initialize_paths
-from VibraVid.setup.system import (get_ffmpeg_path, get_ffprobe_path, get_bento4_decrypt_path, get_wvd_path, get_prd_path, get_shaka_packager_path, get_dovi_tool_path, get_mkvmerge_path, get_mkvpropedit_path, get_velora_path)
-from VibraVid.setup.binary_paths import binary_paths
-from VibraVid.utils.upload.version import __version__, __title__
-
-from VibraVid.cli.command.global_search import global_search as call_global_search
 from VibraVid.cli.command.download import handle_direct_download
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
+from VibraVid.cli.command.global_search import global_search as call_global_search
+from VibraVid.cli.command.limits import add_limit_arguments, apply_limits
 from VibraVid.cli.command.queue import add_queue_arguments, handle_queue_dispatch
-
+from VibraVid.core.downloader.base import get_written_track_files
+from VibraVid.core.ui.tracker import context_tracker
+from VibraVid.services._base import load_search_functions
+from VibraVid.setup.binary_paths import binary_paths
+from VibraVid.setup.system import (
+    _initialize_paths,
+    get_bento4_decrypt_path,
+    get_dovi_tool_path,
+    get_ffmpeg_path,
+    get_ffprobe_path,
+    get_mkvmerge_path,
+    get_mkvpropedit_path,
+    get_prd_path,
+    get_shaka_packager_path,
+    get_velora_path,
+    get_wvd_path,
+)
+from VibraVid.utils import config_manager, get_log_file_path, setup_logger, start_message
+from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
+from VibraVid.utils.upload import binary_update, git_update
+from VibraVid.utils.upload.version import __title__, __version__
 
 console = Console()
 msg = Prompt()
 logger = logging.getLogger(__name__)
 
-COLOR_MAP = {
-    "anime": "red",
-    "film_serie": "yellow",
-    "serie": "green",
-    "song": "grey35",
-    "tor": "blue"
-}
-CATEGORY_MAP = {
-    1: "anime",
-    2: "Film_serie",
-    3: "serie",
-    4: "tor",
-    5: "song"
-}
+COLOR_MAP = {"anime": "red", "film_serie": "yellow", "serie": "green", "song": "grey35", "tor": "blue"}
+CATEGORY_MAP = {1: "anime", 2: "Film_serie", 3: "serie", 4: "tor", 5: "song"}
 
-CLOSE_CONSOLE = config_manager.config.get_bool('DEFAULT', 'close_console')
-PERSISTENT_ARGS = {
-    'use_proxy',
-    'proxy_scope',
-    'extension',
-    'close_console'
-}
+CLOSE_CONSOLE = config_manager.config.get_bool("DEFAULT", "close_console")
+PERSISTENT_ARGS = {"use_proxy", "proxy_scope", "extension", "close_console"}
 _VERSION_FLAGS = {
     "FFmpeg": ["-version"],
     "FFprobe": ["-version"],
@@ -66,11 +60,32 @@ _VERSION_FLAGS = {
 }
 
 _EQUIVALENT_CMD_EXCLUDED_DESTS = {
-    'site', 'search', 'item', 'season', 'episode',
-    'down', 'stream_type', 'output', 'headers', 'license_url', 'license_headers', 'key',
-    'hls_method', 'hls_key', 'hls_iv',
-    'no_log', 'update', 'dep',
-    'queue_add', 'queue_run', 'queue_list', 'queue_remove', 'queue_clear', 'queue_retry', 'queue_retry_all', 'queue_delay',
+    "site",
+    "search",
+    "item",
+    "season",
+    "episode",
+    "down",
+    "stream_type",
+    "output",
+    "headers",
+    "license_url",
+    "license_headers",
+    "key",
+    "hls_method",
+    "hls_key",
+    "hls_iv",
+    "no_log",
+    "update",
+    "dep",
+    "queue_add",
+    "queue_run",
+    "queue_list",
+    "queue_remove",
+    "queue_clear",
+    "queue_retry",
+    "queue_retry_all",
+    "queue_delay",
 }
 equivalent_command_builder = EquivalentCommandBuilder(excluded_dests=_EQUIVALENT_CMD_EXCLUDED_DESTS)
 
@@ -92,11 +107,11 @@ def force_exit():
 def _prescan_site_arg(argv):
     """Scan raw argv for --site's value before argparse runs."""
     for i, tok in enumerate(argv):
-        if tok == '--site' and i + 1 < len(argv):
+        if tok == "--site" and i + 1 < len(argv):
             return argv[i + 1]
-        if tok.startswith('--site='):
-            return tok.split('=', 1)[1]
-    
+        if tok.startswith("--site="):
+            return tok.split("=", 1)[1]
+
     return None
 
 
@@ -113,21 +128,21 @@ def _resolve_site_module(site_value, search_functions):
             except Exception:
                 logger.debug(f"Could not eagerly load site module for '{site_value}' while building CLI options", exc_info=True)
                 return None
-    
+
     return None
 
 
 def _has_help_flag(argv):
     """Whether -h/--help was passed (checked before argparse runs, to branch help display)."""
-    return any(tok in ('-h', '--help') for tok in argv)
+    return any(tok in ("-h", "--help") for tok in argv)
 
 
 def _print_site_only_help(site_value, site_module):
     """Print ONLY this site's own CLI options (skips the generic parser dump entirely) and exit."""
-    register = getattr(site_module, 'register_cli_args', None)
-    site_name = getattr(site_module, '__name__', str(site_module)).rsplit('.', 1)[-1]
+    register = getattr(site_module, "register_cli_args", None)
+    site_name = getattr(site_module, "__name__", str(site_module)).rsplit(".", 1)[-1]
     mini_parser = argparse.ArgumentParser(
-        prog=f'manual.py --site {site_value} ...',
+        prog=f"manual.py --site {site_value} ...",
         description=f'Site-specific options for "{site_name}" (--site {site_value})',
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -147,100 +162,101 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     available_indices = ", ".join([f"{idx}={name.capitalize()}" for name, idx in sorted(module_info.items(), key=lambda x: x[1])])
 
     parser = argparse.ArgumentParser(
-        description='Script to download movies, series and anime.',
+        description="Script to download movies, series and anime.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=f"Sites by name:  {available_names}\nSites by index: {available_indices}"
+        epilog=f"Sites by name:  {available_names}\nSites by index: {available_indices}",
     )
 
     # ── Search & selection
-    search_group = parser.add_argument_group('Search & selection')
-    search_group.add_argument('-s', '--search', default=None, metavar='QUERY', help='Search terms')
-    search_group.add_argument('--site', type=str, metavar='NAME|INDEX', help='Target site (name or index)')
-    search_group.add_argument('--global', dest='global_search', action='store_true', help='Search across all sites')
-    search_group.add_argument('--category', type=int, metavar='N', help='Category filter for global search\n  1=Anime  2=Movies/Series  3=Series  4=Movies')
-    search_group.add_argument('--auto-first', action='store_true', help='Auto-select first result (requires --site and --search)')
-    search_group.add_argument('--item', type=int, default=None, metavar='N', help='Select the Nth search result directly, 0-based (requires --site and --search)')
-    search_group.add_argument('--year', type=str, metavar='RANGE', help='Year filter, e.g. "2020" or "1990-2015"')
+    search_group = parser.add_argument_group("Search & selection")
+    search_group.add_argument("-s", "--search", default=None, metavar="QUERY", help="Search terms")
+    search_group.add_argument("--site", type=str, metavar="NAME|INDEX", help="Target site (name or index)")
+    search_group.add_argument("--global", dest="global_search", action="store_true", help="Search across all sites")
+    search_group.add_argument("--category", type=int, metavar="N", help="Category filter for global search\n  1=Anime  2=Movies/Series  3=Series  4=Movies",)
+    search_group.add_argument("--auto-first", action="store_true", help="Auto-select first result (requires --site and --search)")
+    search_group.add_argument("--item", type=int, default=None, metavar="N", help="Select the Nth search result directly, 0-based (requires --site and --search)",)
+    search_group.add_argument("--year", type=str, metavar="RANGE", help='Year filter, e.g. "2020" or "1990-2015"')
 
     # ── Series navigation
-    series_group = parser.add_argument_group('Series navigation')
-    series_group.add_argument('--season', type=str, default=None, metavar='SEL', help='Season selection, e.g. "1", "1-3", "*"')
-    series_group.add_argument('--episode', type=str, default=None, metavar='SEL', help='Episode selection, e.g. "1", "1-5", "*"')
+    series_group = parser.add_argument_group("Series navigation")
+    series_group.add_argument("--season", type=str, default=None, metavar="SEL", help='Season selection, e.g. "1", "1-3", "*"')
+    series_group.add_argument("--episode", type=str, default=None, metavar="SEL", help='Episode selection, e.g. "1", "1-5", "*"')
 
     # ── Track selection
-    track_group = parser.add_argument_group('Track selection')
-    track_group.add_argument('-sv', '--video', type=str, metavar='SPEC', help='Video track filter (e.g. "best", "1080p")')
-    track_group.add_argument('-sa', '--audio', type=str, metavar='SPEC', help='Audio track filter (e.g. "ita|it")')
-    track_group.add_argument('-ss', '--subtitle', type=str, metavar='SPEC', help='Subtitle track filter (e.g. "ita|eng")')
+    track_group = parser.add_argument_group("Track selection")
+    track_group.add_argument("-sv", "--video", type=str, metavar="SPEC", help='Video track filter (e.g. "best", "1080p")')
+    track_group.add_argument("-sa", "--audio", type=str, metavar="SPEC", help='Audio track filter (e.g. "ita|it")')
+    track_group.add_argument("-ss", "--subtitle", type=str, metavar="SPEC", help='Subtitle track filter (e.g. "ita|eng")')
 
     # ── Download options
-    dl_opts = parser.add_argument_group('Download options')
-    dl_opts.add_argument('--extension', type=str, metavar='EXT', help='Output container (mkv, mp4)')
-    dl_opts.add_argument('--use_proxy', action='store_const', const=True, default=None, help='Route requests through configured proxy')
-    dl_opts.add_argument('--proxy-scope', dest='proxy_scope', type=str, choices=['scrap', 'down', 'scrap+down'], metavar='scrap|down|scrap+down', help='Where to apply the proxy: scraping only, downloads only, or both')
-    dl_opts.add_argument('--skip-ts', dest='skip_ts', action='store_const', const=True, default=None, help='Skip TS/CAM releases (StreamingCommunity)')
-    dl_opts.add_argument('--close-console', dest='close_console', type=str, choices=['true', 'false'], metavar='true|false', help='Exit after last download (overrides config)')
-    dl_opts.add_argument('--no-vault-cache', dest='bypass_vault_cache', action='store_const', const=True, default=None, help='Bypass DRM key vault cache; force a fresh CDM license request every run (for dynamic/time-sensitive tokens)')
-    dl_opts.add_argument('--resolve-only', dest='resolve_only', action='store_true', help='Only resolve & cache the master playlist without downloading.')
+    dl_opts = parser.add_argument_group("Download options")
+    dl_opts.add_argument("--extension", type=str, metavar="EXT", help="Output container (mkv, mp4)")
+    dl_opts.add_argument("--use_proxy", action="store_const", const=True, default=None, help="Route requests through configured proxy")
+    dl_opts.add_argument("--use-curl-cffi", dest="use_curl_cffi", action="store_const", const=True, default=None, help="Download segments via curl_cffi (browser TLS impersonation) instead of Velora — for sites where individual segments are Cloudflare-protected")
+    dl_opts.add_argument( "--proxy-scope", dest="proxy_scope", type=str, choices=["scrap", "down", "scrap+down"], metavar="scrap|down|scrap+down", help="Where to apply the proxy: scraping only, downloads only, or both")
+    dl_opts.add_argument("--skip-ts", dest="skip_ts", action="store_const", const=True, default=None, help="Skip TS/CAM releases (StreamingCommunity)")
+    dl_opts.add_argument("--close-console", dest="close_console", type=str, choices=["true", "false"],metavar="true|false", help="Exit after last download (overrides config)")
+    dl_opts.add_argument("--no-vault-cache", dest="bypass_vault_cache", action="store_const", const=True, default=None, help="Bypass DRM key vault cache; force a fresh CDM license request every run (for dynamic/time-sensitive tokens)")
+    dl_opts.add_argument("--resolve-only", dest="resolve_only", action="store_true",help="Only resolve & cache the master playlist without downloading.",)
 
     # ── Direct download
-    dl_group = parser.add_argument_group('Direct download (--down)')
-    dl_group.add_argument('--down', metavar='URL', help='Stream URL to download directly (MP4 / HLS / DASH / ISM)')
-    dl_group.add_argument('--type', dest='stream_type', choices=['auto', 'mp4', 'hls', 'dash', 'ism'], default='auto', help='Force the stream type instead of auto-detecting (default: auto)')
-    dl_group.add_argument('-o', '--output', metavar='PATH', help='Output file path (extension auto-appended if omitted)')
-    dl_group.add_argument('--headers', action='append', metavar='Key:Value', help='HTTP header. Repeatable.')
-    dl_group.add_argument('--license-url', dest='license_url', metavar='URL', help='DRM license server URL (Widevine / PlayReady)')
-    dl_group.add_argument('--license-headers', dest='license_headers', action='append', metavar='Key:Value', help='HTTP header for DRM license request. Repeatable.')
-    dl_group.add_argument('--key', action='append', metavar='KID:KEY', help='Decryption key in KID:KEY hex format. Repeatable.')
-    dl_group.add_argument('--drm', choices=['widevine', 'playready', 'auto'], default='auto', help='DRM system (default: auto)')
-    dl_group.add_argument('--hls-method', dest='hls_method', choices=['AES_128', 'NONE'], default=None, help="Override the HLS segment encryption method, ignoring the manifest's own #EXT-X-KEY tag (or supplying one when it has none). NONE forces every segment to be treated as already clear (skips decrypt); AES_128 forces AES-128-CBC (pair with --hls-key/--hls-iv).")
-    dl_group.add_argument('--hls-key', dest='hls_key', metavar='HEX|BASE64|FILE', default=None, help="Raw AES-128 key to use instead of fetching URI= from the manifest's #EXT-X-KEY tag.")
-    dl_group.add_argument('--hls-iv', dest='hls_iv', metavar='HEX', default=None, help="IV to use instead of the manifest's IV=0x... (or the implicit per-segment IV).")
-    dl_group.add_argument('--max-segments', dest='max_segments', type=str, default=None, metavar='N|START-END', help='Limit download to first N segments, or a START-END range, e.g. "50" or "10-50" (HLS/DASH/ISM)')
-    dl_group.add_argument('--max-time', dest='max_time', type=str, default=None, metavar='SEC|HH:MM:SS|START-END', help='Limit downloaded duration, e.g. "00:05:00", 300, or a range "00:01:00-00:05:00" (HLS/DASH/ISM)')
-    dl_group.add_argument('--skip-content-check', dest='skip_content_check', action='store_true', help='Skip the preflight HEAD content-type check for MP4 direct downloads (--type mp4). Needed for single-use download URLs where a HEAD request consumes the link.')
-    dl_group.add_argument('--skip-sanitize', dest='skip_sanitize', action='store_true', help='Use the -o output path verbatim (MP4/HLS/DASH/ISM direct downloads), skipping path sanitization (which transliterates non-ASCII characters). Use when the caller already built/created the exact destination path.')
-    dl_group.add_argument('--meta-title', dest='meta_title', metavar='TITLE', help='Title metadata for this --down invocation (feeds DB/Vault "Claudio database" caching/upload and other title-dependent hooks, which are otherwise skipped for raw --down downloads). Set automatically on --down entries built by --resolve-only.')
-    dl_group.add_argument('--meta-type', dest='meta_type', metavar='TYPE', help='Media type metadata for this --down invocation (e.g. Film, TV).')
-    dl_group.add_argument('--meta-season', dest='meta_season', type=int, metavar='N', help='Season number metadata for this --down invocation.')
-    dl_group.add_argument('--meta-episode', dest='meta_episode', type=int, metavar='N', help='Episode number metadata for this --down invocation.')
-    dl_group.add_argument('--meta-site', dest='meta_site', metavar='NAME', help='Site/service name metadata for this --down invocation (e.g. streamingcommunity).')
+    dl_group = parser.add_argument_group("Direct download (--down)")
+    dl_group.add_argument("--down", metavar="URL", help="Stream URL to download directly (MP4 / HLS / DASH / ISM)")
+    dl_group.add_argument("--type", dest="stream_type", choices=["auto", "mp4", "hls", "dash", "ism"], default="auto", help="Force the stream type instead of auto-detecting (default: auto)")
+    dl_group.add_argument("-o", "--output", metavar="PATH", help="Output file path (extension auto-appended if omitted)")
+    dl_group.add_argument("--headers", action="append", metavar="Key:Value", help="HTTP header. Repeatable.")
+    dl_group.add_argument("--license-url", dest="license_url", metavar="URL", help="DRM license server URL (Widevine / PlayReady)")
+    dl_group.add_argument("--license-headers", dest="license_headers", action="append", metavar="Key:Value", help="HTTP header for DRM license request. Repeatable.")
+    dl_group.add_argument("--key", action="append", metavar="KID:KEY", help="Decryption key in KID:KEY hex format. Repeatable.")
+    dl_group.add_argument("--drm", choices=["widevine", "playready", "auto"], default="auto", help="DRM system (default: auto)")
+    dl_group.add_argument("--hls-method", dest="hls_method", choices=["AES_128", "NONE"], default=None, help="Override the HLS segment encryption method, ignoring the manifest's own #EXT-X-KEY tag (or supplying one when it has none). NONE forces every segment to be treated as already clear (skips decrypt); AES_128 forces AES-128-CBC (pair with --hls-key/--hls-iv).")
+    dl_group.add_argument("--hls-key", dest="hls_key", metavar="HEX|BASE64|FILE", default=None, help="Raw AES-128 key to use instead of fetching URI= from the manifest's #EXT-X-KEY tag.")
+    dl_group.add_argument("--hls-iv", dest="hls_iv", metavar="HEX", default=None, help="IV to use instead of the manifest's IV=0x... (or the implicit per-segment IV).")
+    add_limit_arguments(dl_group)
+    dl_group.add_argument("--skip-content-check", dest="skip_content_check", action="store_true", help="Skip the preflight HEAD content-type check for MP4 direct downloads (--type mp4). Needed for single-use download URLs where a HEAD request consumes the link.")
+    dl_group.add_argument("--skip-sanitize", dest="skip_sanitize", action="store_true", help="Use the -o output path verbatim (MP4/HLS/DASH/ISM direct downloads), skipping path sanitization (which transliterates non-ASCII characters). Use when the caller already built/created the exact destination path.")
+    dl_group.add_argument("--meta-title", dest="meta_title", metavar="TITLE", help='Title metadata for this --down invocation (feeds DB/Vault "Claudio database" caching/upload and other title-dependent hooks, which are otherwise skipped for raw --down downloads). Set automatically on --down entries built by --resolve-only.')
+    dl_group.add_argument("--meta-type", dest="meta_type", metavar="TYPE", help="Media type metadata for this --down invocation (e.g. Film, TV).")
+    dl_group.add_argument("--meta-season", dest="meta_season", type=int, metavar="N", help="Season number metadata for this --down invocation.")
+    dl_group.add_argument("--meta-episode", dest="meta_episode", type=int, metavar="N", help="Episode number metadata for this --down invocation.")
+    dl_group.add_argument("--meta-site", dest="meta_site", metavar="NAME", help="Site/service name metadata for this --down invocation (e.g. streamingcommunity).")
 
     # ── Utility
-    util_group = parser.add_argument_group('Utility')
-    util_group.add_argument('--no-log', action='store_true', help='Disable log file for this run')
-    util_group.add_argument('-UP', '--update', action='store_true', help='Auto-update to latest version (binary only)')
-    util_group.add_argument('--dep', action='store_true', help='Show dependency paths (config, services, binaries)')
-    util_group.add_argument('--version', action='version', version=f'{__title__} {__version__}')
+    util_group = parser.add_argument_group("Utility")
+    util_group.add_argument("--no-log", action="store_true", help="Disable log file for this run")
+    util_group.add_argument("--no-manifest-info", action="store_true", help="Don't print the parsed manifest/streams table")
+    util_group.add_argument("-UP", "--update", action="store_true", help="Auto-update to latest version (binary only)")
+    util_group.add_argument("--dep", action="store_true", help="Show dependency paths (config, services, binaries)")
+    util_group.add_argument("--version", action="version", version=f"{__title__} {__version__}")
 
     # ── Queue
     add_queue_arguments(parser)
 
     # ── Site-specific options (only added, and thus only shown in --help, when --site targets this module).
     site_option_dests = []
-    register = getattr(site_module, 'register_cli_args', None) if site_module else None
+    register = getattr(site_module, "register_cli_args", None) if site_module else None
     if callable(register):
         try:
             site_option_dests = list(register(parser) or [])
         except Exception:
-            logger.warning(f"register_cli_args() failed for site module '{getattr(site_module, '__name__', site_module)}'", exc_info=True)
+            logger.warning(f"register_cli_args() failed for site module '{getattr(site_module, '__name__', site_module)}'", exc_info=True,)
 
     extra_help_sections = []
     for extra_module in extra_site_modules or []:
         if extra_module is site_module:
             continue
 
-        extra_register = getattr(extra_module, 'register_cli_args', None)
+        extra_register = getattr(extra_module, "register_cli_args", None)
         if callable(extra_register):
             try:
-                mini_parser = argparse.ArgumentParser(add_help=False, formatter_class=argparse.RawTextHelpFormatter, prog='')
+                mini_parser = argparse.ArgumentParser(add_help=False, formatter_class=argparse.RawTextHelpFormatter, prog="")
                 extra_register(mini_parser)
                 if any(g._group_actions for g in mini_parser._action_groups):
-                    _, _, section = mini_parser.format_help().partition('\n\n')
+                    _, _, section = mini_parser.format_help().partition("\n\n")
                     if section:
-                        extra_help_sections.append(section.rstrip('\n'))
+                        extra_help_sections.append(section.rstrip("\n"))
             except Exception:
-                logger.warning(f"register_cli_args() failed for site module '{getattr(extra_module, '__name__', extra_module)}'", exc_info=True)
+                logger.warning(f"register_cli_args() failed for site module '{getattr(extra_module, '__name__', extra_module)}'", exc_info=True,)
 
     if extra_help_sections:
         parser.epilog = "\n\n".join(extra_help_sections) + "\n\n" + parser.epilog
@@ -252,14 +268,15 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
 def apply_config_updates(args):
     """Apply command line arguments to configuration."""
     arg_mappings = {
-        'video':         'DOWNLOAD.select_video',
-        'audio':         'DOWNLOAD.select_audio',
-        'subtitle':      'DOWNLOAD.select_subtitle',
-        'use_proxy':     'REQUESTS.use_proxy',
-        'proxy_scope':   'REQUESTS.proxy_scope',
-        'extension':     'PROCESS.extension',
-        'close_console': 'DEFAULT.close_console',
-        'skip_ts':       'DEFAULT.skip_ts_versions',
+        "video": "DOWNLOAD.select_video",
+        "audio": "DOWNLOAD.select_audio",
+        "subtitle": "DOWNLOAD.select_subtitle",
+        "use_proxy": "REQUESTS.use_proxy",
+        "use_curl_cffi": "DOWNLOAD.use_curl_cffi_segments",
+        "proxy_scope": "REQUESTS.proxy_scope",
+        "extension": "PROCESS.extension",
+        "close_console": "DEFAULT.close_console",
+        "skip_ts": "DEFAULT.skip_ts_versions",
     }
 
     persistent_updates = {}
@@ -270,8 +287,8 @@ def apply_config_updates(args):
         if val is None:
             continue
 
-        if arg_name == 'close_console' and isinstance(val, str):
-            val = val.lower() == 'true'
+        if arg_name == "close_console" and isinstance(val, str):
+            val = val.lower() == "true"
 
         if arg_name in PERSISTENT_ARGS:
             persistent_updates[config_key] = val
@@ -279,7 +296,7 @@ def apply_config_updates(args):
             session_updates[config_key] = val
 
     for key, value in {**persistent_updates, **session_updates}.items():
-        section, option = key.split('.')
+        section, option = key.split(".")
         config_manager.config.set_key(section, option, value)
 
     if persistent_updates:
@@ -295,7 +312,7 @@ def build_function_mappings(search_functions):
     for func in search_functions.values():
         module_name = func.module_name
         module_name_to_function[module_name.lower()] = func
-        if getattr(func, 'hide', False):
+        if getattr(func, "hide", False):
             continue
 
         site_index = str(func.indice)
@@ -331,14 +348,14 @@ def handle_direct_site_selection(args, input_to_function, module_name_to_functio
             logger.warning(f"Direct item search raised an exception, falling back to interactive mode: {e}")
             database = None
 
-        media_list = getattr(database, 'media_list', None) if database else None
+        media_list = getattr(database, "media_list", None) if database else None
         if media_list:
             if 0 <= requested_index < len(media_list):
                 logger.info(f"Direct item selection: executing result at index {requested_index} directly.")
                 context_tracker.cli_search = search_terms
                 context_tracker.cli_item = requested_index
                 item = media_list[requested_index]
-                item_dict = item.__dict__.copy() if hasattr(item, '__dict__') else {}
+                item_dict = item.__dict__.copy() if hasattr(item, "__dict__") else {}
                 func_to_run(direct_item=item_dict, selections=selections)
                 return True
             else:
@@ -363,17 +380,17 @@ def get_user_site_selection(args, choice_labels):
         for key, label in choice_labels.items()
     ] + ["[magenta](global) Global[/magenta]"]
 
-    site_rows = [" | ".join(site_entries[i:i + 6]) for i in range(0, len(site_entries), 6)]
+    site_rows = [" | ".join(site_entries[i : i + 6]) for i in range(0, len(site_entries), 6)]
     for row in site_rows:
         console.print(row)
-    
+
     console.print()
     return msg.ask("[cyan]Insert site index[/cyan]", choices=choice_keys, default="0", show_choices=False, show_default=True)
 
 
 def get_logs_directory() -> str:
     """Get the logs directory path."""
-    app_base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    app_base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     logs_dir = Path(os.path.join(app_base_path, ".cache", "logs"))
     return str(logs_dir)
 
@@ -386,13 +403,13 @@ def _extract_version(text: str) -> str:
             m = re.search(r"v?(\d+(?:\.\d+){1,3})", line)
             if m:
                 return m.group(1)
-    
+
     for line in lines:
         if "version" in line.lower():
             m = re.search(r"v?(\d+(?:\.\d+){1,3})", line)
             if m:
                 return m.group(1)
-    
+
     m = re.search(r"v?(\d+(?:\.\d+){1,3})", text)
     return m.group(1) if m else ""
 
@@ -401,7 +418,7 @@ def _probe_binary_version(dep_name: str, path: str) -> str:
     """Best-effort version string for an external binary; '' if it cannot be determined."""
     if not path:
         return ""
-    
+
     try:
         if dep_name == "Velora":
             out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=5)
@@ -467,7 +484,7 @@ def main():
         site_module = _resolve_site_module(prescanned_site, search_functions) if prescanned_site else None
 
         # `--site X --help`: show ONLY that site's own options, skip the generic dump entirely.
-        if help_requested and site_module is not None and callable(getattr(site_module, 'register_cli_args', None)):
+        if help_requested and site_module is not None and callable(getattr(site_module, "register_cli_args", None)):
             _print_site_only_help(prescanned_site, site_module)
 
         # Plain `--help` (no --site, or a site with nothing site-specific to show): the usual
@@ -481,13 +498,16 @@ def main():
                 try:
                     extra_site_modules.append(func.get_module())
                 except Exception:
-                    logger.debug(f"Could not load site module '{func.module_name}' to list its CLI options for --help", exc_info=True)
+                    logger.debug(f"Could not load site module '{func.module_name}' to list its CLI options for --help", exc_info=True,)
 
-        parser, site_option_dests = setup_argument_parser(search_functions, site_module=site_module, extra_site_modules=extra_site_modules)
+        parser, site_option_dests = setup_argument_parser(
+            search_functions, site_module=site_module, extra_site_modules=extra_site_modules
+        )
         args = parser.parse_args()
-        setup_logger(no_log=getattr(args, 'no_log', False))
+        setup_logger(no_log=getattr(args, "no_log", False))
+        context_tracker.hide_manifest_info = getattr(args, "no_manifest_info", False)
 
-        if hasattr(args, 'dep') and args.dep:
+        if hasattr(args, "dep") and args.dep:
             show_dependencies(search_functions)
             return
 
@@ -512,7 +532,7 @@ def main():
             raise SystemExit(1)
 
         # Execute pre-run hooks with context from post-download if available, otherwise with empty context
-        execute_hooks('pre_run')
+        execute_hooks("pre_run")
         start_message(False)
 
         # Attempt git update but continue even if it fails (e.g., no network, git not available)
@@ -537,11 +557,10 @@ def main():
         apply_config_updates(args)
 
         # Propagate CLI download limits to the service flow
-        context_tracker.max_segments = getattr(args, 'max_segments', None)
-        context_tracker.max_time = getattr(args, 'max_time', None)
-        context_tracker.bypass_vault_cache = getattr(args, 'bypass_vault_cache', None)
-        context_tracker.resolve_only = bool(getattr(args, 'resolve_only', False))
-        site_options = {'drm': getattr(args, 'drm', None)}
+        apply_limits(args)
+        context_tracker.bypass_vault_cache = getattr(args, "bypass_vault_cache", None)
+        context_tracker.resolve_only = bool(getattr(args, "resolve_only", False))
+        site_options = {"drm": getattr(args, "drm", None)}
         site_options.update({dest: getattr(args, dest, None) for dest in site_option_dests})
         context_tracker.site_options = site_options
 
@@ -552,10 +571,10 @@ def main():
 
         # If we reach this point, we're in interactive mode (either normal or with --site specified)
         close_console_flag = None
-        if hasattr(args, 'close_console') and args.close_console is not None:
-            close_console_flag = args.close_console.lower() == 'true'
+        if hasattr(args, "close_console") and args.close_console is not None:
+            close_console_flag = args.close_console.lower() == "true"
         if close_console_flag is None:
-            close_console_flag = config_manager.config.get_bool('DEFAULT', 'close_console')
+            close_console_flag = config_manager.config.get_bool("DEFAULT", "close_console")
 
         # Build selections dictionary from season/episode/year arguments
         selections = None
@@ -563,13 +582,13 @@ def main():
             logger.info(f"Building selections from command line arguments: season={args.season}, episode={args.episode}, year={args.year}")
             selections = {}
             if args.season is not None:
-                selections['season'] = args.season
+                selections["season"] = args.season
             if args.episode is not None:
-                selections['episode'] = args.episode
+                selections["episode"] = args.episode
             if args.year is not None:
-                selections['year'] = args.year
+                selections["year"] = args.year
 
-        if getattr(args, 'global_search', False):
+        if getattr(args, "global_search", False):
             call_global_search(args.search)
             return
 
@@ -593,7 +612,7 @@ def main():
                     equivalent_command_builder.log_equivalent_command(args, parser, context_tracker, site_option_dests)
 
                 user_response = msg.ask("\n[cyan]Do you want to perform another search? (y/n)", choices=["y", "n"], default="n")
-                if user_response.lower() != 'y':
+                if user_response.lower() != "y":
                     break
 
             force_exit()
@@ -615,6 +634,9 @@ def main():
         log_file_path = get_log_file_path()
         if log_file_path:
             console.print(f"\n[dim]Log: {log_file_path}[/dim]")
-        
+
+        for track_file_path in get_written_track_files():
+            console.print(f"[dim]Json: {track_file_path}[/dim]")
+
         logger.info("Script execution completed.")
-        execute_hooks('post_run', context=get_last_hook_context('post_download') or get_last_hook_context('post_run'))
+        execute_hooks("post_run", context=get_last_hook_context("post_download") or get_last_hook_context("post_run"))

@@ -1,15 +1,15 @@
 # 18.07.25
 
-import os
 import logging
+import os
 import shutil
 import subprocess
-from typing import Optional, Tuple
 
 from rich.console import Console
 
-from .binary_paths import binary_paths
 from VibraVid.utils import config_manager
+
+from .binary_paths import binary_paths
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ INSTALLATION_LEVELS = {
 
 def is_termux() -> bool:
     """Check if the application is running inside Termux on Android."""
-    return 'TERMUX_VERSION' in os.environ or os.path.exists('/data/data/com.termux/files/usr/bin')
+    return "TERMUX_VERSION" in os.environ or os.path.exists("/data/data/com.termux/files/usr/bin")
 
 
 def _should_download(tool_group: str) -> bool:
@@ -32,7 +32,7 @@ def _should_download(tool_group: str) -> bool:
     return tool_group in INSTALLATION_LEVELS.get(level, [])
 
 
-def check_bento4() -> Optional[str]:
+def check_bento4() -> str | None:
     """
     Check for a Bento4 binary and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -73,7 +73,7 @@ def check_bento4() -> Optional[str]:
     return None
 
 
-def check_ffmpeg() -> Tuple[Optional[str], Optional[str]]:
+def check_ffmpeg() -> tuple[str | None, str | None]:
     """
     Check for FFmpeg executables and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -118,7 +118,7 @@ def check_ffmpeg() -> Tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def check_shaka_packager() -> Optional[str]:
+def check_shaka_packager() -> str | None:
     """
     Check for Shaka Packager executable and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -159,7 +159,7 @@ def check_shaka_packager() -> Optional[str]:
     return None
 
 
-def check_dovi_tool() -> Optional[str]:
+def check_dovi_tool() -> str | None:
     """
     Check for dovi_tool binary and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -187,7 +187,15 @@ def check_dovi_tool() -> Optional[str]:
             console.print("[cyan]Cargo detected. Attempting to build dovi_tool from source...[/cyan]")
             binary_dir = binary_paths.ensure_binary_directory()
             try:
-                cmd = ["cargo", "install", "--quiet", "--git", "https://github.com/quietvoid/dovi_tool", "--root", os.path.dirname(binary_dir)]
+                cmd = [
+                    "cargo",
+                    "install",
+                    "--quiet",
+                    "--git",
+                    "https://github.com/quietvoid/dovi_tool",
+                    "--root",
+                    os.path.dirname(binary_dir),
+                ]
                 subprocess.run(cmd, check=True)
                 cargo_bin = os.path.join(os.path.dirname(binary_dir), "bin", "dovi_tool")
                 dest_bin = os.path.join(binary_dir, "dovi_tool")
@@ -216,7 +224,7 @@ def check_dovi_tool() -> Optional[str]:
     return None
 
 
-def check_mkvmerge() -> Optional[str]:
+def check_mkvmerge() -> str | None:
     """
     Check for mkvmerge binary and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -257,7 +265,7 @@ def check_mkvmerge() -> Optional[str]:
     return None
 
 
-def check_mkvpropedit() -> Optional[str]:
+def check_mkvpropedit() -> str | None:
     """
     Check for mkvpropedit binary and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -293,7 +301,7 @@ def check_mkvpropedit() -> Optional[str]:
     return None
 
 
-def check_velora() -> Optional[str]:
+def check_velora() -> str | None:
     system_platform = binary_paths.system
     binary_exec = "velora.exe" if system_platform == "windows" else "velora"
 
@@ -317,7 +325,15 @@ def check_velora() -> Optional[str]:
             console.print("[cyan]Cargo detected. Attempting to build Velora from source...[/cyan]")
             binary_dir = binary_paths.ensure_binary_directory()
             try:
-                cmd = ["cargo", "install", "--quiet", "--git", "https://github.com/AstraeLabs/Velora", "--root", os.path.dirname(binary_dir)]
+                cmd = [
+                    "cargo",
+                    "install",
+                    "--quiet",
+                    "--git",
+                    "https://github.com/AstraeLabs/Velora",
+                    "--root",
+                    os.path.dirname(binary_dir),
+                ]
                 subprocess.run(cmd, check=True)
                 cargo_bin = os.path.join(os.path.dirname(binary_dir), "bin", "Velora")
                 dest_bin = os.path.join(binary_dir, "velora")

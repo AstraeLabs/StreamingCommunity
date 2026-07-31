@@ -3,15 +3,18 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from VibraVid.utils.http_client import create_async_client, get_proxy_url
-from VibraVid.utils import config_manager
-from VibraVid.core.utils.language import resolve_locale, language_variants, extract_lang_and_flags, subtitle_flags
+from VibraVid.core.utils.codec import AUDIO_EXTENSIONS, SUBTITLE_EXTENSIONS
+from VibraVid.core.utils.language import extract_lang_and_flags, language_variants, resolve_locale, subtitle_flags
 from VibraVid.core.velora.bridge import run_download_plan
-from VibraVid.core.utils.codec import SUBTITLE_EXTENSIONS, AUDIO_EXTENSIONS
-from VibraVid.core.velora.util._subtitle_segments import get_subtitle_resolve_workers, download_and_merge_subtitle_segments
-
+from VibraVid.core.velora.util._subtitle_segments import (
+    download_and_merge_subtitle_segments,
+    get_subtitle_resolve_workers,
+)
+from VibraVid.core.velora.util.formatting import format_size
+from VibraVid.utils import config_manager
+from VibraVid.utils.http_client import create_async_client, get_proxy_url
 
 logger = logging.getLogger("SubtitleDownloader")
 VALID_SUBTITLE_FORMATS = {ext.lstrip(".") for ext in SUBTITLE_EXTENSIONS}
@@ -28,12 +31,12 @@ def is_valid_format(fmt: str, track_type: str) -> bool:
     return False
 
 
-def _extract_lang_and_flags(lang_raw: str, track_info: Dict = None) -> Tuple[str, set]:
+def _extract_lang_and_flags(lang_raw: str, track_info: dict = None) -> tuple[str, set]:
     """Extract standard flags from a language string and return the clean base language and a set of flags."""
     return extract_lang_and_flags(lang_raw, track_info)
 
 
-def build_ext_track_label(track: Dict, track_type: str, ext_override: str = None, plain: bool = False) -> str:
+def build_ext_track_label(track: dict, track_type: str, ext_override: str = None, plain: bool = False) -> str:
     """
     Build a rich-formatted progress-bar label for an external subtitle or audio track.
     Shows language (BCP-47) + flags only — no name, no format suffix.
@@ -48,9 +51,9 @@ def build_ext_track_label(track: Dict, track_type: str, ext_override: str = None
     # Suppress DEFAULT when the track is only DEFAULT because it's forced
     default = (bool(track.get("default")) or "default" in parsed_flags) and not forced
     resolved = resolve_locale(base_lang) or base_lang
-    parts: List[str] = [f"[bold white]{resolved}[/bold white]"]
+    parts: list[str] = [f"[bold white]{resolved}[/bold white]"]
 
-    flags: List[str] = []
+    flags: list[str] = []
     if forced:
         flags.append("[FORCED]")
     if sdh:
@@ -59,17 +62,17 @@ def build_ext_track_label(track: Dict, track_type: str, ext_override: str = None
         flags.append("[CC]")
     if default:
         flags.append("[DEFAULT]")
-    
+
     # Use track's extension as fallback if provided
     track_ext = track.get("extension", "UNK").lower().lstrip(".")
     ext = ext_override or ext_from_url(track.get("url", ""), track_ext)
     logger.debug(f"Building label for track: lang_raw={lang_raw}, resolved={resolved}, flags={flags}, ext={ext}")
 
     if plain:
-        plain_parts: List[str] = [resolved]
+        plain_parts: list[str] = [resolved]
         if flags:
             plain_parts.append(" ".join(flags))
-        
+
         ext_tag = f"[{ext}]" if ext else ""
         pfx = "Sub" if track_type == "subtitle" else "Aud"
         return f"{pfx} {ext_tag} {' '.join(plain_parts)}".strip()
@@ -83,12 +86,18 @@ def build_ext_track_label(track: Dict, track_type: str, ext_override: str = None
 
 
 _NAME_REGION_OVERRIDES = {
-    "es": [(("latin", "419", "latino", "america", "américa"), "419"), (("europe", "castil", "spain", "españa", "espana"), "ES")],
+    "es": [
+        (("latin", "419", "latino", "america", "américa"), "419"),
+        (("europe", "castil", "spain", "españa", "espana"), "ES"),
+    ],
     "pt": [(("brazil", "brasil"), "BR"), (("portugal",), "PT")],
     "zh": [(("simplified", "hans", "mainland"), "CN"), (("traditional", "hant", "taiwan", "hong kong"), "TW")],
     "fr": [(("canad", "quebec", "québec"), "CA"), (("france",), "FR")],
     "en": [(("british", "united kingdom", "(uk)", "(gb)"), "GB"), (("united states", "(us)"), "US")],
-    "pt-br": [], "pt-pt": [], "es-419": [], "es-es": [],  # placeholders; primary subtag is used
+    "pt-br": [],
+    "pt-pt": [],
+    "es-419": [],
+    "es-es": [],  # placeholders; primary subtag is used
 }
 
 
@@ -107,7 +116,7 @@ def _apply_name_region(base_locale: str, name: str) -> str:
     return base_locale
 
 
-def normalize_sub_filename(lang_raw: str, track_info: Dict = None) -> Tuple[str, str]:
+def normalize_sub_filename(lang_raw: str, track_info: dict = None) -> tuple[str, str]:
     """
     Return (base_lang, flag_suffix) for subtitle filename construction.
 
@@ -118,7 +127,7 @@ def normalize_sub_filename(lang_raw: str, track_info: Dict = None) -> Tuple[str,
     base_lang = (resolve_locale(base_lang) or base_lang).lower()
     base_lang = _apply_name_region(base_lang, (track_info or {}).get("name") or "")
 
-    flags: List[str] = []
+    flags: list[str] = []
     if (track_info and track_info.get("forced")) or "forced" in parsed_flags:
         flags.append("forced")
     if (track_info and track_info.get("sdh")) or "sdh" in parsed_flags:
@@ -132,13 +141,15 @@ def normalize_sub_filename(lang_raw: str, track_info: Dict = None) -> Tuple[str,
 
 def ext_from_url(url: str, fallback: str = "UNK") -> str:
     """Detect subtitle/audio format from URL path, ignoring query string."""
-    from VibraVid.core.velora.util._stream_helpers import _ext_from_url_canon, _SUBTITLE_EXTENSIONS
+    from VibraVid.core.velora.util._stream_helpers import _SUBTITLE_EXTENSIONS, _ext_from_url_canon
+
     return _ext_from_url_canon(url, _SUBTITLE_EXTENSIONS, default=fallback)
 
 
-async def resolve_url(client: Any, url: str, track_type: str) -> Tuple[str, str]:
+async def resolve_url(client: Any, url: str, track_type: str) -> tuple[str, str]:
     """If *url* points to an HLS manifest (#EXTM3U), resolve and return the first media segment URL and its detected format."""
     from urllib.parse import urljoin
+
     try:
         resp = await client.get(url)
         resp.raise_for_status()
@@ -163,7 +174,7 @@ async def resolve_url(client: Any, url: str, track_type: str) -> Tuple[str, str]
     return url, fmt
 
 
-async def _download_multi_segment_subtitle(client: Any, track: Dict, out_path: Path, fmt: str) -> Optional[int]:
+async def _download_multi_segment_subtitle(client: Any, track: dict, out_path: Path, fmt: str) -> int | None:
     """Fetch every HLS subtitle segment for *track* and merge them into *out_path*."""
     segments = [(seg["url"], seg.get("duration", 0.0)) for seg in track["segments"]]
     merged = await download_and_merge_subtitle_segments(client, segments)
@@ -172,16 +183,20 @@ async def _download_multi_segment_subtitle(client: Any, track: Dict, out_path: P
     return len(data)
 
 
-async def _process_external_track(client: Any, headers: Dict, track: Dict, track_type: str, output_dir: Path, bar_manager: Any, stop_check: Any) -> Tuple[str, Optional[Dict]]:
+async def _process_external_track(
+    client: Any, headers: dict, track: dict, track_type: str, output_dir: Path, bar_manager: Any, stop_check: Any
+) -> tuple[str, dict | None]:
     lang_raw = (track.get("language") or "unknown").strip()
 
     # Use track's extension as fallback if provided
     track_ext = track.get("extension", "UNK").lower().lstrip(".")
     fmt: str = ext_from_url(track.get("url", ""), track_ext)
     base_lang, flag_suffix = normalize_sub_filename(lang_raw, track)
-    logger.debug(f"Prepared to download track: lang_raw={lang_raw}, base_lang={base_lang}, flag_suffix={flag_suffix}, ext={fmt}, url={track.get('url')}")
+    logger.debug(
+        f"Prepared to download track: lang_raw={lang_raw}, base_lang={base_lang}, flag_suffix={flag_suffix}, ext={fmt}, url={track.get('url')}"
+    )
 
-    segments: List[Dict] = (track.get("segments") or []) if track_type == "subtitle" else []
+    segments: list[dict] = (track.get("segments") or []) if track_type == "subtitle" else []
     is_multi_segment = len(segments) > 1
 
     try:
@@ -215,13 +230,18 @@ async def _process_external_track(client: Any, headers: Dict, track: Dict, track
 
         if is_multi_segment:
             size = await _download_multi_segment_subtitle(client, track, out_path, fmt)
-            bar_manager.handle_progress_line({
-                "task_key": task_key,
-                "label": new_label,
-                "display_label": display_label,
-                "pct": 100,
-                "segments": f"{len(segments)}/{len(segments)}",
-            })
+            size_str = format_size(size or 0)
+            bar_manager.handle_progress_line(
+                {
+                    "task_key": task_key,
+                    "label": new_label,
+                    "display_label": display_label,
+                    "pct": 100,
+                    "segments": f"{len(segments)}/{len(segments)}",
+                    "size": f"{size_str}/{size_str}",
+                    "speed": "---",
+                }
+            )
         else:
             plan = {
                 "project": "Velora",
@@ -287,20 +307,27 @@ async def _process_external_track(client: Any, headers: Dict, track: Dict, track
         return track_type, None
 
 
-async def download_external_tracks_with_progress(headers: Dict, external_subtitles: List[Dict], external_audios: List[Dict], output_dir: Path, filename: str, bar_manager: Any, stop_check: Any = None) -> Tuple[List[Dict], List[Dict]]:
+async def download_external_tracks_with_progress(
+    headers: dict,
+    external_subtitles: list[dict],
+    external_audios: list[dict],
+    output_dir: Path,
+    filename: str,
+    bar_manager: Any,
+    stop_check: Any = None,
+) -> tuple[list[dict], list[dict]]:
     """Download external tracks with manifest resolution, proper filenames, and progress.
 
     Args:
         stop_check: Optional callable that returns True when download should stop.
     """
-    ext_subs: List[Dict] = []
-    ext_auds: List[Dict] = []
-    all_tasks = (
-        [(sub, "subtitle") for sub in external_subtitles if sub.get("_selected", True)]
-        + [(aud, "audio") for aud in external_audios if aud.get("_selected", True)]
-    )
+    ext_subs: list[dict] = []
+    ext_auds: list[dict] = []
+    all_tasks = [(sub, "subtitle") for sub in external_subtitles if sub.get("_selected", True)] + [
+        (aud, "audio") for aud in external_audios if aud.get("_selected", True)
+    ]
 
-    _seen_bases: Dict[str, int] = {}
+    _seen_bases: dict[str, int] = {}
     for _track, _ttype in all_tasks:
         if _ttype != "subtitle":
             continue
@@ -311,9 +338,9 @@ async def download_external_tracks_with_progress(headers: Dict, external_subtitl
         _track["_assigned_sub_base"] = _stem if _count == 1 else f"{_stem}_{_count}"
 
     for subs in external_subtitles:
-        logger.info(f"Add external subtitle track: {subs}")
+        logger.debug(f"Add external subtitle track: {subs}")
     for auds in external_audios:
-        logger.info(f"Add external audio track: {auds}")
+        logger.debug(f"Add external audio track: {auds}")
 
     if not all_tasks:
         return ext_subs, ext_auds
@@ -322,13 +349,18 @@ async def download_external_tracks_with_progress(headers: Dict, external_subtitl
 
     async with create_async_client(headers=headers) as client:
         if workers <= 1:
-            results = [await _process_external_track(client, headers, track, track_type, output_dir, bar_manager, stop_check) for track, track_type in all_tasks]
+            results = [
+                await _process_external_track(client, headers, track, track_type, output_dir, bar_manager, stop_check)
+                for track, track_type in all_tasks
+            ]
         else:
             semaphore = asyncio.Semaphore(workers)
 
-            async def _bounded(track: Dict, track_type: str) -> Tuple[str, Optional[Dict]]:
+            async def _bounded(track: dict, track_type: str) -> tuple[str, dict | None]:
                 async with semaphore:
-                    return await _process_external_track(client, headers, track, track_type, output_dir, bar_manager, stop_check)
+                    return await _process_external_track(
+                        client, headers, track, track_type, output_dir, bar_manager, stop_check
+                    )
 
             results = await asyncio.gather(*(_bounded(track, track_type) for track, track_type in all_tasks))
 

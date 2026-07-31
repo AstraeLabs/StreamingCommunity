@@ -1,7 +1,6 @@
 # 22.02.25
 
 import logging
-from typing import Optional
 
 from VibraVid.core.decryptor._models import detect_encryption_info
 from VibraVid.core.drm.system import KNOWN_DRM_SYSTEMS
@@ -9,12 +8,12 @@ from VibraVid.utils.os import os_manager
 
 logger = logging.getLogger(__name__)
 PROBE_BYTES = 1 * 1024 * 1024  # 1 MB — safety-net ceiling for in-flight accumulation
-PROBE_BYTES_FAST = 92 * 1024   # 92 KB — cheap preflight Range probe tried before the real download starts
+PROBE_BYTES_FAST = 92 * 1024  # 92 KB — cheap preflight Range probe tried before the real download starts
 
 
 class DRMProbe:
-    def __init__(self, known_systems: Optional[dict] = None) -> None:
-        self._systems: dict[str, str] = (known_systems if known_systems is not None else KNOWN_DRM_SYSTEMS)
+    def __init__(self, known_systems: dict | None = None) -> None:
+        self._systems: dict[str, str] = known_systems if known_systems is not None else KNOWN_DRM_SYSTEMS
 
     def probe(self, url: str, headers: dict, client, size: int = PROBE_BYTES) -> tuple:
         """Returns ``(encrypted: bool, scheme: str | None, drm_names: list[str], kid: str | None, pssh_b64: str | None)``."""
@@ -56,7 +55,7 @@ class DRMProbe:
             logger.debug(f"DRMProbe.inspect failed (non-fatal): {exc}")
             return False, None, [], None, None
 
-    def _fetch_bytes(self, url: str, headers: dict, client, size: int = PROBE_BYTES) -> Optional[bytes]:
+    def _fetch_bytes(self, url: str, headers: dict, client, size: int = PROBE_BYTES) -> bytes | None:
         """Fetch the first *size* bytes of the URL using a Range request, returning the raw bytes (or None on failure)."""
         probe_headers = {**headers, "Range": f"bytes=0-{size - 1}"}
         resp = client.get(url, headers=probe_headers, timeout=15)
@@ -102,16 +101,16 @@ class DRMProbe:
 
         if known_names and unknown_ids:
             return [*known_names, f"Unknown SID x{len(unknown_ids)}"]
-        
+
         if known_names:
             return known_names
-        
+
         if unknown_ids:
             return [f"Unknown ({sid[:8]}...)" for sid in unknown_ids]
         return ["Unknown"]
 
     @staticmethod
-    def _report(scheme: Optional[str], kid: Optional[str], drm_names: list) -> None:
+    def _report(scheme: str | None, kid: str | None, drm_names: list) -> None:
         """Log a summary of the detected encryption info."""
         label = ", ".join(drm_names) if drm_names else "unknown DRM"
         logger.info(f"DRMProbe: encryption detected — scheme={scheme or 'unknown'}, kid={kid or 'n/a'}, DRM=[{label}]")

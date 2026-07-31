@@ -4,7 +4,6 @@ import logging
 
 from VibraVid.utils.http_client import create_client, get_userAgent
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -15,8 +14,8 @@ class VideoSource:
         self.csrf_token = csrf_token
         self.episode_data = episode_data
         self.number = episode_data.number
-        self.token = getattr(episode_data, 'token', '')
-        play_url = getattr(episode_data, 'play_url', '')
+        self.token = getattr(episode_data, "token", "")
+        play_url = getattr(episode_data, "play_url", "")
         self.link = site_url + episode_data.url
         referer = (site_url + play_url) if play_url else site_url
 
@@ -31,7 +30,7 @@ class VideoSource:
                 "Origin": site_url,
                 "Referer": referer,
             },
-            follow_redirects=True
+            follow_redirects=True,
         )
 
     def get_playlist(self):

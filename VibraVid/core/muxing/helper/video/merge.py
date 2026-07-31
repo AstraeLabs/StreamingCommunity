@@ -1,16 +1,15 @@
 # 16.04.24
 
 import gzip
-import shutil
 import logging
+import shutil
 from pathlib import Path
-
 
 logger = logging.getLogger(__name__)
 
 # Streaming buffer for raw (non-gzip) segment copies, so a segment is never fully materialised in memory.
 _COPY_BUFSIZE = 1024 * 1024
-_PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _PNG_SCAN_WINDOW = 64 * 1024
 
 
@@ -56,7 +55,7 @@ def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: lo
             continue
         if size > 0:
             valid.append((p, _segment_number(p), size))
-    
+
     valid.sort(key=lambda item: item[1])
     if not valid:
         log.error("[binary_merge] No valid segments found")
@@ -70,7 +69,7 @@ def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: lo
                 head = in_f.read(8)
 
                 # gzip-compressed segment (magic bytes 1f 8b): the whole segment must be held in memory to decompress it.
-                if head[:2] == b'\x1f\x8b':
+                if head[:2] == b"\x1f\x8b":
                     try:
                         log.info(f"[binary_merge] detected gzip-compressed segment: {seg_path.name}, decompressing ...")
                         data = gzip.decompress(head + in_f.read())
@@ -92,7 +91,7 @@ def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: lo
                         png_wrapped += 1
                         out_f.write(prefix[ts_off:])
                         shutil.copyfileobj(in_f, out_f, _COPY_BUFSIZE)
-                        
+
                         # Written = (prefix after the wrapper) + (streamed tail past the scan window).
                         total_written += (len(prefix) - ts_off) + (seg_size - len(prefix))
                         continue

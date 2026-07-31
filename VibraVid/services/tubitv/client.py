@@ -1,17 +1,16 @@
-# 16.12.25
+﻿# 16.12.25
 
 import base64
 import json
 import time
 import uuid
-from typing import Tuple, Optional
 
+from VibraVid.services._base.login_status import ACCOUNT, print_login
 from VibraVid.utils import config_manager, disk_cache
-from VibraVid.utils.http_client import create_client, get_userAgent, get_headers
+from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 
-
-tubi_email = config_manager.login.get('tubi', 'email')
-tubi_password = config_manager.login.get('tubi', 'password')
+tubi_email = config_manager.login.get("tubi", "email")
+tubi_password = config_manager.login.get("tubi", "password")
 
 _cached_token = None
 _FALLBACK_TTL_SECONDS = 3600
@@ -22,7 +21,7 @@ def generate_device_id():
     return str(uuid.uuid4())
 
 
-def _jwt_expiry(token: str) -> Optional[float]:
+def _jwt_expiry(token: str) -> float | None:
     """Return a JWT's `exp` claim (epoch seconds), or None if undecodable."""
     try:
         part = token.split(".")[1]
@@ -43,80 +42,74 @@ def get_bearer_token():
 
     # Try disk cache
     data = disk_cache.load("tubitv", "token")
-    if data and data.get('access_token') and disk_cache.is_fresh(data, buffer_seconds=60):
-        _cached_token = data['access_token']
+    if data and data.get("access_token") and disk_cache.is_fresh(data, buffer_seconds=60):
+        _cached_token = data["access_token"]
         return _cached_token
 
     if not tubi_email or not tubi_password:
         raise Exception("Email or Password not set in configuration.")
 
     json_data = {
-        'type': 'email',
-        'platform': 'web',
-        'device_id': generate_device_id(),
-        'credentials': {
-            'email': str(tubi_email).strip(),
-            'password': str(tubi_password).strip()
-        },
+        "type": "email",
+        "platform": "web",
+        "device_id": generate_device_id(),
+        "credentials": {"email": str(tubi_email).strip(), "password": str(tubi_password).strip()},
     }
 
-    print("Logging in to Tubi TV...")
     with create_client(headers=get_headers()) as client:
-        response = client.post(
-            'https://account.production-public.tubi.io/user/login',
-            json=json_data
-        )
+        response = client.post("https://account.production-public.tubi.io/user/login", json=json_data)
 
     if response.status_code == 503:
         raise Exception("Service Unavailable: Set VPN to America.")
 
     login_data = response.json()
-    _cached_token = login_data['access_token']
+
+    # Tubi is credentials-only (it raises above without them), so the session is always an account.
+    # The login response already names it, and the configured email is the guaranteed fallback -
+    # either way no extra lookup is needed. /oz/user would need the browser connect.sid cookie,
+    # which this bearer-based flow never has.
+    print_login(ACCOUNT, user=login_data.get("name") or login_data.get("email") or str(tubi_email).strip())
+
+    _cached_token = login_data["access_token"]
     expiry = _jwt_expiry(_cached_token) or (time.time() + _FALLBACK_TTL_SECONDS)
-    login_data['expiry'] = expiry
+    login_data["expiry"] = expiry
     disk_cache.save("tubitv", "token", login_data)
     return _cached_token
 
 
-def get_playback_url(content_id: str, bearer_token: str) -> Tuple[str, Optional[str], Optional[dict]]:
+def get_playback_url(content_id: str, bearer_token: str) -> tuple[str, str | None, dict | None]:
     """
     Get the playback URL (HLS) and license URL for a given content ID.
 
     Parameters:
-        - content_id (str): ID of the video content
-        - bearer_token (str): Bearer token for authentication
+        content_id (str): ID of the video content
+        bearer_token (str): Bearer token for authentication
 
     Returns:
         - Tuple[str, Optional[str], Optional[dict]]: (master_playlist_url, license_url, headers)
     """
     headers = {
-        'authorization': f"Bearer {bearer_token}",
-        'user-agent': get_userAgent(),
+        "authorization": f"Bearer {bearer_token}",
+        "user-agent": get_userAgent(),
     }
 
     params = {
-        'content_id': content_id,
-        'limit_resolutions[]': [
-            'h264_1080p',
-            'h265_1080p',
+        "content_id": content_id,
+        "limit_resolutions[]": [
+            "h264_1080p",
+            "h265_1080p",
         ],
-        'video_resources[]': [
-            'dash',
-            'dash_widevine'
-        ]
+        "video_resources[]": ["dash", "dash_widevine"],
     }
 
     with create_client(headers=headers) as client:
-        response = client.get(
-            'https://content-cdn.production-public.tubi.io/api/v2/content',
-            params=params
-        )
-    
+        response = client.get("https://content-cdn.production-public.tubi.io/api/v2/content", params=params)
+
     json_data = response.json()
-    master_playlist_url = json_data['video_resources'][0]['manifest']['url']
-    
+    master_playlist_url = json_data["video_resources"][0]["manifest"]["url"]
+
     license_url = None
-    if 'license_server' in json_data['video_resources'][0]:
-        license_url = json_data['video_resources'][0]['license_server']['url']
-    
+    if "license_server" in json_data["video_resources"][0]:
+        license_url = json_data["video_resources"][0]["license_server"]["url"]
+
     return master_playlist_url, license_url, headers

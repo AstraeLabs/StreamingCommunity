@@ -1,11 +1,11 @@
 # 12.02.26
 
 import json
+import logging
 import os
 import sys
 import threading
 import time
-from typing import Optional
 
 from django.db import close_old_connections
 from django.utils import timezone
@@ -14,11 +14,12 @@ from .api import get_api
 from .api.base import Entries
 from .models import WatchlistItem
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL_SECONDS = 14400
 
 _loop_started = False
-_loop_lock    = threading.Lock()
+_loop_lock = threading.Lock()
 
 
 def _get_interval_seconds() -> int:
@@ -32,7 +33,7 @@ def _get_interval_seconds() -> int:
     return DEFAULT_INTERVAL_SECONDS
 
 
-def _get_season_episode_count(seasons, season_number: int) -> Optional[int]:
+def _get_season_episode_count(seasons, season_number: int) -> int | None:
     for season in seasons:
         if int(season.number) == int(season_number):
             return season.episode_count
@@ -45,13 +46,13 @@ def _should_start_loop() -> bool:
 
 def _process_item(item: WatchlistItem, force: bool = False) -> None:
     """Process a single watchlist item for auto-download.
-    
+
     Args:
         item: The watchlist item to process.
         force: If True, download even if episode count hasn't changed.
     """
     try:
-        print(f"[WatchlistAuto] Processing '{item.name}' (id={item.id}, season={item.auto_season}, last_count={item.auto_last_episode_count})")
+        logger.info("Processing '%s' (id=%s, season=%s, last_count=%s)", item.name, item.id, item.auto_season, item.auto_last_episode_count,)
 
         api = get_api(item.source_alias)
         item_payload = json.loads(item.item_payload)
@@ -59,26 +60,26 @@ def _process_item(item: WatchlistItem, force: bool = False) -> None:
         media_item = Entries(**entries_fields)
 
         if media_item.is_movie or item.is_movie:
-            print(f"[WatchlistAuto] '{item.name}': movies are not eligible for auto-download")
+            logger.info("'%s': movies are not eligible for auto-download", item.name)
             return
 
         seasons = api.get_series_metadata(media_item)
 
         if not seasons:
-            print(f"[WatchlistAuto] '{item.name}': no seasons returned from API")
+            logger.warning("'%s': no seasons returned from API", item.name)
             return
 
         season_number = item.auto_season
         if not season_number:
-            print(f"[WatchlistAuto] '{item.name}': no auto_season set")
+            logger.info("'%s': no auto_season set", item.name)
             return
 
         current_count = _get_season_episode_count(seasons, season_number)
         if current_count is None:
-            print(f"[WatchlistAuto] '{item.name}': season {season_number} not found in metadata")
+            logger.warning("'%s': season %s not found in metadata", item.name, season_number)
             return
 
-        print(f"[WatchlistAuto] '{item.name}': season {season_number} has {current_count} episodes (stored: {item.auto_last_episode_count})")
+        logger.info("'%s': season %s has %s episodes (stored: %s)", item.name, season_number, current_count, item.auto_last_episode_count,)
 
         now = timezone.now()
 
@@ -87,7 +88,7 @@ def _process_item(item: WatchlistItem, force: bool = False) -> None:
             from .views import _run_download_in_thread
 
             media_type = (item_payload.get("type") or "tv").lower()
-            print(f"[WatchlistAuto] '{item.name}': starting download S{season_number} episodes=* media_type={media_type}")
+            logger.info("'%s': starting download S%s episodes=* media_type=%s", item.name, season_number, media_type,)
             _run_download_in_thread(
                 site=item.source_alias,
                 item_payload=item_payload,
@@ -116,9 +117,7 @@ def _process_item(item: WatchlistItem, force: bool = False) -> None:
             ]
         )
     except Exception as exc:
-        import traceback
-        print(f"[WatchlistAuto] Error processing {item.id} '{item.name}': {exc}")
-        traceback.print_exc()
+        logger.exception("Error processing %s '%s': %s", item.id, item.name, exc)
 
 
 def _auto_loop(interval_seconds: int) -> None:
@@ -126,15 +125,13 @@ def _auto_loop(interval_seconds: int) -> None:
         try:
             close_old_connections()
             items = list(
-                WatchlistItem.objects.filter(auto_enabled=True)
-                .exclude(auto_season__isnull=True)
-                .exclude(is_movie=True)
+                WatchlistItem.objects.filter(auto_enabled=True).exclude(auto_season__isnull=True).exclude(is_movie=True)
             )
-            print(f"[WatchlistAuto] Periodic check: {len(items)} items with auto-download enabled")
+            logger.info("Periodic check: %d items with auto-download enabled", len(items))
             for item in items:
                 _process_item(item)
         except Exception as exc:
-            print(f"[WatchlistAuto] Loop error: {exc}")
+            logger.exception("Loop error: %s", exc)
         time.sleep(_get_interval_seconds())
 
 
@@ -143,20 +140,16 @@ def run_watchlist_auto_once(force: bool = True) -> None:
     try:
         close_old_connections()
         items = list(
-            WatchlistItem.objects.filter(auto_enabled=True)
-            .exclude(auto_season__isnull=True)
-            .exclude(is_movie=True)
+            WatchlistItem.objects.filter(auto_enabled=True).exclude(auto_season__isnull=True).exclude(is_movie=True)
         )
-        print(f"[WatchlistAuto] Manual trigger: {len(items)} items with auto-download enabled (force={force})")
+        logger.info("Manual trigger: %d items with auto-download enabled (force=%s)", len(items), force)
         if not items:
-            print("[WatchlistAuto] No items have auto-download enabled with a season selected.")
+            logger.info("No items have auto-download enabled with a season selected.")
             return
         for item in items:
             _process_item(item, force=force)
     except Exception as exc:
-        import traceback
-        print(f"[WatchlistAuto] One-shot error: {exc}")
-        traceback.print_exc()
+        logger.exception("One-shot error: %s", exc)
 
 
 def start_watchlist_auto_loop() -> None:
@@ -167,7 +160,7 @@ def start_watchlist_auto_loop() -> None:
     # in the same process, which would start duplicate background threads.
     with _loop_lock:
         if _loop_started:
-            print("[WatchlistAuto] Loop already running in this process, skipping duplicate start.")
+            logger.info("Loop already running in this process, skipping duplicate start.")
             return
         _loop_started = True
 

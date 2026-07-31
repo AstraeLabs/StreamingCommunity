@@ -1,18 +1,16 @@
 # 15.07.26
 
+import logging
 import os
 import subprocess
-import logging
 from pathlib import Path
-from typing import Optional
 
 from VibraVid.setup import get_ffmpeg_path
-
 
 logger = logging.getLogger(__name__)
 
 
-def normalize_timestamps(src_path: Path, log: Optional[logging.Logger] = None) -> Optional[Path]:
+def normalize_timestamps(src_path: Path, log: logging.Logger | None = None) -> Path | None:
     """Re-mux a media file with ffmpeg to reset absolute fragment timestamps"""
     if log is None:
         log = logger
@@ -30,11 +28,16 @@ def normalize_timestamps(src_path: Path, log: Optional[logging.Logger] = None) -
         pass
 
     cmd = [
-        get_ffmpeg_path(), "-y",
-        "-i", str(src_path),
-        "-c", "copy",
-        "-avoid_negative_ts", "make_zero",
-        "-fflags", "+genpts",
+        get_ffmpeg_path(),
+        "-y",
+        "-i",
+        str(src_path),
+        "-c",
+        "copy",
+        "-avoid_negative_ts",
+        "make_zero",
+        "-fflags",
+        "+genpts",
     ]
     if use_mp4:
         cmd += ["-f", "mp4"]
@@ -42,7 +45,13 @@ def normalize_timestamps(src_path: Path, log: Optional[logging.Logger] = None) -
 
     try:
         result = subprocess.run(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=600,
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=600,
+            encoding="utf-8",
+            errors="replace",
             creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
         )
     except Exception as exc:

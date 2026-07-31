@@ -19,18 +19,18 @@ class WatchlistItem(models.Model):
     auto_last_episode_count = models.IntegerField(default=0)
     auto_last_checked_at = models.DateTimeField(null=True, blank=True)
     auto_last_downloaded_at = models.DateTimeField(null=True, blank=True)
-    
+
     # Metadata for tracking changes
     added_at = models.DateTimeField(default=timezone.now)
     last_checked_at = models.DateTimeField(default=timezone.now)
-    
+
     # Flags to indicate new content
     has_new_seasons = models.BooleanField(default=False)
     has_new_episodes = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ['-added_at']
-        unique_together = ('name', 'source_alias')
+        ordering = ["-added_at"]
+        unique_together = ("name", "source_alias")
 
     def __str__(self):
         return f"{self.name} ({self.source_alias})"
@@ -39,6 +39,7 @@ class WatchlistItem(models.Model):
 # ─────────────────────────────────────────────────────
 # ARR Integration Models
 # ─────────────────────────────────────────────────────
+
 
 class ArrMediaRequest(models.Model):
     """Tracks media items synced from Sonarr/Radarr."""
@@ -88,11 +89,11 @@ class ArrMediaRequest(models.Model):
     last_webhook_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=['arr_source', 'arr_id'], name='arr_mediarequest_source_id_idx'),
-            models.Index(fields=['status'], name='arr_mediarequest_status_idx'),
-            models.Index(fields=['content_type'], name='arr_mediarequest_content_idx'),
+            models.Index(fields=["arr_source", "arr_id"], name="arr_mediarequest_source_id_idx"),
+            models.Index(fields=["status"], name="arr_mediarequest_status_idx"),
+            models.Index(fields=["content_type"], name="arr_mediarequest_content_idx"),
         ]
 
     def __str__(self):
@@ -121,7 +122,7 @@ class ArrWebhookEvent(models.Model):
     received_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-received_at']
+        ordering = ["-received_at"]
 
     def __str__(self):
         return f"Webhook {self.event_type} @ {self.received_at}"
@@ -132,7 +133,7 @@ class ArrProcessingQueue(models.Model):
 
     # Unique key built from arr_source + arr_id + season + episode
     dedup_key = models.CharField(max_length=200, unique=True, db_index=True)
-    media_request = models.ForeignKey(ArrMediaRequest, on_delete=models.CASCADE, related_name='queue_entries')
+    media_request = models.ForeignKey(ArrMediaRequest, on_delete=models.CASCADE, related_name="queue_entries")
 
     enqueued_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
@@ -140,11 +141,11 @@ class ArrProcessingQueue(models.Model):
     success = models.BooleanField(null=True)
 
     class Meta:
-        ordering = ['-enqueued_at']
+        ordering = ["-enqueued_at"]
 
     def __str__(self):
         return f"Queue [{self.dedup_key}] — {'done' if self.completed_at else 'pending'}"
-    
+
 
 class DownloadHistory(models.Model):
     download_id = models.CharField(max_length=128, db_index=True)

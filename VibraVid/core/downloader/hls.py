@@ -1,47 +1,67 @@
 # 17.10.24
 
+import logging
 import os
 import time
-import logging
-from typing import Callable, Dict, List, Optional
+from collections.abc import Callable
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager, os_manager
-from VibraVid.utils.http_client import get_headers
-from VibraVid.utils.vault_upload.hook import try_fetch
-from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
-from VibraVid.core.muxing.helper.sub import extract_embedded_cc
-from VibraVid.core.ui.tracker import download_tracker, context_tracker
-from VibraVid.core.utils.media_players import MediaPlayers
-
-from VibraVid.core.velora.downloader import MediaDownloader
-from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time, parse_max_segments as _parse_max_segments
-
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.drm.system import DRMType, _DRMSystems
-from VibraVid.setup import get_wvd_path, get_prd_path
+from VibraVid.core.manifest.stream import track_label
+from VibraVid.core.muxing.helper.sub import extract_embedded_cc
+from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
+from VibraVid.core.ui.tracker import context_tracker, download_tracker
+from VibraVid.core.utils.media_players import MediaPlayers
+from VibraVid.core.velora.downloader import MediaDownloader
+from VibraVid.core.velora.util.formatting import (
+    parse_max_segments as _parse_max_segments,
+)
+from VibraVid.core.velora.util.formatting import (
+    parse_max_time as _parse_max_time,
+)
+from VibraVid.setup import get_prd_path, get_wvd_path
+from VibraVid.utils import config_manager, os_manager
+from VibraVid.utils.http_client import get_headers
+from VibraVid.utils.vault_upload.hook import is_cached, try_fetch
 
 from .base import BaseDownloader
-
 
 console = Console()
 logger = logging.getLogger(__name__)
 
 EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 SKIP_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "skip_download")
-DELAY_SS = config_manager.config.get_int('DOWNLOAD', 'delay_after_download')
+DELAY_SS = config_manager.config.get_int("DOWNLOAD", "delay_after_download")
 EXTRACT_EMBEDDED_CC = config_manager.config.get_bool("DOWNLOAD", "extract_embedded_cc", default=False)
 
 
 class HLS_Downloader(BaseDownloader):
-    def __init__(self, m3u8_url: Optional[str] = None, m3u8_content: Optional[str] = None, headers: Optional[Dict[str, str]] = None,
-        manifest_refresh_fn: Optional[Callable[[], Optional[str]]] = None,
-        license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None,
-        output_path: Optional[str] = None, drm_preference = DRMType.WIDEVINE, key: Optional[str] = None,
-        cookies: Optional[Dict[str, str]] = None, max_segments: Optional[int] = None, max_time=None,
-        other_tracks: Optional[list] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None, sanitize_path: bool = True,
-        hls_method: Optional[str] = None, hls_key: Optional[bytes] = None, hls_iv: Optional[bytes] = None,
+    def __init__(
+        self,
+        m3u8_url: str | None = None,
+        m3u8_content: str | None = None,
+        headers: dict[str, str] | None = None,
+        manifest_refresh_fn: Callable[[], str | None] | None = None,
+        license_url: str | None = None,
+        license_headers: dict[str, str] | None = None,
+        license_certificate: str | None = None,
+        license_data: dict | None = None,
+        license_request_fn: Callable[[bytes, dict], bytes] | None = None,
+        output_path: str | None = None,
+        drm_preference=DRMType.WIDEVINE,
+        key: str | None = None,
+        cookies: dict[str, str] | None = None,
+        max_segments: int | None = None,
+        max_time=None,
+        other_tracks: list | None = None,
+        chapters: list | None = None,
+        poster_url: str | None = None,
+        sanitize_path: bool = True,
+        hls_method: str | None = None,
+        hls_key: bytes | None = None,
+        hls_iv: bytes | None = None,
     ):
         """
         Parameters:
@@ -52,6 +72,8 @@ class HLS_Downloader(BaseDownloader):
             - license_url: DRM license server URL for Widevine/PlayReady.
             - license_headers: HTTP headers for DRM license requests.
             - license_certificate: Widevine certificate (base64) for license challenge.
+            - license_data: Extra fields merged into the license request body (e.g. PlayReady SOAP envelope data).
+            - license_request_fn: Optional callback (challenge bytes -> license bytes) for services whose license endpoint is a custom signed API call instead of a plain POST.
             - output_path: Output file path. Default: "download.{EXTENSION_OUTPUT}".
             - key: Manual decryption key (hex format) if known.
             - cookies: HTTP cookies for authenticated requests.
@@ -60,7 +82,7 @@ class HLS_Downloader(BaseDownloader):
             - chapters: Chapter markers to inject into the muxed output, e.g. [{"name": str, "seconds": int}]. Default: context_tracker.chapters.
             - poster_url: Poster/still image URL to embed in the muxed output. Default: context_tracker.poster_url.
         """
-        self.m3u8_url = self._resolve_url(str(m3u8_url).strip())
+        self.m3u8_url = self._resolve_url(str(m3u8_url).strip()) if m3u8_url else None
         self.m3u8_content = m3u8_content
         self.headers = headers or get_headers()
         self.manifest_refresh_fn = manifest_refresh_fn
@@ -68,18 +90,23 @@ class HLS_Downloader(BaseDownloader):
         self.license_url = str(license_url).strip() if license_url else None
         self.license_headers = license_headers or self.headers
         self.license_certificate = license_certificate
+        self.license_data = license_data
+        self.license_request_fn = license_request_fn
         self.drm_preference = drm_preference
         self.key = key
 
         self.cookies = cookies or {}
-        self.max_segments = _parse_max_segments(max_segments if max_segments is not None else context_tracker.max_segments)
+        self.max_segments = _parse_max_segments(
+            max_segments if max_segments is not None else context_tracker.max_segments
+        )
         self.max_time = _parse_max_time(max_time if max_time is not None else context_tracker.max_time)
         self.other_tracks = other_tracks or []
         self.chapters = chapters if chapters is not None else context_tracker.chapters
-        self.poster_url = poster_url if poster_url is not None else context_tracker.poster_url
+        self.poster_url = context_tracker.poster_url or poster_url or context_tracker.fallback_poster_url
+        context_tracker.poster_url = self.poster_url
 
         # Manual override for HLS segment encryption (method/key/iv), bypassing manifest parsing. Useful for testing or non-standard streams.
-        self.hls_enc_override: Optional[Dict] = None
+        self.hls_enc_override: dict | None = None
         if hls_method or hls_key or hls_iv:
             self.hls_enc_override = {}
             if hls_method:
@@ -100,7 +127,7 @@ class HLS_Downloader(BaseDownloader):
 
         super().__init__(output_path, "_hls_temp", sanitize_path=sanitize_path)
 
-    def _collect_drm_from_streams(self, streams: list) -> Dict[str, List[Dict]]:
+    def _collect_drm_from_streams(self, streams: list) -> dict[str, list[dict]]:
         """
         Read PSSH data directly from Stream.drm (DRMInfo) on selected streams.
 
@@ -112,19 +139,22 @@ class HLS_Downloader(BaseDownloader):
               DRMType.FAIRPLAY: [{'uri': '...', 'kid': '...', 'type': 'FairPlay'}, ...],
             }
         """
-        result: Dict[str, List[Dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: [], DRMType.FAIRPLAY: []}
-        seen: Dict[str, set] = {DRMType.WIDEVINE: set(), DRMType.PLAYREADY: set(), DRMType.FAIRPLAY: set()}
+        result: dict[str, list[dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: [], DRMType.FAIRPLAY: []}
+        seen: dict[str, set] = {DRMType.WIDEVINE: set(), DRMType.PLAYREADY: set(), DRMType.FAIRPLAY: set()}
+        kid_labels: dict[str, list] = {}
 
         for s in streams:
             if not getattr(s, "selected", False):
                 continue
-            
+
             drm = getattr(s, "drm", None)
-            
+            label = track_label(s)
+
             # Sub-parse variant if no DRM found yet and variant URL exists
             if not (drm and drm.is_encrypted()) and s.playlist_url:
                 try:
                     from VibraVid.core.manifest.m3u8 import HLSParser
+
                     parser = HLSParser(self.m3u8_url, self.headers)
                     variant_drm, _ = parser.parse_variant(s.playlist_url)
                     if variant_drm and variant_drm.is_encrypted():
@@ -136,6 +166,9 @@ class HLS_Downloader(BaseDownloader):
 
             if not (drm and drm.is_encrypted()):
                 continue
+
+            stream_kids: set = set()
+            stream_dts: list = []
 
             for dt in drm.get_all_drm_types():  # DRMType.WIDEVINE, DRMType.PLAYREADY, DRMType.FAIRPLAY, DRMType.UNKNOWN
                 if dt not in result:
@@ -156,50 +189,99 @@ class HLS_Downloader(BaseDownloader):
                     continue
 
                 seen[dt].add(pssh)
-                kid = (
-                    getattr(drm, "kid", None)
-                    or getattr(drm, "default_kid", None)
-                    or "N/A"
-                )
+                kid = getattr(drm, "kid", None) or getattr(drm, "default_kid", None) or "N/A"
+
+                if kid and kid != "N/A" and label:
+                    kid_norm = kid.replace("-", "").strip().lower()
+                    labels = kid_labels.setdefault(kid_norm, [])
+                    if label not in labels:
+                        labels.append(label)
 
                 entry = {
                     "pssh" if dt != DRMType.FAIRPLAY else "uri": pssh,
                     "kid": kid,
-                    "type": "Widevine" if dt == DRMType.WIDEVINE else ("PlayReady" if dt == DRMType.PLAYREADY else "FairPlay"),
+                    "type": "Widevine"
+                    if dt == DRMType.WIDEVINE
+                    else ("PlayReady" if dt == DRMType.PLAYREADY else "FairPlay"),
+                    "label": label,
                 }
+
+                # Services whose license server demands the manifest's own key URI read this in their license_request_fn
+                key_uri = drm.get_key_uri(dt, pssh)
+                if key_uri:
+                    entry["key_uri"] = key_uri
+
                 result[dt].append(entry)
+                stream_kids.add(kid)
+                if dt not in stream_dts:
+                    stream_dts.append(dt)
+
+            if stream_kids:
+                kid_str = ", ".join(sorted(stream_kids))
+                dt_str = "+".join("Widevine" if dt == DRMType.WIDEVINE else ("PlayReady" if dt == DRMType.PLAYREADY else "FairPlay") for dt in stream_dts)
+                logger.info(f"HLS DRM collected from stream: {s.id or 'unnamed'} | type={s.type} | KID={kid_str} | {dt_str}")
+
+        # Merge every selected track's label onto each surviving entry so a key
+        # shared across tracks is stored with the full quality it unlocks
+        for entries in result.values():
+            for entry in entries:
+                kid_norm = (entry.get("kid") or "").replace("-", "").strip().lower()
+                merged = kid_labels.get(kid_norm)
+                if merged:
+                    entry["label"] = " + ".join(merged)
 
         return result
 
-    def _collect_drm_from_m3u8(self, raw_m3u8_path: Optional[str]) -> Dict[str, List[Dict]]:
+    def _collect_drm_from_m3u8(self, raw_m3u8_path: str | None) -> dict[str, list[dict]]:
         """
         Fallback: run M3U8Parser on the saved raw manifest to find PSSH data.
         Imported lazily — if the parser is unavailable the method returns {} gracefully.
         """
-        result: Dict[str, List[Dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: [], DRMType.FAIRPLAY: []}
+        result: dict[str, list[dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: [], DRMType.FAIRPLAY: []}
         try:
             from VibraVid.core.manifest.m3u8 import HLSParser as M3U8Parser
 
             content = None
             if raw_m3u8_path and os.path.exists(raw_m3u8_path):
-                with open(raw_m3u8_path, "r", encoding="utf-8") as f:
+                with open(raw_m3u8_path, encoding="utf-8") as f:
                     content = f.read()
 
             parser = M3U8Parser(self.m3u8_url, self.headers, content=content)
-            drm_info = (parser.get_drm_info())  # -> {'widevine': [...], 'playready': [...], 'fairplay': [...]}
+            drm_info = parser.get_drm_info()  # -> {'widevine': [...], 'playready': [...], 'fairplay': [...]}
 
             for entry in drm_info.get("widevine", []):
-                result[DRMType.WIDEVINE].append({"pssh": entry["pssh"], "kid": entry.get("kid", "N/A"), "type": "Widevine"})
+                result[DRMType.WIDEVINE].append(
+                    {
+                        "pssh": entry["pssh"],
+                        "kid": entry.get("kid", "N/A"),
+                        "type": "Widevine",
+                        "key_uri": entry.get("key_uri"),
+                    }
+                )
             for entry in drm_info.get("playready", []):
-                result[DRMType.PLAYREADY].append({"pssh": entry["pssh"], "kid": entry.get("kid", "N/A"), "type": "PlayReady"})
+                result[DRMType.PLAYREADY].append(
+                    {
+                        "pssh": entry["pssh"],
+                        "kid": entry.get("kid", "N/A"),
+                        "type": "PlayReady",
+                        "key_uri": entry.get("key_uri"),
+                    }
+                )
             for entry in drm_info.get("fairplay", []):
-                result[DRMType.FAIRPLAY].append({"uri": entry["uri"], "kid": entry.get("kid", "N/A"), "type": "FairPlay"})
+                result[DRMType.FAIRPLAY].append(
+                    {
+                        "uri": entry["uri"],
+                        "kid": entry.get("kid", "N/A"),
+                        "type": "FairPlay",
+                        "key_uri": entry.get("key_uri"),
+                    }
+                )
         except Exception as exc:
             logger.error(f"_collect_drm_from_m3u8 error: {exc}")
 
         return result
 
-    def _fetch_keys(self, drm_psshs: Dict[str, List[Dict]]) -> List[str]:
+    def _fetch_keys(self, drm_psshs: dict[str, list[dict]]) -> list[str]:
         """Dispatch key fetch to DRMManager using the configured drm_preference"""
         keys = None
 
@@ -208,9 +290,11 @@ class HLS_Downloader(BaseDownloader):
                 keys = self.drm_manager.get_wv_keys(
                     drm_psshs[DRMType.WIDEVINE],
                     self.license_url,
+                    license_data=self.license_data,
                     license_certificate=self.license_certificate,
                     headers=self.license_headers,
                     key=self.key,
+                    license_request_fn=self.license_request_fn,
                 )
             except Exception as exc:
                 logger.error(f"Widevine key fetch failed: {exc}")
@@ -222,6 +306,8 @@ class HLS_Downloader(BaseDownloader):
                     self.license_url,
                     headers=self.license_headers,
                     key=self.key,
+                    license_data=self.license_data,
+                    license_request_fn=self.license_request_fn,
                 )
             except Exception as exc:
                 logger.error(f"PlayReady key fetch failed: {exc}")
@@ -252,7 +338,7 @@ class HLS_Downloader(BaseDownloader):
             logger.info(f"HLS: {len(matches)} embedded CLOSED-CAPTIONS stream(s) matched select_subtitle filter ({langs}) — will attempt extraction from merged video after download")
         return matches
 
-    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, current_file: Optional[str] = None) -> list:
+    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, current_file: str | None = None) -> list:
         """Hook for subclasses to materialize subtitle assets right before subtitle merge."""
         embedded = getattr(self, "_embedded_cc_streams", None)
         if not embedded or not current_file or not os.path.exists(current_file):
@@ -265,18 +351,20 @@ class HLS_Downloader(BaseDownloader):
             result = extract_embedded_cc(current_file, srt_path)
             if result:
                 console.print(f"[yellow]    Extracted embedded CC subtitle: [green]{lang}")
-                subtitle_tracks.append({
-                    "path": result,
-                    "name": f"{lang}_cc",
-                    "language": lang,
-                    "size": os.path.getsize(result),
-                })
+                subtitle_tracks.append(
+                    {
+                        "path": result,
+                        "name": f"{lang}_cc",
+                        "language": lang,
+                        "size": os.path.getsize(result),
+                    }
+                )
             else:
                 console.print(f"[yellow]    No embedded CC caption data found for '{lang}'")
 
         return subtitle_tracks
 
-    def start(self) -> tuple[Optional[str], bool, Optional[str]]:
+    def start(self) -> tuple[str | None, bool, str | None]:
         """
         Execute the full HLS download pipeline.
         Returns ``(output_path, cancelled)`` — cancelled=True means abort.
@@ -287,7 +375,12 @@ class HLS_Downloader(BaseDownloader):
 
         if context_tracker.resolve_only:
             from VibraVid.cli.command.queue import enqueue_down_from_context
+
             enqueue_down_from_context(self.m3u8_url, self.output_path)
+            return self.output_path, False, None
+
+        if is_cached():
+            console.print("[dim]Skipping — already in cache.")
             return self.output_path, False, None
 
         if try_fetch(self.output_path):
@@ -324,12 +417,12 @@ class HLS_Downloader(BaseDownloader):
         if self.download_id:
             download_tracker.update_status(self.download_id, "Parsing HLS ...")
 
-        streams = self.media_downloader.parse_stream(show_table=context_tracker.should_print)
+        streams = self.media_downloader.parse_stream(show_table=context_tracker.should_print and not context_tracker.hide_manifest_info)
         self._embedded_cc_streams = self._collect_embedded_cc(streams)
 
         # ── DRM key fetch ─────────────────────────────────────────────────────
-        if self.license_url or self.key:
-            raw_m3u8 = (str(self.media_downloader.raw_m3u8) if self.media_downloader.raw_m3u8 else None)
+        if self.license_url or self.key or self.license_request_fn:
+            raw_m3u8 = str(self.media_downloader.raw_m3u8) if self.media_downloader.raw_m3u8 else None
 
             # Primary: PSSH from Stream.drm (populated by HLSParser)
             drm_psshs = self._collect_drm_from_streams(streams)
@@ -386,8 +479,8 @@ class HLS_Downloader(BaseDownloader):
         final_file = self._merge_files(status)
         if not final_file:
             if self.download_id and download_tracker.is_stopped(self.download_id):
-                    download_tracker.complete_download(self.download_id, success=False, error="cancelled")
-                    return None, True, "cancelled"
+                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
+                return None, True, "cancelled"
             logger.error("Merge failed")
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="Merge failed")

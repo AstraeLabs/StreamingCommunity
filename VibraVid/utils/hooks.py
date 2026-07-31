@@ -5,17 +5,17 @@ import os
 import subprocess
 import sys
 import threading
-from typing import Any, Dict, Iterator, Optional, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 from rich.console import Console
 
 from VibraVid.utils import config_manager, os_manager
 
-
 console = Console()
 logger = logging.getLogger(__name__)
 _HOOK_CONTEXT_LOCK = threading.Lock()
-_LAST_HOOK_CONTEXT: Dict[str, Dict[str, Any]] = {}
+_LAST_HOOK_CONTEXT: dict[str, dict[str, Any]] = {}
 
 
 class _SafeFormatDict(dict):
@@ -29,7 +29,7 @@ def _expand_user_path(path: str) -> str:
     return os.path.normpath(os.path.expandvars(os.path.expanduser(path)))
 
 
-def _safe_format(value: str, template_context: Dict[str, str]) -> str:
+def _safe_format(value: str, template_context: dict[str, str]) -> str:
     if not isinstance(value, str):
         return value
     try:
@@ -49,7 +49,7 @@ def _should_run_on_current_os(hook: dict) -> bool:
     return os_manager.system in normalized
 
 
-def _normalize_context(stage: str, context: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
+def _normalize_context(stage: str, context: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, str]]:
     raw_context = dict(context or {})
     normalized_path = raw_context.get("download_path") or raw_context.get("path") or ""
     normalized_path = os.path.abspath(str(normalized_path)) if normalized_path else ""
@@ -98,7 +98,7 @@ def _normalize_context(stage: str, context: Optional[Dict[str, Any]] = None) -> 
     return normalized_context, env_context
 
 
-def _build_command_for_hook(hook: dict, stage: str, context: Optional[Dict[str, Any]] = None) -> Tuple[list, dict]:
+def _build_command_for_hook(hook: dict, stage: str, context: dict[str, Any] | None = None) -> tuple[list, dict]:
     hook_type = str(hook.get("type", "")).strip().lower()
     normalized_context, env_context = _normalize_context(stage, context)
     script_path = hook.get("path")
@@ -114,10 +114,7 @@ def _build_command_for_hook(hook: dict, stage: str, context: Optional[Dict[str, 
     elif not isinstance(args, list):
         args = []
 
-    template_context = {
-        key: "" if value is None else str(value)
-        for key, value in normalized_context.items()
-    }
+    template_context = {key: "" if value is None else str(value) for key, value in normalized_context.items()}
 
     if script_path:
         script_path = _safe_format(script_path, template_context)
@@ -185,19 +182,19 @@ def _iter_hooks(stage: str) -> Iterator[dict]:
         return
 
 
-def remember_hook_context(stage: str, context: Optional[Dict[str, Any]]) -> None:
+def remember_hook_context(stage: str, context: dict[str, Any] | None) -> None:
     if not stage or not context:
         return
     with _HOOK_CONTEXT_LOCK:
         _LAST_HOOK_CONTEXT[str(stage).strip().lower()] = dict(context)
 
 
-def get_last_hook_context(stage: str) -> Dict[str, Any]:
+def get_last_hook_context(stage: str) -> dict[str, Any]:
     with _HOOK_CONTEXT_LOCK:
         return dict(_LAST_HOOK_CONTEXT.get(str(stage).strip().lower(), {}))
 
 
-def execute_hooks(stage: str, context: Optional[Dict[str, Any]] = None) -> None:
+def execute_hooks(stage: str, context: dict[str, Any] | None = None) -> None:
     stage = str(stage).strip().lower()
     if not stage:
         return

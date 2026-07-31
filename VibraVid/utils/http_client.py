@@ -1,14 +1,12 @@
 # 09.08.25
 
-import os
-import json
 import asyncio
-import logging
 import functools
+import json
+import logging
+import os
 import urllib.request
 from contextlib import asynccontextmanager, contextmanager
-
-from typing import Dict, Optional, Union
 
 import ua_generator
 from curl_cffi import requests
@@ -16,7 +14,6 @@ from curl_cffi.const import CurlHttpVersion
 from curl_cffi.requests.impersonate import REAL_TARGET_MAP
 
 from VibraVid.utils import config_manager
-
 
 logger = logging.getLogger(__name__)
 ua = ua_generator.generate(device="desktop", browser=("chrome", "edge"))
@@ -53,7 +50,7 @@ def _get_verify() -> bool:
         return True
 
 
-def _ca_bundle_path() -> Optional[str]:
+def _ca_bundle_path() -> str | None:
     """Resolve an explicit CA bundle for curl_cffi to verify against."""
     for env in ("CURL_CA_BUNDLE", "SSL_CERT_FILE"):
         p = os.environ.get(env)
@@ -61,6 +58,7 @@ def _ca_bundle_path() -> Optional[str]:
             return p
     try:
         import certifi
+
         path = certifi.where()
         if path and os.path.isfile(path):
             return path
@@ -68,17 +66,17 @@ def _ca_bundle_path() -> Optional[str]:
         pass
 
     for path in (
-        "/etc/ssl/certs/ca-certificates.crt",       # Debian/Ubuntu (container)
-        "/etc/pki/tls/certs/ca-bundle.crt",         # RHEL/CentOS/Fedora
-        "/etc/ssl/ca-bundle.pem",                   # OpenSUSE
-        "/etc/ssl/cert.pem",                        # Alpine/macOS
+        "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu (container)
+        "/etc/pki/tls/certs/ca-bundle.crt",  # RHEL/CentOS/Fedora
+        "/etc/ssl/ca-bundle.pem",  # OpenSUSE
+        "/etc/ssl/cert.pem",  # Alpine/macOS
     ):
         if os.path.isfile(path):
             return path
     return None
 
 
-def _resolve_verify(verify: Optional[Union[bool, str]]) -> Union[bool, str]:
+def _resolve_verify(verify: bool | str | None) -> bool | str:
     """Normalize the requested verify setting into a value curl_cffi accepts."""
     if verify is None:
         verify = _get_verify()
@@ -89,7 +87,7 @@ def _resolve_verify(verify: Optional[Union[bool, str]]) -> Union[bool, str]:
     return _ca_bundle_path() or True
 
 
-def _raw_proxies() -> Optional[Dict[str, str]]:
+def _raw_proxies() -> dict[str, str] | None:
     if not _use_proxy():
         return None
 
@@ -99,19 +97,21 @@ def _raw_proxies() -> Optional[Dict[str, str]]:
             return None
 
         # Normalize — drop empty strings
-        cleaned: Dict[str, str] = {scheme: url.strip() for scheme, url in proxies.items() if isinstance(url, str) and url.strip()}
+        cleaned: dict[str, str] = {
+            scheme: url.strip() for scheme, url in proxies.items() if isinstance(url, str) and url.strip()
+        }
         return cleaned or None
     except Exception:
         return None
 
 
-def _get_proxies() -> Optional[Dict[str, str]]:
+def _get_proxies() -> dict[str, str] | None:
     if _get_proxy_scope() not in ("scrap", "scrap+down"):
         return None
     return _raw_proxies()
 
 
-def get_proxy_url() -> Optional[str]:
+def get_proxy_url() -> str | None:
     if _get_proxy_scope() not in ("down", "scrap+down"):
         return None
     proxies = _raw_proxies()
@@ -120,7 +120,7 @@ def get_proxy_url() -> Optional[str]:
     return proxies.get("https") or proxies.get("http") or next(iter(proxies.values()), None)
 
 
-def _default_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+def _default_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
     headers = {}
 
     if not extra or "user-agent" not in {k.lower() for k in extra.keys()}:
@@ -128,16 +128,16 @@ def _default_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 
     if extra:
         headers.update(extra)
-    
+
     return headers
 
 
-def get_available_browsers() -> Dict[str, str]:
+def get_available_browsers() -> dict[str, str]:
     """Get the latest available browser impersonate versions."""
     return dict(REAL_TARGET_MAP)
 
 
-def get_browser_impersonate(browser: str = "chrome") -> Optional[str]:
+def get_browser_impersonate(browser: str = "chrome") -> str | None:
     """Get the latest available browser impersonate version from curl_cffi."""
     available = get_available_browsers()
     result = available.get(browser.lower())
@@ -149,14 +149,14 @@ def get_browser_impersonate(browser: str = "chrome") -> Optional[str]:
 
 def create_client(
     *,
-    headers: Optional[Dict[str, str]] = None,
-    cookies: Optional[Dict[str, str]] = None,
-    timeout: Optional[Union[int, float]] = None,
-    verify: Optional[bool] = None,
-    proxies: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
+    cookies: dict[str, str] | None = None,
+    timeout: int | float | None = None,
+    verify: bool | None = None,
+    proxies: dict[str, str] | None = None,
     http2: bool = False,
     follow_redirects: bool = True,
-    browser: Optional[str] = "chrome",
+    browser: str | None = "chrome",
 ) -> requests.Session:
     """Factory for a configured curl_cffi session."""
     session = requests.Session()
@@ -192,14 +192,14 @@ def create_client(
 @contextmanager
 def open_client(
     *,
-    headers: Optional[Dict[str, str]] = None,
-    cookies: Optional[Dict[str, str]] = None,
-    timeout: Optional[Union[int, float]] = None,
-    verify: Optional[bool] = None,
-    proxies: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
+    cookies: dict[str, str] | None = None,
+    timeout: int | float | None = None,
+    verify: bool | None = None,
+    proxies: dict[str, str] | None = None,
     http2: bool = False,
     follow_redirects: bool = True,
-    browser: Optional[str] = "chrome",
+    browser: str | None = "chrome",
 ):
     """Context-manager wrapper around :func:`create_client`"""
     session = create_client(
@@ -220,6 +220,7 @@ def open_client(
 
 class AsyncStreamResponse:
     """Wrapper for streaming responses in async context."""
+
     def __init__(self, response):
         self.response = response
         self.headers = response.headers
@@ -238,6 +239,7 @@ class AsyncStreamResponse:
 
 class AsyncClient:
     """Async wrapper for curl_cffi client."""
+
     def __init__(self, session):
         self.session = session
 
@@ -292,11 +294,11 @@ class AsyncClient:
 @asynccontextmanager
 async def create_async_client(
     *,
-    headers: Optional[Dict[str, str]] = None,
-    cookies: Optional[Dict[str, str]] = None,
-    timeout: Optional[Union[int, float]] = None,
-    verify: Optional[bool] = None,
-    proxies: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
+    cookies: dict[str, str] | None = None,
+    timeout: int | float | None = None,
+    verify: bool | None = None,
+    proxies: dict[str, str] | None = None,
     http2: bool = False,
     follow_redirects: bool = True,
     browser: str = "chrome",
@@ -335,7 +337,7 @@ async def create_async_client(
         session.close()
 
 
-def fetch_image_bytes(url: str, timeout: int = 10) -> Optional[bytes]:
+def fetch_image_bytes(url: str, timeout: int = 10) -> bytes | None:
     """Download raw image bytes from a URL (cover art, posters, stills, ...)."""
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
@@ -403,9 +405,6 @@ def check_region_availability(allowed_regions: list, site_name: str) -> bool:
             print(f"Site: {site_name} is not available in your region ({current_country}).")
             logger.error(f"Site: {site_name}, unavailable outside {', '.join(allowed_regions)}.")
             return False
-
-        logger.info(f"Region check passed for {site_name} ({current_country})")
-
     except Exception as e:
         logger.error("Region check failed: %s", e)
 

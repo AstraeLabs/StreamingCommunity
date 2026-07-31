@@ -1,20 +1,27 @@
 # 11.07.26
 
+import logging
 import os
 import shutil
 import subprocess
-import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from VibraVid.utils import config_manager
-from VibraVid.setup import get_ffmpeg_path
 from VibraVid.core.decryptor import Decryptor
 from VibraVid.core.muxing.helper.video import binary_merge_segments, normalize_timestamps
 from VibraVid.core.ui.bar_manager import DownloadBarManager
+from VibraVid.setup import get_ffmpeg_path
+from VibraVid.utils import config_manager
 
-from .util.formatting import format_size as _fmt_size, format_speed as _fmt_speed, estimate_total_size as _estimate_total_size
-
+from .util.formatting import (
+    estimate_total_size as _estimate_total_size,
+)
+from .util.formatting import (
+    format_size as _fmt_size,
+)
+from .util.formatting import (
+    format_speed as _fmt_speed,
+)
 
 logger = logging.getLogger("manual")
 REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
@@ -30,7 +37,7 @@ def _seg_number_from_path(path: Path) -> int:
     return 999_999_999
 
 
-def _ffmpeg_concat(part_files: List[Path], out_path: Path) -> bool:
+def _ffmpeg_concat(part_files: list[Path], out_path: Path) -> bool:
     """Join already-decrypted per-Period MP4s into ``out_path`` (stream copy)."""
     if len(part_files) == 1:
         shutil.move(str(part_files[0]), str(out_path))
@@ -43,20 +50,30 @@ def _ffmpeg_concat(part_files: List[Path], out_path: Path) -> bool:
             fh.write(f"file '{escaped}'\n")
 
     cmd = [
-        get_ffmpeg_path(), "-y",
-        "-f", "concat", "-safe", "0",
-        "-i", str(list_path),
-        "-c", "copy",
+        get_ffmpeg_path(),
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(list_path),
+        "-c",
+        "copy",
     ]
     if out_path.suffix.lower() == ".m4a":
         cmd += ["-f", "mp4"]
 
     cmd.append(str(out_path))
     logger.info(f"[multiperiod] ffmpeg concat {len(part_files)} Period file(s) -> {out_path.name}")
-    
+
     try:
         result = subprocess.run(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=1800,
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=1800,
             creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
         )
     except Exception as exc:
@@ -75,24 +92,26 @@ def _ffmpeg_concat(part_files: List[Path], out_path: Path) -> bool:
 
 
 class MultiPeriodMixin:
-    def _download_dash_multiperiod(self, stream, bar_manager: DownloadBarManager, live_decryption: bool = False) -> None:
+    def _download_dash_multiperiod(
+        self, stream, bar_manager: DownloadBarManager, live_decryption: bool = False
+    ) -> None:
         """Per-Period download - merge - decrypt - ffmpeg-concat for multi-period DASH."""
         all_headers = self._build_headers()
         stream_dir = self._make_stream_dir(stream, "dash")
         task_key = self._stream_task_key(stream)
 
         # Period appearance order (preserves manifest order).
-        ordered_periods: List[int] = []
+        ordered_periods: list[int] = []
         for seg in stream.segments:
             if seg.period_idx not in ordered_periods:
                 ordered_periods.append(seg.period_idx)
 
         # One flat download list with continuous numbering, remembering each
         # segment's Period so we can regroup after the download completes.
-        dl_segs: List[Dict[str, Any]] = []
+        dl_segs: list[dict[str, Any]] = []
         next_num = 0
         for seg in stream.segments:
-            entry: Dict[str, Any] = {
+            entry: dict[str, Any] = {
                 "url": seg.url,
                 "number": next_num,
                 "seg_type": seg.seg_type,
@@ -116,7 +135,9 @@ class MultiPeriodMixin:
 
         total = len(dl_segs)
 
-        def _progress(done: int, total_: int, total_bytes: int, speed_bps: float, speed_label: Optional[str] = None) -> None:
+        def _progress(
+            done: int, total_: int, total_bytes: int, speed_bps: float, speed_label: str | None = None
+        ) -> None:
             pct = int((done / total_) * 100) if total_ else 0
             estimated_total = _estimate_total_size(total_bytes, done, total_) if done > 0 else total_bytes
             size_display = (
@@ -124,13 +145,15 @@ class MultiPeriodMixin:
                 if done < total_
                 else f"{_fmt_size(total_bytes)}/{_fmt_size(total_bytes)}"
             )
-            bar_manager.handle_progress_line({
-                "task_key": task_key,
-                "pct": pct,
-                "segments": f"{done}/{total_}",
-                "size": size_display,
-                "speed": speed_label if speed_label is not None else _fmt_speed(speed_bps),
-            })
+            bar_manager.handle_progress_line(
+                {
+                    "task_key": task_key,
+                    "pct": pct,
+                    "segments": f"{done}/{total_}",
+                    "size": size_display,
+                    "speed": speed_label if speed_label is not None else _fmt_speed(speed_bps),
+                }
+            )
 
         paths = self._run_dl(dl_segs, stream_dir, all_headers, _progress, stream=stream, default_ext="mp4")
 
@@ -138,7 +161,7 @@ class MultiPeriodMixin:
             return
 
         # Regroup downloaded files by Period.
-        period_paths: Dict[int, List[Path]] = {p: [] for p in ordered_periods}
+        period_paths: dict[int, list[Path]] = {p: [] for p in ordered_periods}
         for p in paths:
             n = _seg_number_from_path(p)
             per = num_to_period.get(n)
@@ -146,7 +169,7 @@ class MultiPeriodMixin:
                 period_paths.setdefault(per, []).append(p)
 
         decryptor = Decryptor() if self.key else None
-        part_files: List[Path] = []
+        part_files: list[Path] = []
 
         for order_idx, per in enumerate(ordered_periods):
             p_paths = sorted(period_paths.get(per, []), key=_seg_number_from_path)
@@ -166,16 +189,24 @@ class MultiPeriodMixin:
             if decryptor is not None:
                 dec_path = part_merged.with_suffix(".dec.mp4")
 
-                def _dec_cb(parsed: Optional[Dict[str, Any]]) -> None:
+                def _dec_cb(parsed: dict[str, Any] | None, order_idx: int = order_idx) -> None:
                     if parsed:
-                        bar_manager.handle_progress_line({
-                            "task_key": task_key,
-                            "pct": parsed.get("pct"),
-                            "speed": parsed.get("status") or f"Dec P{order_idx}",
-                        })
+                        bar_manager.handle_progress_line(
+                            {
+                                "task_key": task_key,
+                                "pct": parsed.get("pct"),
+                                "speed": parsed.get("status") or f"Dec P{order_idx}",
+                            }
+                        )
 
                 try:
-                    if decryptor.decrypt(str(part_merged), self.key, str(dec_path), stream_type=stream.type, progress_cb=_dec_cb) and dec_path.exists() and dec_path.stat().st_size > 0:
+                    if (
+                        decryptor.decrypt(
+                            str(part_merged), self.key, str(dec_path), stream_type=stream.type, progress_cb=_dec_cb
+                        )
+                        and dec_path.exists()
+                        and dec_path.stat().st_size > 0
+                    ):
                         part_merged.unlink(missing_ok=True)
                         dec_path.rename(part_merged)
                     else:
@@ -209,12 +240,15 @@ class MultiPeriodMixin:
 
         if _ffmpeg_concat(part_files, out_path) and out_path.exists() and out_path.stat().st_size > 0:
             logger.info(f"[multiperiod] {len(part_files)} Period(s), {len(dl_segs)} segs joined -> {out_path.name} ({out_path.stat().st_size // 1024} KB)")
-            bar_manager.handle_progress_line({
-                "task_key": task_key, "pct": 100,
-                "segments": f"{total}/{total}",
-                "size": f"{_fmt_size(out_path.stat().st_size)}/{_fmt_size(out_path.stat().st_size)}",
-                "speed": "Done",
-            })
+            bar_manager.handle_progress_line(
+                {
+                    "task_key": task_key,
+                    "pct": 100,
+                    "segments": f"{total}/{total}",
+                    "size": f"{_fmt_size(out_path.stat().st_size)}/{_fmt_size(out_path.stat().st_size)}",
+                    "speed": "Done",
+                }
+            )
         else:
             logger.error(f"[multiperiod] failed to assemble final file for {stream.type} {stream.resolution or stream.language}")
 
