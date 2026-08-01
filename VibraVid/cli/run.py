@@ -90,7 +90,7 @@ _EQUIVALENT_CMD_EXCLUDED_DESTS = {
 equivalent_command_builder = EquivalentCommandBuilder(excluded_dests=_EQUIVALENT_CMD_EXCLUDED_DESTS)
 
 
-def run_function(func: Callable[..., None], search_terms: str = None, selections: dict = None) -> None:
+def run_function(func: Callable[..., None], search_terms: str | None = None, selections: dict | None = None) -> None:
     """Run function once or indefinitely based on close_console flag."""
     if selections:
         func(search_terms, selections=selections)
@@ -223,6 +223,7 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
 
     # ── Utility
     util_group = parser.add_argument_group("Utility")
+    util_group.add_argument("--tui", action="store_true", help="Launch the Textual Terminal User Interface (TUI)")
     util_group.add_argument("--no-log", action="store_true", help="Disable log file for this run")
     util_group.add_argument("--no-manifest-info", action="store_true", help="Don't print the parsed manifest/streams table")
     util_group.add_argument("-UP", "--update", action="store_true", help="Auto-update to latest version (binary only)")
@@ -507,6 +508,12 @@ def main():
         setup_logger(no_log=getattr(args, "no_log", False))
         context_tracker.hide_manifest_info = getattr(args, "no_manifest_info", False)
 
+        if getattr(args, "tui", False):
+            from VibraVid.tui.app import main as tui_main
+
+            tui_main()
+            return
+
         if hasattr(args, "dep") and args.dep:
             show_dependencies(search_functions)
             return
@@ -539,8 +546,8 @@ def main():
         try:
             git_update()
         except Exception as e:
-            logger.error(f"Error during git update: {str(e)}")
-            console.log(f"[red]Error loading github: {str(e)}")
+            logger.error(f"Error during git update: {e!s}")
+            console.log(f"[red]Error loading github: {e!s}")
 
         # Handle auto-update
         if args.update:

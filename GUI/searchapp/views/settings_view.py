@@ -11,6 +11,8 @@ import zipfile
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_http_methods
 
+from VibraVid.utils import config_manager
+
 from .._download_infra import set_max_download_slots
 
 logger = logging.getLogger(__name__)
@@ -242,7 +244,7 @@ def save_settings(request: HttpRequest) -> JsonResponse:
             formatted = json.dumps(json.loads(content), indent=4, ensure_ascii=False)
             f.write(formatted)
 
-        # Apply the download concurrency limit immediately, without a restart.
+        # Apply the download concurrency limit and refresh the in-memory config/login cache immediately
         if file_type == 'config':
             try:
                 new_cfg = json.loads(content)
@@ -250,6 +252,17 @@ def save_settings(request: HttpRequest) -> JsonResponse:
                 set_max_download_slots(slots)
             except Exception as exc:
                 logger.exception("Failed to apply max concurrent slots: %s", exc)
+
+            try:
+                config_manager.reload_config_only()
+            except Exception as exc:
+                logger.exception("Failed to reload config cache after save: %s", exc)
+        
+        elif file_type == 'login':
+            try:
+                config_manager.reload_login_only()
+            except Exception as exc:
+                logger.exception("Failed to reload login cache after save: %s", exc)
 
         return JsonResponse({
             "success": True,

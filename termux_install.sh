@@ -171,7 +171,11 @@ export ANDROID_API_LEVEL=24
 # Upgrade core python packages
 pip install --upgrade pip setuptools wheel < /dev/null
 
-pip install . < /dev/null
+# Install dependencies from requirements.txt (includes textual for TUI)
+pip install -r requirements.txt < /dev/null || {
+    echo -e "${RED}Errore durante l'installazione delle dipendenze Python!${NC_REG}"
+    exit 1
+}
 
 # Create lowercase symlink for command availability
 usr_bin="/data/data/com.termux/files/usr/bin"

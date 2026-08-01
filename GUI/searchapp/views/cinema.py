@@ -151,6 +151,17 @@ def cinema_system(request: HttpRequest) -> HttpResponse:
     except Exception:
         queued = 0
 
+    site_extra_args = {}
+    try:
+        import json as _json
+
+        login_data = _json.loads(_conf_text("login.json") or "{}")
+        for site_name, block in login_data.items():
+            if isinstance(block, dict) and block.get("extra_args"):
+                site_extra_args[site_name] = block["extra_args"]
+    except Exception:
+        logger.exception("login.json non leggibile per site_extra_args")
+
     return render(request, "searchapp/cinema_system.html", {
         "nav_active": "settings",
         "providers": providers,
@@ -161,6 +172,7 @@ def cinema_system(request: HttpRequest) -> HttpResponse:
         "app_version": __version__,
         "config_content": _conf_text("config.json"),
         "login_content": _conf_text("login.json"),
+        "site_extra_args": site_extra_args,
     })
 
 

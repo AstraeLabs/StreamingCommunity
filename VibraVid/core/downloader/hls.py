@@ -21,7 +21,7 @@ from VibraVid.core.velora.util.formatting import (
 from VibraVid.core.velora.util.formatting import (
     parse_max_time as _parse_max_time,
 )
-from VibraVid.setup import get_prd_path, get_wvd_path
+from VibraVid.setup import get_prd_path, get_wvd_path, resolve_service_cdm_paths
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.http_client import get_headers
 from VibraVid.utils.vault_upload.hook import is_cached, try_fetch
@@ -117,9 +117,10 @@ class HLS_Downloader(BaseDownloader):
                 self.hls_enc_override["iv"] = hls_iv.hex()
         logger.info(f"Initialized HLS_Downloader with URL: {self.m3u8_url}, License URL: {self.license_url}, DRM Pref: {self.drm_preference}, Max Segments: {self.max_segments}, Max Time: {self.max_time}")
 
+        wvd_override, prd_override = resolve_service_cdm_paths(context_tracker.site_name)
         self.drm_manager = DRMManager(
-            get_wvd_path(),
-            get_prd_path(),
+            wvd_override or get_wvd_path(),
+            prd_override or get_prd_path(),
             config_manager.config.get_dict("DRM", "widevine", default={}),
             config_manager.config.get_dict("DRM", "playready", default={}),
             config_manager.config.get_bool("DRM", "prefer_remote_cdm"),

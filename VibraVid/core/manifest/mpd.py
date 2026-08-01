@@ -605,8 +605,11 @@ class DashParser:
                 if "dolbyvision" in scheme or "dolby" in scheme:
                     return "DV"
 
+                if "hdr10-plus" in scheme or "hdr10plus" in scheme:
+                    return "HDR10+"
+
                 val_up = value.upper()
-                if val_up in ("HDR10", "HLG", "PQ", "HDR", "DV"):
+                if val_up in ("HDR10", "HDR10+", "HLG", "PQ", "HDR", "DV"):
                     return val_up
 
                 if "transfercharacteristics" in scheme:

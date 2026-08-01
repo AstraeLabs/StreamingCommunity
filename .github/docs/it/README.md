@@ -951,6 +951,8 @@ Di seguito i punti essenziali per iniziare.
 }
 ```
 
+---
+
 #### Selezione del provider
 
 VibraVid sceglie il provider in questo ordine:
@@ -997,6 +999,39 @@ Se VibraVid e lo stack ARR girano in ambienti separati (es. VibraVid sull'host e
 ```
 
 La mappatura non è necessaria quando entrambi i servizi condividono la stessa vista del filesystem.
+
+## TUI (Interfaccia Utente da Terminale)
+VibraVid include una moderna interfaccia utente da terminale realizzata con [Textual](https://github.com/Textualize/textual), che offre un'esperienza ricca e interattiva per gestire i download direttamente da riga di comando, senza bisogno di un browser web.
+
+### Avvio della TUI
+```bash
+# Avvio tramite python
+python tui.py
+# Oppure tramite il package manager uv
+uv run python tui.py
+# Oppure se installato via pip/termux
+vibravid --tui
+```
+
+### Funzionalità e Capacità Principali
+- **Deduplicazione Globale della Ricerca** — Aggrega i risultati di ricerca da tutti i provider di streaming e musica configurati in un'unica voce di risultato per titolo, eliminando i duplicati e mostrando comunque tutte le fonti disponibili.
+- **Navigazione Multi-Provider nei Dettagli** — Layout a tre colonne nelle schermate di dettaglio dei titoli (`[Provider] → [Stagioni] → [Episodi]`), che consente di passare da un provider all'altro al volo senza dover tornare ai risultati di ricerca se mancano episodi.
+- **Localizzazione i18n Automatica (IT / EN)** — Rilevamento automatico della lingua di sistema del sistema operativo (italiano e inglese) con pieno supporto bilingue su tutte le schermate dell'interfaccia, tabelle dati, finestre modali, barre delle azioni e guide da tastiera.
+- **Gestore Interattivo di Coda e Batch** — Aggiungi, rimuovi, riordina e riprova i job di download in batch con argomenti CLI personalizzati e tag.
+- **Monitoraggio in Tempo Reale di Stream e Download** — Indicatori di avanzamento in tempo reale, velocità, conteggio dei segmenti, dettagli di tracce/stream e azioni sui file completati (Apri Cartella / Avvia File).
+- **Ispettore di Sistema e DRM** — Scheda diagnostica che verifica le dipendenze binarie esterne (`ffmpeg`, `mp4decrypt`, `aria2c`, ecc.), lo stato del dispositivo Widevine DRM CDM e il visualizzatore dei log dell'applicazione.
+- **Navigazione Completa da Tastiera e Mouse** — Navigazione con tasti direzionali, scorciatoie contestuali (`a` seleziona tutto, `u` deseleziona, `Space` attiva/disattiva, `ESC` indietro, `?` aiuto) e supporto al click del mouse.
+
+### Mappa delle Schermate della TUI
+| Scorciatoia | Schermata | Descrizione |
+|----------|--------|-------------|
+| `F1` / `H` | **Home** | Selezione categoria (Film, Serie, Anime, Musica) e schede di filtro rapido per sito |
+| `F2` | **Ricerca** | Ricerca globale con risultati deduplicati e anteprima dei metadati in tempo reale |
+| `F3` / `d` | **Download** | Tabella di avanzamento in tempo reale, ispettore di tracce/stream e download completati |
+| `F4` / `q` | **Coda Batch** | Accoda job, riprova elementi falliti e gestisci comandi CLI in batch |
+| `F5` / `h` | **Cronologia Download** | Tabella dei download completati, ispezione del percorso dei file di output e azioni di ri-accodamento |
+| `F6` / `,` | **Editor Impostazioni** | Editor interattivo delle sezioni di configurazione con salvataggio e ricarica in tempo reale |
+| `F7` / `s` | **Sistema e DRM** |
 
 ---
 

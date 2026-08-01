@@ -73,13 +73,13 @@ class DeviceSearcher:
                 console.print(f"[red]Error checking for existing file {filename}: {e}")
                 return None
 
-            return self._find_recursively(filename=filename)
+            return self._find_recursively(filename=filename, start_dir=self.base_dir)
 
         else:
             path = self._check_existing(ext)
             if path:
                 return path
-            return self._find_recursively(ext=ext)
+            return self._find_recursively(ext=ext, start_dir=self.base_dir)
 
 
 def check_device_wvd_path() -> str | None:
@@ -98,3 +98,38 @@ def check_device_prd_path() -> str | None:
         return searcher.search(".prd")
     except Exception:
         return None
+
+
+def resolve_service_cdm_paths(site_name: str | None) -> tuple[str | None, str | None]:
+    """Resolve per-service .wvd/.prd overrides from the service's "cdm" entry in login.json."""
+    if not site_name:
+        return None, None
+
+    from VibraVid.utils import config_manager
+
+    section = config_manager.login.get_section(site_name) or config_manager.login.get_section(site_name.lower())
+    cdm_value = section.get("cdm") if section else None
+    if not cdm_value:
+        return None, None
+
+    filenames = [cdm_value] if isinstance(cdm_value, str) else list(cdm_value)
+
+    searcher = DeviceSearcher()
+    wvd_path = prd_path = None
+    for filename in filenames:
+        if not filename:
+            continue
+
+        resolved = searcher.search(filename=filename)
+        if not resolved:
+            console.print(f"[yellow]Warning: [red]cdm[/red] file '{filename}' configured for '{site_name}' in login.json was not found in the binary directory - falling back to the default device.")
+            continue
+
+        if filename.lower().endswith(".wvd"):
+            wvd_path = resolved
+        elif filename.lower().endswith(".prd"):
+            prd_path = resolved
+        else:
+            logger.warning(f"Unrecognized cdm file extension for '{filename}' (site '{site_name}'), ignoring.")
+
+    return wvd_path, prd_path
