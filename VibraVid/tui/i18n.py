@@ -1,3 +1,6 @@
+# 29.07.26
+# by @ManoloZocco
+
 import locale
 import os
 
