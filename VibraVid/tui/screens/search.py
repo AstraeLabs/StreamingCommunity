@@ -1,4 +1,5 @@
 # 29.07.26
+# by @ManoloZocco
 
 """Search screen: query input + category filters + mouse-hover live metadata preview card."""
 
