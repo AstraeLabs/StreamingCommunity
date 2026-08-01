@@ -1,4 +1,5 @@
 # 29.07.26
+# by @ManoloZocco
 
 """Temporary screen for areas not yet implemented (see plan milestones)."""
 
@@ -27,4 +28,3 @@ class PlaceholderScreen(Screen):
             yield Static(f"Coming with milestone {self._milestone}.", classes="placeholder-milestone")
             yield Static("ESC to go back", classes="placeholder-hint")
         yield CustomFooter()
-
