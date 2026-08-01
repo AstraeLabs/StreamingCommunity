@@ -1,4 +1,5 @@
 # 29.07.26
+# by @ManoloZocco
 
 """Thin adapter between the TUI and the existing VibraVid service layer.
 
