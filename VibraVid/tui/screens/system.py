@@ -1,4 +1,5 @@
 # 30.07.26
+# by @ManoloZocco
 
 """System screen: external dependencies & binary versions, DRM status, log viewer, update check."""
 
