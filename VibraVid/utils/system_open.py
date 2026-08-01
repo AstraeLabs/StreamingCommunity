@@ -1,3 +1,6 @@
+# 29.07.26
+# by @ManoloZocco
+
 """Cross-platform helper to launch files and reveal them in OS file managers."""
 
 import os
