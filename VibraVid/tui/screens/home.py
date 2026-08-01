@@ -1,4 +1,5 @@
 # 29.07.26
+# by @ManoloZocco
 
 """Home screen: Search Engine style landing page with central search bar, scope selectors & filtered provider pills."""
 
