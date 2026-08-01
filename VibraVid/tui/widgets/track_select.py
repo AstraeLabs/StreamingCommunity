@@ -1,4 +1,5 @@
 # 30.07.26
+# by @ManoloZocco
 
 """Track selection widget: DataTable with multi-select for video/audio/subtitle streams."""
 
