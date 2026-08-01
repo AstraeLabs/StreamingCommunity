@@ -1,4 +1,5 @@
 # 29.07.26
+# by @ManoloZocco
 
 """VibraVid Textual application shell.
 
