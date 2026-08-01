@@ -1355,10 +1355,6 @@ vibravid --tui
 | `u` | Title Detail | Clear episode selections in current season |
 | `Enter` | Global | Confirm / Open selected item |
 
-### Packaging
-
-When building VibraVid with PyInstaller, ensure Textual modules are included. See [PACKAGING.md](PACKAGING.md) for detailed instructions.
-
 ---
 
 ## Known Issues
