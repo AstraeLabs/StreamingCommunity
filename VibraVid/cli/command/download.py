@@ -1,14 +1,19 @@
 # 10.12.25
 
 import logging
-from typing import Optional
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager
+from VibraVid.core.downloader.util._detect import (
+    derive_output_path,
+    detect_stream_type,
+    parse_headers,
+    parse_keys,
+    parse_raw_key,
+)
 from VibraVid.core.drm.system import DRMType
-from VibraVid.core.downloader.util._detect import (detect_stream_type, parse_headers, parse_keys, parse_raw_key, derive_output_path)
 from VibraVid.core.ui.tracker import context_tracker
+from VibraVid.utils import config_manager
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -16,43 +21,43 @@ console = Console()
 
 def handle_direct_download(args) -> bool:
     """Execute a direct URL download when --down is passed."""
-    url: Optional[str] = getattr(args, 'down', None)
+    url: str | None = getattr(args, "down", None)
     if not url:
         return False, False
 
     url = url.strip()
-    if getattr(args, 'meta_title', None):
+    if getattr(args, "meta_title", None):
         context_tracker.title = args.meta_title
-    if getattr(args, 'meta_type', None):
+    if getattr(args, "meta_type", None):
         context_tracker.media_type = args.meta_type
-    if getattr(args, 'meta_season', None) is not None:
+    if getattr(args, "meta_season", None) is not None:
         context_tracker.season = args.meta_season
-    if getattr(args, 'meta_episode', None) is not None:
+    if getattr(args, "meta_episode", None) is not None:
         context_tracker.episode = args.meta_episode
-    if getattr(args, 'meta_site', None):
+    if getattr(args, "meta_site", None):
         context_tracker.site_name = args.meta_site
 
-    headers   = parse_headers(getattr(args, 'headers', None))
-    keys      = parse_keys(getattr(args, 'key', None))
-    output    = (getattr(args, 'output', None) or '').strip() or None
-    lic_url   = (getattr(args, 'license_url', None) or '').strip() or None
-    lic_hdr   = parse_headers(getattr(args, 'license_headers', None))
-    drm_pref  = (getattr(args, 'drm', None) or 'auto').strip().lower()
-    max_segs  = getattr(args, 'max_segments', None)
-    max_time  = getattr(args, 'max_time', None)
-    skip_content_check = bool(getattr(args, 'skip_content_check', False))
-    skip_sanitize = bool(getattr(args, 'skip_sanitize', False))
+    headers = parse_headers(getattr(args, "headers", None))
+    keys = parse_keys(getattr(args, "key", None))
+    output = (getattr(args, "output", None) or "").strip() or None
+    lic_url = (getattr(args, "license_url", None) or "").strip() or None
+    lic_hdr = parse_headers(getattr(args, "license_headers", None))
+    drm_pref = (getattr(args, "drm", None) or "auto").strip().lower()
+    max_segs = getattr(args, "max_segments", None)
+    max_time = getattr(args, "max_time", None)
+    skip_content_check = bool(getattr(args, "skip_content_check", False))
+    skip_sanitize = bool(getattr(args, "skip_sanitize", False))
 
-    hls_method = (getattr(args, 'hls_method', None) or '').strip().upper() or None
+    hls_method = (getattr(args, "hls_method", None) or "").strip().upper() or None
     try:
-        hls_key = parse_raw_key(getattr(args, 'hls_key', None))
-        hls_iv  = parse_raw_key(getattr(args, 'hls_iv', None))
+        hls_key = parse_raw_key(getattr(args, "hls_key", None))
+        hls_iv = parse_raw_key(getattr(args, "hls_iv", None))
     except Exception as exc:
         logger.error(f"Could not decode --hls-key/--hls-iv: {exc}")
         console.print(f"[red]Could not decode --hls-key/--hls-iv: {exc}")
         return True, False
 
-    for _name, _val in (('--hls-key', hls_key), ('--hls-iv', hls_iv)):
+    for _name, _val in (("--hls-key", hls_key), ("--hls-iv", hls_iv)):
         if _val is not None and len(_val) != 16:
             logger.error(f"{_name} must decode to exactly 16 bytes (got {len(_val)})")
             console.print(f"[red]{_name} must decode to exactly 16 bytes (got {len(_val)})")
@@ -60,27 +65,27 @@ def handle_direct_download(args) -> bool:
 
     # Map DRM string to DRMType constant (or None if not recognized)
     drm_choice = None
-    if drm_pref in ('widevine', 'wv', DRMType.WIDEVINE):
+    if drm_pref in ("widevine", "wv", DRMType.WIDEVINE):
         drm_choice = DRMType.WIDEVINE
-    elif drm_pref in ('playready', 'pr', DRMType.PLAYREADY):
+    elif drm_pref in ("playready", "pr", DRMType.PLAYREADY):
         drm_choice = DRMType.PLAYREADY
 
     # Build output path
     EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
     output = derive_output_path(url, output, EXTENSION_OUTPUT)
 
-    # Normalise key arg: single string → one-element list 
+    # Normalise key arg: single string → one-element list
     key_arg = keys
 
     # Allow forcing the stream type (e.g. --type mp4)
-    forced_type = (getattr(args, 'stream_type', None) or 'auto').lower()
-    url_type = forced_type if forced_type != 'auto' else detect_stream_type(url)
+    forced_type = (getattr(args, "stream_type", None) or "auto").lower()
+    url_type = forced_type if forced_type != "auto" else detect_stream_type(url)
 
     # Lazy import to avoid circular dependency
-    from VibraVid.core.downloader import MP4_Downloader, HLS_Downloader, DASH_Downloader, ISM_Downloader
+    from VibraVid.core.downloader import DASH_Downloader, HLS_Downloader, ISM_Downloader, MP4_Downloader
 
     try:
-        if url_type == 'mp4':
+        if url_type == "mp4":
             path, cancelled, error = MP4_Downloader(
                 url=url,
                 path=output,
@@ -95,7 +100,7 @@ def handle_direct_download(args) -> bool:
                 console.print(f"[red]Download error: {error}")
                 return True, False
 
-        elif url_type == 'hls':
+        elif url_type == "hls":
             dl = HLS_Downloader(
                 m3u8_url=url,
                 headers=headers or None,
@@ -118,7 +123,7 @@ def handle_direct_download(args) -> bool:
                 console.print(f"[red]Download error: {error}")
                 return True, False
 
-        elif url_type == 'dash':
+        elif url_type == "dash":
             effective_drm = drm_choice or DRMType.WIDEVINE
             dl = DASH_Downloader(
                 mpd_url=url,
@@ -139,7 +144,7 @@ def handle_direct_download(args) -> bool:
                 console.print(f"[red]Download error: {error}")
                 return True, False
 
-        elif url_type == 'ism':
+        elif url_type == "ism":
             effective_drm = drm_choice or DRMType.PLAYREADY
             dl = ISM_Downloader(
                 ism_url=url,
@@ -160,9 +165,25 @@ def handle_direct_download(args) -> bool:
                 console.print(f"[red]Download error: {error}")
                 return True, False
 
+        elif url_type == "custom":
+            from VibraVid.core.downloader import Generic_Downloader
+
+            dl = Generic_Downloader(
+                sources=[{"url": url, "protocol": "custom", "headers": headers or {}, "key": key_arg}],
+                output_path=output,
+                max_segments=max_segs,
+                max_time=max_time,
+            )
+            path, cancelled, error = dl.start()
+
+            if error:
+                logger.error(f"Custom manifest download error: {error}")
+                console.print(f"[red]Download error: {error}")
+                return True, False
+
         else:
             logger.error(f"Unsupported stream type for URL: {url}")
-            console.print("[red]Unsupported: could not detect a valid stream (m3u8/dash/hls/ism).")
+            console.print("[red]Unsupported: could not detect a valid stream (m3u8/dash/hls/ism/custom).")
             return True, False
 
     except Exception as exc:

@@ -1,11 +1,10 @@
-# 16.04.24
+﻿# 16.04.24
 
 import json
 import logging
 import subprocess
 
-from VibraVid.setup import get_ffprobe_path, get_ffmpeg_path
-
+from VibraVid.setup import get_ffmpeg_path, get_ffprobe_path
 
 logger = logging.getLogger(__name__)
 
@@ -31,31 +30,35 @@ def detect_ts_timestamp_issues(file_path):
     """
     Detect if a TS file has timestamp issues by checking for unset timestamps.
     Parameters:
-        - file_path (str): Path to the TS file.
+        file_path (str): Path to the TS file.
 
     Returns:
         bool: True if timestamp issues are detected, False otherwise.
     """
     cmd = [
         get_ffprobe_path(),
-        '-v', 'error',
-        '-show_packets',
-        '-select_streams', 'v:0',
-        '-read_intervals', '%+#1',
-        '-print_format', 'json',
-        file_path
+        "-v",
+        "error",
+        "-show_packets",
+        "-select_streams",
+        "v:0",
+        "-read_intervals",
+        "%+#1",
+        "-print_format",
+        "json",
+        file_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False, encoding="utf-8", errors="replace")
 
-    if result.returncode != 0 or 'pts_time' not in result.stdout:
+    if result.returncode != 0 or "pts_time" not in result.stdout:
         logger.warning(f"ffprobe could not read timestamps for {file_path}: {result.stderr.strip()}")
         return True
 
     try:
         info = json.loads(result.stdout)
-        packets = info.get('packets', [])
+        packets = info.get("packets", [])
         for packet in packets:
-            if packet.get('pts') is None or packet.get('pts') == 'N/A':
+            if packet.get("pts") is None or packet.get("pts") == "N/A":
                 return True
     except json.JSONDecodeError:
         logger.error(f"JSON decode error during timestamp check: {result.stdout.strip()}")
@@ -69,23 +72,27 @@ def convert_ts_to_mp4(input_path, output_path):
     Convert a TS file to MP4 to regenerate timestamps.
 
     Parameters:
-        - input_path (str): Path to the input TS file.
-        - output_path (str): Path to the output MP4 file.
+        input_path (str): Path to the input TS file.
+        output_path (str): Path to the output MP4 file.
 
     Returns:
         bool: True if conversion succeeded, False otherwise.
     """
     cmd = [
         get_ffmpeg_path(),
-        '-fflags', '+genpts+igndts+discardcorrupt',
-        '-avoid_negative_ts', 'make_zero',
-        '-i', input_path,
-        '-c', 'copy',
-        '-y', output_path
+        "-fflags",
+        "+genpts+igndts+discardcorrupt",
+        "-avoid_negative_ts",
+        "make_zero",
+        "-i",
+        input_path,
+        "-c",
+        "copy",
+        "-y",
+        output_path,
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         logger.error(f"convert_ts_to_mp4 failed: {result.stderr}")
 

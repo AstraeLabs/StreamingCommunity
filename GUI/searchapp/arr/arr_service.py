@@ -1,22 +1,12 @@
 # 07.05.26
 
-"""
-ARR Service — main orchestrator replacing Core.py from VibraVidArr.
-
-Coordinates:
-  - polling sync (incremental + full reconciliation)
-  - webhook-triggered immediate sync
-  - deduplication via ArrProcessingQueue
-  - config loading from config.json
-"""
 
 import json
-from datetime import timedelta
 import logging
 import os
 import threading
 import time
-from typing import Optional
+from datetime import timedelta
 
 from django.db import close_old_connections
 from django.utils import timezone
@@ -58,7 +48,7 @@ def _load_arr_config() -> dict:
     }
 
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             full_cfg = json.load(f)
         file_arr = full_cfg.get("ARR", {})
         if file_arr:
@@ -136,8 +126,8 @@ def _load_arr_config() -> dict:
 
 def _build_clients(cfg: dict):
     """Construct SonarrClient and RadarrClient from config."""
-    from .clients.sonarr_client import SonarrClient
     from .clients.radarr_client import RadarrClient
+    from .clients.sonarr_client import SonarrClient
 
     sonarr = None
     radarr = None
@@ -170,7 +160,7 @@ def _extract_provider_from_tags(client, tag_ids: list) -> str:
     return ""
 
 
-def _dedup_key(item: dict, season_num: Optional[int] = None, ep_num: Optional[int] = None) -> str:
+def _dedup_key(item: dict, season_num: int | None = None, ep_num: int | None = None) -> str:
     """Build a dedup key for an ARR item."""
     content_type = item.get("content_type", "unknown")
     arr_id = item.get("id", 0)
@@ -181,8 +171,13 @@ def _dedup_key(item: dict, season_num: Optional[int] = None, ep_num: Optional[in
         return f"sonarr_{arr_id}_s{season_num}_e{ep_num}"
 
 
-def _enqueue_if_new(item: dict, sync_source: str, season_num: Optional[int] = None,
-                    ep_num: Optional[int] = None, episode_id: Optional[int] = None) -> bool:
+def _enqueue_if_new(
+    item: dict,
+    sync_source: str,
+    season_num: int | None = None,
+    ep_num: int | None = None,
+    episode_id: int | None = None,
+) -> bool:
     """
     Create ArrMediaRequest + ArrProcessingQueue entries if not already present.
     Returns True if newly enqueued, False if duplicate.
@@ -215,10 +210,14 @@ def _enqueue_if_new(item: dict, sync_source: str, season_num: Optional[int] = No
             return False
 
         # Re-open a previously failed/non-successful queue row for retry.
-        reusable = ArrProcessingQueue.objects.filter(
-            dedup_key=key,
-            completed_at__isnull=False,
-        ).exclude(success=True).first()
+        reusable = (
+            ArrProcessingQueue.objects.filter(
+                dedup_key=key,
+                completed_at__isnull=False,
+            )
+            .exclude(success=True)
+            .first()
+        )
         if reusable:
             reusable.completed_at = None
             reusable.started_at = None
@@ -304,11 +303,15 @@ def _skip_pending_queue(item: dict, reason: str, season_num=None, ep_num=None) -
     from searchapp.models import ArrProcessingQueue
 
     key = _dedup_key(item, season_num, ep_num)
-    queue_entry = ArrProcessingQueue.objects.filter(
-        dedup_key=key,
-        completed_at__isnull=True,
-        started_at__isnull=True,
-    ).select_related("media_request").first()
+    queue_entry = (
+        ArrProcessingQueue.objects.filter(
+            dedup_key=key,
+            completed_at__isnull=True,
+            started_at__isnull=True,
+        )
+        .select_related("media_request")
+        .first()
+    )
     if not queue_entry:
         return False
     return _skip_pending_queue_entry(queue_entry, reason)
@@ -371,10 +374,7 @@ def _skip_unmonitored_episode(sonarr, item: dict, season: dict, episode: dict, c
         season["number"],
         episode["episodeNumber"],
     )
-    logger.info(
-        f"{context} Skipping '{item.get('title')}' S{season['number']}E{episode['episodeNumber']} "
-        "because Sonarr marks it unmonitored"
-    )
+    logger.info(f"{context} Skipping '{item.get('title')}' S{season['number']}E{episode['episodeNumber']} because Sonarr marks it unmonitored")
     return True
 
 
@@ -418,7 +418,8 @@ def _reconcile_unmonitored_pending(sonarr=None, radarr=None) -> int:
                     episodes = sonarr.get_episodes_for_series(req.arr_id)
                     episode = next(
                         (
-                            ep for ep in episodes
+                            ep
+                            for ep in episodes
                             if ep.get("seasonNumber") == req.season_number
                             and ep.get("episodeNumber") == req.episode_number
                         ),
@@ -476,22 +477,14 @@ def _targeted_sync_with_retry(
     for attempt in range(max_retries):
         count = lookup_fn()
         if count > 0:
-            logger.info(
-                f"[{source_label}] Targeted sync found {count} item(s) on attempt {attempt + 1}"
-            )
+            logger.info(f"[{source_label}] Targeted sync found {count} item(s) on attempt {attempt + 1}")
             return count
         if attempt < max_retries - 1:
-            delay = base_delay * (2 ** attempt)
-            logger.info(
-                f"[{source_label}] Target media not found, "
-                f"retrying in {delay:.0f}s (attempt {attempt + 1}/{max_retries})"
-            )
+            delay = base_delay * (2**attempt)
+            logger.info(f"[{source_label}] Target media not found, retrying in {delay:.0f}s (attempt {attempt + 1}/{max_retries})")
             time.sleep(delay)
 
-    logger.info(
-        f"[{source_label}] All {max_retries} targeted retries exhausted, "
-        f"falling back to full polling sync"
-    )
+    logger.info(f"[{source_label}] All {max_retries} targeted retries exhausted, falling back to full polling sync")
     return trigger_polling_sync(full_resync=True)
 
 
@@ -512,10 +505,12 @@ def trigger_polling_sync(full_resync: bool = False) -> int:
         return 0
 
     import searchapp.views as arr_views_mod
+
     arr_views_mod.set_max_download_slots(cfg.get("max_concurrent_downloads", 1))
 
-    from .processor_service import ArrProcessorService
     from .downloader_service import ArrDownloaderService
+    from .processor_service import ArrProcessorService
+
     _reconcile_orphaned_downloads(older_than_seconds=cfg.get("download_timeout", 7200))
     _reconcile_unmonitored_pending(sonarr=sonarr, radarr=radarr)
 
@@ -560,7 +555,8 @@ def trigger_polling_sync(full_resync: bool = False) -> int:
                     if _skip_unmonitored_episode(sonarr, item, season, episode, "[polling]"):
                         continue
                     if _enqueue_if_new(
-                        item, "polling",
+                        item,
+                        "polling",
                         season_num=season["number"],
                         ep_num=episode["episodeNumber"],
                         episode_id=episode["id"],
@@ -585,7 +581,7 @@ def trigger_polling_sync(full_resync: bool = False) -> int:
     return enqueued
 
 
-def _reconcile_orphaned_downloads(older_than_seconds: Optional[int] = None) -> int:
+def _reconcile_orphaned_downloads(older_than_seconds: int | None = None) -> int:
     """
     Recover queue rows stuck in 'Downloading' (started but never completed).
 
@@ -656,6 +652,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
     _reconcile_unmonitored_pending(sonarr=sonarr, radarr=radarr)
 
     import searchapp.views as arr_views_mod
+
     arr_views_mod.set_max_download_slots(cfg.get("max_concurrent_downloads", 1))
 
     # Parse the webhook payload - handle both Seerr and Sonarr formats
@@ -777,7 +774,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
                         logger.info(f"[trigger_webhook_sync] Found series by id: '{matched.get('title')}'")
                         break
                 except Exception as exc:
-                    logger.warning(f"[trigger_webhook_sync] Attempt {attempt+1}/3: Failed to get series by id {series_id}: {exc}")
+                    logger.warning(f"[trigger_webhook_sync] Attempt {attempt + 1}/3: Failed to get series by id {series_id}: {exc}")
 
                 if attempt < 2:
                     delay = 5 * (attempt + 1)
@@ -811,7 +808,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
                     break
 
                 if attempt < 2:
-                    logger.info(f"[trigger_webhook_sync] Series not found, retrying in {5*(attempt+1)}s... (attempt {attempt+1}/3)")
+                    logger.info(f"[trigger_webhook_sync] Series not found, retrying in {5 * (attempt + 1)}s... (attempt {attempt + 1}/3)")
                     time.sleep(5 * (attempt + 1))
                     # Refresh series list on retry
                     try:
@@ -827,8 +824,10 @@ def trigger_webhook_sync(event_data: dict) -> int:
 
         # Apply tag filtering via ArrProcessorService
         from .processor_service import ArrProcessorService
+
         processor = ArrProcessorService(
-            sonarr=sonarr, radarr=radarr,
+            sonarr=sonarr,
+            radarr=radarr,
             tags_mode=cfg.get("tags_mode", "BLACKLIST"),
             active_tag_ids=cfg.get("active_tag_ids", []),
         )
@@ -879,13 +878,15 @@ def trigger_webhook_sync(event_data: dict) -> int:
                 continue
             if s_num not in seasons_dict:
                 seasons_dict[s_num] = {"number": s_num, "episodes": []}
-            seasons_dict[s_num]["episodes"].append({
-                "id": ep["id"],
-                "title": ep.get("title", ""),
-                "seasonNumber": s_num,
-                "episodeNumber": ep["episodeNumber"],
-                "monitored": ep.get("monitored", True),
-            })
+            seasons_dict[s_num]["episodes"].append(
+                {
+                    "id": ep["id"],
+                    "title": ep.get("title", ""),
+                    "seasonNumber": s_num,
+                    "episodeNumber": ep["episodeNumber"],
+                    "monitored": ep.get("monitored", True),
+                }
+            )
 
         serie_item["seasons"] = list(seasons_dict.values())
 
@@ -897,7 +898,8 @@ def trigger_webhook_sync(event_data: dict) -> int:
                 if _skip_unmonitored_episode(sonarr, serie_item, season, episode, "[trigger_webhook_sync]"):
                     continue
                 if _enqueue_if_new(
-                    serie_item, "webhook",
+                    serie_item,
+                    "webhook",
                     season_num=season["number"],
                     ep_num=episode["episodeNumber"],
                     episode_id=episode["id"],
@@ -909,14 +911,14 @@ def trigger_webhook_sync(event_data: dict) -> int:
                         if downloader._process_serie(ep_item):
                             _mark_completed(serie_item, season["number"], episode["episodeNumber"])
                         else:
-                            _mark_failed(serie_item, downloader.last_error or "download_failed",
-                                         season["number"], episode["episodeNumber"])
+                            _mark_failed(
+                                serie_item,
+                                downloader.last_error or "download_failed",
+                                season["number"],
+                                episode["episodeNumber"],
+                            )
                     except Exception as exc:
-                        logger.error(
-                            f"[trigger_webhook_sync] Download failed for '{serie_item.get('title')}' "
-                            f"S{season['number']}E{episode['episodeNumber']}: {exc}",
-                            exc_info=True
-                        )
+                        logger.error(f"[trigger_webhook_sync] Download failed for '{serie_item.get('title')}' S{season['number']}E{episode['episodeNumber']}: {exc}", exc_info=True,)
                         _mark_failed(serie_item, str(exc), season["number"], episode["episodeNumber"])
 
         logger.info(f"[trigger_webhook_sync] Series '{matched['title']}' processed: {local_enqueued} episodes enqueued")
@@ -950,6 +952,7 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
     _reconcile_unmonitored_pending(sonarr=sonarr, radarr=None)
 
     import searchapp.views as arr_views_mod
+
     arr_views_mod.set_max_download_slots(cfg.get("max_concurrent_downloads", 1))
 
     series_data = event_data.get("series", {})
@@ -991,8 +994,10 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
 
     # Apply tag filtering
     from .processor_service import ArrProcessorService
+
     processor = ArrProcessorService(
-        sonarr=sonarr, radarr=None,
+        sonarr=sonarr,
+        radarr=None,
         tags_mode=cfg.get("tags_mode", "BLACKLIST"),
         active_tag_ids=cfg.get("active_tag_ids", []),
     )
@@ -1005,6 +1010,7 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
     if event_type == "seriesadd":
         logger.info(f"[Sonarr WH] SeriesAdd event — getting episodes for '{serie['title']}'")
         from .downloader_service import ArrDownloaderService
+
         downloader = ArrDownloaderService(sonarr, None)
 
         # Get all episodes for this series directly from Sonarr
@@ -1016,10 +1022,7 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
             return trigger_polling_sync(full_resync=True)
 
         # Filter: monitored episodes without files
-        missing_eps = [
-            e for e in episodes
-            if e.get("monitored") and not e.get("hasFile")
-        ]
+        missing_eps = [e for e in episodes if e.get("monitored") and not e.get("hasFile")]
 
         if not missing_eps:
             logger.info(f"[Sonarr WH] Series '{serie['title']}' has no monitored episodes without files")
@@ -1035,13 +1038,15 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
                 continue
             if s_num not in seasons_dict:
                 seasons_dict[s_num] = {"number": s_num, "episodes": []}
-            seasons_dict[s_num]["episodes"].append({
-                "id": ep["id"],
-                "title": ep.get("title", ""),
-                "seasonNumber": s_num,
-                "episodeNumber": ep["episodeNumber"],
-                "monitored": ep.get("monitored", True),
-            })
+            seasons_dict[s_num]["episodes"].append(
+                {
+                    "id": ep["id"],
+                    "title": ep.get("title", ""),
+                    "seasonNumber": s_num,
+                    "episodeNumber": ep["episodeNumber"],
+                    "monitored": ep.get("monitored", True),
+                }
+            )
 
         serie["seasons"] = list(seasons_dict.values())
 
@@ -1052,7 +1057,8 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
                 if _skip_unmonitored_episode(sonarr, serie, season, episode, "[Sonarr WH]"):
                     continue
                 if _enqueue_if_new(
-                    serie, "webhook",
+                    serie,
+                    "webhook",
                     season_num=season["number"],
                     ep_num=episode["episodeNumber"],
                     episode_id=episode["id"],
@@ -1064,13 +1070,14 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
                         if downloader._process_serie(ep_item):
                             _mark_completed(serie, season["number"], episode["episodeNumber"])
                         else:
-                            _mark_failed(serie, downloader.last_error or "download_failed",
-                                         season["number"], episode["episodeNumber"])
+                            _mark_failed(
+                                serie,
+                                downloader.last_error or "download_failed",
+                                season["number"],
+                                episode["episodeNumber"],
+                            )
                     except Exception as exc:
-                        logger.error(
-                            f"[Sonarr WH] Download failed S{season['number']}E{episode['episodeNumber']}: {exc}",
-                            exc_info=True
-                        )
+                        logger.error(f"[Sonarr WH] Download failed S{season['number']}E{episode['episodeNumber']}: {exc}", exc_info=True)
                         _mark_failed(serie, str(exc), season["number"], episode["episodeNumber"])
 
         logger.info(f"[Sonarr WH] Completed: {enqueued} episodes enqueued for '{serie['title']}'")
@@ -1090,18 +1097,21 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
             continue
         if s_num not in seasons_dict:
             seasons_dict[s_num] = {"number": s_num, "episodes": []}
-        seasons_dict[s_num]["episodes"].append({
-            "id": ep.get("id"),
-            "title": ep.get("title", ""),
-            "seasonNumber": s_num,
-            "episodeNumber": ep.get("episodeNumber"),
-            "monitored": ep.get("monitored", True),
-        })
+        seasons_dict[s_num]["episodes"].append(
+            {
+                "id": ep.get("id"),
+                "title": ep.get("title", ""),
+                "seasonNumber": s_num,
+                "episodeNumber": ep.get("episodeNumber"),
+                "monitored": ep.get("monitored", True),
+            }
+        )
 
     serie["seasons"] = list(seasons_dict.values())
 
     # Process episodes
     from .downloader_service import ArrDownloaderService
+
     downloader = ArrDownloaderService(sonarr, None)
     enqueued = 0
     for season in serie.get("seasons", []):
@@ -1110,7 +1120,8 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
             if _skip_unmonitored_episode(sonarr, serie, season, episode, "[Sonarr WH]"):
                 continue
             if _enqueue_if_new(
-                serie, "webhook",
+                serie,
+                "webhook",
                 season_num=season["number"],
                 ep_num=episode["episodeNumber"],
                 episode_id=episode.get("id"),
@@ -1121,8 +1132,12 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
                     if downloader._process_serie(ep_item):
                         _mark_completed(serie, season["number"], episode["episodeNumber"])
                     else:
-                        _mark_failed(serie, downloader.last_error or "download_failed",
-                                     season["number"], episode["episodeNumber"])
+                        _mark_failed(
+                            serie,
+                            downloader.last_error or "download_failed",
+                            season["number"],
+                            episode["episodeNumber"],
+                        )
                 except Exception as exc:
                     logger.error(f"[Sonarr WH] Download failed S{season['number']}E{episode['episodeNumber']}: {exc}")
                     _mark_failed(serie, str(exc), season["number"], episode["episodeNumber"])
@@ -1152,6 +1167,7 @@ def trigger_radarr_webhook_sync(event_data: dict) -> int:
     _reconcile_unmonitored_pending(sonarr=None, radarr=radarr)
 
     import searchapp.views as arr_views_mod
+
     arr_views_mod.set_max_download_slots(cfg.get("max_concurrent_downloads", 1))
 
     movie_data = event_data.get("movie", {})
@@ -1192,8 +1208,10 @@ def trigger_radarr_webhook_sync(event_data: dict) -> int:
 
     # Apply tag filtering
     from .processor_service import ArrProcessorService
+
     processor = ArrProcessorService(
-        sonarr=None, radarr=radarr,
+        sonarr=None,
+        radarr=radarr,
         tags_mode=cfg.get("tags_mode", "BLACKLIST"),
         active_tag_ids=cfg.get("active_tag_ids", []),
     )
@@ -1208,6 +1226,7 @@ def trigger_radarr_webhook_sync(event_data: dict) -> int:
         return -1
 
     from .downloader_service import ArrDownloaderService
+
     downloader = ArrDownloaderService(None, radarr)
     try:
         _mark_downloading(movie_item)

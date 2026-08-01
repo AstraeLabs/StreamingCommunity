@@ -6,7 +6,8 @@
 ![ARR](https://img.shields.io/badge/ARR-Sonarr%20%7C%20Radarr-orange?style=flat-square)
 ![GUI](https://img.shields.io/badge/GUI-Web%20UI-blueviolet?style=flat-square)
 
-[![Sponsor](https://img.shields.io/badge/💖_Sponsor-ea4aaa?style=for-the-badge&logo=github-sponsors&logoColor=white&labelColor=2d3748)](https://ko-fi.com/arrowar)
+
+[![Donate](https://img.shields.io/badge/💖_Sponsor-ea4aaa?style=for-the-badge&logo=github-sponsors&logoColor=white&labelColor=2d3748)](https://www.paypal.com/donate/?hosted_button_id=UXTWMT8P6HE2C)
 
 [![Windows](https://img.shields.io/badge/🪟_Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white&labelColor=2d3748)](https://github.com/AstraeLabs/VibraVid/releases/latest/download/VibraVid_win_2025_x64.exe)
 [![macOS](https://img.shields.io/badge/🍎_macOS-000000?style=for-the-badge&logo=apple&logoColor=white&labelColor=2d3748)](https://github.com/AstraeLabs/VibraVid/releases/latest/download/VibraVid_mac_15_x64)
@@ -169,7 +170,7 @@ from VibraVid.core.downloader import Generic_Downloader
 
 sources = [
     {"role": "video:hdr10", "url": "<hdr10 m3u8>", "key": "<kid:key>"},
-    {"role": "video:dv",    "url": "<dv m3u8>",    "key": "<kid:key>"},
+    {"role": "video:dv", "url": "<dv m3u8>", "key": "<kid:key>"},
     {"role": "audio", "language": "en", "url": "<audio m3u8>", "key": "<kid:key>"},
     {"role": "subtitle", "language": "en", "url": "<sub url>"},
 ]
@@ -353,7 +354,7 @@ S%(season:02d)/     ->  season folder   S01/
     "select_subtitle": "ita|eng|Ita|Eng",
     "extract_embedded_cc": false,
     "cleanup_tmp_folder": true,
-    "embed_tmdb_poster": true,
+    "embed_poster": true,
     "engine": "ffmpeg"
   }
 }
@@ -372,7 +373,7 @@ S%(season:02d)/     ->  season folder   S01/
 | `concurrent_download` | `true` | Download video, audio, and subtitles simultaneously |
 | `extract_embedded_cc` | `false` | HLS only: extract embedded CEA-608/708 closed captions (`EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS`, no separate subtitle file) from the downloaded video into a subtitle track. Opt-in because it requires decoding the whole video, adding extra time/CPU per download |
 | `cleanup_tmp_folder` | `true` | Remove temporary files after download |
-| `embed_tmdb_poster` | `true` | Embed the matching TMDB poster (movies/series) or episode still (episodes, falling back to season/series poster) into the downloaded file, when a TMDB match is found |
+| `embed_poster` | `true` | Embed a poster/still into the downloaded file: the matching TMDB artwork if found, otherwise the site's own poster/still as a fallback |
 | `engine` | `"ffmpeg"` | Muxing engine used to combine video, audio and subtitle tracks. `ffmpeg`, `mkvmerge` requires a **full installation** |
 
 #### Stream Selection Filters

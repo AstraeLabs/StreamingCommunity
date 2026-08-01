@@ -1,13 +1,10 @@
 # 28.02.26
 
-from typing import Dict
-
 
 _SUBTITLE_FLAG_WORDS = ("forced", "cc", "sdh", "hi", "default")
 
 
 LANGUAGE_MAP = {
-
     # --- ISO 639-2/T (terminological, 3 char) ---
     "ita": "it-IT",
     "eng": "en-US",
@@ -44,7 +41,6 @@ LANGUAGE_MAP = {
     "srp": "sr-RS",
     "bul": "bg-BG",
     "slv": "sl-SI",
-
     # --- ISO 639-2/B (bibliographic, 3 char) ---
     "ger": "de-DE",
     "fre": "fr-FR",
@@ -57,24 +53,22 @@ LANGUAGE_MAP = {
     "slo": "sk-SK",
     "scr": "hr-HR",
     "alb": "sq-AL",
-
     # --- Additional ISO 639-2 codes (were missing → kept raw 3-letter before) ---
-    "est": "et-EE", 
+    "est": "et-EE",
     "et": "et-EE",
-    "ice": "is-IS", 
-    "isl": "is-IS", 
+    "ice": "is-IS",
+    "isl": "is-IS",
     "is": "is-IS",
-    "lit": "lt-LT", 
+    "lit": "lt-LT",
     "lt": "lt-LT",
-    "lav": "lv-LV", 
+    "lav": "lv-LV",
     "lv": "lv-LV",
-    "mac": "mk-MK", 
-    "mkd": "mk-MK", 
+    "mac": "mk-MK",
+    "mkd": "mk-MK",
     "mk": "mk-MK",
-    "mon": "mn-MN", 
+    "mon": "mn-MN",
     "mn": "mn-MN",
     "nob": "nb-NO",
-
     # --- ISO 639-1 (2 char) ---
     "it": "it-IT",
     "en": "en-US",
@@ -113,7 +107,6 @@ LANGUAGE_MAP = {
     "bg": "bg-BG",
     "sl": "sl-SI",
     "sq": "sq-AL",
-
     # --- English full-name keys (lowercase) ---
     "italian": "it-IT",
     "english": "en-US",
@@ -152,7 +145,6 @@ LANGUAGE_MAP = {
     "bulgarian": "bg-BG",
     "slovenian": "sl-SI",
     "albanian": "sq-AL",
-
     # --- Common region/country shortcuts ---
     # ("pt" and "es" already covered above by the ISO 639-1 block.)
     "us": "en-US",
@@ -164,7 +156,6 @@ LANGUAGE_MAP = {
     "tw": "zh-TW",
     "kr": "ko-KR",
     "mx": "es-MX",
-
     # --- BCP 47 variants (pass-through normalization) ---
     "pt-br": "pt-BR",
     "pt-pt": "pt-PT",
@@ -193,7 +184,7 @@ _ISO639_2_FROM_2 = {
     "bs": "bos",  # Bosnian
     "bg": "bul",  # Bulgarian
     "ca": "cat",  # Catalan
-    "ceb": "ceb", # Cebuano
+    "ceb": "ceb",  # Cebuano
     "ny": "nya",  # Chichewa
     "zh": "zho",  # Chinese
     "co": "cos",  # Corsican
@@ -215,10 +206,10 @@ _ISO639_2_FROM_2 = {
     "gu": "guj",  # Gujarati
     "ht": "hat",  # Haitian Creole
     "ha": "hau",  # Hausa
-    "haw": "haw", # Hawaiian
+    "haw": "haw",  # Hawaiian
     "he": "heb",  # Hebrew
     "hi": "hin",  # Hindi
-    "hmn": "hmn", # Hmong
+    "hmn": "hmn",  # Hmong
     "hu": "hun",  # Hungarian
     "is": "isl",  # Icelandic
     "ig": "ibo",  # Igbo
@@ -519,9 +510,6 @@ _ISO639_2_FROM_NAME = {
 }
 
 
-
-
-
 def resolve_locale(lang: str) -> str:
     """Convert a language code or name to a BCP 47 locale string (e.g. "it-IT")."""
     if not lang or not isinstance(lang, str):
@@ -573,9 +561,9 @@ def resolve_ietf(value: str) -> str:
             else:
                 return "und"
         elif i == 1:
-            if len(part) == 2 and part.isalpha():        # region: 2 letters (US, FR, …)
+            if len(part) == 2 and part.isalpha():  # region: 2 letters (US, FR, …)
                 result.append(part.upper())
-            elif len(part) == 3 and part.isdigit():      # numeric region: 3 digits (419, …)
+            elif len(part) == 3 and part.isdigit():  # numeric region: 3 digits (419, …)
                 result.append(part)
             break
 
@@ -617,9 +605,10 @@ def resolve_iso639_1(lang: str) -> str:
     return ""
 
 
-def extract_lang_and_flags(lang_raw: str, track_info: Dict = None):
+def extract_lang_and_flags(lang_raw: str, track_info: dict = None):
     """Split a raw language string like ``en-us_cc`` into (base_lang, flags_set)."""
     import re as _re
+
     parts = _re.split(r"[-_]", lang_raw or "")
     flags = set()
     clean = []
@@ -642,7 +631,7 @@ def extract_lang_and_flags(lang_raw: str, track_info: Dict = None):
     return "-".join(clean), flags
 
 
-def subtitle_flags(lang_raw: str, track_info: Dict = None) -> Dict[str, bool]:
+def subtitle_flags(lang_raw: str, track_info: dict = None) -> dict[str, bool]:
     """Return {'forced','cc','sdh','default'} booleans parsed from a raw language string and/or track dict."""
     _, flags = extract_lang_and_flags(lang_raw, track_info)
     forced = "forced" in flags
@@ -654,7 +643,7 @@ def subtitle_flags(lang_raw: str, track_info: Dict = None) -> Dict[str, bool]:
     }
 
 
-def language_variants(lang_raw: str) -> Dict[str, str]:
+def language_variants(lang_raw: str) -> dict[str, str]:
     """Return the same language expressed as BCP-47, ISO 639-1 and ISO 639-2 codes."""
     base = (lang_raw or "").strip()
     return {

@@ -2,10 +2,8 @@
 
 import logging
 import struct
-from typing import Dict, List, Optional, Tuple
 
 from VibraVid.core.drm.system import _DRMSystems
-
 
 logger = logging.getLogger(__name__)
 ISM_TIMESCALE = 10_000_000  # PIFF / Smooth Streaming default (100-ns ticks)
@@ -132,11 +130,7 @@ def _pack_iso639_2(lang: str) -> bytes:
     code = (lang or "und").lower()
     if len(code) != 3 or not all("a" <= c <= "z" for c in code):
         code = "und"
-    val = (
-        ((ord(code[0]) - 0x60) & 0x1F) << 10
-        | ((ord(code[1]) - 0x60) & 0x1F) << 5
-        | ((ord(code[2]) - 0x60) & 0x1F)
-    )
+    val = ((ord(code[0]) - 0x60) & 0x1F) << 10 | ((ord(code[1]) - 0x60) & 0x1F) << 5 | ((ord(code[2]) - 0x60) & 0x1F)
     return struct.pack(">H", val)
 
 
@@ -195,8 +189,8 @@ def make_sinf(original_format: bytes, kid_bytes: bytes) -> bytes:
 # ---------------------------------------------------------------------------
 # HEVC: parse Annex-B start-code NAL units and build a real hvcC box
 # ---------------------------------------------------------------------------
-def _split_annexb_nalus(data: bytes) -> List[bytes]:
-    nalus: List[bytes] = []
+def _split_annexb_nalus(data: bytes) -> list[bytes]:
+    nalus: list[bytes] = []
     i = 0
     n = len(data)
     while i < n:
@@ -209,10 +203,7 @@ def _split_annexb_nalus(data: bytes) -> List[bytes]:
             continue
         start = i
         while i < n:
-            if (
-                data[i : i + 4] == b"\x00\x00\x00\x01"
-                or data[i : i + 3] == b"\x00\x00\x01"
-            ):
+            if data[i : i + 4] == b"\x00\x00\x00\x01" or data[i : i + 3] == b"\x00\x00\x01":
                 break
             i += 1
         nalus.append(data[start:i])
@@ -237,7 +228,7 @@ def _strip_emulation_prevention(data: bytes) -> bytes:
 def build_hvcc(codec_private: bytes) -> bytes:
     """Build a valid hvcC payload from raw start-code VPS+SPS+PPS NAL units."""
     nalus = _split_annexb_nalus(codec_private)
-    by_type: Dict[int, List[bytes]] = {}
+    by_type: dict[int, list[bytes]] = {}
     for nalu in nalus:
         if not nalu:
             continue
@@ -272,7 +263,7 @@ def build_hvcc(codec_private: bytes) -> bytes:
     payload += struct.pack(">H", 0)  # avgFrameRate
     payload.append(0x03)  # constantFrameRate=0, lengthSizeMinusOne=3 (4-byte)
 
-    arrays: List[Tuple[int, List[bytes]]] = []
+    arrays: list[tuple[int, list[bytes]]] = []
     for nut in (32, 33, 34):  # VPS, SPS, PPS
         items = by_type.get(nut, [])
         if items:
@@ -320,7 +311,7 @@ def build_avcc(codec_private: bytes) -> bytes:
     for pps in pps_list:
         payload += struct.pack(">H", len(pps))
         payload += pps
-    
+
     return bytes(payload)
 
 
@@ -464,19 +455,11 @@ def build_audio_stsd(codec: str, codec_private: bytes, sample_rate: int, channel
         config_box = build_esds(codec_private)
         original_format = b"mp4a"
     elif codec in ("ec-3", "eac3"):
-        payload = (
-            codec_private
-            if codec_private
-            else _build_dec3_default(sample_rate, channels)
-        )
+        payload = codec_private if codec_private else _build_dec3_default(sample_rate, channels)
         config_box = make_box(b"dec3", payload)
         original_format = b"ec-3"
     elif codec in ("ac-3", "ac3"):
-        payload = (
-            codec_private
-            if codec_private
-            else _build_dac3_default(sample_rate, channels)
-        )
+        payload = codec_private if codec_private else _build_dac3_default(sample_rate, channels)
         config_box = make_box(b"dac3", payload)
         original_format = b"ac-3"
     else:
@@ -510,11 +493,7 @@ def make_empty_stco() -> bytes:
 def build_stbl(stsd_box: bytes) -> bytes:
     return make_box(
         b"stbl",
-        make_empty_stts()
-        + make_empty_stsc()
-        + make_empty_stco()
-        + make_empty_stsz()
-        + stsd_box,
+        make_empty_stts() + make_empty_stsc() + make_empty_stco() + make_empty_stsz() + stsd_box,
     )
 
 
@@ -627,7 +606,7 @@ def build_ism_init_segment(
     channels: int = 0,
     language: str = "und",
     timescale: int = ISM_TIMESCALE,
-    pro_bytes: Optional[bytes] = None,
+    pro_bytes: bytes | None = None,
     track_id: int = TRACK_ID,
 ) -> bytes:
     """

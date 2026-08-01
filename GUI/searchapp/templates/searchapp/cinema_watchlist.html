@@ -1,0 +1,89 @@
+{% extends "searchapp/cinema_base.html" %}
+
+{% block title %}Watchlist — ARROWAR{% endblock %}
+
+{% block content %}
+<div class="cn-pad" style="padding-top:34px">
+
+	<div class="cn-page-hd">
+		<h1 class="cn-blast">Watchlist</h1>
+		<p>Shows ARROWAR keeps an eye on by itself. When a new episode airs it lands in the queue
+		   without you having to do anything.</p>
+	</div>
+
+	<div class="cn-slab">
+		<div class="cn-big">
+			<span class="cn-v {% if new_count %}is-hot{% endif %}">{{ new_count }}</span>
+			<span class="cn-k">With news</span>
+		</div>
+		<div class="cn-big"><span class="cn-v">{{ items|length }}</span><span class="cn-k">Watched</span></div>
+		<div class="cn-big"><span class="cn-v">{{ auto_count }}</span><span class="cn-k">Automatic</span></div>
+		<div class="cn-big">
+			<span class="cn-v">{{ interval_minutes }}<span style="font-size:.45em"> min</span></span>
+			<span class="cn-k">Between checks</span>
+		</div>
+		<span style="margin-left:auto;display:flex;gap:11px;flex-wrap:wrap">
+			<a class="cn-cta is-ghost" href="{% url 'search_page' %}">Add from search</a>
+			<form action="{% url 'run_watchlist_auto_now' %}" method="post" style="display:inline">
+				{% csrf_token %}
+				<button class="cn-cta" type="submit">Check now</button>
+			</form>
+		</span>
+	</div>
+
+	{% if messages %}
+		{% for m in messages %}
+			<p class="cn-msg{% if m.tags == 'error' %} is-bad{% elif m.tags == 'success' %} is-good{% endif %}">{{ m }}</p>
+		{% endfor %}
+	{% endif %}
+
+	{% if items %}
+		<div class="cn-lines">
+			{% for item in items %}
+				<div class="cn-ln">
+					{% comment %}
+						La locandina c'era già nel dato (`WatchlistItem.poster_url`,
+						portata qui da _watchlist_tiles) ma la riga rendeva solo
+						testo — §7.3. Se l'URL è scaduto `onerror` toglie l'immagine
+						e sotto resta l'iniziale sul duotone, come nelle tile.
+					{% endcomment %}
+					<span class="cn-thumb" style="--cn-p1:{{ item.p1 }};--cn-p2:{{ item.p2 }}">
+						{% if item.poster %}
+							<img src="{{ item.poster }}" alt="" loading="lazy" decoding="async"
+							     onerror="this.remove()">
+						{% endif %}
+						<b>{{ item.name|first|upper }}</b>
+					</span>
+
+					<span class="cn-grow">
+						<span class="cn-t">{{ item.name }}</span>
+						<span class="cn-s">
+							{{ item.site }}
+							{% if item.is_movie %}· movie{% elif item.seasons %}· {{ item.seasons }} season{{ item.seasons|pluralize }}{% endif %}
+							{% if item.last_checked %}· checked {{ item.last_checked|timesince }} ago{% endif %}
+						</span>
+					</span>
+
+					{% if item.is_new %}
+						<span class="cn-st is-run">New</span>
+					{% elif item.auto %}
+						<span class="cn-st is-done">Automatic</span>
+					{% else %}
+						<span class="cn-st is-wait">Up to date</span>
+					{% endif %}
+
+					<form action="{% url 'remove_from_watchlist' item.id %}" method="post" style="display:inline">
+						{% csrf_token %}
+						<button class="cn-cta is-ghost" type="submit"
+						        style="padding:8px 16px;font-size:13px">Remove</button>
+					</form>
+				</div>
+			{% endfor %}
+		</div>
+	{% else %}
+		<p class="cn-empty" style="padding-left:0">
+			No shows being watched. Search for one and add it from the results page.
+		</p>
+	{% endif %}
+</div>
+{% endblock %}

@@ -50,9 +50,19 @@ def stub_tmdb_found():
     tdm.tmdb_client.get_original_language = lambda *a, **k: "ja"
     tdm.tmdb_client.get_title = lambda *a, **k: "Titolo TMDB"
     tdm.tmdb_client.get_episode_title = lambda *a, **k: "Titolo Episodio TMDB"
-    tdm.tmdb_client.get_season_for_absolute_episode = lambda *a, **k: {"season_number": 2, "episode_number": 1, "season_name": "Stagione 2"}
-    tdm.tmdb_client.resolve_actual_season_episode = lambda tmdb_id, season, episode, *a, **k: (2, 1) if episode == 53 else (season, episode)
-    tdm.tmdb_client.get_season_name = lambda tmdb_id, season_number, *a, **k: {1: "Stagione 1", 2: "Stagione 2", 3: "Stagione 3"}.get(season_number)
+    tdm.tmdb_client.get_season_for_absolute_episode = lambda *a, **k: {
+        "season_number": 2,
+        "episode_number": 1,
+        "season_name": "Stagione 2",
+    }
+    tdm.tmdb_client.resolve_actual_season_episode = lambda tmdb_id, season, episode, *a, **k: (
+        (2, 1) if episode == 53 else (season, episode)
+    )
+    tdm.tmdb_client.get_season_name = lambda tmdb_id, season_number, *a, **k: {
+        1: "Stagione 1",
+        2: "Stagione 2",
+        3: "Stagione 3",
+    }.get(season_number)
 
 
 def stub_tmdb_not_found():
@@ -68,7 +78,11 @@ def run_episode_basic_tests():
     pc, fn = episode("%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)", season=2, episode=1)
     check("default format", (pc, fn), (["Naruto", "S02"], "Il Test S02E01"))
 
-    pc, fn = episode("%(series_name)/Season %(season:02d)/%(series_name) - S%(season:02d)E%(episode:02d) - %(episode_name)", season=2, episode=1)
+    pc, fn = episode(
+        "%(series_name)/Season %(season:02d)/%(series_name) - S%(season:02d)E%(episode:02d) - %(episode_name)",
+        season=2,
+        episode=1,
+    )
     check("Sonarr-style 'Season 02' folder", (pc, fn), (["Naruto", "Season 02"], "Naruto - S02E01 - Il Test"))
 
     pc, fn = episode("%(series_name)/S%(season:d)/E%(episode:03d)", season=3, episode=7)
@@ -128,7 +142,10 @@ def run_tmdb_tests():
     print("=" * 70)
 
     stub_tmdb_found()
-    pc, fn = episode("%(series_name) [%(imdb_id)] (%(tmdb_id))/%(episode_name) {%(original_title)} %(original_language) <%(tmdb_title)> [%(tmdb_episode_title)]", episode=1)
+    pc, fn = episode(
+        "%(series_name) [%(imdb_id)] (%(tmdb_id))/%(episode_name) {%(original_title)} %(original_language) <%(tmdb_title)> [%(tmdb_episode_title)]",
+        episode=1,
+    )
     check(
         "TMDB tokens resolved",
         (pc, fn),
@@ -136,7 +153,9 @@ def run_tmdb_tests():
     )
 
     stub_tmdb_not_found()
-    pc, fn = episode("%(series_name) [%(imdb_id)]/%(episode_name) (%(tmdb_id)) [%(tmdb_title)] [%(tmdb_episode_title)]", episode=1)
+    pc, fn = episode(
+        "%(series_name) [%(imdb_id)]/%(episode_name) (%(tmdb_id)) [%(tmdb_title)] [%(tmdb_episode_title)]", episode=1
+    )
     check(
         "TMDB not found -> tokens+wrappers stripped",
         (pc, fn),
@@ -146,7 +165,9 @@ def run_tmdb_tests():
     # Dub-tag suffix (e.g. "(ITA)") must be stripped before the TMDB lookup, but the
     # raw title is preserved in %(series_name)/%(title_name) itself.
     seen_slugs = []
-    tdm.tmdb_client.get_type_and_id_by_slug_year = lambda slug, *a, **k: (seen_slugs.append(slug) or {"type": "tv", "id": 999})
+    tdm.tmdb_client.get_type_and_id_by_slug_year = lambda slug, *a, **k: (
+        seen_slugs.append(slug) or {"type": "tv", "id": 999}
+    )
 
     pc, fn = episode("%(series_name) (%(tmdb_id))/%(episode_name)", series="Naruto (ITA)", episode=1)
     check(
@@ -158,7 +179,9 @@ def run_tmdb_tests():
     # tmdb_season_name/tmdb_season_number map an absolute (flat) episode number to its real
     # TMDB season — only triggers the extra lookup when one of these tokens is actually used.
     stub_tmdb_found()
-    pc, fn = episode("%(series_name)/S%(tmdb_season_number) %(tmdb_season_name)/%(episode_name) E%(episode:d)", episode=53)
+    pc, fn = episode(
+        "%(series_name)/S%(tmdb_season_number) %(tmdb_season_name)/%(episode_name) E%(episode:d)", episode=53
+    )
     check(
         "tmdb_season_name/tmdb_season_number resolved from absolute episode number",
         (pc, fn),
@@ -177,7 +200,9 @@ def run_tmdb_tests():
     # be remapped as if episode_number were an absolute/flat cross-season count (e.g. Breaking
     # Bad S03E05 must resolve to season 3, not season 1 just because "5" fits within season 1).
     stub_tmdb_found()
-    pc, fn = episode("%(series_name)/S%(tmdb_season_number:02d) - %(tmdb_season_name)/%(episode_name)", season=3, episode=5)
+    pc, fn = episode(
+        "%(series_name)/S%(tmdb_season_number:02d) - %(tmdb_season_name)/%(episode_name)", season=3, episode=5
+    )
     check(
         "tmdb_season_number respects an already-correct season_number (no absolute remap)",
         (pc, fn),

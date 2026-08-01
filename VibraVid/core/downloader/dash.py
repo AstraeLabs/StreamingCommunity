@@ -1,30 +1,33 @@
 # 05.01.26
 
+import logging
 import os
 import shutil
 import time
-import logging
-from typing import Callable, Dict, List, Optional
+from collections.abc import Callable
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager, os_manager
-from VibraVid.utils.http_client import get_headers
-from VibraVid.utils.vault_upload.hook import try_fetch
-from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time, parse_max_segments as _parse_max_segments
-from VibraVid.setup import get_wvd_path, get_prd_path
-from VibraVid.core.ui.tracker import download_tracker, context_tracker
-from VibraVid.core.ui.ui import build_table
-from VibraVid.core.utils.media_players import MediaPlayers
-
-from VibraVid.core.velora.downloader import MediaDownloader
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.drm.system import DRMType, _DRMSystems
 from VibraVid.core.manifest.mpd import DashParser
 from VibraVid.core.manifest.stream import track_label
+from VibraVid.core.ui.tracker import context_tracker, download_tracker
+from VibraVid.core.ui.ui import build_table
+from VibraVid.core.utils.media_players import MediaPlayers
+from VibraVid.core.velora.downloader import MediaDownloader
+from VibraVid.core.velora.util.formatting import (
+    parse_max_segments as _parse_max_segments,
+)
+from VibraVid.core.velora.util.formatting import (
+    parse_max_time as _parse_max_time,
+)
+from VibraVid.setup import get_prd_path, get_wvd_path
+from VibraVid.utils import config_manager, os_manager
+from VibraVid.utils.http_client import get_headers
+from VibraVid.utils.vault_upload.hook import is_cached, try_fetch
 
 from .base import BaseDownloader
-
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -33,7 +36,7 @@ EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 SKIP_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "skip_download")
 AUDIO_FILTER = config_manager.config.get("DOWNLOAD", "select_audio")
 SUBTITLE_FILTER = config_manager.config.get("DOWNLOAD", "select_subtitle")
-DELAY_SS = config_manager.config.get_int('DOWNLOAD', 'delay_after_download')
+DELAY_SS = config_manager.config.get_int("DOWNLOAD", "delay_after_download")
 
 
 def _stream_drm_label(s) -> str:
@@ -104,7 +107,7 @@ def _other_track_tag(track_type: str) -> str:
     return ""
 
 
-def _is_dash_audio_track(track: Dict) -> bool:
+def _is_dash_audio_track(track: dict) -> bool:
     if _other_track_kind(track.get("type", "")) != "audio":
         return False
 
@@ -123,7 +126,7 @@ def _is_dash_audio_track(track: Dict) -> bool:
     return False
 
 
-def _to_external_subtitle_track(track: Dict) -> Dict:
+def _to_external_subtitle_track(track: dict) -> dict:
     normalized = dict(track or {})
 
     fmt = str(normalized.get("extension") or normalized.get("format") or "").strip().lower().lstrip(".")
@@ -142,13 +145,27 @@ def _to_external_subtitle_track(track: Dict) -> Dict:
 
 
 class DASH_Downloader(BaseDownloader):
-    def __init__(self, mpd_url: Optional[str] = None, mpd_content: Optional[str] = None, mpd_headers: Optional[Dict[str, str]] = None,
-        manifest_refresh_fn: Optional[Callable[[], Optional[str]]] = None,
-        license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None, license_data: Optional[str] = None,
-        output_path: Optional[str] = None, drm_preference = DRMType.WIDEVINE, key: Optional[str] = None, cookies: Optional[Dict[str, str]] = None,
-        max_segments: Optional[int] = None, max_time=None, other_tracks: Optional[list] = None,
-        license_request_fn: Optional[Callable[[bytes], bytes]] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None,
-        sanitize_path: bool = True
+    def __init__(
+        self,
+        mpd_url: str | None = None,
+        mpd_content: str | None = None,
+        mpd_headers: dict[str, str] | None = None,
+        manifest_refresh_fn: Callable[[], str | None] | None = None,
+        license_url: str | None = None,
+        license_headers: dict[str, str] | None = None,
+        license_certificate: str | None = None,
+        license_data: str | None = None,
+        output_path: str | None = None,
+        drm_preference=DRMType.WIDEVINE,
+        key: str | None = None,
+        cookies: dict[str, str] | None = None,
+        max_segments: int | None = None,
+        max_time=None,
+        other_tracks: list | None = None,
+        license_request_fn: Callable[[bytes, dict], bytes] | None = None,
+        chapters: list | None = None,
+        poster_url: str | None = None,
+        sanitize_path: bool = True,
     ):
         """
         Parameters:
@@ -170,16 +187,18 @@ class DASH_Downloader(BaseDownloader):
             - poster_url: Poster/still image URL to embed in the muxed output. Default: context_tracker.poster_url.
         """
         self.chapters = chapters if chapters is not None else context_tracker.chapters
-        self.poster_url = poster_url if poster_url is not None else context_tracker.poster_url
+        self.poster_url = context_tracker.poster_url or poster_url or context_tracker.fallback_poster_url
+        context_tracker.poster_url = self.poster_url
+        context_tracker.poster_url = self.poster_url
         self.mpd_url = self._resolve_url(str(mpd_url).strip()) if mpd_url else None
         self.mpd_content = mpd_content
         self.mpd_headers = mpd_headers or get_headers()
         self.manifest_refresh_fn = manifest_refresh_fn
         self.other_tracks = [dict(track or {}) for track in (other_tracks or [])]
 
-        self._subtitle_tracks: List[Dict] = []
-        self._dash_audio_tracks: List[Dict] = []
-        self._merge_other_tracks: List[Dict] = []
+        self._subtitle_tracks: list[dict] = []
+        self._dash_audio_tracks: list[dict] = []
+        self._merge_other_tracks: list[dict] = []
 
         for track in self.other_tracks:
             kind = _other_track_kind(track.get("type", ""))
@@ -197,11 +216,13 @@ class DASH_Downloader(BaseDownloader):
         self.license_certificate = license_certificate
         self.license_data = license_data
         logger.info(f"DASH Downloader initialized with MPD URL: {self.mpd_url}, License URL: {self.license_url}, DRM Preference: {drm_preference}, Key provided: {'yes' if key else 'no'}")
-        
+
         self.drm_preference = drm_preference
         self.key = key
         self.cookies = cookies or {}
-        self.max_segments = _parse_max_segments(max_segments if max_segments is not None else context_tracker.max_segments)
+        self.max_segments = _parse_max_segments(
+            max_segments if max_segments is not None else context_tracker.max_segments
+        )
         self.max_time = _parse_max_time(max_time if max_time is not None else context_tracker.max_time)
         self.drm_manager = DRMManager(
             get_wvd_path(),
@@ -215,9 +236,9 @@ class DASH_Downloader(BaseDownloader):
 
         self.decryption_keys = []
         self.media_downloader = None
-        self.custom_filters: Optional[Dict] = None
+        self.custom_filters: dict | None = None
 
-    def _collect_drm_from_streams(self, streams: list, check_selected: bool = True) -> Dict[str, List[Dict]]:
+    def _collect_drm_from_streams(self, streams: list, check_selected: bool = True) -> dict[str, list[dict]]:
         """
         Read PSSH data directly from Stream.drm (DRMInfo) on selected streams.
 
@@ -232,9 +253,9 @@ class DASH_Downloader(BaseDownloader):
                 DRMType.PLAYREADY: [{'pssh': ..., 'kid': ..., 'type': 'PlayReady', 'label': ...}, ...],
             }
         """
-        result: Dict[str, List[Dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: []}
-        seen: Dict[str, set] = {DRMType.WIDEVINE: set(), DRMType.PLAYREADY: set()}
-        kid_labels: Dict[str, list] = {}
+        result: dict[str, list[dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: []}
+        seen: dict[str, set] = {DRMType.WIDEVINE: set(), DRMType.PLAYREADY: set()}
+        kid_labels: dict[str, list] = {}
 
         for s in streams:
             drm = getattr(s, "drm", None)
@@ -304,7 +325,7 @@ class DASH_Downloader(BaseDownloader):
                         if not dt_added:
                             collected_dts.append(str(dt))
                             dt_added = True
-                        
+
                         result[dt].append(
                             {
                                 "pssh": pssh,
@@ -331,13 +352,13 @@ class DASH_Downloader(BaseDownloader):
 
         return result
 
-    def _collect_drm_from_mpd(self, raw_mpd_path: Optional[str]) -> Dict[str, List[Dict]]:
+    def _collect_drm_from_mpd(self, raw_mpd_path: str | None) -> dict[str, list[dict]]:
         """Fallback: scan the saved raw .mpd via DashParser to extract PSSH."""
-        result: Dict[str, List[Dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: []}
+        result: dict[str, list[dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: []}
         try:
             logger.info(f"_collect_drm_from_mpd: Attempting fallback DRM extraction from raw_mpd_path={raw_mpd_path}")
             if raw_mpd_path and os.path.exists(raw_mpd_path):
-                with open(raw_mpd_path, "r", encoding="utf-8") as f:
+                with open(raw_mpd_path, encoding="utf-8") as f:
                     content = f.read()
                 parser = DashParser(self.mpd_url, headers=self.mpd_headers, content=content)
             else:
@@ -360,7 +381,7 @@ class DASH_Downloader(BaseDownloader):
 
         return result
 
-    def _warn_drm_mismatch(self, drm_psshs: Dict[str, List[Dict]]) -> None:
+    def _warn_drm_mismatch(self, drm_psshs: dict[str, list[dict]]) -> None:
         """
         Print a warning if the manifest contains only the DRM type that is NOT
         the requested drm_preference (and nothing for the preferred type).
@@ -373,15 +394,30 @@ class DASH_Downloader(BaseDownloader):
         elif self.drm_preference == DRMType.PLAYREADY and not has_pr and has_wv:
             logger.warning("DRM mismatch: preference=playready but only Widevine PSSH found.")
 
-    def _fetch_keys(self, drm_psshs: Dict[str, List[Dict]]) -> List[str]:
+    def _fetch_keys(self, drm_psshs: dict[str, list[dict]]) -> list[str]:
         """Dispatch key fetch to DRMManager using the configured drm_preference."""
         keys = None
 
         if self.drm_preference == DRMType.WIDEVINE and drm_psshs.get(DRMType.WIDEVINE):
-            keys = self.drm_manager.get_wv_keys(drm_psshs[DRMType.WIDEVINE], self.license_url, self.license_data, self.license_certificate, self.license_headers, self.key, license_request_fn=self.license_request_fn)
+            keys = self.drm_manager.get_wv_keys(
+                drm_psshs[DRMType.WIDEVINE],
+                self.license_url,
+                self.license_data,
+                self.license_certificate,
+                self.license_headers,
+                self.key,
+                license_request_fn=self.license_request_fn,
+            )
 
         if self.drm_preference == DRMType.PLAYREADY and drm_psshs.get(DRMType.PLAYREADY):
-            keys = self.drm_manager.get_pr_keys(drm_psshs[DRMType.PLAYREADY], self.license_url, self.license_headers, self.key, self.license_data)
+            keys = self.drm_manager.get_pr_keys(
+                drm_psshs[DRMType.PLAYREADY],
+                self.license_url,
+                self.license_headers,
+                self.key,
+                self.license_data,
+                license_request_fn=self.license_request_fn,
+            )
 
         # Final fallback: use a manually provided key
         if not keys and self.key:
@@ -389,14 +425,22 @@ class DASH_Downloader(BaseDownloader):
 
         return keys or []
 
-    def _fetch_keys_for_audio_mpd(self, audio_url: str, audio_headers: dict, raw_mpd_path: Optional[str], streams: list, license_url: Optional[str] = None, license_hdrs: Optional[dict] = None) -> List[str]:
+    def _fetch_keys_for_audio_mpd(
+        self,
+        audio_url: str,
+        audio_headers: dict,
+        raw_mpd_path: str | None,
+        streams: list,
+        license_url: str | None = None,
+        license_hdrs: dict | None = None,
+    ) -> list[str]:
         """Fetch DRM keys for an extra-audio MPD. Primary: Stream.drm; fallback: DashParser."""
         drm_psshs = self._collect_drm_from_streams(streams)
 
         if not drm_psshs[DRMType.WIDEVINE] and not drm_psshs[DRMType.PLAYREADY]:
             try:
                 if raw_mpd_path and os.path.exists(raw_mpd_path):
-                    with open(raw_mpd_path, "r", encoding="utf-8") as f:
+                    with open(raw_mpd_path, encoding="utf-8") as f:
                         content = f.read()
                     parser = DashParser(audio_url, headers=audio_headers, content=content)
                 else:
@@ -424,28 +468,30 @@ class DASH_Downloader(BaseDownloader):
         keys = None
         if self.drm_preference == DRMType.WIDEVINE and drm_psshs.get(DRMType.WIDEVINE):
             keys = self.drm_manager.get_wv_keys(
-                drm_psshs[DRMType.WIDEVINE], eff_url,
+                drm_psshs[DRMType.WIDEVINE],
+                eff_url,
                 license_certificate=self.license_certificate,
                 headers=eff_hdrs,
                 key=self.key,
                 license_request_fn=self.license_request_fn,
             )
-        
+
         elif self.drm_preference == DRMType.PLAYREADY and drm_psshs.get(DRMType.PLAYREADY):
             keys = self.drm_manager.get_pr_keys(
-                drm_psshs[DRMType.PLAYREADY], eff_url,
+                drm_psshs[DRMType.PLAYREADY],
+                eff_url,
                 headers=eff_hdrs,
                 key=self.key,
                 license_data=self.license_data,
+                license_request_fn=self.license_request_fn,
             )
 
         return keys or []
-    
-    # ──────────────────────────────────────────────────────────────────────────
-    def _download_extra_audios(self) -> tuple[List[Dict], List[Dict]]:
+
+    def _download_extra_audios(self) -> tuple[list[dict], list[dict]]:
         """Download extra DASH audio tracks from ``other_tracks`` audio entries."""
-        external_audios: List[Dict] = []
-        external_subtitles: List[Dict] = []
+        external_audios: list[dict] = []
+        external_subtitles: list[dict] = []
 
         for audio_spec in self._dash_audio_tracks:
             audio_url = audio_spec.get("url")
@@ -486,7 +532,14 @@ class DASH_Downloader(BaseDownloader):
                 _, raw_mpd_str, _ = audio_dl.get_metadata()
                 raw_mpd = raw_mpd_str if raw_mpd_str and raw_mpd_str != "None" else None
 
-                audio_keys = self._fetch_keys_for_audio_mpd(audio_url, audio_headers, raw_mpd, audio_streams, license_url=audio_license_url, license_hdrs=audio_license_headers)
+                audio_keys = self._fetch_keys_for_audio_mpd(
+                    audio_url,
+                    audio_headers,
+                    raw_mpd,
+                    audio_streams,
+                    license_url=audio_license_url,
+                    license_hdrs=audio_license_headers,
+                )
 
                 if not audio_keys:
                     console.print(f"[yellow]No keys for audio {audio_language}, skipping...")
@@ -514,11 +567,13 @@ class DASH_Downloader(BaseDownloader):
                         final_path = os.path.join(self.output_dir, f"{self.filename_base}.{audio_language}{ext}")
                         try:
                             shutil.move(fpath, final_path)
-                            external_audios.append({
-                                "file": os.path.basename(final_path),
-                                "language": audio_language,
-                                "path": final_path,
-                            })
+                            external_audios.append(
+                                {
+                                    "file": os.path.basename(final_path),
+                                    "language": audio_language,
+                                    "path": final_path,
+                                }
+                            )
                         except Exception as e:
                             console.print(f"[yellow]Could not move audio {audio_language}: {e}")
 
@@ -530,12 +585,14 @@ class DASH_Downloader(BaseDownloader):
                         final_sub = os.path.join(self.output_dir, f"{self.filename_base}.{sub_lang}{ext}")
                         try:
                             shutil.move(fpath, final_sub)
-                            external_subtitles.append({
-                                "path": final_sub,
-                                "language": sub_lang,
-                                "name": sub_lang,
-                                "size": os.path.getsize(final_sub),
-                            })
+                            external_subtitles.append(
+                                {
+                                    "path": final_sub,
+                                    "language": sub_lang,
+                                    "name": sub_lang,
+                                    "size": os.path.getsize(final_sub),
+                                }
+                            )
                         except Exception as e:
                             console.print(f"[yellow]Could not move subtitle {sub_lang}: {e}")
 
@@ -547,10 +604,7 @@ class DASH_Downloader(BaseDownloader):
 
         return external_audios, external_subtitles
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Main entry point
-    # ──────────────────────────────────────────────────────────────────────────
-    def start(self) -> tuple[Optional[str], bool, Optional[str]]:
+    def start(self) -> tuple[str | None, bool, str | None]:
         """
         Execute the full DASH download pipeline.
         Returns ``(output_path, cancelled)`` — cancelled=True means abort.
@@ -561,7 +615,12 @@ class DASH_Downloader(BaseDownloader):
 
         if context_tracker.resolve_only:
             from VibraVid.cli.command.queue import enqueue_down_from_context
+
             enqueue_down_from_context(self.mpd_url, self.output_path)
+            return self.output_path, False, None
+
+        if is_cached():
+            console.print("[dim]Skipping — already in cache.")
             return self.output_path, False, None
 
         if try_fetch(self.output_path):
@@ -611,7 +670,7 @@ class DASH_Downloader(BaseDownloader):
         if self.chapters:
             console.print(f"[dim]Adding {len(self.chapters)} external chapter(s).")
 
-        # ── Parse ─────────────────────────────────────────────────────────────
+        # ── Parse
         if self.download_id:
             download_tracker.update_status(self.download_id, "Parsing DASH ...")
 
@@ -630,12 +689,12 @@ class DASH_Downloader(BaseDownloader):
             logger.info(f"&dv: DV companion found, added to other_tracks (quality={dv_quality!r})")
 
         # Show table: temporarily mark DV companion as selected so it appears highlighted
-        if context_tracker.should_print and streams:
+        if context_tracker.should_print and not context_tracker.hide_manifest_info and streams:
             _was_selected = None
             if _dv_companion_stream is not None:
                 _was_selected = _dv_companion_stream.selected
                 _dv_companion_stream.selected = True
-            
+
             console.print(build_table(streams))
             if _dv_companion_stream is not None and _was_selected is not None:
                 _dv_companion_stream.selected = _was_selected
@@ -643,7 +702,7 @@ class DASH_Downloader(BaseDownloader):
         _, raw_mpd_str, _ = self.media_downloader.get_metadata()
         raw_mpd = raw_mpd_str if raw_mpd_str and raw_mpd_str != "None" else None
 
-        # ── DRM ───────────────────────────────────────────────────────────────
+        # ── DRM
         drm_psshs = self._collect_drm_from_streams(streams)
         is_protected = bool(drm_psshs.get(DRMType.WIDEVINE) or drm_psshs.get(DRMType.PLAYREADY))
 
@@ -674,7 +733,7 @@ class DASH_Downloader(BaseDownloader):
                     download_tracker.complete_download(self.download_id, success=False, error=self.error)
                 return None, True, self.error
 
-        # ── Download ──────────────────────────────────────────────────────────
+        # ── Download
         self._log_tracks_json(streams, self.decryption_keys, self.mpd_url)
         if SKIP_DOWNLOAD:
             if DELAY_SS > 0:
@@ -700,10 +759,12 @@ class DASH_Downloader(BaseDownloader):
                 download_tracker.complete_download(self.download_id, success=False, error="No media downloaded")
             return None, True, "No media downloaded"
 
-        # ── Extra audio MPDs ──────────────────────────────────────────────────
+        # ── Extra audio MPD
         if self._dash_audio_tracks and AUDIO_FILTER != "false":
             if self.download_id:
-                download_tracker.update_status(self.download_id, f"Downloading {len(self._dash_audio_tracks)} extra audio track(s)...")
+                download_tracker.update_status(
+                    self.download_id, f"Downloading {len(self._dash_audio_tracks)} extra audio track(s)..."
+                )
             extra_audios, extra_subs = self._download_extra_audios()
             status["external_audios"] = extra_audios
             if extra_subs:
@@ -713,7 +774,7 @@ class DASH_Downloader(BaseDownloader):
                         status["subtitles"].append(sub)
                         existing.add(sub.get("path"))
 
-        # ── Merge ─────────────────────────────────────────────────────────────
+        # ── Merge
         if self.download_id:
             download_tracker.update_status(self.download_id, "Muxing ...")
 

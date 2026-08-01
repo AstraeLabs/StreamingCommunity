@@ -2,9 +2,7 @@
 
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
-
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +14,9 @@ def hls_base_url(playlist_url: str) -> str:
     return f"{p.scheme}://{p.netloc}{path}/"
 
 
-def parse_hls_variant_playlist(content: str, base_url: str, enc_override: Optional[Dict] = None) -> Tuple[List[Dict], Optional[str]]:
+def parse_hls_variant_playlist(
+    content: str, base_url: str, enc_override: dict | None = None
+) -> tuple[list[dict], str | None]:
     """
     Parse an HLS *variant* (media) playlist.
 
@@ -25,11 +25,11 @@ def parse_hls_variant_playlist(content: str, base_url: str, enc_override: Option
         - Optional init segment URL (from EXT-X-MAP)
     """
     # Each block: {"init": Optional[str], "segments": List[Dict]}
-    blocks: List[Dict] = []
-    current_block: Optional[Dict] = None
-    current_enc: Dict = {"method": "NONE", "key_url": None, "iv": None}
+    blocks: list[dict] = []
+    current_block: dict | None = None
+    current_enc: dict = {"method": "NONE", "key_url": None, "iv": None}
 
-    def _ensure_block(init: Optional[str]) -> Dict:
+    def _ensure_block(init: str | None) -> dict:
         block = {"init": init, "segments": []}
         blocks.append(block)
         return block
@@ -44,9 +44,9 @@ def parse_hls_variant_playlist(content: str, base_url: str, enc_override: Option
             uri_m = re.search(r'URI="([^"]+)"', line)
             iv_m = re.search(r"IV=0x([0-9a-fA-F]+)", line, re.I)
             current_enc = {
-                "method":  method_m.group(1).upper() if method_m else "NONE",
+                "method": method_m.group(1).upper() if method_m else "NONE",
                 "key_url": urljoin(base_url, uri_m.group(1)) if uri_m else None,
-                "iv":      iv_m.group(1).lower().zfill(32) if iv_m else None,
+                "iv": iv_m.group(1).lower().zfill(32) if iv_m else None,
             }
 
         elif line.startswith("#EXT-X-MAP:"):
@@ -74,8 +74,8 @@ def parse_hls_variant_playlist(content: str, base_url: str, enc_override: Option
 
                     current_block["segments"].append(
                         {
-                            "url":      urljoin(base_url, seg_url),
-                            "enc":      seg_enc,
+                            "url": urljoin(base_url, seg_url),
+                            "enc": seg_enc,
                             "duration": seg_duration,
                         }
                     )
@@ -98,7 +98,10 @@ def parse_hls_variant_playlist(content: str, base_url: str, enc_override: Option
 
     return segments, best["init"]
 
-def parse_hls_live_playlist(content: str, base_url: str, enc_override: Optional[Dict] = None) -> Tuple[List[Dict], Optional[str], int, int, bool]:
+
+def parse_hls_live_playlist(
+    content: str, base_url: str, enc_override: dict | None = None
+) -> tuple[list[dict], str | None, int, int, bool]:
     """Parse a live HLS playlist and return all relevant scheduling metadata."""
     segments, init_url = parse_hls_variant_playlist(content, base_url, enc_override)
 

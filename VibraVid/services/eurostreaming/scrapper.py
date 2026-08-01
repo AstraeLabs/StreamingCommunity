@@ -1,29 +1,28 @@
 # 29.05.26
 # By @UrloMythus
 
-import re
 import difflib
 import logging
+import re
 import threading
 
-from VibraVid.services._base.object import SeasonManager, Season, Episode, EpisodeManager
+from VibraVid.services._base.object import Episode, EpisodeManager, Season, SeasonManager
 from VibraVid.utils.http_client import create_client, get_userAgent
 
-
 logger = logging.getLogger(__name__)
-_EP_RE = re.compile(r'(\d+)&#215;(\d{2})\b')
-_BR_RE = re.compile(r'<br\s*/?>', re.IGNORECASE)
-_YEAR_RE = re.compile(r'(?<![/\d])(19|20)\d{2}(?![/\d])')
+_EP_RE = re.compile(r"(\d+)&#215;(\d{2})\b")
+_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_YEAR_RE = re.compile(r"(?<![/\d])(19|20)\d{2}(?![/\d])")
 
 
 class GetSerieInfo:
     def __init__(self, series_name: str, base_url: str):
         self.series_name = series_name
         self.series_display_name = series_name
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.year = None
         self.seasons_manager = SeasonManager()
-        self._content: str = ''
+        self._content: str = ""
         self._loaded = False
         self._load_lock = threading.Lock()
 
@@ -36,14 +35,16 @@ class GetSerieInfo:
             return
 
         self._loaded = True
-        headers = {'User-Agent': get_userAgent()}
+        headers = {"User-Agent": get_userAgent()}
         best_ratio = 0.0
-        best_content = ''
-        best_title = ''
+        best_content = ""
+        best_title = ""
 
         with create_client(headers=headers) as client:
             try:
-                resp = client.get(f"{self.base_url}/wp-json/wp/v2/search", params={'search': self.series_name, '_fields': 'id'})
+                resp = client.get(
+                    f"{self.base_url}/wp-json/wp/v2/search", params={"search": self.series_name, "_fields": "id"}
+                )
                 resp.raise_for_status()
                 results = resp.json()
             except Exception as e:
@@ -51,16 +52,19 @@ class GetSerieInfo:
                 return
 
             for item in results[:20]:
-                post_id = item.get('id')
+                post_id = item.get("id")
                 if not post_id:
                     continue
 
                 try:
-                    post_resp = client.get(f"{self.base_url}/wp-json/wp/v2/posts/{post_id}", params={'_fields': 'content,title'},)
+                    post_resp = client.get(
+                        f"{self.base_url}/wp-json/wp/v2/posts/{post_id}",
+                        params={"_fields": "content,title"},
+                    )
                     post_resp.raise_for_status()
                     data = post_resp.json()
-                    title = data.get('title', {}).get('rendered', '')
-                    content = data.get('content', {}).get('rendered', '')
+                    title = data.get("title", {}).get("rendered", "")
+                    content = data.get("content", {}).get("rendered", "")
 
                     ratio = difflib.SequenceMatcher(None, title.lower(), self.series_name.lower()).ratio()
                     if ratio > best_ratio:
@@ -92,11 +96,14 @@ class GetSerieInfo:
         for season_num in sorted(seasons):
             em = EpisodeManager()
             for ep_num in sorted(seasons[season_num]):
-                title_m = re.search(rf'{season_num}&#215;{ep_num:02d}\s*[-–]\s*([^<\n]+)', self._content,)
+                title_m = re.search(
+                    rf"{season_num}&#215;{ep_num:02d}\s*[-–]\s*([^<\n]+)",
+                    self._content,
+                )
                 ep_title = title_m.group(1).strip() if title_m else f"Episodio {ep_num}"
                 em.add(Episode(id=ep_num, number=ep_num, name=ep_title))
 
-            s = Season(id=season_num, number=season_num, name=f"Stagione {season_num}", slug='')
+            s = Season(id=season_num, number=season_num, name=f"Stagione {season_num}", slug="")
             s.episodes = em
             self.seasons_manager.add(s)
 
@@ -130,10 +137,10 @@ class GetSerieInfo:
                     maxstream_url = m.group(1)
 
         if loadm_url:
-            return loadm_url, 'loadm'
-        
+            return loadm_url, "loadm"
+
         if maxstream_url:
-            return maxstream_url, 'maxstream'
+            return maxstream_url, "maxstream"
 
         logger.warning(f"[Eurostreaming] No supported link for S{season_number}E{episode_number:02d}")
         return None, None

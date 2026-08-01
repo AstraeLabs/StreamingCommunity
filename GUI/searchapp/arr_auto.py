@@ -1,18 +1,9 @@
 # 07.05.26
 
-"""
-ARR Auto — background polling loop for ARR integration.
-
-Follows the same pattern as watchlist_auto.py:
-  - daemon thread started from AppConfig.ready()
-  - two intervals: incremental polling + full reconciliation
-  - reads config.json dynamically for runtime updates
-"""
-
+import logging
 import sys
 import threading
 import time
-import logging
 
 logger = logging.getLogger("ARR")
 
@@ -26,12 +17,13 @@ def _should_start_loop() -> bool:
 
 def _arr_loop() -> None:
     """Main background loop for ARR polling."""
-    from .arr.arr_service import _load_arr_config, trigger_polling_sync, _reconcile_orphaned_downloads
+    from .arr.arr_service import _load_arr_config, _reconcile_orphaned_downloads, trigger_polling_sync
 
     # Any queue row left in 'Downloading' at startup is orphaned by a previous
     # crash/restart (nothing is running yet), so recover them unconditionally.
     try:
         from django.db import close_old_connections
+
         close_old_connections()
         _reconcile_orphaned_downloads()
     except Exception as exc:

@@ -1,29 +1,31 @@
 # 03.05.26
 
+import logging
 import os
 import time
-import logging
-from typing import Callable, Dict, List, Optional
+from collections.abc import Callable
 
 from rich.console import Console
-
-from VibraVid.utils import config_manager, os_manager
-from VibraVid.utils.http_client import get_headers
-from VibraVid.utils.vault_upload.hook import try_fetch
-from VibraVid.setup import get_wvd_path, get_prd_path
-from VibraVid.core.ui.tracker import download_tracker, context_tracker
-from VibraVid.core.utils.media_players import MediaPlayers
-
-from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time, parse_max_segments as _parse_max_segments
-from VibraVid.core.velora.downloader import MediaDownloader
 
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.drm.system import DRMType
 from VibraVid.core.manifest.ism import ISMParser
 from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
+from VibraVid.core.ui.tracker import context_tracker, download_tracker
+from VibraVid.core.utils.media_players import MediaPlayers
+from VibraVid.core.velora.downloader import MediaDownloader
+from VibraVid.core.velora.util.formatting import (
+    parse_max_segments as _parse_max_segments,
+)
+from VibraVid.core.velora.util.formatting import (
+    parse_max_time as _parse_max_time,
+)
+from VibraVid.setup import get_prd_path, get_wvd_path
+from VibraVid.utils import config_manager, os_manager
+from VibraVid.utils.http_client import get_headers
+from VibraVid.utils.vault_upload.hook import is_cached, try_fetch
 
 from .base import BaseDownloader
-
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -34,12 +36,26 @@ DELAY_SS = config_manager.config.get_int("DOWNLOAD", "delay_after_download")
 
 
 class ISM_Downloader(BaseDownloader):
-    def __init__(self, ism_url: Optional[str] = None, ism_content: Optional[str] = None, headers: Optional[Dict[str, str]] = None,
-        manifest_refresh_fn: Optional[Callable[[], Optional[str]]] = None,
-        license_url: Optional[str] = None, license_headers: Optional[Dict[str, str]] = None, license_certificate: Optional[str] = None, license_data: Optional[dict] = None,
-        output_path: Optional[str] = None, drm_preference = DRMType.PLAYREADY, key: Optional[str] = None, cookies: Optional[Dict[str, str]] = None,
-        max_segments: Optional[int] = None, max_time=None,
-        other_tracks: Optional[list] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None, sanitize_path: bool = True
+    def __init__(
+        self,
+        ism_url: str | None = None,
+        ism_content: str | None = None,
+        headers: dict[str, str] | None = None,
+        manifest_refresh_fn: Callable[[], str | None] | None = None,
+        license_url: str | None = None,
+        license_headers: dict[str, str] | None = None,
+        license_certificate: str | None = None,
+        license_data: dict | None = None,
+        output_path: str | None = None,
+        drm_preference=DRMType.PLAYREADY,
+        key: str | None = None,
+        cookies: dict[str, str] | None = None,
+        max_segments: int | None = None,
+        max_time=None,
+        other_tracks: list | None = None,
+        chapters: list | None = None,
+        poster_url: str | None = None,
+        sanitize_path: bool = True,
     ):
         """
         Parameters:
@@ -59,7 +75,7 @@ class ISM_Downloader(BaseDownloader):
             - chapters: Chapter markers to inject into the muxed output, e.g. [{"name": str, "seconds": int}]. Default: context_tracker.chapters.
             - poster_url: Poster/still image URL to embed in the muxed output. Default: context_tracker.poster_url.
         """
-        self.ism_url = self._resolve_url(str(ism_url).strip())
+        self.ism_url = self._resolve_url(str(ism_url).strip()) if ism_url else None
         self.ism_content = ism_content
         self.headers = headers or get_headers()
         self.manifest_refresh_fn = manifest_refresh_fn
@@ -72,11 +88,14 @@ class ISM_Downloader(BaseDownloader):
 
         self.key = key
         self.cookies = cookies or {}
-        self.max_segments = _parse_max_segments(max_segments if max_segments is not None else context_tracker.max_segments)
+        self.max_segments = _parse_max_segments(
+            max_segments if max_segments is not None else context_tracker.max_segments
+        )
         self.max_time = _parse_max_time(max_time if max_time is not None else context_tracker.max_time)
         self.other_tracks = other_tracks or []
         self.chapters = chapters if chapters is not None else context_tracker.chapters
-        self.poster_url = poster_url if poster_url is not None else context_tracker.poster_url
+        self.poster_url = context_tracker.poster_url or poster_url or context_tracker.fallback_poster_url
+        context_tracker.poster_url = self.poster_url
         logger.info(f"Initialized ISM_Downloader with URL: {self.ism_url}, License URL: {self.license_url}, DRM Pref: {self.drm_preference}, Max Segments: {self.max_segments}, Max Time: {self.max_time}")
 
         self.drm_manager = DRMManager(
@@ -89,12 +108,12 @@ class ISM_Downloader(BaseDownloader):
 
         super().__init__(output_path, "_ism_temp", sanitize_path=sanitize_path)
 
-    def _collect_drm_from_streams(self, streams: list) -> Dict[str, List[Dict]]:
+    def _collect_drm_from_streams(self, streams: list) -> dict[str, list[dict]]:
         """
         Read PSSH / PRO data directly from ``Stream.drm`` on selected streams.
         """
-        result: Dict[str, List[Dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: []}
-        seen:   Dict[str, set]        = {DRMType.WIDEVINE: set(), DRMType.PLAYREADY: set()}
+        result: dict[str, list[dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: []}
+        seen: dict[str, set] = {DRMType.WIDEVINE: set(), DRMType.PLAYREADY: set()}
 
         for s in streams:
             if not getattr(s, "selected", False):
@@ -109,7 +128,7 @@ class ISM_Downloader(BaseDownloader):
                     continue
 
                 # Collect all KIDs for this stream
-                kids: List[str] = []
+                kids: list[str] = []
                 if hasattr(drm, "get_all_kids"):
                     kids = [k for k in drm.get_all_kids() if k and k != "N/A"]
                 if not kids:
@@ -133,25 +152,27 @@ class ISM_Downloader(BaseDownloader):
                         continue
 
                     seen[dt].add(dedup)
-                    result[dt].append({
-                        "pssh": pssh,
-                        "kid":  kid,
-                        "type": "Widevine" if dt == DRMType.WIDEVINE else "PlayReady",
-                    })
+                    result[dt].append(
+                        {
+                            "pssh": pssh,
+                            "kid": kid,
+                            "type": "Widevine" if dt == DRMType.WIDEVINE else "PlayReady",
+                        }
+                    )
 
         return result
 
-    def _collect_drm_from_ism(self, raw_ism_path: Optional[str]) -> Dict[str, List[Dict]]:
+    def _collect_drm_from_ism(self, raw_ism_path: str | None) -> dict[str, list[dict]]:
         """
         Fallback: run :class:`ISMParser` on the saved raw manifest to find
         PSSH / PRO data.  If *raw_ism_path* is ``None`` or missing the parser
         re-fetches from the network.  Returns ``{}`` gracefully on any error.
         """
-        result: Dict[str, List[Dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: []}
+        result: dict[str, list[dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: []}
         try:
             content = None
             if raw_ism_path and os.path.exists(raw_ism_path):
-                with open(raw_ism_path, "r", encoding="utf-8") as f:
+                with open(raw_ism_path, encoding="utf-8") as f:
                     content = f.read()
 
             parser = ISMParser(self.ism_url, self.headers, content=content)
@@ -160,25 +181,29 @@ class ISM_Downloader(BaseDownloader):
 
             drm_info = parser.get_drm_info()
             for entry in drm_info.get("widevine", []):
-                result[DRMType.WIDEVINE].append({
-                    "pssh": entry["pssh"],
-                    "kid":  entry.get("kid", "N/A"),
-                    "type": "Widevine",
-                })
+                result[DRMType.WIDEVINE].append(
+                    {
+                        "pssh": entry["pssh"],
+                        "kid": entry.get("kid", "N/A"),
+                        "type": "Widevine",
+                    }
+                )
 
             for entry in drm_info.get("playready", []):
-                result[DRMType.PLAYREADY].append({
-                    "pssh": entry["pssh"],
-                    "kid":  entry.get("kid", "N/A"),
-                    "type": "PlayReady",
-                })
+                result[DRMType.PLAYREADY].append(
+                    {
+                        "pssh": entry["pssh"],
+                        "kid": entry.get("kid", "N/A"),
+                        "type": "PlayReady",
+                    }
+                )
 
         except Exception as exc:
             logger.error(f"_collect_drm_from_ism error: {exc}")
 
         return result
 
-    def _fetch_keys(self, drm_psshs: Dict[str, List[Dict]]) -> List[str]:
+    def _fetch_keys(self, drm_psshs: dict[str, list[dict]]) -> list[str]:
         """
         Dispatch key-fetch to :class:`DRMManager`.
 
@@ -211,14 +236,14 @@ class ISM_Downloader(BaseDownloader):
                 )
             except Exception as exc:
                 logger.error(f"Widevine key fetch failed: {exc}")
-        
+
         # Manual key supplied directly
         if not keys and self.key:
             keys = [self.key] if isinstance(self.key, str) else list(self.key)
 
         return keys or []
 
-    def start(self) -> tuple[Optional[str], bool, Optional[str]]:
+    def start(self) -> tuple[str | None, bool, str | None]:
         """Execute the full ISM download pipeline."""
         if self.file_already_exists:
             console.print("[yellow]File already exists.")
@@ -226,7 +251,12 @@ class ISM_Downloader(BaseDownloader):
 
         if context_tracker.resolve_only:
             from VibraVid.cli.command.queue import enqueue_down_from_context
+
             enqueue_down_from_context(self.ism_url, self.output_path)
+            return self.output_path, False, None
+
+        if is_cached():
+            console.print("[dim]Skipping — already in cache.")
             return self.output_path, False, None
 
         if try_fetch(self.output_path):
@@ -262,7 +292,7 @@ class ISM_Downloader(BaseDownloader):
         if self.download_id:
             download_tracker.update_status(self.download_id, "Parsing ISM ...")
 
-        streams = self.media_downloader.parse_stream(show_table=context_tracker.should_print)
+        streams = self.media_downloader.parse_stream(show_table=context_tracker.should_print and not context_tracker.hide_manifest_info)
 
         # ── DRM key fetch ─────────────────────────────────────────────────────
         if self.license_url or self.key:
@@ -294,10 +324,7 @@ class ISM_Downloader(BaseDownloader):
 
         if SKIP_DOWNLOAD:
             if DELAY_SS > 0:
-                console.print(
-                    f"\n[yellow]Skipping download as per configuration "
-                    f"and sleeping {DELAY_SS} seconds..."
-                )
+                console.print(f"\n[yellow]Skipping download as per configuration and sleeping {DELAY_SS} seconds...")
                 time.sleep(DELAY_SS)
             return self.output_path, False, None
 
@@ -315,17 +342,13 @@ class ISM_Downloader(BaseDownloader):
 
         if status.get("error") == "cancelled":
             if self.download_id:
-                download_tracker.complete_download(
-                    self.download_id, success=False, error="cancelled"
-                )
+                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
             return None, True, "cancelled"
 
         if self._no_media_downloaded(status):
             logger.error("No media downloaded")
             if self.download_id:
-                download_tracker.complete_download(
-                    self.download_id, success=False, error="No media downloaded"
-                )
+                download_tracker.complete_download(self.download_id, success=False, error="No media downloaded")
             return None, True, "No media downloaded"
 
         # ── Merge ─────────────────────────────────────────────────────────────
@@ -335,15 +358,11 @@ class ISM_Downloader(BaseDownloader):
         final_file = self._merge_files(status)
         if not final_file:
             if self.download_id and download_tracker.is_stopped(self.download_id):
-                download_tracker.complete_download(
-                    self.download_id, success=False, error="cancelled"
-                )
+                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
                 return None, True, "cancelled"
             logger.error("Merge failed")
             if self.download_id:
-                download_tracker.complete_download(
-                    self.download_id, success=False, error="Merge failed"
-                )
+                download_tracker.complete_download(self.download_id, success=False, error="Merge failed")
             return None, True, "Merge failed"
 
         self._finalize(final_file=final_file)

@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("searchapp", "0003_watchlistitem_is_movie"),
     ]

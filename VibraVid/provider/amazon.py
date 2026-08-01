@@ -7,13 +7,11 @@ import re
 import string
 import threading
 import time
-from typing import Optional
 
 from rich.console import Console
 
 from VibraVid.utils import disk_cache
 from VibraVid.utils.http_client import create_client
-
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -114,7 +112,7 @@ def _extract_duration_from_text(text):
 
 class AmazonMusicClient:
     _config_lock = threading.Lock()
-    _config_cache: Optional[dict] = None
+    _config_cache: dict | None = None
     _config_fetched_at: float = 0.0
 
     def __init__(self):
@@ -140,11 +138,15 @@ class AmazonMusicClient:
 
             type(self)._config_cache = config
             type(self)._config_fetched_at = now
-            disk_cache.save(_CACHE_SERVICE, _CACHE_NAME, {
-                "config": config,
-                "fetched_at": now,
-                "expiry": now + _CONFIG_TTL_SECONDS,
-            })
+            disk_cache.save(
+                _CACHE_SERVICE,
+                _CACHE_NAME,
+                {
+                    "config": config,
+                    "fetched_at": now,
+                    "expiry": now + _CONFIG_TTL_SECONDS,
+                },
+            )
             return config
 
     def _build_amazon_headers(self, config, page_url=""):
@@ -152,10 +154,12 @@ class AmazonMusicClient:
         request_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=13))
 
         return {
-            "x-amzn-authentication": json.dumps({
-                "interface": "ClientAuthenticationInterface.v1_0.ClientTokenElement",
-                "accessToken": config.get("accessToken", ""),
-            }),
+            "x-amzn-authentication": json.dumps(
+                {
+                    "interface": "ClientAuthenticationInterface.v1_0.ClientTokenElement",
+                    "accessToken": config.get("accessToken", ""),
+                }
+            ),
             "x-amzn-device-model": "WEBPLAYER",
             "x-amzn-device-width": "1920",
             "x-amzn-device-family": "WebPlayer",
@@ -170,12 +174,14 @@ class AmazonMusicClient:
             "x-amzn-application-version": config.get("version", ""),
             "x-amzn-device-time-zone": "Europe/Rome",
             "x-amzn-timestamp": str(int(time.time() * 1000)),
-            "x-amzn-csrf": json.dumps({
-                "interface": "CSRFInterface.v1_0.CSRFHeaderElement",
-                "token": csrf.get("token", ""),
-                "timestamp": str(csrf.get("ts", "")),
-                "rndNonce": str(csrf.get("rnd", "")),
-            }),
+            "x-amzn-csrf": json.dumps(
+                {
+                    "interface": "CSRFInterface.v1_0.CSRFHeaderElement",
+                    "token": csrf.get("token", ""),
+                    "timestamp": str(csrf.get("ts", "")),
+                    "rndNonce": str(csrf.get("rnd", "")),
+                }
+            ),
             "x-amzn-music-domain": "music.amazon.com",
             "x-amzn-referer": "music.amazon.com",
             "x-amzn-affiliate-tags": "",
@@ -229,29 +235,37 @@ class AmazonMusicClient:
                 continue
 
             secondary_link = (item.get("secondaryLink") or {}).get("deeplink")
-            artist_id = secondary_link.split("/artists/")[1].split("/")[0] if secondary_link and "/artists/" in secondary_link else ""
+            artist_id = (
+                secondary_link.split("/artists/")[1].split("/")[0]
+                if secondary_link and "/artists/" in secondary_link
+                else ""
+            )
 
-            context_options = ((item.get("contextMenu") or {}).get("options") or [{}])
+            context_options = (item.get("contextMenu") or {}).get("options") or [{}]
             album_template = ((context_options[0].get("onItemSelected") or [{}, {}])[1] or {}).get("template") or {}
-            album_url = (((album_template.get("templateData") or {}).get("seoHead") or {}).get("link") or [{}])[0].get("href") or f"{BASE_URL}/albums/{album_id}"
+            album_url = (((album_template.get("templateData") or {}).get("seoHead") or {}).get("link") or [{}])[0].get(
+                "href"
+            ) or f"{BASE_URL}/albums/{album_id}"
 
-            songs.append({
-                "id": song_id,
-                "title": (item.get("primaryText") or {}).get("text") or "Unknown Title",
-                "url": f"{BASE_URL}/tracks/{song_id}",
-                "image": _clean_image_url(item.get("image")),
-                "isrc": None,
-                "artist": {
-                    "id": artist_id,
-                    "name": item.get("secondaryText") or "Unknown Artist",
-                    "url": f"{BASE_URL}{secondary_link}" if secondary_link else None,
-                },
-                "album": {
-                    "id": album_id,
-                    "name": album_template.get("headerText", {}).get("text") or "Unknown Album",
-                    "url": album_url,
-                },
-            })
+            songs.append(
+                {
+                    "id": song_id,
+                    "title": (item.get("primaryText") or {}).get("text") or "Unknown Title",
+                    "url": f"{BASE_URL}/tracks/{song_id}",
+                    "image": _clean_image_url(item.get("image")),
+                    "isrc": None,
+                    "artist": {
+                        "id": artist_id,
+                        "name": item.get("secondaryText") or "Unknown Artist",
+                        "url": f"{BASE_URL}{secondary_link}" if secondary_link else None,
+                    },
+                    "album": {
+                        "id": album_id,
+                        "name": album_template.get("headerText", {}).get("text") or "Unknown Album",
+                        "url": album_url,
+                    },
+                }
+            )
 
         return songs
 
@@ -280,19 +294,25 @@ class AmazonMusicClient:
                 continue
 
             secondary_link = (item.get("secondaryLink") or {}).get("deeplink")
-            artist_id = secondary_link.split("/artists/")[1].split("/")[0] if secondary_link and "/artists/" in secondary_link else None
+            artist_id = (
+                secondary_link.split("/artists/")[1].split("/")[0]
+                if secondary_link and "/artists/" in secondary_link
+                else None
+            )
 
-            albums.append({
-                "id": album_id,
-                "name": (item.get("primaryText") or {}).get("text") or "Unknown Album",
-                "url": f"{BASE_URL}/albums/{album_id}",
-                "image": _clean_image_url(item.get("image")),
-                "artist": {
-                    "id": artist_id,
-                    "name": item.get("secondaryText") or "Unknown Artist",
-                    "url": f"{BASE_URL}{secondary_link}" if secondary_link else None,
-                },
-            })
+            albums.append(
+                {
+                    "id": album_id,
+                    "name": (item.get("primaryText") or {}).get("text") or "Unknown Album",
+                    "url": f"{BASE_URL}/albums/{album_id}",
+                    "image": _clean_image_url(item.get("image")),
+                    "artist": {
+                        "id": artist_id,
+                        "name": item.get("secondaryText") or "Unknown Artist",
+                        "url": f"{BASE_URL}{secondary_link}" if secondary_link else None,
+                    },
+                }
+            )
 
         return albums
 
@@ -316,12 +336,14 @@ class AmazonMusicClient:
             if not artist_id:
                 continue
 
-            artists.append({
-                "id": artist_id,
-                "name": (item.get("primaryText") or {}).get("text") or "Unknown Artist",
-                "url": f"{BASE_URL}/artists/{artist_id}",
-                "image": _clean_image_url(item.get("image")),
-            })
+            artists.append(
+                {
+                    "id": artist_id,
+                    "name": (item.get("primaryText") or {}).get("text") or "Unknown Artist",
+                    "url": f"{BASE_URL}/artists/{artist_id}",
+                    "image": _clean_image_url(item.get("image")),
+                }
+            )
 
         return artists
 
@@ -379,7 +401,9 @@ class AmazonMusicClient:
             album_id = template_data["deeplink"].split("/albums/")[-1]
 
         header_link = (template.get("headerPrimaryTextLink") or {}).get("deeplink")
-        artist_id = header_link.split("/artists/")[1].split("/")[0] if header_link and "/artists/" in header_link else None
+        artist_id = (
+            header_link.split("/artists/")[1].split("/")[0] if header_link and "/artists/" in header_link else None
+        )
 
         isrc = None
         seo_scripts = ((template.get("templateData") or {}).get("seoHead") or {}).get("script") or []
@@ -434,7 +458,9 @@ class AmazonMusicClient:
             return None
 
         header_link = (album.get("headerPrimaryTextLink") or {}).get("deeplink")
-        artist_id = header_link.split("/artists/")[1].split("/")[0] if header_link and "/artists/" in header_link else None
+        artist_id = (
+            header_link.split("/artists/")[1].split("/")[0] if header_link and "/artists/" in header_link else None
+        )
 
         songs = []
         widgets = album.get("widgets") or []
@@ -444,27 +470,37 @@ class AmazonMusicClient:
                 track_id = track_link.split("/tracks/")[-1] if track_link else None
 
                 item_artist_link = (item.get("secondaryText2Link") or {}).get("deeplink")
-                item_artist_id = item_artist_link.split("/artists/")[1].split("/")[0] if item_artist_link and "/artists/" in item_artist_link else artist_id
-                artist_url = f"{BASE_URL}{item_artist_link}" if item_artist_link else (f"{BASE_URL}{header_link}" if header_link else None)
+                item_artist_id = (
+                    item_artist_link.split("/artists/")[1].split("/")[0]
+                    if item_artist_link and "/artists/" in item_artist_link
+                    else artist_id
+                )
+                artist_url = (
+                    f"{BASE_URL}{item_artist_link}"
+                    if item_artist_link
+                    else (f"{BASE_URL}{header_link}" if header_link else None)
+                )
 
-                songs.append({
-                    "id": track_id,
-                    "name": item.get("primaryText"),
-                    "url": f"{BASE_URL}/tracks/{track_id}" if track_id else None,
-                    "image": album.get("headerImage"),
-                    "duration": _duration_to_seconds(item.get("secondaryText3")),
-                    "isrc": None,
-                    "album": {
-                        "id": album_id,
-                        "name": (album.get("headerText") or {}).get("text"),
-                        "url": f"{BASE_URL}/albums/{album_id}",
-                    },
-                    "artist": {
-                        "id": item_artist_id,
-                        "name": item.get("secondaryText2") or album.get("headerPrimaryText"),
-                        "url": artist_url,
-                    },
-                })
+                songs.append(
+                    {
+                        "id": track_id,
+                        "name": item.get("primaryText"),
+                        "url": f"{BASE_URL}/tracks/{track_id}" if track_id else None,
+                        "image": album.get("headerImage"),
+                        "duration": _duration_to_seconds(item.get("secondaryText3")),
+                        "isrc": None,
+                        "album": {
+                            "id": album_id,
+                            "name": (album.get("headerText") or {}).get("text"),
+                            "url": f"{BASE_URL}/albums/{album_id}",
+                        },
+                        "artist": {
+                            "id": item_artist_id,
+                            "name": item.get("secondaryText2") or album.get("headerPrimaryText"),
+                            "url": artist_url,
+                        },
+                    }
+                )
 
         header_tertiary = album.get("headerTertiaryText") or ""
 
@@ -515,26 +551,28 @@ class AmazonMusicClient:
             title = (item.get("primaryText") or {}).get("text") or ""
             title = re.sub(r"^\d+\.\s*", "", title) or None
 
-            context_options = ((item.get("contextMenu") or {}).get("options") or [{}, {}])
+            context_options = (item.get("contextMenu") or {}).get("options") or [{}, {}]
             album_template = ((context_options[0].get("onItemSelected") or [{}, {}])[1] or {}).get("template") or {}
 
-            top_songs.append({
-                "id": track_id,
-                "title": title,
-                "url": f"{BASE_URL}/tracks/{track_id}",
-                "image": _clean_image_url(item.get("image")),
-                "isrc": None,
-                "album": {
-                    "id": album_id,
-                    "name": album_template.get("headerText", {}).get("text"),
-                    "url": f"{BASE_URL}/albums/{album_id}",
-                },
-                "artist": {
-                    "id": artist_id,
-                    "name": item.get("secondaryText"),
-                    "url": None,
-                },
-            })
+            top_songs.append(
+                {
+                    "id": track_id,
+                    "title": title,
+                    "url": f"{BASE_URL}/tracks/{track_id}",
+                    "image": _clean_image_url(item.get("image")),
+                    "isrc": None,
+                    "album": {
+                        "id": album_id,
+                        "name": album_template.get("headerText", {}).get("text"),
+                        "url": f"{BASE_URL}/albums/{album_id}",
+                    },
+                    "artist": {
+                        "id": artist_id,
+                        "name": item.get("secondaryText"),
+                        "url": None,
+                    },
+                }
+            )
 
         return {
             "id": artist_id,

@@ -4,7 +4,7 @@
 import os
 import sys
 
-src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.append(src_path)
 
 
@@ -18,9 +18,9 @@ setup_logger()
 conf_extension = config_manager.config.get("PROCESS", "extension")
 
 
-ism_url = ''
+ism_url = ""
 ism_headers = {}
-license_url = ''
+license_url = ""
 license_headers = {}
 license_key = None
 
@@ -30,8 +30,9 @@ dash_process = ISM_Downloader(
     headers=ism_headers,
     license_url=license_url,
     license_headers=license_headers,
-    output_path=fr".\Video\ISM.{conf_extension}",
-    key=license_key
+    key=license_key,
+    output_path=rf".\Video\ISM.{conf_extension}",
+    drm_preference=DRMType.WIDEVINE
 )
 
 

@@ -1,13 +1,13 @@
 # 12.06.26
 
+import base64
+import hashlib
+import logging
 import os
 import re
 import time
-import hashlib
-import base64
-import logging
+from collections.abc import Callable
 from urllib.parse import urljoin
-from typing import Optional, Callable, Tuple
 
 import httpx
 from Cryptodome.Cipher import AES
@@ -20,24 +20,28 @@ _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 def b64_encode(b: bytes) -> str:
     return base64.b64encode(b).decode().replace("+", "-").replace("/", "_").rstrip("=")
 
+
 def b64_decode(s: str) -> bytes:
     s = s.replace("-", "+").replace("_", "/")
     s += "=" * (-len(s) % 4)
     return base64.b64decode(s)
 
-def new_file_key() -> Tuple[bytes, bytes]:
+
+def new_file_key() -> tuple[bytes, bytes]:
     return os.urandom(32), os.urandom(8)
+
 
 def pack_key(key: bytes, nonce: bytes) -> str:
     return b64_encode(key + nonce)
 
-def unpack_key(s: str) -> Tuple[bytes, bytes]:
+
+def unpack_key(s: str) -> tuple[bytes, bytes]:
     raw = b64_decode(s)
     return raw[:32], raw[32:40]
 
 
 class _EncryptingReader:
-    def __init__(self, path: str, key: bytes, nonce: bytes, on_progress: Optional[Callable[[int, int], None]] = None):
+    def __init__(self, path: str, key: bytes, nonce: bytes, on_progress: Callable[[int, int], None] | None = None):
         self._fh = open(path, "rb")
         self._total = os.path.getsize(path)
         self._cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
@@ -68,6 +72,7 @@ class _EncryptingReader:
 
     def fileno(self):
         import io
+
         raise io.UnsupportedOperation("_EncryptingReader has no fileno")
 
     def close(self):
@@ -78,11 +83,24 @@ def new_upload_client() -> httpx.Client:
     return httpx.Client(timeout=httpx.Timeout(connect=30.0, read=300.0, write=60.0, pool=30.0))
 
 
-def upload_file(upload_client: httpx.Client, file_path: str, endpoint: str, key: bytes, nonce: bytes, filename: Optional[str] = None, on_progress: Optional[Callable[[int, Optional[int]], None]] = None) -> dict:
+def upload_file(
+    upload_client: httpx.Client,
+    file_path: str,
+    endpoint: str,
+    key: bytes,
+    nonce: bytes,
+    filename: str | None = None,
+    on_progress: Callable[[int, int | None], None] | None = None,
+) -> dict:
     name = filename or os.path.basename(file_path)
     reader = _EncryptingReader(file_path, key, nonce, on_progress=on_progress)
     try:
-        r = upload_client.post(endpoint, params={"filename": name}, content=reader, headers={"Content-Type": "application/octet-stream", "Content-Length": str(reader._total)})
+        r = upload_client.post(
+            endpoint,
+            params={"filename": name},
+            content=reader,
+            headers={"Content-Type": "application/octet-stream", "Content-Length": str(reader._total)},
+        )
     finally:
         reader.close()
     r.raise_for_status()
@@ -92,7 +110,7 @@ def upload_file(upload_client: httpx.Client, file_path: str, endpoint: str, key:
     return data
 
 
-def _solve_pow(text: str) -> Optional[dict]:
+def _solve_pow(text: str) -> dict | None:
     m_ch = re.search(r'name="pow_challenge"\s+value="([^"]*)"', text)
     if not m_ch:
         return None
@@ -129,7 +147,7 @@ def _solve_pow(text: str) -> Optional[dict]:
     }
 
 
-def _resolve_direct(session, landing_url: str, timeout: int = 60) -> Optional[str]:
+def _resolve_direct(session, landing_url: str, timeout: int = 60) -> str | None:
     headers = {"User-Agent": _UA}
     try:
         r = session.get(landing_url, timeout=timeout, headers=headers, stream=True)
@@ -178,7 +196,20 @@ class IncompleteDownloadError(IOError):
     pass
 
 
-def download_decrypt(session, landing_url: str, dest_path: str, key: bytes, nonce: bytes, total: Optional[int] = None, on_progress: Optional[Callable[[int, int], None]] = None, chunk_size: int = 1 << 20, retries: int = 15, backoff: int = 4, incomplete_retries: int = 2, incomplete_backoff: int = 2) -> str:
+def download_decrypt(
+    session,
+    landing_url: str,
+    dest_path: str,
+    key: bytes,
+    nonce: bytes,
+    total: int | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
+    chunk_size: int = 1 << 20,
+    retries: int = 15,
+    backoff: int = 4,
+    incomplete_retries: int = 2,
+    incomplete_backoff: int = 2,
+) -> str:
     direct_url = _resolve_direct(session, landing_url) or landing_url
     os.makedirs(os.path.dirname(os.path.abspath(dest_path)) or ".", exist_ok=True)
     headers = {"User-Agent": _UA}

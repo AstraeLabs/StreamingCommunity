@@ -7,7 +7,6 @@ import os
 import shlex
 import subprocess
 import uuid
-from typing import Optional
 
 from textual import on, work
 from textual.app import ComposeResult
@@ -36,7 +35,7 @@ from VibraVid.tui.widgets.custom_footer import CustomFooter
 logger = logging.getLogger(__name__)
 
 
-class EnqueueModal(ModalScreen[Optional[str]]):
+class EnqueueModal(ModalScreen[str | None]):
     """Modal dialog to enqueue a custom command or flag set."""
 
     def compose(self) -> ComposeResult:

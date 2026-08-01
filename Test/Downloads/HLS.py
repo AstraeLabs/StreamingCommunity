@@ -5,7 +5,7 @@
 import os
 import sys
 
-src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.append(src_path)
 
 
@@ -19,7 +19,7 @@ setup_logger()
 conf_extension = config_manager.config.get("PROCESS", "extension")
 
 
-m3u8_url = ''
+m3u8_url = ""
 m3u8_headers = {}
 
 

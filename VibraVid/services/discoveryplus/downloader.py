@@ -1,23 +1,21 @@
 # 22.12.25
 
-import os
 import logging
+import os
 from datetime import datetime
 
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import os_manager, config_manager, start_message
-from VibraVid.services._base import site_constants, Entries, movie_folder, series_folder
-from VibraVid.services._base.tv_display_manager import map_episode_path, map_movie_path
-from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
-
 from VibraVid.core.downloader import DASH_Downloader
 from VibraVid.core.drm.system import DRMType
+from VibraVid.services._base import Entries, movie_folder, series_folder, site_constants
+from VibraVid.services._base.tv_display_manager import map_episode_path, map_movie_path
+from VibraVid.services._base.tv_download_manager import process_episode_download, process_season_selection
+from VibraVid.utils import config_manager, os_manager, start_message
 
 from .client import get_client
-from .scrapper import GetSerieInfo, GetStandaloneInfo, GetLiveInfo
-
+from .scrapper import GetLiveInfo, GetSerieInfo, GetStandaloneInfo
 
 msg = Prompt()
 console = Console()
@@ -52,7 +50,7 @@ def download_live(select_title: Entries):
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} -> [cyan]{select_title.name} [magenta](LIVE)\n")
 
     scrape_content = GetLiveInfo(select_title.id)
-    edit_id = getattr(select_title, 'edit_id', None) or scrape_content.get_edit_id()
+    edit_id = getattr(select_title, "edit_id", None) or scrape_content.get_edit_id()
 
     if not edit_id:
         console.print(f"[red]Error: Could not get edit ID for live event {select_title.name}")
@@ -66,15 +64,15 @@ def download_live(select_title: Entries):
     client = get_client()
     playback_info = client.get_playback_info(edit_id)
     event_duration = _compute_event_duration(scrape_content)
-    
+
     if event_duration:
         h, m = divmod(int(event_duration) // 60, 60)
         console.print(f"[cyan]Scheduled event duration: [green]{h:02d}:{m:02d}[/green] — recording will stop at the scheduled end")
 
     return DASH_Downloader(
-        mpd_url=playback_info['manifest'],
-        license_url=playback_info['license'],
-        license_headers=playback_info.get('license_headers', {}),
+        mpd_url=playback_info["manifest"],
+        license_url=playback_info["license"],
+        license_headers=playback_info.get("license_headers", {}),
         output_path=os.path.join(live_path, live_name),
         drm_preference=DRMType.PLAYREADY,
         max_time=event_duration,
@@ -87,12 +85,8 @@ def download_film(select_title: Entries):
     """
     start_message()
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} -> [cyan]{select_title.name} \n")
-    
-    # The edit ID is usually already known from the search result (video-type
-    # entries carry it directly). GetStandaloneInfo's /cms/routes/movie route
-    # only applies to show-type standalone movies, not to STANDALONE_EVENT
-    # videos, so only fall back to it when we don't already have one.
-    edit_id = getattr(select_title, 'edit_id', None)
+
+    edit_id = getattr(select_title, "edit_id", None)
     if not edit_id:
         scrape_content = GetStandaloneInfo(select_title.id)
         edit_id = scrape_content.get_edit_id()
@@ -100,22 +94,22 @@ def download_film(select_title: Entries):
     if not edit_id:
         console.print(f"[red]Error: Could not get edit ID for {select_title.name}")
         return False
-    
+
     # Define output path
     path_components, filename = map_movie_path(select_title.name, select_title.year)
     movie_path = os_manager.get_sanitize_path(movie_folder(*path_components))
     movie_name = f"{filename}.{extension_output}"
-    
+
     # Get playback info
     client = get_client()
     playback_info = client.get_playback_info(edit_id)
-    
+
     return DASH_Downloader(
-        mpd_url=playback_info['manifest'],
-        license_url=playback_info['license'],
-        license_headers=playback_info.get('license_headers', {}),
+        mpd_url=playback_info["manifest"],
+        license_url=playback_info["license"],
+        license_headers=playback_info.get("license_headers", {}),
         output_path=os.path.join(movie_path, movie_name),
-        drm_preference=DRMType.PLAYREADY
+        drm_preference=DRMType.PLAYREADY,
     ).start()
 
 
@@ -128,7 +122,13 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} -> [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
 
     # Define output path
-    path_components, filename = map_episode_path(scrape_serie.series_name,getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
+    path_components, filename = map_episode_path(
+        scrape_serie.series_name,
+        getattr(scrape_serie, "year", None),
+        index_season_selected,
+        index_episode_selected,
+        obj_episode.name,
+    )
     episode_path = os_manager.get_sanitize_path(series_folder(*path_components))
     episode_name = f"{filename}.{extension_output}"
 
@@ -136,15 +136,17 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     playback_info = client.get_playback_info(obj_episode.id)
 
     return DASH_Downloader(
-        mpd_url=playback_info['manifest'],
-        license_url=playback_info['license'],
-        license_headers=playback_info.get('license_headers', {}),
+        mpd_url=playback_info["manifest"],
+        license_url=playback_info["license"],
+        license_headers=playback_info.get("license_headers", {}),
         output_path=os.path.join(episode_path, episode_name),
-        drm_preference=DRMType.PLAYREADY
+        drm_preference=DRMType.PLAYREADY,
     ).start()
 
 
-def download_series(select_season: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie=None) -> None:
+def download_series(
+    select_season: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie=None
+) -> None:
     """
     Handle downloading a complete series
     """
@@ -156,6 +158,7 @@ def download_series(select_season: Entries, season_selection: str = None, episod
 
     def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
         """Callback to handle episode downloads for a specific season"""
+
         def download_video_callback(obj_episode, season_idx, episode_idx):
             return download_episode(obj_episode, season_idx, episode_idx, scrape_serie)
 
@@ -164,7 +167,7 @@ def download_series(select_season: Entries, season_selection: str = None, episod
             scrape_serie=scrape_serie,
             download_video_callback=download_video_callback,
             download_all=download_all,
-            episode_selection=episode_selection
+            episode_selection=episode_selection,
         )
 
     process_season_selection(
@@ -172,5 +175,5 @@ def download_series(select_season: Entries, season_selection: str = None, episod
         seasons_count=seasons_count,
         season_selection=season_selection,
         episode_selection=episode_selection,
-        download_episode_callback=download_episode_callback
+        download_episode_callback=download_episode_callback,
     )

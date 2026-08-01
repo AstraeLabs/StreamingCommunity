@@ -3,7 +3,7 @@
         "label": "Italia",
         "home_url": "https://mediasetinfinity.mediaset.it/",
         "site_base": "https://mediasetinfinity.mediaset.it",
-        "origin": "https://mediasetinfinity.mediaset.it",
+        "origin": "https://static3.mediasetplay.mediaset.it",
         "login_url": "https://api-ott-prod-fe.mediaset.net/PROD/play/idm/anonymous/login/v2.0",
         "playback_url": "https://api-ott-prod-fe.mediaset.net/PROD/play/playback/check/v2.0",
         "playback_api": "v2",
@@ -11,9 +11,9 @@
         "property": "MPLAY",
         "login_key": "mediasetinfinity",
         "feed_public_id": "PR1GhC",
-        "geo": "geoIT|geoNo",
+        "geo": "geoEU|geoNoLim",
         "image_region": "ita",
-        "qualities_full": ["HD", "HR", "SD", "SS"],
+        "qualities_full": ["4K", "HD", "HR", "SD", "SS"],
         "qualities_anon": ["HR", "SD", "SS"]
     },
     "es": {

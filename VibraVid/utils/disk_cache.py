@@ -1,18 +1,16 @@
 # 17.07.26
 
-import os
 import json
-import time
 import logging
+import os
 import threading
-from typing import Dict, Optional
+import time
 
 from VibraVid.utils import config_manager
 
-
 logger = logging.getLogger(__name__)
 
-_locks: Dict[str, threading.Lock] = {}
+_locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
 
@@ -30,12 +28,12 @@ def cache_path(service: str, name: str) -> str:
     return os.path.join(config_manager.base_path, ".cache", "services", service, f"{name}.json")
 
 
-def load(service: str, name: str) -> Optional[dict]:
+def load(service: str, name: str) -> dict | None:
     """Load a service's disk-persisted cache dict. None if missing/corrupt."""
     path = cache_path(service, name)
     with _lock_for(path):
         try:
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 data = json.load(fh)
             return data if isinstance(data, dict) else None
         except Exception:
@@ -66,7 +64,7 @@ def invalidate(service: str, name: str) -> None:
             logger.warning(f"[disk_cache] could not remove {service}/{name}: {e}")
 
 
-def is_fresh(data: Optional[dict], expiry_key: str = "expiry", buffer_seconds: float = 0) -> bool:
+def is_fresh(data: dict | None, expiry_key: str = "expiry", buffer_seconds: float = 0) -> bool:
     """True if `data` has a numeric `expiry_key` timestamp still valid (with a safety buffer)."""
     if not data:
         return False

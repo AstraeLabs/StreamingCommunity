@@ -2,7 +2,6 @@
 import os
 import sys
 
-
 # Fix PYTHONPATH
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -13,12 +12,14 @@ if parent_dir not in sys.path:
 def main():
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "webgui.settings")
 
-    if 'RUN_MAIN' not in os.environ:
+    if "RUN_MAIN" not in os.environ:
         print("Running pre-run hooks...")
         from VibraVid.cli.run import execute_hooks
-        execute_hooks('pre_run')
-    
+
+        execute_hooks("pre_run")
+
     from django.core.management import execute_from_command_line
+
     execute_from_command_line(sys.argv)
 
 

@@ -7,14 +7,13 @@ import re
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_userAgent
 
-
 logger = logging.getLogger(__name__)
 VIDXGO_HEADERS = {
     "User-Agent": get_userAgent(),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Alt-Used": "v.vidxgo.co",
     "Sec-Fetch-Dest": "iframe",
-    "Referer": config_manager.domain.get("guardaserie", "full_url")
+    "Referer": config_manager.domain.get("guardaserie", "full_url"),
 }
 
 PLAYBACK_HEADERS = {
@@ -31,11 +30,18 @@ _CURRENT_SRC_RE = re.compile(r'currentSrc[^"]+"(https:[^";]+)', re.S)
 
 
 class VideoSource:
-    def __init__(self, imdb_id: str, season_number: int = None, episode_number: int = None, embed_domain: str = "https://v.vidxgo.co", content_type: str = "series"):
+    def __init__(
+        self,
+        imdb_id: str,
+        season_number: int = None,
+        episode_number: int = None,
+        embed_domain: str = "https://v.vidxgo.co",
+        content_type: str = "series",
+    ):
         self.imdb_id = str(imdb_id).strip()
         if self.imdb_id.startswith("tt"):
             self.imdb_id = self.imdb_id[2:]
-        
+
         self.season_number = season_number
         self.episode_number = episode_number
         self.embed_domain = embed_domain.rstrip("/")

@@ -1,17 +1,16 @@
-# 26.05.24
+﻿# 26.05.24
 
 from urllib.parse import quote_plus
 
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import TVShowManager
 from VibraVid.provider.tmdb import tmdb
-from VibraVid.services._base import site_constants, EntriesManager, Entries
+from VibraVid.services._base import Entries, EntriesManager, site_constants
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
+from VibraVid.utils import TVShowManager
 
 from .downloader import download_film, download_series
-
 
 indice = 2
 _useFor = "Film_Serie"
@@ -24,9 +23,9 @@ table_show_manager = TVShowManager()
 def title_search(query: str) -> int:
     """
     Search for titles based on a search query using TMDB.
-      
+
     Parameters:
-        - query (str): The query to search for.
+        query (str): The query to search for.
 
     Returns:
         int: The number of titles found.
@@ -39,21 +38,21 @@ def title_search(query: str) -> int:
 
     for movie in movies:
         year = None
-        if movie.get('release_date'):
+        if movie.get("release_date"):
             try:
-                year = movie['release_date'].split('-')[0]
+                year = movie["release_date"].split("-")[0]
             except Ellipsis:
                 year = None
-        
+
         media_item = Entries(
-            id=movie['id'],
-            name=movie['title'],
-            slug='',
+            id=movie["id"],
+            name=movie["title"],
+            slug="",
             path_id=None,
-            type='film',
-            url='',  # Not needed for download
-            image=f"https://image.tmdb.org/t/p/w500{movie.get('poster_path')}" if movie.get('poster_path') else None,
-            year=year
+            type="film",
+            url="",  # Not needed for download
+            image=f"https://image.tmdb.org/t/p/w500{movie.get('poster_path')}" if movie.get("poster_path") else None,
+            year=year,
         )
 
         entries_manager.add(media_item)
@@ -61,26 +60,27 @@ def title_search(query: str) -> int:
     series = tmdb.search_series(quote_plus(query))
     for show in series:
         year = None
-        if show.get('first_air_date'):
+        if show.get("first_air_date"):
             try:
-                year = show['first_air_date'].split('-')[0]
+                year = show["first_air_date"].split("-")[0]
             except Ellipsis:
                 year = None
 
         media_item = Entries(
-            id=show['id'],
-            name=show['name'],
-            slug='',
+            id=show["id"],
+            name=show["name"],
+            slug="",
             path_id=None,
-            type='tv',
-            url='',
-            image=f"https://image.tmdb.org/t/p/w500{show.get('poster_path')}" if show.get('poster_path') else None,
-            year=year
+            type="tv",
+            url="",
+            image=f"https://image.tmdb.org/t/p/w500{show.get('poster_path')}" if show.get("poster_path") else None,
+            year=year,
         )
 
         entries_manager.add(media_item)
-  
+
     return len(entries_manager)
+
 
 def process_search_result(select_title, selections=None, scrape_serie=None):
     """Wrapper for the generalized process_search_result function."""
@@ -91,10 +91,17 @@ def process_search_result(select_title, selections=None, scrape_serie=None):
         media_search_manager=entries_manager,
         table_show_manager=table_show_manager,
         selections=selections,
-        scrape_serie=scrape_serie
+        scrape_serie=scrape_serie,
     )
 
-def search(string_to_search: str = None, get_onlyDatabase: bool = False, direct_item: dict = None, selections: dict = None, scrape_serie=None):
+
+def search(
+    string_to_search: str = None,
+    get_onlyDatabase: bool = False,
+    direct_item: dict = None,
+    selections: dict = None,
+    scrape_serie=None,
+):
     """Wrapper for the generalized search function."""
     return base_search(
         title_search_func=title_search,
@@ -106,5 +113,5 @@ def search(string_to_search: str = None, get_onlyDatabase: bool = False, direct_
         get_onlyDatabase=get_onlyDatabase,
         direct_item=direct_item,
         selections=selections,
-        scrape_serie=scrape_serie
+        scrape_serie=scrape_serie,
     )

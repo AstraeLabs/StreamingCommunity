@@ -5,17 +5,15 @@ import os
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import os_manager, config_manager, start_message
-from VibraVid.services._base import site_constants, Entries, movie_folder, anime_folder
-from VibraVid.services._base.tv_display_manager import manage_selection, map_episode_path, map_movie_path
+from VibraVid.core.downloader import HLS_Downloader, MP4_Downloader
 from VibraVid.core.ui.tracker import context_tracker
-
-from VibraVid.core.downloader import MP4_Downloader, HLS_Downloader
-
 from VibraVid.player.vixcloud import VideoSourceAnime
+from VibraVid.services._base import Entries, anime_folder, movie_folder, site_constants
+from VibraVid.services._base.tv_display_manager import manage_selection, map_episode_path, map_movie_path
+from VibraVid.services._base.tv_download_manager import _is_user_stop_requested
+from VibraVid.utils import config_manager, os_manager, start_message
 
 from .scrapper import ScrapeSerieAnime
-
 
 console = Console()
 msg = Prompt()
@@ -49,9 +47,9 @@ def download_episode(obj_episode, index_select, scrape_serie, video_source):
     video_source.get_embed(obj_episode.id, not DOWNOAD_HLS)
 
     if scrape_serie.is_series:
-        if isinstance(obj_episode.number, str) and '-' in obj_episode.number:
+        if isinstance(obj_episode.number, str) and "-" in obj_episode.number:
             console.print(f"[red]Warning: [yellow]Episode number '{obj_episode.number}' contains a hyphen. Using the first part as the episode number.")
-            episode_number = int(float(obj_episode.number.split('-')[0]))
+            episode_number = int(float(obj_episode.number.split("-")[0]))
         elif isinstance(obj_episode.number, (int, float, str)):
             episode_number = int(float(obj_episode.number))
         else:
@@ -69,7 +67,14 @@ def download_episode(obj_episode, index_select, scrape_serie, video_source):
         context_tracker.episode = episode_number
         context_tracker.episode_name = episode_name
 
-        path_components, filename = map_episode_path(series_name=scrape_serie.series_name, series_year=None, season_number=season_number, episode_number=episode_number, episode_name=episode_name, absolute_number=episode_number)
+        path_components, filename = map_episode_path(
+            series_name=scrape_serie.series_name,
+            series_year=None,
+            season_number=season_number,
+            episode_number=episode_number,
+            episode_name=episode_name,
+            absolute_number=episode_number,
+        )
         mp4_path = os_manager.get_sanitize_path(anime_folder(*path_components))
         mp4_name = filename
     else:
@@ -83,7 +88,7 @@ def download_episode(obj_episode, index_select, scrape_serie, video_source):
     # Start downloading
     if not DOWNOAD_HLS:
         return MP4_Downloader(url=str(video_source.src_mp4).strip(), path=os.path.join(mp4_path, f"{mp4_name}.mp4"))
-    
+
     else:
         return HLS_Downloader(m3u8_url=video_source.master_playlist, output_path=os.path.join(mp4_path, f"{mp4_name}.{extension_output}")).start()
 
@@ -111,7 +116,9 @@ def _get_episode_by_number_or_index(scrape_serie, episode_number: int):
     return scrape_serie.get_info_episode(fallback_index), fallback_index
 
 
-def download_series(select_title: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie = None):
+def download_series(
+    select_title: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie=None
+):
     """
     Handle downloading a complete series.
     """
@@ -125,7 +132,7 @@ def download_series(select_title: Entries, season_selection: str = None, episode
     # Get episode information
     episoded_count = scrape_serie.get_count_episodes()
     console.print(f"\n[green]Episodes count: [red]{episoded_count}")
-    
+
     # Display episodes list and get user selection
     if episode_selection is None:
         last_command = msg.ask("\n[cyan]Insert media [red]index [yellow]or [red]* [cyan]to download all media [yellow]or [red]1-2 [cyan]or [red]3-* [cyan]for a range of media")
@@ -148,28 +155,37 @@ def download_series(select_title: Entries, season_selection: str = None, episode
         obj_episode, index_select = _get_episode_by_number_or_index(scrape_serie, list_episode_select[0])
         if obj_episode is None:
             return None, False, f"Episode {list_episode_select[0]} not found"
-        path, _, msg_error = unpack_download_result(download_episode(obj_episode, index_select, scrape_serie, video_source))
+        path, _, msg_error = unpack_download_result(
+            download_episode(obj_episode, index_select, scrape_serie, video_source)
+        )
 
         if msg_error:
             console.print(f"[red]{msg_error}")
-        
+
         return path
 
-    # Download all other episodes selected
     else:
-        kill_handler = False
         for i_episode in list_episode_select:
-            if kill_handler:
+            if _is_user_stop_requested():
+                console.print("[yellow]Download interrupted by user.")
                 break
-            
+
             obj_episode, index_select = _get_episode_by_number_or_index(scrape_serie, i_episode)
             if obj_episode is None:
                 console.print(f"[red]Episode {i_episode} not found")
                 continue
 
-            _, stopped, msg_error = unpack_download_result(download_episode(obj_episode, index_select, scrape_serie, video_source))
+            try:
+                _, _kill, msg_error = unpack_download_result(
+                    download_episode(obj_episode, index_select, scrape_serie, video_source)
+                )
+            except Exception as e:
+                console.print(f"[red]Error in episode {i_episode}: {e}")
+                continue
 
             if msg_error:
-                console.print(f"[red]{msg_error}")
-                if msg_error == "cancelled":
-                    kill_handler = True
+                console.print(f"[red]Episode {i_episode}: {msg_error}")
+
+            if _is_user_stop_requested():
+                console.print("[yellow]Download interrupted by user.")
+                break

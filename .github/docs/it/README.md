@@ -6,7 +6,7 @@
 ![ARR](https://img.shields.io/badge/ARR-Sonarr%20%7C%20Radarr-orange?style=flat-square)
 ![GUI](https://img.shields.io/badge/GUI-Web%20UI-blueviolet?style=flat-square)
 
-[![Sponsor](https://img.shields.io/badge/💖_Sponsor-ea4aaa?style=for-the-badge&logo=github-sponsors&logoColor=white&labelColor=2d3748)](https://ko-fi.com/arrowar)
+[![Donate](https://img.shields.io/badge/💖_Sponsor-ea4aaa?style=for-the-badge&logo=github-sponsors&logoColor=white&labelColor=2d3748)](https://www.paypal.com/donate/?hosted_button_id=UXTWMT8P6HE2C)
 
 [![Windows](https://img.shields.io/badge/🪟_Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white&labelColor=2d3748)](https://github.com/AstraeLabs/VibraVid/releases/latest/download/VibraVid_win_2025_x64.exe)
 [![macOS](https://img.shields.io/badge/🍎_macOS-000000?style=for-the-badge&logo=apple&logoColor=white&labelColor=2d3748)](https://github.com/AstraeLabs/VibraVid/releases/latest/download/VibraVid_mac_15_x64)
@@ -168,7 +168,7 @@ from VibraVid.core.downloader import Generic_Downloader
 
 sources = [
     {"role": "video:hdr10", "url": "<m3u8 hdr10>", "key": "<kid:key>"},
-    {"role": "video:dv",    "url": "<m3u8 dv>",    "key": "<kid:key>"},
+    {"role": "video:dv", "url": "<m3u8 dv>", "key": "<kid:key>"},
     {"role": "audio", "language": "en", "url": "<m3u8 audio>", "key": "<kid:key>"},
     {"role": "subtitle", "language": "en", "url": "<url sottotitolo>"},
 ]
@@ -352,7 +352,7 @@ S%(season:02d)/     ->  cartella stagione  S01/
     "select_subtitle": "ita|eng|Ita|Eng",
     "extract_embedded_cc": false,
     "cleanup_tmp_folder": true,
-    "embed_tmdb_poster": true,
+    "embed_poster": false,
     "engine": "ffmpeg"
   }
 }
@@ -371,7 +371,7 @@ S%(season:02d)/     ->  cartella stagione  S01/
 | `concurrent_download` | `true` | Scarica video, audio e sottotitoli simultaneamente |
 | `extract_embedded_cc` | `false` | Solo HLS: estrae i sottotitoli CC (CEA-608/708) incorporati nel video (`EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS`, senza file sottotitoli separato) come traccia sottotitoli. Opzionale perché richiede di decodificare l'intero video, aggiungendo tempo/CPU extra ad ogni download |
 | `cleanup_tmp_folder` | `true` | Rimuove i file temporanei dopo il download |
-| `embed_tmdb_poster` | `true` | Incorpora la locandina TMDB corrispondente (film/serie) o la foto dell'episodio (episodi, con fallback su poster di stagione/serie) nel file scaricato, quando viene trovata una corrispondenza TMDB |
+| `embed_poster` | `false` | Incorpora un poster/foto nel file scaricato: usa la locandina TMDB corrispondente se trovata, altrimenti quella del sito come fallback |
 | `engine` | `"ffmpeg"` | Motore di muxing usato per unire video, audio e sottotitoli. `ffmpeg` funziona senza configurazioni aggiuntive; `mkvmerge` richiede l'installazione completa |
 
 #### Filtri di selezione flusso

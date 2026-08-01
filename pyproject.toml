@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "VibraVid"
+version = "1.3.7"
+description = "Media downloader and streaming utility with ARR integration, GUI support, and DRM handling"
+authors = [{ name = "AstraeLabs" }]
+requires-python = ">=3.11,<3.15"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+keywords = [
+    "downloader",
+    "streaming",
+    "drm",
+    "arr",
+    "gui",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/AstraeLabs/VibraVid"
+Repository = "https://github.com/AstraeLabs/VibraVid"
+Issues = "https://github.com/AstraeLabs/VibraVid/issues"
+
+[project.scripts]
+vibravid = "VibraVid.cli.run:main"
+
+[tool.ruff]
+force-exclude = true
+line-length = 120
+extend-exclude = ["Test"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"VibraVid/utils/console/message.py" = ["W291"]
+"GUI/searchapp/migrations/*.py" = ["E501", "F401"]
+"**/__init__.py" = ["F401"]
+
+[tool.pytest.ini_options]
+testpaths = ["Test"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+python_classes = ["Test*"]
+addopts = "-ra --strict-markers"

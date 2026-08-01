@@ -4,7 +4,6 @@
 
 import logging
 
-from textual import events
 from textual.events import Click, Key
 from textual.message import Message
 from textual.widgets import SelectionList

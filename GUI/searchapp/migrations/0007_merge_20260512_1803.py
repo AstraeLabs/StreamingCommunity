@@ -4,11 +4,9 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('searchapp', '0005_download_history'),
-        ('searchapp', '0006_arrwebhookevent_extra_fields'),
+        ("searchapp", "0005_download_history"),
+        ("searchapp", "0006_arrwebhookevent_extra_fields"),
     ]
 
-    operations = [
-    ]
+    operations = []

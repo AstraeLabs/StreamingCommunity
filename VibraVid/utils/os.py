@@ -1,17 +1,16 @@
 # 24.01.24
 
+import logging
 import os
 import shutil
-import logging
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
-from unidecode import unidecode
+from pathvalidate import sanitize_filename, sanitize_filepath
 from rich.console import Console
 from rich.prompt import Prompt
-from pathvalidate import sanitize_filename, sanitize_filepath
-
+from unidecode import unidecode
 
 msg = Prompt()
 console = Console()
@@ -21,12 +20,13 @@ logger = logging.getLogger(__name__)
 class OsManager:
     def __init__(self):
         from ..setup.binary_paths import binary_paths
+
         self.system = binary_paths._detect_system()
         self.max_length = self._get_max_length()
 
     def _get_max_length(self) -> int:
         """Get max filename length based on OS."""
-        return 255 if self.system == 'windows' else 4096
+        return 255 if self.system == "windows" else 4096
 
     def get_sanitize_file(self, filename: str, year: str = None) -> str:
         """Sanitize filename. Optionally append a year in format ' (YYYY)' if year is provided and valid."""
@@ -36,7 +36,7 @@ class OsManager:
         # Extract and validate year if provided
         year_str = ""
         if year:
-            y = str(year).split('-')[0].strip()
+            y = str(year).split("-")[0].strip()
             if y.isdigit() and len(y) == 4:
                 year_str = f" ({y})"
 
@@ -51,11 +51,11 @@ class OsManager:
         name_with_year = name + year_str
 
         # Calculate available length for name considering the '...' and extension
-        max_name_length = self.max_length - len('...') - len(ext)
+        max_name_length = self.max_length - len("...") - len(ext)
 
         # Truncate name if it exceeds the max name length
         if len(name_with_year) > max_name_length:
-            name_with_year = name_with_year[:max_name_length] + '...'
+            name_with_year = name_with_year[:max_name_length] + "..."
 
         # Ensure the final file name includes the extension
         return name_with_year + ext
@@ -68,73 +68,49 @@ class OsManager:
         # Decode unicode characters first (unidecode is safe on separators and drive letters — it only touches non-ASCII glyphs).
         decoded = unidecode(path)
 
-        if self.system == 'windows':
-            # ── Windows ───────────────────────────────────────────────────────
-            # Normalise *input* separators to backslash so the checks below
-            # work regardless of whether the caller used / or \.
-            normalised = decoded.replace('/', '\\')
+        if self.system == "windows":
+            normalised = decoded.replace("/", "\\")
 
             # Handle network paths (UNC or IP-based)  \\server\share\...
-            if normalised.startswith('\\\\'):
-                parts = normalised.split('\\')
+            if normalised.startswith("\\\\"):
+                parts = normalised.split("\\")
                 sanitized_parts = parts[:4]
                 if len(parts) > 4:
-                    sanitized_parts.extend([
-                        self.get_sanitize_file(part)
-                        for part in parts[4:]
-                        if part
-                    ])
-                return '\\'.join(sanitized_parts)
+                    sanitized_parts.extend([self.get_sanitize_file(part) for part in parts[4:] if part])
+                return "\\".join(sanitized_parts)
 
             # Handle drive letters  C:\...
-            if len(normalised) >= 2 and normalised[1] == ':':
-                drive = normalised[:2]          # e.g. "C:"
-                rest  = normalised[2:].lstrip('\\')
-                parts = [p for p in rest.split('\\') if p]
+            if len(normalised) >= 2 and normalised[1] == ":":
+                drive = normalised[:2]  # e.g. "C:"
+                rest = normalised[2:].lstrip("\\")
+                parts = [p for p in rest.split("\\") if p]
                 sanitized_parts = [drive] + [self.get_sanitize_file(p) for p in parts]
-                return '\\'.join(sanitized_parts)
+                return "\\".join(sanitized_parts)
 
             # Regular relative path
-            parts = [p for p in normalised.split('\\') if p]
-            return '\\'.join(self.get_sanitize_file(p) for p in parts)
+            parts = [p for p in normalised.split("\\") if p]
+            return "\\".join(self.get_sanitize_file(p) for p in parts)
 
         else:
-            # ── Unix-like (Linux / macOS) ──────────────────────────────────
-            # Use pathvalidate only on non-Windows where forward slashes are
-            # the native separator and the function behaves correctly.
             sanitized = sanitize_filepath(decoded)
-            is_absolute = sanitized.startswith('/')
-            parts = sanitized.replace('\\', '/').split('/')
-            sanitized_parts = [
-                self.get_sanitize_file(part)
-                for part in parts
-                if part
-            ]
-            result = '/'.join(sanitized_parts)
+            is_absolute = sanitized.startswith("/")
+            parts = sanitized.replace("\\", "/").split("/")
+            sanitized_parts = [self.get_sanitize_file(part) for part in parts if part]
+            result = "/".join(sanitized_parts)
             if is_absolute:
-                result = '/' + result
+                result = "/" + result
             return result
 
     def get_glob_path(self, path: str) -> str:
         """Escape path for glob to prevent issues with special characters like brackets."""
         import glob
+
         return glob.escape(path)
 
     def create_path(self, path: str, mode: int = 0o755) -> bool:
-        """
-        Create directory path with specified permissions.
-
-        Args:
-            path (str): Path to create.
-            mode (int, optional): Directory permissions. Defaults to 0o755.
-
-        Returns:
-            bool: True if path created successfully, False otherwise.
-        """
+        """Create directory path with specified permissions."""
         try:
-            path = str(path)
-            sanitized_path = self.get_sanitize_path(path)
-            os.makedirs(sanitized_path, mode=mode, exist_ok=True)
+            os.makedirs(str(path), mode=mode, exist_ok=True)
             return True
 
         except Exception as e:
@@ -159,15 +135,7 @@ class OsManager:
                     pass
 
     def remove_folder(self, folder_path: str) -> bool:
-        """
-        Safely remove a folder.
-
-        Args:
-            folder_path (str): Path of directory to remove.
-
-        Returns:
-            bool: Removal status.
-        """
+        """Safely remove a folder."""
         try:
             shutil.rmtree(folder_path)
             return True
@@ -175,6 +143,7 @@ class OsManager:
         except OSError as e:
             logger.error(f"Folder removal error: {e}")
             return False
+
 
 class InternetManager:
     def format_file_size(self, size_bytes) -> str:
@@ -187,12 +156,12 @@ class InternetManager:
         if nb <= 0:
             return "0"
 
-        if nb >= 1024 ** 4:
-            return f"{nb / 1024 ** 4:.2f}T"
-        if nb >= 1024 ** 3:
-            return f"{nb / 1024 ** 3:.2f}G"
-        if nb >= 1024 ** 2:
-            return f"{nb / 1024 ** 2:.1f}M"
+        if nb >= 1024**4:
+            return f"{nb / 1024**4:.2f}T"
+        if nb >= 1024**3:
+            return f"{nb / 1024**3:.2f}G"
+        if nb >= 1024**2:
+            return f"{nb / 1024**2:.1f}M"
         if nb >= 1024:
             return f"{nb / 1024:.0f}K"
         return f"{nb:.0f}"
@@ -203,16 +172,16 @@ class InternetManager:
             return None
         try:
             s = size_str.upper().strip()
-            if 'TB' in s:
-                return int(float(s.replace('TB', '').strip()) * 1024 ** 4)
-            if 'GB' in s:
-                return int(float(s.replace('GB', '').strip()) * 1024 ** 3)
-            if 'MB' in s:
-                return int(float(s.replace('MB', '').strip()) * 1024 ** 2)
-            if 'KB' in s:
-                return int(float(s.replace('KB', '').strip()) * 1024)
-            if 'B' in s:
-                return int(float(s.replace('B', '').strip()))
+            if "TB" in s:
+                return int(float(s.replace("TB", "").strip()) * 1024**4)
+            if "GB" in s:
+                return int(float(s.replace("GB", "").strip()) * 1024**3)
+            if "MB" in s:
+                return int(float(s.replace("MB", "").strip()) * 1024**2)
+            if "KB" in s:
+                return int(float(s.replace("KB", "").strip()) * 1024)
+            if "B" in s:
+                return int(float(s.replace("B", "").strip()))
             return None
         except Exception:
             return None
@@ -229,17 +198,17 @@ class InternetManager:
 
         if bps <= 0:
             return "0/s"
-        if bps >= 1024 ** 3:
-            return f"{bps / 1024 ** 3:.2f}G/s"
-        if bps >= 1024 ** 2:
-            return f"{bps / 1024 ** 2:.2f}M/s"
+        if bps >= 1024**3:
+            return f"{bps / 1024**3:.2f}G/s"
+        if bps >= 1024**2:
+            return f"{bps / 1024**2:.2f}M/s"
         if bps >= 1024:
             return f"{bps / 1024:.0f}K/s"
         return f"{bps:.0f}/s"
 
     def format_time(self, seconds: float, add_hours: bool = False) -> str:
         """Format seconds to MM:SS or HH:MM:SS."""
-        if seconds < 0 or seconds == float('inf'):
+        if seconds < 0 or seconds == float("inf"):
             return "00:00"
 
         minutes = int(seconds // 60)

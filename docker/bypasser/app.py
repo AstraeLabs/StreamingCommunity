@@ -1,10 +1,10 @@
 # 17.07.26
 
+import logging
 import os
 import time
-import logging
 
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify, request
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("bypasser")

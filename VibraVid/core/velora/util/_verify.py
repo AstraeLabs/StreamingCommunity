@@ -3,19 +3,16 @@
 import logging
 import subprocess
 from pathlib import Path
-from typing import Tuple
 
+from VibraVid.setup import get_ffprobe_path
 from VibraVid.utils import dump_to_string
 from VibraVid.utils.os import os_manager
-from VibraVid.setup import get_ffprobe_path
-
-
 
 logger = logging.getLogger(__name__)
 _MP4DUMP_SCAN_BYTES = 1 * 1024 * 1024  # 1 MB
 
 
-def _ffprobe_streams(ffprobe: str, file_path: str) -> Tuple[bool, str]:
+def _ffprobe_streams(ffprobe: str, file_path: str) -> tuple[bool, str]:
     """Return (ok, message). ok=True means at least one decodable stream."""
     try:
         result = subprocess.run(
@@ -32,7 +29,7 @@ def _ffprobe_streams(ffprobe: str, file_path: str) -> Tuple[bool, str]:
         )
     except subprocess.TimeoutExpired:
         return False, "ffprobe timed out"
-    
+
     except Exception as exc:
         return False, f"ffprobe failed to launch: {exc}"
 
@@ -67,11 +64,11 @@ def _ffprobe_streams(ffprobe: str, file_path: str) -> Tuple[bool, str]:
     if bad:
         return False, "ffprobe still reports unknown codec — file likely encrypted"
 
-    summary = ", ".join(f"{s.get('codec_type','?')}={s.get('codec_name','?')}" for s in media_streams)
+    summary = ", ".join(f"{s.get('codec_type', '?')}={s.get('codec_name', '?')}" for s in media_streams)
     return True, summary
 
 
-def _mp4dump_clean(file_path: str) -> Tuple[bool, str]:
+def _mp4dump_clean(file_path: str) -> tuple[bool, str]:
     """Return (clean, message). clean=True means no residual encryption boxes."""
     try:
         with open(file_path, "rb") as fh:
@@ -87,16 +84,14 @@ def _mp4dump_clean(file_path: str) -> Tuple[bool, str]:
         return True, "mp4dump produced no output (skipped)"
 
     flagged = [
-        marker
-        for marker in ("[encv]", "[enca]", "[sinf]", "[saiz]", "[saio]", "[senc]")
-        if marker in text.lower()
+        marker for marker in ("[encv]", "[enca]", "[sinf]", "[saiz]", "[saio]", "[senc]") if marker in text.lower()
     ]
     if flagged:
         return False, f"residual encryption boxes: {','.join(flagged)}"
     return True, "no residual encryption boxes"
 
 
-def verify_decrypted_media(file_path) -> Tuple[bool, str, bool]:
+def verify_decrypted_media(file_path) -> tuple[bool, str, bool]:
     """Verify that *file_path* is a playable, fully decrypted media file."""
     p = Path(file_path)
     if not p.exists():

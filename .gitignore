@@ -63,3 +63,6 @@ CLAUDE.md
 Vibe/*
 /Video/
 GUI/.django_secret_key
+
+# MkDocs build output
+/site/

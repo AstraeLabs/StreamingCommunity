@@ -4,7 +4,7 @@
 import os
 import sys
 
-src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.append(src_path)
 
 
@@ -14,9 +14,9 @@ from VibraVid.core.downloader import MP4_Downloader
 
 setup_logger()
 path, kill_handler, error = MP4_Downloader(
-    url="",
-    path=r".\Video\MP.mp4",
-    headers_={},
+    url="", 
+    path=r".\Video\MP.mp4", 
+    headers_={}, 
     key=None
 )
 

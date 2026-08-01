@@ -2,13 +2,12 @@
 
 import logging
 import threading
-from typing import List, Optional
 
 from rich.console import Console
-from VibraVid.utils.vault._url_utils import clean_license_url
-from VibraVid.utils.http_client import create_client
-from VibraVid.utils.config import config_manager
 
+from VibraVid.utils.config import config_manager
+from VibraVid.utils.http_client import create_client
+from VibraVid.utils.vault._url_utils import clean_license_url
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -23,7 +22,7 @@ class ExternalSupaDBVault:
         self.headers = {"Content-Type": "application/json"}
         if TOKEN:
             self.headers["Authorization"] = f"Bearer {TOKEN}"
-        
+
         self.session = create_client(headers=self.headers, http2=True)
         self._session_lock = threading.Lock()
         self._prewarm()
@@ -51,7 +50,7 @@ class ExternalSupaDBVault:
     def _clean_license_url(self, license_url: str) -> str:
         return clean_license_url(license_url)
 
-    def _post(self, endpoint: str, payload: dict) -> Optional[dict]:
+    def _post(self, endpoint: str, payload: dict) -> dict | None:
         """Internal helper: POST to an endpoint, return parsed JSON or None on error."""
         url = f"{self.base_url}/{endpoint}"
         try:
@@ -90,7 +89,7 @@ class ExternalSupaDBVault:
             logger.error(f"Supabase track_download error: {e}")
             return False
 
-    def set_keys(self, keys_list: List[str], license_url: str, pssh: str, kid_to_label: Optional[dict] = None) -> int:
+    def set_keys(self, keys_list: list[str], license_url: str, pssh: str, kid_to_label: dict | None = None) -> int:
         """
         Add multiple keys to the vault in a single bulk request.
 
@@ -137,7 +136,7 @@ class ExternalSupaDBVault:
         added = result.get("added", 0)
         return added
 
-    def get_keys_by_pssh(self, license_url: str, pssh: str) -> List[str]:
+    def get_keys_by_pssh(self, license_url: str, pssh: str) -> list[str]:
         """
         Retrieve all keys for a given license URL and PSSH (single request).
 
@@ -159,7 +158,7 @@ class ExternalSupaDBVault:
 
         return [k["kid_key"] for k in result.get("keys", [])]
 
-    def get_keys_by_kids(self, license_url: Optional[str], kids: List[str], pssh: str = None) -> List[str]:
+    def get_keys_by_kids(self, license_url: str | None, kids: list[str], pssh: str = None) -> list[str]:
         """
         Retrieve keys for one or more KIDs in a single bulk request.
         If license_url is None the search is global.
@@ -185,7 +184,7 @@ class ExternalSupaDBVault:
 
         return [k["kid_key"] for k in result.get("keys", [])]
 
-    def get_keys_by_kid(self, license_url: Optional[str], kid: str) -> List[str]:
+    def get_keys_by_kid(self, license_url: str | None, kid: str) -> list[str]:
         """Convenience wrapper for a single KID lookup."""
         return self.get_keys_by_kids(license_url, [kid])
 

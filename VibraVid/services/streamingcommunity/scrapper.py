@@ -1,4 +1,4 @@
-# 01.03.24
+﻿# 01.03.24
 
 import json
 import logging
@@ -7,23 +7,31 @@ from concurrent.futures import ThreadPoolExecutor
 
 from bs4 import BeautifulSoup
 
+from VibraVid.services._base.object import Episode, Season, SeasonManager
 from VibraVid.utils.http_client import create_client, get_headers
-from VibraVid.services._base.object import SeasonManager, Episode, Season
-
 
 logger = logging.getLogger(__name__)
+_EPISODE_IMAGE_TYPES = ("cover", "cover_mobile", "background", "poster")
 
 
 class GetSerieInfo:
-    def __init__(self, url, media_id: int = None, series_name: str = None, year: int = None, provider_language: str = "it", series_display_name: str = None):
+    def __init__(
+        self,
+        url,
+        media_id: int = None,
+        series_name: str = None,
+        year: int = None,
+        provider_language: str = "it",
+        series_display_name: str = None,
+    ):
         """
         Initialize the GetSerieInfo class for scraping TV series information.
-        
+
         Args:
-            - url (str): The URL of the streaming site.
-            - media_id (int): Unique identifier for the media
-            - series_name (str): Slug of the TV series
-            - series_display_name (str): Name of the TV series
+            url (str): The URL of the streaming site.
+            media_id (int): Unique identifier for the media
+            series_name (str): Slug of the TV series
+            series_display_name (str): Name of the TV series
         """
         self.is_series = False
         self.headers = get_headers()
@@ -33,8 +41,8 @@ class GetSerieInfo:
         self.seasons_manager = SeasonManager()
         self.provider_language = provider_language
         self._collect_lock = threading.Lock()
-        if isinstance(self.url, str) and self.url.endswith(('/it', '/en')):
-            self.base_url = self.url.rsplit('/', 1)[0]
+        if isinstance(self.url, str) and self.url.endswith(("/it", "/en")):
+            self.base_url = self.url.rsplit("/", 1)[0]
         else:
             self.base_url = self.url
 
@@ -43,10 +51,29 @@ class GetSerieInfo:
             self.series_name = series_name  # slug, used for URL building
             self.series_display_name = series_display_name if series_display_name is not None else series_name
 
+    def _episode_image_url(self, base_url: str, raw_episode: dict) -> str | None:
+        """Url of the episode image, if available. Returns None if no image found."""
+        images = raw_episode.get("images") or []
+        filename = None
+        for wanted in _EPISODE_IMAGE_TYPES:
+            filename = next(
+                (img.get("filename") for img in images if img.get("type") == wanted and img.get("filename")),
+                None,
+            )
+            if filename:
+                break
+
+        if not filename and images:
+            filename = images[0].get("filename")
+
+        if not filename:
+            return None
+        return f"{base_url.replace('stream', 'cdn.stream')}/images/{filename}"
+
     def collect_info_title(self) -> None:
         """
         Retrieve general information about the TV series from the streaming site.
-        
+
         Raises:
             Exception: If there's an error fetching series information
         """
@@ -58,23 +85,25 @@ class GetSerieInfo:
             # Extract series info from JSON response
             soup = BeautifulSoup(response.text, "html.parser")
             json_response = json.loads(soup.find("div", {"id": "app"}).get("data-page"))
-            self.version = json_response['version']
-            
+            self.version = json_response["version"]
+
             # Extract information about available seasons
             title_data = json_response.get("props", {}).get("title", {})
-            
+
             # Save general series information
             self.title_info = title_data
-            
+
             # Extract available seasons and add them to SeasonManager
             seasons_data = title_data.get("seasons", [])
             for season_data in seasons_data:
-                self.seasons_manager.add(Season(
-                    id=season_data.get('id'),
-                    number=season_data.get('number'),
-                    name=f"Season {season_data.get('number')}",
-                    slug=season_data.get('slug')
-                ))
+                self.seasons_manager.add(
+                    Season(
+                        id=season_data.get("id"),
+                        number=season_data.get("number"),
+                        name=f"Season {season_data.get('number')}",
+                        slug=season_data.get("slug"),
+                    )
+                )
 
         except Exception as e:
             logger.error(f"Error collecting series info: {e}")
@@ -86,48 +115,48 @@ class GetSerieInfo:
         Reuses title_info if already populated by collect_info_title(); otherwise
         fetches the title page on demand (needed for movies).
         """
-        if not getattr(self, 'title_info', None):
+        if not getattr(self, "title_info", None):
             try:
                 self.collect_info_title()
             except Exception:
                 return ""
-        
-        title_node = getattr(self, 'title_info', None) or {}
+
+        title_node = getattr(self, "title_info", None) or {}
         quality = str(title_node.get("quality") or "").upper()
         if quality:
             return quality
-        
+
         for tag in title_node.get("tags", []):
             if isinstance(tag, dict):
                 tag_name = str(tag.get("name", "")).upper()
                 if tag_name in {"TS", "CAM", "CINEMA"}:
                     return tag_name
-        
+
         return ""
 
     def is_cam(self) -> bool:
         """Return True if this title is a TS/CAM/Cinema release."""
         return self.get_quality() in {"TS", "CAM", "CINEMA"}
 
-    def get_tmdb_id(self) -> int:
+    def get_tmdb_id(self) -> int | None:
         """Return the provider's own TMDB id for this title, if it supplies one."""
-        if not getattr(self, 'title_info', None):
+        if not getattr(self, "title_info", None):
             try:
                 self.collect_info_title()
             except Exception:
                 return None
 
-        title_node = getattr(self, 'title_info', None) or {}
+        title_node = getattr(self, "title_info", None) or {}
         tmdb_id = title_node.get("tmdb_id")
         return int(tmdb_id) if tmdb_id else None
 
     def collect_info_season(self, number_season: int) -> None:
         """
         Retrieve episode information for a specific season.
-        
+
         Args:
             number_season (int): Season number to fetch episodes for
-        
+
         Raises:
             Exception: If there's an error fetching episode information
         """
@@ -150,21 +179,25 @@ class GetSerieInfo:
                         resp_ver = client.get(f"{self.base_url}/{lang}")
                     resp_ver.raise_for_status()
                     ver = BeautifulSoup(resp_ver.text, "html.parser")
-                    ver = json.loads(ver.find("div", {"id": "app"}).get("data-page"))['version']
+                    ver = json.loads(ver.find("div", {"id": "app"}).get("data-page"))["version"]
                 except Exception:
                     # Skip this language if we can't get version
                     return []
 
                 custom_headers = self.headers.copy()
-                custom_headers.update({
-                    'x-inertia': 'true',
-                    'x-inertia-version': ver,
-                })
+                custom_headers.update(
+                    {
+                        "x-inertia": "true",
+                        "x-inertia-version": ver,
+                    }
+                )
                 client = create_client(headers=custom_headers)
                 try:
-                    response = client.get(f"{self.base_url}/{lang}/titles/{self.media_id}-{self.series_name}/season-{number_season}")
+                    response = client.get(
+                        f"{self.base_url}/{lang}/titles/{self.media_id}-{self.series_name}/season-{number_season}"
+                    )
                     response.raise_for_status()
-                    return response.json().get('props', {}).get('loadedSeason', {}).get('episodes', [])
+                    return response.json().get("props", {}).get("loadedSeason", {}).get("episodes", [])
                 except Exception as e:
                     logger.debug(f"No season data for lang {lang}: {e}")
                     return []
@@ -172,10 +205,10 @@ class GetSerieInfo:
                     client.close()
 
             # Fetch episodes for both Italian and English catalogs in parallel
-            langs = ['it', 'en']
+            langs = ["it", "en"]
             with ThreadPoolExecutor(max_workers=len(langs)) as pool:
                 results = list(pool.map(_fetch_lang_episodes, langs))
-            for lang, json_response in zip(langs, results):
+            for lang, json_response in zip(langs, results, strict=False):
                 episodes_by_lang[lang] = json_response
 
             # Merge episodes from both languages
@@ -184,32 +217,33 @@ class GetSerieInfo:
                 merged = {}
                 for lang, ep_list in ep_lists_by_lang.items():
                     for ep in ep_list:
-                        num = ep.get('number')
+                        num = ep.get("number")
                         if num is None:
                             # fallback to id if number missing
-                            num = ep.get('id')
+                            num = ep.get("id")
 
                         if num in merged:
                             # already exists from other language -> mark both
                             existing = merged[num]
                             if attach_language:
-                                prev_lang = getattr(existing, 'language', None)
+                                prev_lang = getattr(existing, "language", None)
                                 if prev_lang:
                                     # combine languages uniquely
-                                    langs = set(str(prev_lang).split(',')) | {lang}
-                                    existing.language = ','.join(sorted(langs))
+                                    langs = set(str(prev_lang).split(",")) | {lang}
+                                    existing.language = ",".join(sorted(langs))
                         else:
                             kwargs = {}
                             if attach_language:
-                                kwargs['language'] = lang
+                                kwargs["language"] = lang
 
                             merged[num] = Episode(
-                                id=ep.get('id'),
-                                video_id=ep.get('id'),
-                                number=ep.get('number'),
-                                name=ep.get('name'),
-                                duration=ep.get('duration'),
-                                **kwargs
+                                id=ep.get("id"),
+                                video_id=ep.get("id"),
+                                number=ep.get("number"),
+                                name=ep.get("name"),
+                                duration=ep.get("duration"),
+                                image=self._episode_image_url(self.base_url, ep),
+                                **kwargs,
                             )
 
                 # Replace any existing episodes with merged result
@@ -223,7 +257,6 @@ class GetSerieInfo:
             logger.error(f"Error collecting episodes for season {number_season}: {e}")
             raise
 
-    
     # ------------- FOR GUI -------------
     def getNumberSeason(self) -> int:
         """Get the total number of seasons available for the series."""

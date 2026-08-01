@@ -1,14 +1,14 @@
 # 01.04.26
 
+import logging
 import os
 import subprocess
 import threading
 import time
-import logging
-from typing import Callable, Dict, Any, Optional
+from collections.abc import Callable
+from typing import Any
 
 from VibraVid.core.ui.bar_manager import console
-
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +16,19 @@ logger = logging.getLogger(__name__)
 def _render_bar(percent: int, length: int = 10) -> str:
     """Return a Rich-formatted inline progress bar string."""
     filled = int((percent / 100) * length)
-    bar = (
-        "[dim][[/dim]"
-        + f"[green]{'=' * filled}[/green]"
-        + f"[dim]{'-' * (length - filled)}[/dim]"
-        + "[dim]][/dim]"
-    )
+    bar = "[dim][[/dim]" + f"[green]{'=' * filled}[/green]" + f"[dim]{'-' * (length - filled)}[/dim]" + "[dim]][/dim]"
     return f"{bar} [dim]{percent:3d}%[/dim]"
 
 
-def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: str, progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None, timeout_seconds: Optional[int] = 1800, status: Optional[str] = None) -> tuple:
+def run_with_progress(
+    cmd: list,
+    label: str,
+    encrypted_path: str,
+    output_path: str,
+    progress_cb: Callable[[dict[str, Any]], None] | None = None,
+    timeout_seconds: int | None = 1800,
+    status: str | None = None,
+) -> tuple:
     """
     Launch *cmd* as a subprocess and monitor its progress by watching how
     fast the *output_path* file grows relative to *encrypted_path*.
@@ -49,7 +52,7 @@ def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: s
     def _emit(percent: int, current_size: int) -> None:
         if progress_cb is None:
             return
-        
+
         try:
             progress_cb(
                 {
@@ -67,26 +70,26 @@ def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: s
     def _monitor() -> None:
         nonlocal progress_percent, last_progress_update, last_observed_percent
         while not stop_monitor.is_set():
-            now     = time.monotonic()
+            now = time.monotonic()
             process = process_holder["process"]
             running = process is not None and process.poll() is None
 
             if os.path.exists(output_path) and file_size > 0:
-                current_size     = os.path.getsize(output_path)
+                current_size = os.path.getsize(output_path)
                 observed_percent = min(int((current_size / file_size) * 100), 99)
                 if observed_percent != last_observed_percent:
                     last_observed_percent = observed_percent
-                    progress_percent      = observed_percent
-                    last_progress_update  = now
+                    progress_percent = observed_percent
+                    last_progress_update = now
                     _emit(progress_percent, current_size)
 
                 elif running and progress_percent < 99 and now - last_progress_update >= 0.20:
-                    progress_percent     = min(progress_percent + 1, 99)
+                    progress_percent = min(progress_percent + 1, 99)
                     last_progress_update = now
                     _emit(progress_percent, current_size)
 
             elif running and progress_percent < 90 and now - last_progress_update >= 0.30:
-                progress_percent     = min(progress_percent + 1, 90)
+                progress_percent = min(progress_percent + 1, 90)
                 last_progress_update = now
                 _emit(progress_percent, 0)
 
@@ -95,7 +98,9 @@ def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: s
     stderr_lines: list[str] = []
     stdout_lines: list[str] = []
     try:
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,)
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace"
+        )
         process_holder["process"] = process
 
         monitor_thread = threading.Thread(target=_monitor, daemon=True)
@@ -145,7 +150,7 @@ def run_with_progress(cmd: list, label: str, encrypted_path: str, output_path: s
         stop_monitor.set()
 
     final_percent = 100 if process.returncode == 0 else progress_percent
-    final_size    = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+    final_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
 
     if progress_cb is None:
         console.print(f"{label} {_render_bar(final_percent)}")

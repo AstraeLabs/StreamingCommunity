@@ -4,13 +4,12 @@
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import TVShowManager
 from VibraVid.provider.tmdb import tmdb_client
-from VibraVid.services._base import site_constants, EntriesManager, Entries
+from VibraVid.services._base import Entries, EntriesManager, site_constants
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
+from VibraVid.utils import TVShowManager
 
 from .downloader import download_film, download_series
-
 
 indice = 15
 _useFor = "Film_Serie"
@@ -27,54 +26,60 @@ def title_search(query: str) -> int:
     table_show_manager.clear()
 
     for m in tmdb_client.search_movies(query):
-        poster = f"{_TMDB_IMG}{m['poster_path']}" if m.get('poster_path') else None
-        year   = (m.get('release_date') or '')[:4] or None
-        entries_manager.add(Entries(
-            id    = m['id'],
-            name  = m.get('title', ''),
-            type  = 'film',
-            slug  = 'movie',
-            url   = f"https://www.cinezo.net/watch/movie/{m['id']}",
-            image = poster,
-            year  = year,
-        ))
+        poster = f"{_TMDB_IMG}{m['poster_path']}" if m.get("poster_path") else None
+        year = (m.get("release_date") or "")[:4] or None
+        entries_manager.add(
+            Entries(
+                id=m["id"],
+                name=m.get("title", ""),
+                type="film",
+                slug="movie",
+                url=f"https://www.cinezo.net/watch/movie/{m['id']}",
+                image=poster,
+                year=year,
+            )
+        )
 
     for s in tmdb_client.search_series(query):
-        poster = f"{_TMDB_IMG}{s['poster_path']}" if s.get('poster_path') else None
-        year   = (s.get('first_air_date') or '')[:4] or None
-        entries_manager.add(Entries(
-            id    = s['id'],
-            name  = s.get('name', ''),
-            type  = 'tv',
-            slug  = 'tv',
-            url   = f"https://www.cinezo.net/watch/tv/{s['id']}",
-            image = poster,
-            year  = year,
-        ))
+        poster = f"{_TMDB_IMG}{s['poster_path']}" if s.get("poster_path") else None
+        year = (s.get("first_air_date") or "")[:4] or None
+        entries_manager.add(
+            Entries(
+                id=s["id"],
+                name=s.get("name", ""),
+                type="tv",
+                slug="tv",
+                url=f"https://www.cinezo.net/watch/tv/{s['id']}",
+                image=poster,
+                year=year,
+            )
+        )
 
     return len(entries_manager)
 
+
 def process_search_result(select_title, selections=None, scrape_serie=None):
     return base_process_search_result(
-        select_title         = select_title,
-        download_film_func   = download_film,
-        download_series_func = download_series,
-        media_search_manager = entries_manager,
-        table_show_manager   = table_show_manager,
-        selections           = selections,
-        scrape_serie         = scrape_serie,
+        select_title=select_title,
+        download_film_func=download_film,
+        download_series_func=download_series,
+        media_search_manager=entries_manager,
+        table_show_manager=table_show_manager,
+        selections=selections,
+        scrape_serie=scrape_serie,
     )
+
 
 def search(string_to_search=None, get_onlyDatabase=False, direct_item=None, selections=None, scrape_serie=None):
     return base_search(
-        title_search_func    = title_search,
-        process_result_func  = process_search_result,
-        media_search_manager = entries_manager,
-        table_show_manager   = table_show_manager,
-        site_name            = site_constants.SITE_NAME,
-        string_to_search     = string_to_search,
-        get_onlyDatabase     = get_onlyDatabase,
-        direct_item          = direct_item,
-        selections           = selections,
-        scrape_serie         = scrape_serie,
+        title_search_func=title_search,
+        process_result_func=process_search_result,
+        media_search_manager=entries_manager,
+        table_show_manager=table_show_manager,
+        site_name=site_constants.SITE_NAME,
+        string_to_search=string_to_search,
+        get_onlyDatabase=get_onlyDatabase,
+        direct_item=direct_item,
+        selections=selections,
+        scrape_serie=scrape_serie,
     )

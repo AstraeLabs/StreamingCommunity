@@ -1,24 +1,35 @@
 # 13.03.26
 
+import logging
+import math
 import re
 import time
-import math
-import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, List, Optional
-from urllib.parse import urljoin, urlparse, parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 
 from rich.console import Console
 
+from VibraVid.core.manifest._utils import (
+    calc_base_url,
+    fast_urljoin,
+    fast_urljoin_auto,
+    is_simple_relative_ref,
+    save_raw_manifest,
+)
+from VibraVid.core.manifest.stream import DRMInfo, DRMType, Segment, Stream
+from VibraVid.core.utils.codec import (
+    AUDIO_EXTENSIONS,
+    SUBTITLE_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+    detect_stream_type,
+    get_codec_extension,
+    infer_video_range,
+)
+from VibraVid.core.utils.language import resolve_locale
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_headers
-from VibraVid.core.manifest.stream import DRMInfo, Segment, Stream, DRMType
-from VibraVid.core.utils.language import resolve_locale
-from VibraVid.core.utils.codec import infer_video_range, detect_stream_type, get_codec_extension, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, SUBTITLE_EXTENSIONS
-from VibraVid.core.manifest._utils import calc_base_url, save_raw_manifest, is_simple_relative_ref, fast_urljoin, fast_urljoin_auto
-
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -27,8 +38,13 @@ _NS = {
     "cenc": "urn:mpeg:cenc:2013",
 }
 _TC_MAP = {
-    "1": "SDR", "6": "SDR", "7": "SDR", "13": "SDR", "14": "SDR", "15": "SDR",
-    "16": "PQ",   # SMPTE ST 2084 (HDR10 / Dolby Vision PQ)
+    "1": "SDR",
+    "6": "SDR",
+    "7": "SDR",
+    "13": "SDR",
+    "14": "SDR",
+    "15": "SDR",
+    "16": "PQ",  # SMPTE ST 2084 (HDR10 / Dolby Vision PQ)
     "18": "HLG",  # ARIB STD-B67
 }
 _CP_HDR_HINT = {"9"}  # BT.2020 ColourPrimaries
@@ -37,7 +53,7 @@ _AD_PATH_RE = re.compile(r"(?:^|/)(?:ad|ads|advert|impression|preroll|midroll|po
 _SEGMENT_TOKEN_RE = re.compile(r"\$(RepresentationID|Number|Time|Bandwidth)(?:%0?(\d+)d)?\$")
 
 
-def _norm(v: Optional[str]) -> str:
+def _norm(v: str | None) -> str:
     return (v or "").strip().lower()
 
 
@@ -69,7 +85,7 @@ def _stream_dedup_key(s: Stream):
             bool(s.forced),
             bool(s.is_cc),
         )
-    
+
     return (
         s.type,
         _norm(s.language),
@@ -80,7 +96,7 @@ def _stream_dedup_key(s: Stream):
     )
 
 
-def _drm_hint_from_scheme(scheme_lower: str) -> Optional[str]:
+def _drm_hint_from_scheme(scheme_lower: str) -> str | None:
     """Classify a DASH schemeIdUri into a DRMType short code (delegates to the shared helper)."""
     result = DRMType.from_scheme(scheme_lower)
     return result if result != DRMType.UNKNOWN else None
@@ -92,12 +108,7 @@ def _video_range_from_codecs(codecs: str) -> str:
 
 
 def _is_ad_period(period_url: str, period_element) -> bool:
-    """Check if a period is advertisement content.
-    
-    Advertisement periods typically:
-    - Have "/ad/" in their base URL (e.g., https://.../ad/ixmedia/encoding-xxx/)
-    - Have no content protection (DRM)
-    """
+    """Check if a period is advertisement content."""
     url_is_ad = bool(_AD_PATH_RE.search(period_url or ""))
     has_drm = period_element.find(".//mpd:ContentProtection", _NS) is not None
 
@@ -112,7 +123,7 @@ def _is_ad_period(period_url: str, period_element) -> bool:
     asset_is_ad = any(token in asset_text for token in ("ad", "advert", "impression", "preroll", "midroll", "postroll"))
     xlink_is_ad = xlink_actuate == "onload"
     logger.debug(f"_is_ad_period | url={period_url} | url_ad={url_is_ad} | xlink_onload={xlink_is_ad} | asset_ad={asset_is_ad} | has_drm={has_drm}")
-    
+
     if (url_is_ad or xlink_is_ad or asset_is_ad) and not has_drm:
         return True
     return False
@@ -134,16 +145,22 @@ def _is_file_url(url: str) -> bool:
         return False
 
 
-
 class DashParser:
-    def __init__(self, mpd_url: str, headers: Dict[str, str] = None, provided_kid: str = None, content: Optional[str] = None, quiet: bool = False):
+    def __init__(
+        self,
+        mpd_url: str,
+        headers: dict[str, str] = None,
+        provided_kid: str = None,
+        content: str | None = None,
+        quiet: bool = False,
+    ):
         self.mpd_url = mpd_url
         self.headers = headers or {}
         self.provided_kid = provided_kid
         self.quiet = quiet
         self._injected = content
-        self.raw_content: Optional[str] = content
-        self._root: Optional[ET.Element] = None
+        self.raw_content: str | None = content
+        self._root: ET.Element | None = None
         self._base_url = self._calc_base_url(mpd_url)
         self._mpd_query: str = urlparse(mpd_url).query if mpd_url else ""
         self._mpd_query_suffix: str = self._compute_query_suffix(self._mpd_query)
@@ -153,11 +170,18 @@ class DashParser:
     @staticmethod
     def _calc_base_url(url: str) -> str:
         return calc_base_url(url)
-    
+
     # Query keys that route a request to the MANIFEST or carry MPD session context.
-    _MANIFEST_ONLY_QUERY_KEYS = frozenset({
-        "ismaster", "rtype", "ctx", "ps", "pid", "reg",
-    })
+    _MANIFEST_ONLY_QUERY_KEYS = frozenset(
+        {
+            "ismaster",
+            "rtype",
+            "ctx",
+            "ps",
+            "pid",
+            "reg",
+        }
+    )
 
     @classmethod
     def _compute_query_suffix(cls, source_query: str) -> str:
@@ -204,6 +228,7 @@ class DashParser:
         if self.mpd_url.startswith("file://"):
             try:
                 from urllib.request import url2pathname
+
                 local_path = Path(url2pathname(urlparse(self.mpd_url).path))
                 self.raw_content = local_path.read_text(encoding="utf-8")
                 self._base_url = local_path.parent.as_uri() + "/"
@@ -232,35 +257,36 @@ class DashParser:
             console.print(f"[red]Error fetching/parsing MPD manifest: {exc}[/red]")
             logger.error(f"DashParser: fetch/parse failed: {exc}")
             return False
-        
-    @property
-    def live_meta(self) -> Dict:
-        """
-        Return live-scheduling metadata for dynamic MPDs.
 
-        Consumed by ``download_live.py`` to drive the poll loop without touching the private ``_root`` attribute directly.
-        """
+    @property
+    def live_meta(self) -> dict:
+        """Return live-scheduling metadata for dynamic MPDs."""
         if self._root is None:
             return {"min_update_period": 4.0, "is_ended": True, "availability_start_time": ""}
-        
+
         mpd_type = (self._root.get("type") or "dynamic").strip().lower()
         raw_period = self._root.get("minimumUpdatePeriod", "")
         upd = self._parse_iso_duration(raw_period)
-        return {"min_update_period": upd if upd > 0 else 4.0, "is_ended": mpd_type == "static", "availability_start_time": self._root.get("availabilityStartTime", "")}
+
+        return {
+            "min_update_period": upd if upd > 0 else 4.0,
+            "is_ended": mpd_type == "static",
+            "availability_start_time": self._root.get("availabilityStartTime", ""),
+        }
 
     def save_raw(self, directory: Path) -> Path:
         return save_raw_manifest(self.raw_content, directory, "raw.mpd")
 
-    def parse_streams(self) -> List[Stream]:
+    def parse_streams(self) -> list[Stream]:
         if self._root is None:
             return []
 
         # Determine if MPD is dynamic (live)
         mpd_type = (self._root.get("type") or "").strip().lower()
-        manifest_is_live = (mpd_type == "dynamic")
+        manifest_is_live = mpd_type == "dynamic"
         self._manifest_is_live = manifest_is_live
 
-        streams: List[Stream] = []
+        streams: list[Stream] = []
         dur_str = self._root.get("mediaPresentationDuration", "")
         global_duration = self._parse_iso_duration(dur_str)
 
@@ -280,7 +306,7 @@ class DashParser:
             period_duration = self._parse_iso_duration(period.get("duration", dur_str))
             period_seen_keys: set = set()
 
-            for adapt_idx, adapt in enumerate(period.findall("mpd:AdaptationSet", _NS)):
+            for _adapt_idx, adapt in enumerate(period.findall("mpd:AdaptationSet", _NS)):
                 adapt_base_url = self._resolve_element_base_url(adapt, period_base_url)
                 mime = (adapt.get("contentType") or adapt.get("mimeType") or "").lower()
 
@@ -293,11 +319,9 @@ class DashParser:
                 elif "image" in mime:
                     continue
                 else:
-                    # Last-resort: codec-based detection via codec.py constants
                     first_rep = adapt.find(".//mpd:Representation", _NS)
                     codecs_hint = (
-                        (first_rep.get("codecs") or adapt.get("codecs") or "").lower()
-                        if first_rep is not None else ""
+                        (first_rep.get("codecs") or adapt.get("codecs") or "").lower() if first_rep is not None else ""
                     )
                     stype = detect_stream_type(codecs_hint)
                     if not stype:
@@ -312,8 +336,10 @@ class DashParser:
                     if "/ad/" in rep_base_url.lower() and not adapt_drm.is_encrypted():
                         logger.info(f"DASH stream skipped (advertisement) | id={rep_id!r} period={period_idx} url={rep_base_url}")
                         continue
-                    
-                    s = self._parse_representation(rep, adapt, stype, adapt_drm, global_duration or period_duration, period_start, adapt_base_url)
+
+                    s = self._parse_representation(
+                        rep, adapt, stype, adapt_drm, global_duration or period_duration, period_start, adapt_base_url
+                    )
                     if s is None:
                         continue
 
@@ -402,10 +428,10 @@ class DashParser:
             for kid in adapt_drm.get_all_kids():
                 rep_drm.set_kid(kid)
             s.drm = rep_drm
-        
+
         elif rep_drm.is_encrypted():
             s.drm = rep_drm
-        
+
         elif adapt_drm.is_encrypted():
             s.drm = adapt_drm
         else:
@@ -415,7 +441,7 @@ class DashParser:
         tmpl = rep.find("mpd:SegmentTemplate", _NS) or adapt.find("mpd:SegmentTemplate", _NS)
         seg_list = rep.find("mpd:SegmentList", _NS) or adapt.find("mpd:SegmentList", _NS)
         seg_base = rep.find("mpd:SegmentBase", _NS) or adapt.find("mpd:SegmentBase", _NS)
-        
+
         if tmpl is not None:
             self._apply_segment_template(tmpl, rep_id, s, period_start, rep_base_url)
             s.supports_live_decryption = True  # True segments available
@@ -427,14 +453,14 @@ class DashParser:
             # Live decryption NOT suitable for range-split files (no true segments)
             s.supports_live_decryption = False
             self._uses_range_split = True
-            
+
             index_range = seg_base.get("indexRange", "")
             media_range = seg_base.find("mpd:Initialization", _NS)
             media_range = media_range.get("range", "") if media_range is not None else ""
-            
+
             if index_range or media_range:
                 logger.debug(f"DASH range-split detected for stream {rep_id!r}: indexRange={index_range!r}, mediaRange={media_range!r}. Live decryption disabled.")
-            
+
             # Get the media URL
             rep_base = rep.find("mpd:BaseURL", _NS)
             if rep_base is not None and rep_base.text:
@@ -445,7 +471,7 @@ class DashParser:
                     media_url = urljoin(rep_base_url, rep_rel)
             else:
                 media_url = rep_base_url.rstrip("/")
-            
+
             # Add ONLY the media segment (no explicit byte_range)
             # The downloader will detect single-file media and call _build_dash_ranged_segments()
             # which will split it into chunks automatically
@@ -462,7 +488,7 @@ class DashParser:
                 s.add_segment(Segment(media_url, 0, "media"))
             else:
                 s.add_segment(Segment(rep_base_url.rstrip("/"), 0, "media"))
-            
+
             # Single file without ranges might still work with live decryption if we split it
             # But safer to mark as False unless we know it's segmented
             s.supports_live_decryption = False
@@ -476,7 +502,9 @@ class DashParser:
         s.fps = rep.get("frameRate", adapt.get("frameRate", ""))
         s.codecs = rep.get("codecs") or adapt.get("codecs", "")
         s.scan_type = (rep.get("scanType") or adapt.get("scanType") or "").lower()
-        s.video_range = (self._extract_video_range(rep) or self._extract_video_range(adapt) or _video_range_from_codecs(s.codecs))
+        s.video_range = (
+            self._extract_video_range(rep) or self._extract_video_range(adapt) or _video_range_from_codecs(s.codecs)
+        )
 
     def _parse_audio_fields(self, rep, adapt, s):
         raw_lang = adapt.get("lang", "und")
@@ -514,11 +542,11 @@ class DashParser:
         s.language = raw_lang
         s.resolved_language = resolve_locale(raw_lang)
         s.codecs = rep.get("codecs") or adapt.get("codecs", "")
- 
+
         # ── Detect subtitle container format from mimeType ────────────────────
         # Priority: Representation mimeType > AdaptationSet mimeType > codecs
         mime_raw = (rep.get("mimeType") or adapt.get("mimeType") or adapt.get("contentType") or "").lower().strip()
- 
+
         # Map known MIME types / codec strings to a clean format token
         _MIME_TO_FMT = {
             "text/vtt": "vtt",
@@ -533,40 +561,40 @@ class DashParser:
         if fmt is None:
             codec_lc = (s.codecs or "").lower().strip()
             fmt = get_codec_extension(codec_lc, default="vtt")
- 
+
         # Pure text/vtt streams that carry ".vtt" segments but no codec string
         if not fmt and "vtt" in mime_raw:
             fmt = "vtt"
         if not fmt and "ttml" in mime_raw:
             fmt = "ttml"
- 
+
         # Default for unknown DASH text streams
         if not fmt:
             fmt = "vtt"
- 
+
         # wvtt is a special case: WebVTT packaged inside fMP4
         if fmt == "wvtt" or (s.codecs or "").lower().strip() == "wvtt":
             s.is_wvtt_mp4 = True
             fmt = "wvtt"
             logger.debug(f"DashParser: subtitle id={s.id!r} lang={raw_lang!r} flagged as wvtt-mp4")
- 
+
         s.format = fmt
- 
+
         # ── Roles / flags ─────────────────────────────────────────────────────
         role_values = {el.get("value", "").lower() for el in adapt.findall(".//mpd:Role", _NS)}
         if "forced-subtitle" in role_values or "forced_subtitle" in role_values:
             s.forced = True
-        
+
         if "caption" in role_values or "captions" in role_values:
             s.is_cc = True
- 
+
         s.is_sdh = self._is_accessibility_sdh(adapt)
- 
+
         if s.forced and not s.name:
             s.name = f"{s.language} [Forced]"
         elif s.is_cc and not s.name:
             s.name = f"{s.language} [CC]"
-    
+
     def _extract_video_range(self, element) -> str:
         tc_value = None
         cp_value = None
@@ -576,26 +604,25 @@ class DashParser:
                 value = (prop.get("value") or "").strip()
                 if "dolbyvision" in scheme or "dolby" in scheme:
                     return "DV"
-                
+
                 val_up = value.upper()
                 if val_up in ("HDR10", "HLG", "PQ", "HDR", "DV"):
                     return val_up
-                
+
                 if "transfercharacteristics" in scheme:
                     tc_value = value
 
                 if "colourprimaries" in scheme or "colorprimaries" in scheme:
                     cp_value = value
-            
+
         if tc_value and tc_value in _TC_MAP:
             vr = _TC_MAP[tc_value]
             return vr if vr != "SDR" else ""
         if cp_value in _CP_HDR_HINT:
             return "HDR10"
-        
+
         return ""
 
-    
     def _is_accessibility_sdh(self, element) -> bool:
         for acc in element.findall(".//mpd:Accessibility", _NS):
             scheme = (acc.get("schemeIdUri") or "").lower()
@@ -613,7 +640,7 @@ class DashParser:
         for cp in element.findall(".//mpd:ContentProtection", _NS):
             scheme = (cp.get("schemeIdUri") or "").lower()
             info.set_method(scheme)
-            
+
             # Also check the `value` attribute for encryption mode (e.g. value="cbcs")
             # when schemeIdUri is the generic mp4protection URI.
             cp_value = (cp.get("value") or "").lower()
@@ -621,22 +648,22 @@ class DashParser:
                 info.method = cp_value
 
             drm_hint = _drm_hint_from_scheme(scheme)
-            
+
             # Try to find PSSH in multiple locations:
             # 1. cenc:pssh
             pssh_el = cp.find(".//cenc:pssh", _NS)
-            
+
             # 2. mpd:pssh
             if pssh_el is None:
                 pssh_el = cp.find("mpd:pssh", _NS)
-            
+
             # 3. direct child pssh without namespace
             if pssh_el is None:
                 pssh_el = cp.find("pssh")
-            
+
             if pssh_el is not None and pssh_el.text:
                 info.set_pssh(pssh_el.text.strip(), drm_type_hint=drm_hint)
-            
+
             # PlayReady specific: check for <pro> element
             _MSPR_NS = "urn:microsoft:playready"
             pro_el = cp.find(f"{{{_MSPR_NS}}}pro")
@@ -644,7 +671,7 @@ class DashParser:
                 if not info.get_pssh_for(DRMType.PLAYREADY):
                     info.set_pssh(pro_el.text.strip(), drm_type_hint=DRMType.PLAYREADY)
                     logger.info("DashParser: PlayReady PSSH extracted from <pro> element")
-            
+
             # Extract KID from multiple possible attribute names
             for attr in ("{urn:mpeg:cenc:2013}default_KID", "cenc:default_KID", "default_KID"):
                 kid = cp.get(attr)
@@ -673,7 +700,7 @@ class DashParser:
     def _resolve_base_url(self) -> None:
         if self._root is None:
             return
-        
+
         base_el = self._root.find("mpd:BaseURL", _NS)
         if base_el is not None and base_el.text and base_el.text.strip():
             candidate = base_el.text.strip()
@@ -691,12 +718,14 @@ class DashParser:
             resolved = urljoin(parent_base, base_el.text.strip())
             if resolved.endswith("/") or not _is_file_url(resolved):
                 return resolved if resolved.endswith("/") else resolved + "/"
-            
+
             return resolved
         return parent_base
 
     @staticmethod
-    def _expand_segment_template_tokens(template: str, rep_id: str, bandwidth: int, number: Optional[int] = None, time_value: Optional[int] = None) -> str:
+    def _expand_segment_template_tokens(
+        template: str, rep_id: str, bandwidth: int, number: int | None = None, time_value: int | None = None
+    ) -> str:
         if not template:
             return ""
 
@@ -723,7 +752,7 @@ class DashParser:
                 if time_value is None:
                     return match.group(0)
                 value = str(int(time_value))
-                
+
             else:
                 return match.group(0)
 
@@ -738,7 +767,7 @@ class DashParser:
         if "/ad/" in base_url.lower():
             logger.info(f"DashParser: segment skipped (ad path) | url={base_url}")
             return
-        
+
         init_tpl = tmpl.get("initialization", "")
         media_tpl = tmpl.get("media", "")
         start_num = int(tmpl.get("startNumber", 1))
@@ -754,9 +783,9 @@ class DashParser:
                 number=start_num,
                 time_value=start_time,
             )
-            stream.add_segment(Segment(
-                self._inherit_query(urljoin(base_url, init_url), self._mpd_query_suffix), 0, "init"
-            ))
+            stream.add_segment(
+                Segment(self._inherit_query(urljoin(base_url, init_url), self._mpd_query_suffix), 0, "init")
+            )
 
         timeline = tmpl.find(".//mpd:SegmentTimeline", _NS)
         if timeline is not None:
@@ -783,9 +812,14 @@ class DashParser:
                         time_value=current_time,
                     )
 
-                    stream.add_segment(Segment(
-                        self._inherit_query(fast_urljoin(base_url, seg_url, ref_is_simple), self._mpd_query_suffix), seg_num, "media", duration=seg_dur_s
-                    ))
+                    stream.add_segment(
+                        Segment(
+                            self._inherit_query(fast_urljoin(base_url, seg_url, ref_is_simple), self._mpd_query_suffix),
+                            seg_num,
+                            "media",
+                            duration=seg_dur_s,
+                        )
+                    )
                     current_time += d
                     seg_num += 1
 
@@ -810,15 +844,21 @@ class DashParser:
             ref_is_simple = is_simple_relative_ref(media_tpl)
             for i in number_iter:
                 seg_url = self._expand_segment_template_tokens(media_tpl, rep_id, bandwidth, number=i)
-                stream.add_segment(Segment(
-                    self._inherit_query(fast_urljoin(base_url, seg_url, ref_is_simple), self._mpd_query_suffix), i, "media",
-                    duration=seg_dur_s,
-                ))
-        
+                stream.add_segment(
+                    Segment(
+                        self._inherit_query(fast_urljoin(base_url, seg_url, ref_is_simple), self._mpd_query_suffix),
+                        i,
+                        "media",
+                        duration=seg_dur_s,
+                    )
+                )
+
         elif "$Time" in media_tpl:
             logger.error("DashParser: SegmentTemplate $Time$ without SegmentTimeline — skipping")
 
-    def _estimate_live_number_window(self, seg_duration: int, timescale: int, start_num: int) -> Optional[tuple[int, int]]:
+    def _estimate_live_number_window(
+        self, seg_duration: int, timescale: int, start_num: int
+    ) -> tuple[int, int] | None:
         """Estimate a rolling window of $Number$ segments for dynamic MPDs without SegmentTimeline."""
         if self._root is None:
             return None
@@ -830,9 +870,9 @@ class DashParser:
         try:
             ast_dt = datetime.fromisoformat(ast.replace("Z", "+00:00"))
             if ast_dt.tzinfo is None:
-                ast_dt = ast_dt.replace(tzinfo=timezone.utc)
+                ast_dt = ast_dt.replace(tzinfo=UTC)
 
-            now_dt = datetime.now(timezone.utc)
+            now_dt = datetime.now(UTC)
             elapsed = max(0.0, (now_dt - ast_dt).total_seconds())
             segment_seconds = float(seg_duration) / float(timescale or 1)
             if segment_seconds <= 0:
@@ -843,11 +883,11 @@ class DashParser:
             window_count = max(3, int(math.ceil(buffer_depth / segment_seconds)) if buffer_depth > 0 else 3)
             first_num = max(start_num, current_number - window_count + 1)
             return first_num, max(first_num, current_number)
-        
+
         except Exception as exc:
             logger.error(f"DashParser: live window estimation failed: {exc}")
             return None
-    
+
     def _apply_segment_list(self, seg_list, stream, base_url):
         seg_urls = seg_list.findall("mpd:SegmentURL", _NS)
 
@@ -869,26 +909,57 @@ class DashParser:
                 # honour it, otherwise the whole multi-rep init file is fetched and
                 # the wrong (first/lowest) moov ends up describing the track.
                 init_range = init_el.get("range", "")
-                stream.add_segment(Segment(self._inherit_query(urljoin(base_url, src), self._mpd_query_suffix), 0, "init", byte_range=init_range))
+                stream.add_segment(
+                    Segment(
+                        self._inherit_query(urljoin(base_url, src), self._mpd_query_suffix),
+                        0,
+                        "init",
+                        byte_range=init_range,
+                    )
+                )
             else:
                 init_range = init_el.get("range", "")
                 if init_range:
-                    
                     # Close the gap between the init range and the first media range. That
                     # gap is usually a `sidx` index box the SegmentList doesn't list
                     parts = init_range.split("-")
-                    if len(parts) == 2 and parts[1].isdigit() and first_media_start is not None and int(parts[1]) + 1 < first_media_start:
+                    if (
+                        len(parts) == 2
+                        and parts[1].isdigit()
+                        and first_media_start is not None
+                        and int(parts[1]) + 1 < first_media_start
+                    ):
                         init_range = f"{parts[0]}-{first_media_start - 1}"
-                    stream.add_segment(Segment(self._inherit_query(base_url.rstrip("/"), self._mpd_query_suffix), 0, "init", byte_range=init_range))
+                    stream.add_segment(
+                        Segment(
+                            self._inherit_query(base_url.rstrip("/"), self._mpd_query_suffix),
+                            0,
+                            "init",
+                            byte_range=init_range,
+                        )
+                    )
 
         for idx, seg_el in enumerate(seg_urls, start=1):
             media_url = seg_el.get("media", "")
             if media_url:
-                stream.add_segment(Segment(self._inherit_query(fast_urljoin_auto(base_url, media_url), self._mpd_query_suffix), idx, "media"))
+                stream.add_segment(
+                    Segment(
+                        self._inherit_query(fast_urljoin_auto(base_url, media_url), self._mpd_query_suffix),
+                        idx,
+                        "media",
+                    )
+                )
             else:
                 media_range = seg_el.get("mediaRange", "")
                 if media_range:
-                    stream.add_segment(Segment(self._inherit_query(base_url.rstrip("/"), self._mpd_query_suffix), idx, "media", byte_range=media_range))
+                    stream.add_segment(
+                        Segment(
+                            self._inherit_query(base_url.rstrip("/"), self._mpd_query_suffix),
+                            idx,
+                            "media",
+                            byte_range=media_range,
+                        )
+                    )
 
     @staticmethod
     def _parse_iso_duration(s: str) -> float:
@@ -897,11 +968,7 @@ class DashParser:
         try:
             m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?", s)
             if m:
-                return (
-                    int(m.group(1) or 0) * 3600
-                    + int(m.group(2) or 0) * 60
-                    + float(m.group(3) or 0)
-                )
+                return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3) or 0)
         except Exception:
             pass
         return 0.0

@@ -1,23 +1,24 @@
 # 16.04.24
 
-import re
 import asyncio
 import logging
+import re
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 from rich.console import Console
 
-from VibraVid.core.muxing.helper.info import Mediainfo
-from VibraVid.core.muxing.helper._ffprobe_cache import ffprobe_cached
-from VibraVid.core.muxing.helper.video import get_media_metadata, is_mpegts_file
-from VibraVid.core.utils.language import resolve_ietf
-from VibraVid.core.muxing.helper.audio.probe import get_video_duration
-from VibraVid.core.muxing.capture import capture_ffmpeg_real_time
-from VibraVid.core.ui.tracker import context_tracker
-from VibraVid.setup import get_dovi_tool_path, get_ffmpeg_path, get_ffprobe_path, get_mkvmerge_path
 from VibraVid.core.decryptor._subprocess_runner import run_with_progress
+from VibraVid.core.muxing.capture import capture_ffmpeg_real_time
+from VibraVid.core.muxing.helper._ffprobe_cache import ffprobe_cached
+from VibraVid.core.muxing.helper.audio.probe import get_video_duration
+from VibraVid.core.muxing.helper.info import Mediainfo
+from VibraVid.core.muxing.helper.video import get_media_metadata, is_mpegts_file
+from VibraVid.core.ui.tracker import context_tracker
+from VibraVid.core.utils.language import resolve_ietf
+from VibraVid.setup import get_dovi_tool_path, get_ffmpeg_path, get_ffprobe_path, get_mkvmerge_path
 
 console = Console()
 
@@ -25,9 +26,9 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 
-def _run_command(cmd: List[str], description: str) -> bool:
-    logger.info(f'{description}: {" ".join(str(part) for part in cmd)}')
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+def _run_command(cmd: list[str], description: str) -> bool:
+    logger.info(f"{description}: {' '.join(str(part) for part in cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         stdout = (result.stdout or "").strip()
@@ -41,10 +42,17 @@ def _run_command(cmd: List[str], description: str) -> bool:
     return True
 
 
-def _rpu_profile(dovi_tool: str, rpu_file: Path) -> Optional[int]:
+def _rpu_profile(dovi_tool: str, rpu_file: Path) -> int | None:
     """Return the Dolby Vision profile of an extracted RPU (via ``dovi_tool info``), or None."""
     try:
-        result = subprocess.run([dovi_tool, "info", "-i", str(rpu_file), "-s"], capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            [dovi_tool, "info", "-i", str(rpu_file), "-s"],
+            capture_output=True,
+            text=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+        )
         m = re.search(r"Profile:\s*(\d+)", result.stdout or "")
         return int(m.group(1)) if m else None
     except Exception as exc:
@@ -52,7 +60,9 @@ def _rpu_profile(dovi_tool: str, rpu_file: Path) -> Optional[int]:
         return None
 
 
-def _run_progress_command(cmd: List[str], label: str, input_path: Path, output_path: Path, accept_warnings: bool = False) -> bool:
+def _run_progress_command(
+    cmd: list[str], label: str, input_path: Path, output_path: Path, accept_warnings: bool = False
+) -> bool:
     result = run_with_progress(cmd, label, str(input_path), str(output_path))
     if isinstance(result, tuple):
         ok = bool(result[0])
@@ -67,19 +77,19 @@ def _run_progress_command(cmd: List[str], label: str, input_path: Path, output_p
     return bool(result)
 
 
-def _track_language(track: Dict[str, Any]) -> str:
+def _track_language(track: dict[str, Any]) -> str:
     return resolve_ietf(track.get("language") or track.get("lang") or "und")
 
 
-def _track_name(track: Dict[str, Any], fallback: str) -> str:
+def _track_name(track: dict[str, Any], fallback: str) -> str:
     name = (track.get("name") or track.get("title") or fallback or "").strip()
     return name or fallback or "und"
 
 
 @ffprobe_cached
-def probe_media_file(file_path: str) -> Dict[str, Any]:
+def probe_media_file(file_path: str) -> dict[str, Any]:
     """Probe a media file and return rich metadata for hybrid decisions."""
-    probe: Dict[str, Any] = {}
+    probe: dict[str, Any] = {}
     if not file_path:
         return probe
 
@@ -117,7 +127,7 @@ def probe_media_file(file_path: str) -> Dict[str, Any]:
     return probe
 
 
-def _ffmpeg_annexb(cmd: List[str], input_path: Path, label: str) -> bool:
+def _ffmpeg_annexb(cmd: list[str], input_path: Path, label: str) -> bool:
     duration = get_video_duration(str(input_path))
     result = capture_ffmpeg_real_time(cmd, label, duration)
     if context_tracker.should_print:
@@ -129,9 +139,12 @@ def _to_annexb(input_path: Path, output_path: Path) -> bool:
     cmd = [
         get_ffmpeg_path(),
         "-y",
-        "-i", str(input_path),
-        "-c:v", "copy",
-        "-bsf:v", "hevc_mp4toannexb",
+        "-i",
+        str(input_path),
+        "-c:v",
+        "copy",
+        "-bsf:v",
+        "hevc_mp4toannexb",
         str(output_path),
     ]
     return _ffmpeg_annexb(cmd, input_path, "[yellow]FFMPEG [cyan]Conv annexb")
@@ -146,9 +159,12 @@ def _to_annexb_hdr10(input_path: Path, output_path: Path) -> bool:
     cmd = [
         get_ffmpeg_path(),
         "-y",
-        "-i", str(input_path),
-        "-c:v", "copy",
-        "-bsf:v", "hevc_mp4toannexb,hevc_metadata=colour_primaries=9:transfer_characteristics=16:matrix_coefficients=9",
+        "-i",
+        str(input_path),
+        "-c:v",
+        "copy",
+        "-bsf:v",
+        "hevc_mp4toannexb,hevc_metadata=colour_primaries=9:transfer_characteristics=16:matrix_coefficients=9",
         str(output_path),
     ]
     print("")
@@ -164,11 +180,16 @@ def _dv_mp4_to_annexb(input_path: Path, output_path: Path) -> bool:
     cmd = [
         get_ffmpeg_path(),
         "-y",
-        "-codec:v", "hevc",
-        "-i", str(input_path),
-        "-map", "0:v:0",
-        "-c:v", "copy",
-        "-bsf:v", "hevc_mp4toannexb",
+        "-codec:v",
+        "hevc",
+        "-i",
+        str(input_path),
+        "-map",
+        "0:v:0",
+        "-c:v",
+        "copy",
+        "-bsf:v",
+        "hevc_mp4toannexb",
         str(output_path),
     ]
     return _ffmpeg_annexb(cmd, input_path, "[yellow]FFMPEG [cyan]Conv DV")
@@ -176,6 +197,7 @@ def _dv_mp4_to_annexb(input_path: Path, output_path: Path) -> bool:
 
 def _strip_enca(input_path: Path, output_path: Path) -> bool:
     """Re-mux an audio track through ffmpeg"""
+
     def _run(force_ts: bool) -> bool:
         logger.info(f"Stripping potential enca wrapper from {input_path.name} {'(forcing mpegts)' if force_ts else ''}")
         cmd = [get_ffmpeg_path(), "-y"]
@@ -230,7 +252,14 @@ def _select_hybrid_video(video_track, other_videos):
     return None
 
 
-def build_hybrid_output(video_track: Dict[str, Any], other_videos: Iterable[Dict[str, Any]], audio_tracks: List[Dict[str, Any]], subtitle_tracks: List[Dict[str, Any]], output_path: str, filename_base: str) -> Optional[str]:
+def build_hybrid_output(
+    video_track: dict[str, Any],
+    other_videos: Iterable[dict[str, Any]],
+    audio_tracks: list[dict[str, Any]],
+    subtitle_tracks: list[dict[str, Any]],
+    output_path: str,
+    filename_base: str,
+) -> str | None:
     """Build a hybrid DV + HDR10 output when the media probes match the script workflow."""
     if not video_track:
         return None
@@ -312,16 +341,21 @@ def build_hybrid_output(video_track: Dict[str, Any], other_videos: Iterable[Dict
     dv_profile_label = f"DV {src_profile}" if src_profile is not None else "DV"
     if convert_mode:
         logger.info(f"Hybrid: DV source is profile {src_profile}; converting RPU to 8.1 (dovi_tool -m {convert_mode})")
-        if not _run_command([dovi_tool, "-m", convert_mode, "extract-rpu", str(dv_hevc), "-o", str(rpu_file)], "dovi_tool extract-rpu (convert to 8.1)"):
+        if not _run_command([dovi_tool, "-m", convert_mode, "extract-rpu", str(dv_hevc), "-o", str(rpu_file)], "dovi_tool extract-rpu (convert to 8.1)",):
             return None
         dv_profile_label = "DV 8.1"
 
     dovi_label = f"[cyan]Proc[/cyan] [green]{base_hevc.name}[/green] - [yellow]DoviTool[/yellow] \\[{dv_profile_label}]"
     if not _run_progress_command(
         [
-            dovi_tool, "inject-rpu", "-i", str(base_hevc),
-            "--rpu-in", str(rpu_file),
-            "-o", str(hybrid_hevc),
+            dovi_tool,
+            "inject-rpu",
+            "-i",
+            str(base_hevc),
+            "--rpu-in",
+            str(rpu_file),
+            "-o",
+            str(hybrid_hevc),
         ],
         dovi_label,
         base_hevc,
@@ -335,15 +369,24 @@ def build_hybrid_output(video_track: Dict[str, Any], other_videos: Iterable[Dict
         except OSError as exc:
             logger.warning(f"Could not remove existing hybrid output {output_file}: {exc}")
 
-    mux_cmd: List[str] = [
-        mkvmerge, "-o", str(output_file),
-        "--colour-matrix", "0:9",
-        "--colour-primaries", "0:9",
-        "--colour-transfer-characteristics", "0:16",
-        "--colour-range", "0:1",
-        "--language", "0:und",
-        "--track-name", "0:Hybrid DV+HDR10",
-        "--compression", "0:none",
+    mux_cmd: list[str] = [
+        mkvmerge,
+        "-o",
+        str(output_file),
+        "--colour-matrix",
+        "0:9",
+        "--colour-primaries",
+        "0:9",
+        "--colour-transfer-characteristics",
+        "0:16",
+        "--colour-range",
+        "0:1",
+        "--language",
+        "0:und",
+        "--track-name",
+        "0:Hybrid DV+HDR10",
+        "--compression",
+        "0:none",
         str(hybrid_hevc),
     ]
 
@@ -367,8 +410,10 @@ def build_hybrid_output(video_track: Dict[str, Any], other_videos: Iterable[Dict
 
         mux_cmd.extend(
             [
-                "--language", f"0:{_track_language(track)}",
-                "--track-name", f"0:{_track_name(track, _track_language(track))}",
+                "--language",
+                f"0:{_track_language(track)}",
+                "--track-name",
+                f"0:{_track_name(track, _track_language(track))}",
                 str(track_path),
             ]
         )
@@ -384,8 +429,10 @@ def build_hybrid_output(video_track: Dict[str, Any], other_videos: Iterable[Dict
 
         mux_cmd.extend(
             [
-                "--language", f"0:{_track_language(track)}",
-                "--track-name", f"0:{_track_name(track, _track_language(track))}",
+                "--language",
+                f"0:{_track_language(track)}",
+                "--track-name",
+                f"0:{_track_name(track, _track_language(track))}",
                 str(track_path),
             ]
         )

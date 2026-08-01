@@ -5,21 +5,26 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 
+from VibraVid.core.decryptor import Decryptor
+from VibraVid.core.manifest.mpd import DashParser
 from VibraVid.core.muxing.helper.video import binary_merge_segments
 from VibraVid.core.ui.bar_manager import console
-from VibraVid.core.manifest.mpd import DashParser
-from VibraVid.core.decryptor import Decryptor
-from VibraVid.utils.http_client import create_client
+from VibraVid.core.velora.util.formatting import (
+    fmt_dur as _fmt_dur,
+)
+from VibraVid.core.velora.util.formatting import (
+    format_size as _fmt_size,
+)
+from VibraVid.core.velora.util.formatting import (
+    format_speed as _fmt_speed,
+)
 from VibraVid.utils import config_manager
+from VibraVid.utils.http_client import create_client
 
-from VibraVid.core.velora.util.formatting import format_size as _fmt_size, format_speed as _fmt_speed, fmt_dur as _fmt_dur
-
+from ..decryptor._segment_crypto import decrypt_aes128
 from .util._hls import hls_base_url, parse_hls_live_playlist
 from .util._stream_helpers import detect_seg_ext, merged_segment_ext
-from ..decryptor._segment_crypto import decrypt_aes128
-
 
 logger = logging.getLogger("manual")
 REQUEST_TIMEOUT: int = config_manager.config.get_int("REQUESTS", "timeout")
@@ -35,16 +40,20 @@ def _sleep_interruptible(seconds: float, stop_check, poll: float = 0.25) -> None
         time.sleep(min(poll, max(0.0, deadline - time.monotonic())))
 
 
-def _emit_live_progress(bar_manager, task_key: str, seg_done: int, total_bytes: int, speed_bps: float, elapsed_dur: float = 0.0) -> None:
+def _emit_live_progress(
+    bar_manager, task_key: str, seg_done: int, total_bytes: int, speed_bps: float, elapsed_dur: float = 0.0
+) -> None:
     duration_display = f"{_fmt_dur(elapsed_dur)}/~" if elapsed_dur > 0 else ""
-    bar_manager.handle_progress_line({
-        "task_key": task_key,
-        "pct":      min(98, seg_done),
-        "segments": f"{seg_done}/~",
-        "size":     f"{_fmt_size(total_bytes)}/~",
-        "speed":    _fmt_speed(speed_bps),
-        "duration": duration_display,
-    })
+    bar_manager.handle_progress_line(
+        {
+            "task_key": task_key,
+            "pct": min(98, seg_done),
+            "segments": f"{seg_done}/~",
+            "size": f"{_fmt_size(total_bytes)}/~",
+            "speed": _fmt_speed(speed_bps),
+            "duration": duration_display,
+        }
+    )
 
 
 def _reset_live_timestamps(out_path: Path) -> None:
@@ -55,13 +64,18 @@ def _reset_live_timestamps(out_path: Path) -> None:
     tmp = out_path.with_name(f"{out_path.stem}.tsreset{out_path.suffix}")
     cmd = [
         get_ffmpeg_path(),
-        "-fflags", "+genpts+igndts+discardcorrupt",
-        "-avoid_negative_ts", "make_zero",
-        "-i", str(out_path),
-        "-c", "copy",
-        "-y", str(tmp),
+        "-fflags",
+        "+genpts+igndts+discardcorrupt",
+        "-avoid_negative_ts",
+        "make_zero",
+        "-i",
+        str(out_path),
+        "-c",
+        "copy",
+        "-y",
+        str(tmp),
     ]
-    
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
@@ -76,17 +90,21 @@ def _reset_live_timestamps(out_path: Path) -> None:
 
 
 def _emit_merge_progress(bar_manager, task_key: str, seg_done: int, merge_size: int) -> None:
-    bar_manager.handle_progress_line({
-        "task_key": task_key,
-        "pct":      100,
-        "segments": f"{seg_done}/{seg_done}",
-        "size":     f"{_fmt_size(merge_size)}/{_fmt_size(merge_size)}",
-        "speed":    "Merge",
-    })
+    bar_manager.handle_progress_line(
+        {
+            "task_key": task_key,
+            "pct": 100,
+            "segments": f"{seg_done}/{seg_done}",
+            "size": f"{_fmt_size(merge_size)}/{_fmt_size(merge_size)}",
+            "speed": "Merge",
+        }
+    )
 
 
 class LiveDownloadMixin:
-    def _live_download_batch(self, dl_batch: List[Dict], stream_dir: Path, headers: Dict, stream, progress_cb=None) -> List[Path]:
+    def _live_download_batch(
+        self, dl_batch: list[dict], stream_dir: Path, headers: dict, stream, progress_cb=None
+    ) -> list[Path]:
         self._run_dl(
             dl_batch,
             stream_dir,
@@ -98,7 +116,7 @@ class LiveDownloadMixin:
         )
 
         # Reconstruct the expected path for each entry in dl_batch.
-        ordered: List[Path] = []
+        ordered: list[Path] = []
         for seg in dl_batch:
             seg_ext = detect_seg_ext(seg.get("url", ""), default="mp4")
             if seg_ext == "m4s":
@@ -113,20 +131,20 @@ class LiveDownloadMixin:
         bar_manager,
         live_decryption: bool = False,
         *,
-        first_content: Optional[str] = None,
-        base_url: Optional[str] = None,
+        first_content: str | None = None,
+        base_url: str | None = None,
     ) -> None:
         """
         Download a live HLS stream by polling the variant playlist and downloading each new batch of segments as they appear.
         """
-        playlist_url: str  = stream.playlist_url
-        all_headers:  Dict = self._build_headers()
-        task_key:     str  = self._stream_task_key(stream)
-        stream_dir:   Path = self._make_stream_dir(stream, "hls")
+        playlist_url: str = stream.playlist_url
+        all_headers: dict = self._build_headers()
+        task_key: str = self._stream_task_key(stream)
+        stream_dir: Path = self._make_stream_dir(stream, "hls")
 
-        key_cache:     Dict[str, bytes] = {}
-        all_paths:     List[Path]       = []   # ordered: [init, media_1, media_2, ...]
-        seen_seg_keys: set              = set()
+        key_cache: dict[str, bytes] = {}
+        all_paths: list[Path] = []  # ordered: [init, media_1, media_2, ...]
+        seen_seg_keys: set = set()
 
         # 0 is reserved for the init segment; media segments start at 1.
         seg_index: int = 1
@@ -135,7 +153,7 @@ class LiveDownloadMixin:
         elapsed_dur: float = 0.0
 
         # Range support: seg_done/elapsed_dur only count segments actually downloaded
-        seg_start, seg_end   = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
+        seg_start, seg_end = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
         time_start, time_end = self.max_time if isinstance(self.max_time, tuple) else (0.0, self.max_time)
         total_seg_seen: int = 0
         total_time_seen: float = 0.0
@@ -143,10 +161,10 @@ class LiveDownloadMixin:
         probe_done: bool = False
         probe_lock = threading.Lock()
 
-        init_downloaded: bool      = False
-        last_fresh_segs: List[Dict] = []
+        init_downloaded: bool = False
+        last_fresh_segs: list[dict] = []
 
-        def _fetch_key(key_url: str, iv: Optional[str] = None) -> bytes:
+        def _fetch_key(key_url: str, iv: str | None = None) -> bytes:
             if key_url in key_cache:
                 return key_cache[key_url]
 
@@ -161,7 +179,7 @@ class LiveDownloadMixin:
             logger.info(f"Live HLS AES-128 key fetched: iv={iv} key={key_data.hex()}")
             return key_data
 
-        def _decrypt_segment(fp: Path, seg_meta: Dict) -> None:
+        def _decrypt_segment(fp: Path, seg_meta: dict) -> None:
             """Decrypt a single AES-128 segment in-place (atomic replace)."""
             enc = seg_meta.get("enc") or {}
             if str(enc.get("method") or "NONE").upper() != "AES-128":
@@ -175,7 +193,7 @@ class LiveDownloadMixin:
                 key_data = _fetch_key(key_url, enc.get("iv"))
 
             seg_number = int(seg_meta.get("number", 0))
-            logger.debug(f'AES-128 live-decrypt seg={fp.name} iv={enc.get("iv")}')
+            logger.debug(f"AES-128 live-decrypt seg={fp.name} iv={enc.get('iv')}")
 
             decrypted = decrypt_aes128(fp.read_bytes(), key_data, enc.get("iv"), seg_number)
             tmp = fp.with_suffix(fp.suffix + ".dec")
@@ -197,17 +215,17 @@ class LiveDownloadMixin:
             nonlocal probe_done
             if probe_done:
                 return
-            
+
             with probe_lock:
                 if probe_done:
                     return
-                
+
                 if fp.exists() and fp.stat().st_size > 0:
                     logger.info(f"Live HLS probe -> {fp.name}")
                     self._probe_media_file(fp)
                     probe_done = True
 
-        def _process_batch(dl_batch: List[Dict], batch_paths: List[Path]) -> int:
+        def _process_batch(dl_batch: list[dict], batch_paths: list[Path]) -> int:
             """
             Decrypt, probe, and accumulate segments into all_paths.
             Returns total bytes successfully processed in this batch.
@@ -215,7 +233,7 @@ class LiveDownloadMixin:
             nonlocal seg_done, total_bytes, elapsed_dur
             batch_bytes = 0
 
-            for fp, seg_meta in zip(batch_paths, dl_batch):
+            for fp, seg_meta in zip(batch_paths, dl_batch, strict=False):
                 if not fp.exists() or fp.stat().st_size == 0:
                     enc_method = str((seg_meta.get("enc") or {}).get("method") or "NONE").upper()
                     if enc_method != "NONE":
@@ -229,19 +247,19 @@ class LiveDownloadMixin:
                     logger.error(f"Live HLS decrypt error for {fp.name}: {exc}")
 
                 _probe_first(fp)
-                sz           = fp.stat().st_size if fp.exists() else 0
+                sz = fp.stat().st_size if fp.exists() else 0
                 batch_bytes += sz
                 total_bytes += sz
                 elapsed_dur += seg_meta.get("duration", 0.0)
                 all_paths.append(fp)
-                seg_done    += 1
+                seg_done += 1
 
             return batch_bytes
 
         if base_url is None:
             base_url = hls_base_url(playlist_url)
 
-        current_content: Optional[str] = first_content
+        current_content: str | None = first_content
         target_duration: int = 6
         empty_polls: int = 0
         poll_failures: int = 0
@@ -258,7 +276,7 @@ class LiveDownloadMixin:
                         current_content = resp.text
                     poll_failures = 0
                 except Exception as exc:
-                    # When a live stream ends, its playlist URL typically starts returning errors (403/404 — token/session gone). 
+                    # When a live stream ends, its playlist URL typically starts returning errors (403/404 — token/session gone).
                     poll_failures += 1
                     logger.error(f"Live HLS poll failed (failures={poll_failures}/{MAX_EMPTY_POLLS}): {exc}")
                     if poll_failures >= MAX_EMPTY_POLLS:
@@ -267,18 +285,21 @@ class LiveDownloadMixin:
                     _sleep_interruptible(target_duration, self._stop_check)
                     continue
 
-            new_segs, new_init_url, target_duration, media_sequence, is_ended = \
-                parse_hls_live_playlist(current_content, base_url, enc_override=getattr(self, "hls_enc_override", None))
+            new_segs, new_init_url, target_duration, media_sequence, is_ended = parse_hls_live_playlist(
+                current_content, base_url, enc_override=getattr(self, "hls_enc_override", None)
+            )
 
             # ── Init segment: download exactly once as seg_00000 ──────────────
             if new_init_url and not init_downloaded:
                 logger.info(f"Live HLS: downloading init segment {new_init_url}")
-                init_batch = [{
-                    "url":      new_init_url,
-                    "number":   0,
-                    "seg_type": "init",
-                    "enc":      {"method": "NONE"},
-                }]
+                init_batch = [
+                    {
+                        "url": new_init_url,
+                        "number": 0,
+                        "seg_type": "init",
+                        "enc": {"method": "NONE"},
+                    }
+                ]
 
                 init_paths = self._live_download_batch(init_batch, stream_dir, all_headers, stream)
                 if init_paths and init_paths[0].exists() and init_paths[0].stat().st_size > 0:
@@ -290,7 +311,7 @@ class LiveDownloadMixin:
                 init_downloaded = True
 
             # ── Filter already-seen segments
-            fresh_segs: List[Dict] = []
+            fresh_segs: list[dict] = []
             for offset, seg in enumerate(new_segs):
                 dedup_key = (media_sequence + offset, seg["url"])
                 if dedup_key not in seen_seg_keys:
@@ -310,7 +331,7 @@ class LiveDownloadMixin:
                     break
 
                 # Skip segments that fall before the start offset (still counted toward total_seg_seen/total_time_seen, but not downloaded).
-                kept_segs: List[Dict] = []
+                kept_segs: list[dict] = []
                 for seg in fresh_segs:
                     total_seg_seen += 1
                     total_time_seen += seg.get("duration", 0.0)
@@ -324,43 +345,58 @@ class LiveDownloadMixin:
 
                     # Clamp to remaining quota
                     if seg_end is not None:
-                        remaining  = (seg_end - seg_start) - seg_done
+                        remaining = (seg_end - seg_start) - seg_done
                         fresh_segs = fresh_segs[:remaining]
 
                     # Assign stable global numbers to every segment in this batch.
-                    dl_batch: List[Dict] = []
+                    dl_batch: list[dict] = []
                     for seg in fresh_segs:
-                        dl_batch.append({
-                            "url":      seg["url"],
-                            "number":   seg_index,
-                            "seg_type": "media",
-                            "enc":      seg.get("enc") or {"method": "NONE"},
-                            "duration": seg.get("duration", 0.0),
-                        })
+                        dl_batch.append(
+                            {
+                                "url": seg["url"],
+                                "number": seg_index,
+                                "seg_type": "media",
+                                "enc": seg.get("enc") or {"method": "NONE"},
+                                "duration": seg.get("duration", 0.0),
+                            }
+                        )
                         seg_index += 1
 
                     _batch_avg_dur = sum(s.get("duration", 0.0) for s in dl_batch) / max(len(dl_batch), 1)
-                    _segs_before    = seg_done
-                    _bytes_before   = total_bytes
+                    _segs_before = seg_done
+                    _bytes_before = total_bytes
                     _elapsed_before = elapsed_dur
 
-                    def _batch_progress_cb(done, total_, cur_bytes, speed_bps, speed_label=None):
+                    def _batch_progress_cb(
+                        done,
+                        total_,
+                        cur_bytes,
+                        speed_bps,
+                        speed_label=None,
+                        _segs_before=_segs_before,
+                        _bytes_before=_bytes_before,
+                        _elapsed_before=_elapsed_before,
+                        _batch_avg_dur=_batch_avg_dur,
+                    ):
                         _emit_live_progress(
-                            bar_manager, task_key,
+                            bar_manager,
+                            task_key,
                             _segs_before + done,
                             _bytes_before + cur_bytes,
                             speed_bps,
                             _elapsed_before + done * _batch_avg_dur,
                         )
 
-                    batch_t0    = time.monotonic()
+                    batch_t0 = time.monotonic()
 
                     # _live_download_batch returns paths ordered by seg number
-                    batch_paths = self._live_download_batch(dl_batch, stream_dir, all_headers, stream, progress_cb=_batch_progress_cb)
-                    elapsed     = max(time.monotonic() - batch_t0, 0.001)
+                    batch_paths = self._live_download_batch(
+                        dl_batch, stream_dir, all_headers, stream, progress_cb=_batch_progress_cb
+                    )
+                    elapsed = max(time.monotonic() - batch_t0, 0.001)
 
                     batch_bytes = _process_batch(dl_batch, batch_paths)
-                    speed_bps   = batch_bytes / elapsed
+                    speed_bps = batch_bytes / elapsed
 
                     # Emit a final progress update for the batch (in case the last segment was small and the progress callback didn't get called).
                     _emit_live_progress(bar_manager, task_key, seg_done, total_bytes, speed_bps, elapsed_dur)
@@ -404,7 +440,7 @@ class LiveDownloadMixin:
         )
         ext = merged_segment_ext(sample_url, default="ts")
 
-        out_path   = self.output_dir / self._out_filename(stream, ext)
+        out_path = self.output_dir / self._out_filename(stream, ext)
         merge_size = sum(p.stat().st_size for p in all_paths if p.exists())
 
         logger.info(f"Live HLS binary merge | segs={len(all_paths)} | {_fmt_size(merge_size)} -> {out_path.name}")
@@ -425,19 +461,24 @@ class LiveDownloadMixin:
         stream_is_encrypted = getattr(getattr(stream, "drm", None), "method", None) is not None
         if (not live_decryption) and self.key and stream_is_encrypted:
             post_merge_path = out_path.with_suffix(out_path.suffix + ".dec")
+
             def _decrypt_cb(parsed):
                 if not parsed:
                     return
-                
-                bar_manager.handle_progress_line({
-                    "task_key": task_key,
-                    "pct":      parsed.get("pct"),
-                    "speed":    parsed.get("status") or "Decrypt",
-                })
+
+                bar_manager.handle_progress_line(
+                    {
+                        "task_key": task_key,
+                        "pct": parsed.get("pct"),
+                        "speed": parsed.get("status") or "Decrypt",
+                    }
+                )
 
             try:
                 decryptor = Decryptor()
-                if decryptor.decrypt(str(out_path), self.key, str(post_merge_path), stream_type=stream.type, progress_cb=_decrypt_cb):
+                if decryptor.decrypt(
+                    str(out_path), self.key, str(post_merge_path), stream_type=stream.type, progress_cb=_decrypt_cb
+                ):
                     try:
                         out_path.unlink(missing_ok=True)
                         post_merge_path.rename(out_path)
@@ -445,7 +486,7 @@ class LiveDownloadMixin:
                     except Exception as exc:
                         logger.error(f"Live HLS: decrypt rename failed: {exc}")
                         post_merge_path.unlink(missing_ok=True)
-                        
+
                 else:
                     kid_hint = ", ".join(stream.drm.get_all_kids()) if stream.drm else ""
                     logger.warning(f"Live HLS: post-merge decryption failed for {out_path.name} (kid={kid_hint or 'unknown'})")
@@ -458,31 +499,33 @@ class LiveDownloadMixin:
 
         logger.info(f"Live HLS merge complete | segs={len(all_paths)} -> {out_path.name} ({_fmt_size(out_path.stat().st_size)})")
 
-    def _download_dash_live_stream(self, stream, bar_manager, live_decryption: bool = False, *, mpd_url: str, headers: Dict) -> None:
+    def _download_dash_live_stream(
+        self, stream, bar_manager, live_decryption: bool = False, *, mpd_url: str, headers: dict
+    ) -> None:
         """
         Download a live DASH stream by polling the dynamic MPD and downloading each new batch of segments as they appear.
         """
-        task_key:   str  = self._stream_task_key(stream)
+        task_key: str = self._stream_task_key(stream)
         stream_dir: Path = self._make_stream_dir(stream, "dash")
 
-        seen_urls:       Set[str]    = set()
-        all_paths:       List[Path]  = []
-        seg_index:       int         = 0
-        seg_done:        int         = 0
-        total_bytes:     int         = 0
-        last_media_url:  str         = ""
-        elapsed_dur:     float       = 0.0
-        init_downloaded: bool        = False
+        seen_urls: set[str] = set()
+        all_paths: list[Path] = []
+        seg_index: int = 0
+        seg_done: int = 0
+        total_bytes: int = 0
+        last_media_url: str = ""
+        elapsed_dur: float = 0.0
+        init_downloaded: bool = False
 
         # Range support — see _download_hls_live_stream
-        seg_start, seg_end   = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
+        seg_start, seg_end = self.max_segments if isinstance(self.max_segments, tuple) else (0, self.max_segments)
         time_start, time_end = self.max_time if isinstance(self.max_time, tuple) else (0.0, self.max_time)
         total_seg_seen: int = 0
         total_time_seen: float = 0.0
-        init_path:       Optional[Path] = None
-        probe_done:      bool        = False
-        probe_lock                   = threading.Lock()
-        min_update_period: float     = 4.0
+        init_path: Path | None = None
+        probe_done: bool = False
+        probe_lock = threading.Lock()
+        min_update_period: float = 4.0
 
         _decryptor = None
         if live_decryption and self.key:
@@ -528,7 +571,7 @@ class LiveDownloadMixin:
                     logger.debug(f"Live DASH: decrypt failed for {fp.name}: {message}")
                     dec_tmp.unlink(missing_ok=True)
                     return False
-                
+
                 if not dec_tmp.exists():
                     logger.error(f"Live DASH: decrypt produced no output for {fp.name}")
                     return False
@@ -550,7 +593,7 @@ class LiveDownloadMixin:
                 dec_tmp.unlink(missing_ok=True)
                 return False
 
-        def _download_batch(dl_batch: List[Dict], progress_cb=None) -> List[Path]:
+        def _download_batch(dl_batch: list[dict], progress_cb=None) -> list[Path]:
             """
             Download a DASH batch and return paths ordered by segment number
             """
@@ -563,7 +606,7 @@ class LiveDownloadMixin:
                 event_cb=None,
                 default_ext="mp4",
             )
-            ordered: List[Path] = []
+            ordered: list[Path] = []
             for seg in dl_batch:
                 seg_ext = detect_seg_ext(seg.get("url", ""), default="mp4")
                 if seg_ext == "m4s":
@@ -572,7 +615,7 @@ class LiveDownloadMixin:
                 ordered.append(stream_dir / f"seg_{seg['number']:05d}.{seg_ext}")
             return ordered
 
-        def _fetch_and_parse_mpd() -> Tuple[Optional[List], float, bool]:
+        def _fetch_and_parse_mpd() -> tuple[list | None, float, bool]:
             nonlocal min_update_period
             try:
                 # quiet=True: the live loop re-parses the MPD every few seconds;
@@ -580,25 +623,25 @@ class LiveDownloadMixin:
                 parser = DashParser(mpd_url, headers=headers, quiet=True)
                 if not parser.fetch_manifest():
                     return None, min_update_period, False
-                
-                streams    = parser.parse_streams()
-                meta       = parser.live_meta
+
+                streams = parser.parse_streams()
+                meta = parser.live_meta
                 upd_period = meta["min_update_period"]
-                is_static  = meta["is_ended"]
+                is_static = meta["is_ended"]
 
                 for s in streams:
                     if s.type == stream.type and s.id == stream.id:
                         return s.segments, upd_period, is_static
-                
+
                 candidates = [s for s in streams if s.type == stream.type]
                 if candidates:
                     best = min(candidates, key=lambda s: abs((s.bitrate or 0) - (stream.bitrate or 0)))
                     logger.debug(f"Live DASH: id mismatch — falling back to bitrate match id={best.id} bw={best.bitrate}")
                     return best.segments, upd_period, is_static
-                
+
                 logger.warning("Live DASH: no matching representation in refreshed MPD")
                 return None, upd_period, is_static
-            
+
             except Exception as exc:
                 logger.error(f"Live DASH: MPD fetch/parse failed: {exc}")
                 return None, min_update_period, False
@@ -615,7 +658,7 @@ class LiveDownloadMixin:
             if current_segments is None:
                 segs, min_update_period, is_ended = _fetch_and_parse_mpd()
                 if segs is None:
-                    # A sustained run of failed MPD polls (e.g. the manifest URL starts returning 403/404 once the event ends). 
+                    # A sustained run of failed MPD polls (e.g. the manifest URL starts returning 403/404 once the event ends).
                     poll_failures += 1
                     logger.warning(f"Live DASH: empty MPD poll (failures={poll_failures}/{MAX_EMPTY_POLLS}) — backing off {min_update_period:.0f} s")
                     if poll_failures >= MAX_EMPTY_POLLS:
@@ -628,18 +671,18 @@ class LiveDownloadMixin:
                 poll_failures = 0
                 current_segments = segs
 
-            init_segs  = [s for s in current_segments if s.seg_type == "init"]
+            init_segs = [s for s in current_segments if s.seg_type == "init"]
             media_segs = [s for s in current_segments if s.seg_type == "media"]
 
             if init_segs and not init_downloaded:
                 init_seg = init_segs[0]
                 if init_seg.url not in seen_urls:
                     logger.info(f"Live DASH: downloading init segment | url={init_seg.url}")
-                    init_entry: Dict = {
-                        "url":      init_seg.url,
-                        "number":   0,
+                    init_entry: dict = {
+                        "url": init_seg.url,
+                        "number": 0,
                         "seg_type": "init",
-                        "enc":      {"method": "NONE"},
+                        "enc": {"method": "NONE"},
                     }
 
                     if init_seg.byte_range:
@@ -655,7 +698,7 @@ class LiveDownloadMixin:
                     seen_urls.add(init_seg.url)
                 init_downloaded = True
 
-            fresh_segs: List = []
+            fresh_segs: list = []
             for seg in media_segs:
                 if seg.url not in seen_urls:
                     seen_urls.add(seg.url)
@@ -672,13 +715,13 @@ class LiveDownloadMixin:
                     break
 
                 # Skip segments that fall before the start offset (still counted toward total_seg_seen/total_time_seen, but not downloaded).
-                kept_segs: List = []
+                kept_segs: list = []
                 for seg in fresh_segs:
                     total_seg_seen += 1
                     total_time_seen += getattr(seg, "duration", 0.0)
                     if total_seg_seen <= seg_start or total_time_seen <= time_start:
                         continue
-                    
+
                     kept_segs.append(seg)
                 fresh_segs = kept_segs
 
@@ -694,7 +737,7 @@ class LiveDownloadMixin:
                 # Keep the MOST RECENT segments (tail, nearest the live edge)
                 if time_end is not None and elapsed_dur < (time_end - time_start):
                     budget = (time_end - time_start) - elapsed_dur
-                    clamped: List = []
+                    clamped: list = []
                     acc = 0.0
                     for s in reversed(fresh_segs):
                         clamped.append(s)
@@ -706,27 +749,38 @@ class LiveDownloadMixin:
                         logger.info(f"Live DASH: clamping batch to most recent {len(clamped)}/{len(fresh_segs)} segs (~{acc:.0f}s) for max_time budget {budget:.0f}s")
                     fresh_segs = clamped
 
-                dl_batch: List[Dict] = []
+                dl_batch: list[dict] = []
                 for seg in fresh_segs:
-                    entry: Dict = {
-                        "url":      seg.url,
-                        "number":   seg_index,
+                    entry: dict = {
+                        "url": seg.url,
+                        "number": seg_index,
                         "seg_type": "media",
-                        "enc":      {"method": "NONE"},
+                        "enc": {"method": "NONE"},
                     }
                     if seg.byte_range:
                         entry["headers"] = {"Range": f"bytes={seg.byte_range}"}
                     dl_batch.append(entry)
                     seg_index += 1
 
-                _batch_avg_dur  = sum(getattr(s, "duration", 0.0) for s in fresh_segs) / max(len(fresh_segs), 1)
-                _segs_before    = seg_done
-                _bytes_before   = total_bytes
+                _batch_avg_dur = sum(getattr(s, "duration", 0.0) for s in fresh_segs) / max(len(fresh_segs), 1)
+                _segs_before = seg_done
+                _bytes_before = total_bytes
                 _elapsed_before = elapsed_dur
 
-                def _batch_progress_cb(done, total_, cur_bytes, speed_bps, speed_label=None):
+                def _batch_progress_cb(
+                    done,
+                    total_,
+                    cur_bytes,
+                    speed_bps,
+                    speed_label=None,
+                    _segs_before=_segs_before,
+                    _bytes_before=_bytes_before,
+                    _elapsed_before=_elapsed_before,
+                    _batch_avg_dur=_batch_avg_dur,
+                ):
                     _emit_live_progress(
-                        bar_manager, task_key,
+                        bar_manager,
+                        task_key,
                         _segs_before + done,
                         _bytes_before + cur_bytes,
                         speed_bps,
@@ -753,19 +807,22 @@ class LiveDownloadMixin:
                         continue
 
                     _probe_first(fp)
-                    sz           = fp.stat().st_size if fp.exists() else 0
+                    sz = fp.stat().st_size if fp.exists() else 0
                     batch_bytes += sz
                     total_bytes += sz
                     all_paths.append(fp)
-                    seg_done    += 1
+                    seg_done += 1
 
                 if decrypt_fails:
                     avg_raw = raw_bytes / max(decrypt_fails, 1)
-                    # Keys are already validated before download; tiny uniform segments
-                    hint = "CDN served stub/error pages — live event may have ended or token expired" if avg_raw < 16 * 1024 else "segments may be corrupt or keys mismatched"
+                    hint = (
+                        "CDN served stub/error pages — live event may have ended or token expired"
+                        if avg_raw < 16 * 1024
+                        else "segments may be corrupt or keys mismatched"
+                    )
                     logger.warning(f"Live DASH: {decrypt_fails}/{len(batch_paths)} segments failed decrypt (avg {_fmt_size(int(avg_raw))}/seg — {hint})")
 
-                speed_bps    = batch_bytes / elapsed
+                speed_bps = batch_bytes / elapsed
                 elapsed_dur += sum(getattr(seg, "duration", 0.0) for seg in fresh_segs)
                 _emit_live_progress(bar_manager, task_key, seg_done, total_bytes, speed_bps, elapsed_dur)
                 logger.info(f"Live DASH: +{len(fresh_segs)} segs | total={seg_done} | {_fmt_size(total_bytes)} | {speed_bps / 1024:.1f} KB/s | dur={_fmt_dur(elapsed_dur)}")
@@ -814,7 +871,7 @@ class LiveDownloadMixin:
         if ext == "m4s":
             ext = "mp4"
 
-        out_path   = self.output_dir / self._out_filename(stream, ext)
+        out_path = self.output_dir / self._out_filename(stream, ext)
         merge_size = sum(p.stat().st_size for p in all_paths if p.exists())
 
         logger.info(f"Live DASH binary merge | segs={len(all_paths)} | {_fmt_size(merge_size)} -> {out_path.name}")

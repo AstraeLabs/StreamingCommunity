@@ -1,9 +1,9 @@
 # 06.06.25
 
-from .generic import GenericStreamingAPI
-from .base import Entries
-
 from VibraVid.services.mediasetinfinity.scrapper import GetSerieInfo
+
+from .base import Entries
+from .generic import GenericStreamingAPI
 
 
 class MediasetInfinityAPI(GenericStreamingAPI):

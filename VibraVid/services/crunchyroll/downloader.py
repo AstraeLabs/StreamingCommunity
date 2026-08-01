@@ -3,38 +3,36 @@
 import os
 import re
 import time
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import config_manager, os_manager, start_message
-from VibraVid.services._base import site_constants, Entries, movie_folder, anime_folder
-from VibraVid.services._base.tv_display_manager import map_movie_path, map_episode_path
-from VibraVid.services._base.tv_download_manager import process_season_selection, process_episode_download
-from VibraVid.core.utils.language import resolve_locale
-
 from VibraVid.core.downloader import DASH_Downloader
+from VibraVid.core.utils.language import resolve_locale
+from VibraVid.services._base import Entries, anime_folder, movie_folder, site_constants
+from VibraVid.services._base.tv_display_manager import map_episode_path, map_movie_path
+from VibraVid.services._base.tv_download_manager import process_episode_download, process_season_selection
+from VibraVid.utils import config_manager, os_manager, start_message
 
-from .client import get_playback_session, CrunchyrollClient
+from .client import CrunchyrollClient, get_playback_session
 from .scrapper import GetSerieInfo
-
 
 console = Console()
 msg = Prompt()
 extension_output = config_manager.config.get("PROCESS", "extension")
-CR_LICENSE_URL = 'https://www.crunchyroll.com/license/v1/license/widevine'
+CR_LICENSE_URL = "https://www.crunchyroll.com/license/v1/license/widevine"
 
 
 def _make_dash_audio_track(mpd_url: str, locale: str, headers: dict, license_headers: dict) -> dict:
     """Build an ``other_tracks`` audio entry for DASH_Downloader."""
     return {
-        "type":            "audio",
-        "manifest":        "dash",
-        "url":             mpd_url,
-        "language":        locale,
-        "headers":         headers,
-        "license_url":     CR_LICENSE_URL,
+        "type": "audio",
+        "manifest": "dash",
+        "url": mpd_url,
+        "language": locale,
+        "headers": headers,
+        "license_url": CR_LICENSE_URL,
         "license_headers": license_headers,
     }
 
@@ -49,7 +47,12 @@ def _subtitles_to_other_tracks(subtitles: list) -> list:
         if not sub_url:
             continue
 
-        track = {"type": "subtitle", "url": sub_url, "language": sub.get("language") or "und", "name": sub.get("label") or sub.get("name") or sub.get("language") or "Subtitle",}
+        track = {
+            "type": "subtitle",
+            "url": sub_url,
+            "language": sub.get("language") or "und",
+            "name": sub.get("label") or sub.get("name") or sub.get("language") or "Subtitle",
+        }
         fmt = str(sub.get("format") or "").strip().lower().lstrip(".")
         if fmt:
             track["extension"] = fmt
@@ -83,10 +86,10 @@ def parse_select_audio_filter(select_audio: str) -> list:
     lang_match = re.search(r"lang=['\"]([^'\"]+)['\"]", select_audio)
 
     if lang_match:
-        raw_codes = [c.strip() for c in lang_match.group(1).split('|') if c.strip()]
+        raw_codes = [c.strip() for c in lang_match.group(1).split("|") if c.strip()]
     else:
         if "=" not in select_audio:
-            raw_codes = [c.strip() for c in select_audio.split('|') if c.strip()]
+            raw_codes = [c.strip() for c in select_audio.split("|") if c.strip()]
         else:
             return []
 
@@ -110,13 +113,15 @@ def parse_select_audio_filter(select_audio: str) -> list:
 def _build_license_headers(base_headers: dict, content_id: str, mpd_url: str, fallback_token: str) -> dict:
     """Build Widevine license request headers."""
     query_params = parse_qs(urlparse(mpd_url).query)
-    playback_guid = (query_params.get('playbackGuid') or [fallback_token])[0]
+    playback_guid = (query_params.get("playbackGuid") or [fallback_token])[0]
 
     headers = base_headers.copy()
-    headers.update({
-        "x-cr-content-id": content_id,
-        "x-cr-video-token": playback_guid,
-    })
+    headers.update(
+        {
+            "x-cr-content-id": content_id,
+            "x-cr-video-token": playback_guid,
+        }
+    )
     return headers
 
 
@@ -136,7 +141,7 @@ def download_film(select_title: Entries) -> str:
     movie_name = f"{filename}.{extension_output}"
 
     # Extract media ID
-    url_id = select_title.get('url').split('/')[-1]
+    url_id = select_title.get("url").split("/")[-1]
     preferred_locales = parse_select_audio_filter(config_manager.config.get("DOWNLOAD", "select_audio", default=""))
 
     # Resolve requested locale to GUID using a single slot open, then fetch extras one by one
@@ -191,13 +196,19 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     client = scrape_serie.client
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} -> [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
 
-    path_components, filename = map_episode_path(scrape_serie.series_name, getattr(scrape_serie, 'year', None), index_season_selected, index_episode_selected, obj_episode.name)
+    path_components, filename = map_episode_path(
+        scrape_serie.series_name,
+        getattr(scrape_serie, "year", None),
+        index_season_selected,
+        index_episode_selected,
+        obj_episode.name,
+    )
     title_path = os_manager.get_sanitize_path(anime_folder(*path_components))
     title_name = f"{filename}.{extension_output}"
 
     # Get media ID and main_guid
-    url_id = obj_episode.url.split('/')[-1]
-    main_guid = getattr(obj_episode, 'main_guid', None)
+    url_id = obj_episode.url.split("/")[-1]
+    main_guid = getattr(obj_episode, "main_guid", None)
 
     # Parse preferred audio locales (single metadata cache call)
     preferred_locales = parse_select_audio_filter(config_manager.config.get("DOWNLOAD", "select_audio", default=""))
@@ -207,7 +218,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     main_id = url_id
     for locale in preferred_locales:
         if locale in urls_by_locale:
-            main_id = urls_by_locale[locale].split('/')[-1]
+            main_id = urls_by_locale[locale].split("/")[-1]
             break
 
     # Get playback session for main language
@@ -220,14 +231,16 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
             console.print(f"[yellow]Locale {locale} not available for this episode")
             continue
 
-        extra_guid = urls_by_locale[locale].split('/')[-1]
+        extra_guid = urls_by_locale[locale].split("/")[-1]
         if extra_guid == main_id:
             continue
 
         try:
             extra_mpd_url, extra_mpd_headers, _, extra_token, _ = get_playback_session(client, extra_guid, None)
             extra_license_hdrs = _build_license_headers(extra_mpd_headers, extra_guid, extra_mpd_url, extra_token)
-            extra_audio_tracks.append(_make_dash_audio_track(extra_mpd_url, locale, extra_mpd_headers, extra_license_hdrs))
+            extra_audio_tracks.append(
+                _make_dash_audio_track(extra_mpd_url, locale, extra_mpd_headers, extra_license_hdrs)
+            )
             time.sleep(5)  # Small delay to avoid rate limiting between calls
         except Exception as e:
             console.print(f"[yellow]Errore fetch audio {locale}: {e}")
@@ -248,11 +261,13 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
         license_url=CR_LICENSE_URL,
         license_headers=license_headers,
         other_tracks=other_tracks or None,
-        output_path=os.path.join(title_path, title_name)
+        output_path=os.path.join(title_path, title_name),
     ).start()
 
 
-def download_series(select_season: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie = None) -> None:
+def download_series(
+    select_season: Entries, season_selection: str = None, episode_selection: str = None, scrape_serie=None
+) -> None:
     """
     Handle downloading a complete series.
     """
@@ -264,15 +279,16 @@ def download_series(select_season: Entries, season_selection: str = None, episod
 
     def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
         """Callback to handle episode downloads for a specific season"""
+
         def download_video_callback(obj_episode, season_idx, episode_idx):
             return download_episode(obj_episode, season_idx, episode_idx, scrape_serie)
-        
+
         process_episode_download(
             index_season_selected=season_number,
             scrape_serie=scrape_serie,
             download_video_callback=download_video_callback,
             download_all=download_all,
-            episode_selection=episode_selection
+            episode_selection=episode_selection,
         )
 
     process_season_selection(
@@ -280,5 +296,5 @@ def download_series(select_season: Entries, season_selection: str = None, episod
         seasons_count=seasons_count,
         season_selection=season_selection,
         episode_selection=episode_selection,
-        download_episode_callback=download_episode_callback
+        download_episode_callback=download_episode_callback,
     )

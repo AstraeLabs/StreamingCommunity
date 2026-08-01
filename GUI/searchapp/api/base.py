@@ -2,8 +2,8 @@
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from typing import Any
 
 from VibraVid.utils import config_manager
 
@@ -11,50 +11,55 @@ from VibraVid.utils import config_manager
 @dataclass
 class Entries:
     """Standardized media item representation."""
+
     name: str
     type: str
     slug: str = None
     id: Any = None
-    path_id: Optional[str] = None
-    url: Optional[str] = None
-    poster: Optional[str] = None
-    year: Optional[int] = None
-    provider_language: Optional[str] = None
-    tmdb_id: Optional[str] = None
-    raw_data: Optional[Dict[str, Any]] = None
-    audio_format: Optional[str] = None
-    desc: Optional[str] = None 
+    path_id: str | None = None
+    url: str | None = None
+    poster: str | None = None
+    year: int | None = None
+    provider_language: str | None = None
+    tmdb_id: str | None = None
+    raw_data: dict[str, Any] | None = None
+    audio_format: str | None = None
+    desc: str | None = None
 
     @property
     def is_movie(self) -> bool:
-        return self.type.lower() in ['film', 'movie', 'ova']
+        return self.type.lower() in ["film", "movie", "ova"]
 
     @property
     def is_song(self) -> bool:
-        return str(self.type or "").lower() in ['song', 'track', 'music']
+        return str(self.type or "").lower() in ["song", "track", "music"]
 
     @property
     def is_album(self) -> bool:
-        return str(self.type or "").lower() == 'album'
+        return str(self.type or "").lower() == "album"
 
 
 @dataclass
 class Episode:
     """Episode information."""
+
     number: int
     name: str
-    id: Optional[Any] = None
-    language: Optional[str] = None
+    id: Any | None = None
+    language: str | None = None
+    duration: int | None = None
+    image: str | None = None
 
 
 @dataclass
 class Season:
     """Season information."""
+
     number: int
-    episodes: List[Episode]
-    name: Optional[str] = None
-    image: Optional[str] = None
-    
+    episodes: list[Episode]
+    name: str | None = None
+    image: str | None = None
+
     @property
     def episode_count(self) -> int:
         return len(self.episodes)
@@ -64,7 +69,7 @@ _SCRAPER_CACHE_TTL = 900  # 15 minutes — allows the GUI to see new episodes wi
 
 
 class BaseStreamingAPI(ABC):
-    _scraper_cache: Dict[str, Tuple[Any, float]] = {}  # key → (scraper, timestamp)
+    _scraper_cache: dict[str, tuple[Any, float]] = {}  # key → (scraper, timestamp)
 
     def __init__(self):
         self.site_name: str = ""
@@ -77,7 +82,7 @@ class BaseStreamingAPI(ABC):
     def _scraper_cache_enabled(self) -> bool:
         return not bool(config_manager.config.get_bool("DEFAULT", "disable_scraper_cache", default=False))
 
-    def get_cached_scraper(self, media_item: Entries) -> Optional[Any]:
+    def get_cached_scraper(self, media_item: Entries) -> Any | None:
         """Retrieve a cached scraper instance from the global cache."""
         if not self._scraper_cache_enabled():
             return None
@@ -99,41 +104,41 @@ class BaseStreamingAPI(ABC):
         self._scraper_cache[key] = (scraper, time.monotonic())
 
     @abstractmethod
-    def search(self, query: str) -> List[Entries]:
+    def search(self, query: str) -> list[Entries]:
         """
         Search for content on the streaming site.
-        
+
         Args:
             query: Search term
-            
+
         Returns:
             List of Entries objects
         """
         pass
-    
+
     @abstractmethod
-    def get_series_metadata(self, media_item: Entries) -> Optional[List[Season]]:
+    def get_series_metadata(self, media_item: Entries) -> list[Season] | None:
         """
         Get seasons and episodes for a series.
-        
+
         Args:
             media_item: Entries to get metadata for
-            
+
         Returns:
             List of Season objects, or None if not a series
         """
         pass
-    
+
     @abstractmethod
-    def start_download(self, media_item: Entries, season: Optional[str] = None, episodes: Optional[str] = None) -> bool:
+    def start_download(self, media_item: Entries, season: str | None = None, episodes: str | None = None) -> bool:
         """
         Start downloading content.
-        
+
         Args:
             media_item: Entries to download
             season: Season number (for series)
             episodes: Episode selection (e.g., "1-5" or "1,3,5" or "*" for all)
-            
+
         Returns:
             True if download started successfully
         """

@@ -3,9 +3,8 @@
 import base64
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
-from VibraVid.core.drm.system import _DRMSystems, DRMType
+from VibraVid.core.drm.system import DRMType, _DRMSystems
 
 
 def track_label(s) -> str:
@@ -47,25 +46,35 @@ class DRMInfo:
         self.system_id = None
         self.drm_type = None
         self.default_kid = None
-        self.default_kids: List[str] = []
+        self.default_kids: list[str] = []
         self.method = None
-        self._pssh_by_type: Dict[str, str] = {}
-        self._all_pssh_by_type: Dict[str, List[str]] = {}
-        self._drm_types: List[str] = []
+        self._pssh_by_type: dict[str, str] = {}
+        self._all_pssh_by_type: dict[str, list[str]] = {}
+        self._drm_types: list[str] = []
+        self._key_uri_by_type: dict[str, str] = {}
+        self._key_uri_by_pssh: dict[str, str] = {}
 
     def _record_pssh(self, drm_type: str, pssh_base64: str) -> None:
         bucket = self._all_pssh_by_type.setdefault(drm_type, [])
         if pssh_base64 not in bucket:
             bucket.append(pssh_base64)
 
-    def set_pssh(self, pssh_base64: str, drm_type_hint: str = None) -> None:
-        detected: Optional[str] = None
+    def _record_key_uri(self, drm_type: str, pssh_base64: str, key_uri: str | None) -> None:
+        if not key_uri:
+            return
+        self._key_uri_by_type[drm_type] = key_uri
+        self._key_uri_by_pssh[pssh_base64] = key_uri
+
+    def set_pssh(self, pssh_base64: str, drm_type_hint: str = None, key_uri: str = None) -> None:
+        """Register a PSSH (or FairPlay SKD URI) for a DRM system."""
+        detected: str | None = None
 
         # FairPlay SKD URI is not a base64 PSSH box; keep it as opaque value.
         if isinstance(pssh_base64, str) and pssh_base64.lower().startswith("skd:"):
             detected = (drm_type_hint or DRMType.FAIRPLAY).upper()
             self._pssh_by_type[detected] = pssh_base64
             self._record_pssh(detected, pssh_base64)
+            self._record_key_uri(detected, pssh_base64, key_uri or pssh_base64)
             if detected not in self._drm_types:
                 self._drm_types.append(detected)
             self.pssh = pssh_base64
@@ -73,8 +82,9 @@ class DRMInfo:
             return
 
         try:
-            from pywidevine.pssh import PSSH as WV_PSSH
             from uuid import UUID as _UUID
+
+            from pywidevine.pssh import PSSH as WV_PSSH
 
             _WV_UUID = _UUID(hex=_DRMSystems.WIDEVINE)
             _PR_UUID = _UUID(hex=_DRMSystems.PLAYREADY)
@@ -92,15 +102,18 @@ class DRMInfo:
                 detected = DRMType.FAIRPLAY
             else:
                 detected = DRMType.UNKNOWN
-                
+
         except ImportError:
             pass
         except Exception as exc:
             logger.error(f"DRMInfo.set_pssh [pywidevine] error: {exc}")
 
-        if (not detected or detected == DRMType.UNKNOWN) and ((drm_type_hint or "").upper() == DRMType.PLAYREADY or (self.drm_type or "") == DRMType.PLAYREADY):
+        if (not detected or detected == DRMType.UNKNOWN) and (
+            (drm_type_hint or "").upper() == DRMType.PLAYREADY or (self.drm_type or "") == DRMType.PLAYREADY
+        ):
             try:
                 from pyplayready.system.pssh import PSSH as PR_PSSH
+
                 PR_PSSH(pssh_base64)
                 detected = DRMType.PLAYREADY
             except ImportError:
@@ -113,11 +126,15 @@ class DRMInfo:
                 data = base64.b64decode(pssh_base64)
                 if len(data) >= 28 and data[4:8] == b"pssh":
                     sid_bytes = data[12:28]
-                    sid_str = "-".join([
-                        sid_bytes[0:4].hex(), sid_bytes[4:6].hex(),
-                        sid_bytes[6:8].hex(), sid_bytes[8:10].hex(),
-                        sid_bytes[10:16].hex(),
-                    ])
+                    sid_str = "-".join(
+                        [
+                            sid_bytes[0:4].hex(),
+                            sid_bytes[4:6].hex(),
+                            sid_bytes[6:8].hex(),
+                            sid_bytes[8:10].hex(),
+                            sid_bytes[10:16].hex(),
+                        ]
+                    )
 
                     self.system_id = sid_str
                     sid_lo = sid_str.lower()
@@ -143,6 +160,7 @@ class DRMInfo:
 
         self._pssh_by_type[detected] = pssh_base64
         self._record_pssh(detected, pssh_base64)
+        self._record_key_uri(detected, pssh_base64, key_uri)
         if detected not in self._drm_types:
             self._drm_types.append(detected)
 
@@ -152,31 +170,60 @@ class DRMInfo:
                 self.drm_type = pref
                 break
 
-    def get_pssh_for(self, drm_type: str) -> Optional[str]:
+    def get_pssh_for(self, drm_type: str) -> str | None:
+        """Return the PSSH (or FairPlay SKD URI) for *drm_type*, or None if not present."""
         return self._pssh_by_type.get(drm_type.upper())
 
-    def get_all_pssh_for(self, drm_type: str) -> List[str]:
+    def get_all_pssh_for(self, drm_type: str) -> list[str]:
         """All distinct PSSH variants for *drm_type*, in document order (may be empty)."""
         return list(self._all_pssh_by_type.get(drm_type.upper(), []))
 
-    def get_all_drm_types(self) -> List[str]:
+    def get_all_drm_types(self) -> list[str]:
+        """All DRM types seen in this manifest, in document order (may be empty)."""
         return list(self._drm_types)
 
-    def to_dict(self) -> Dict:
+    def get_key_uri(self, drm_type: str = None, pssh: str = None) -> str | None:
+        """The verbatim ``#EXT-X-KEY`` URI a PSSH was decoded from, query string intact."""
+        if pssh and pssh in self._key_uri_by_pssh:
+            return self._key_uri_by_pssh[pssh]
+        return self._key_uri_by_type.get((drm_type or self.drm_type or "").upper())
+
+    def to_dict(self) -> dict:
         """Canonical DRM dict consumed by the HLS/ISM downloader fallbacks::
 
-            {'widevine': [{'pssh','type','kid'}], 'playready': [...], 'fairplay': [{'uri','type','kid'}]}
+        {'widevine': [{'pssh','type','kid','key_uri'}], 'playready': [...], 'fairplay': [{'uri',...}]}
         """
-        result: Dict = {"widevine": [], "playready": [], "fairplay": []}
+        result: dict = {"widevine": [], "playready": [], "fairplay": []}
         pssh_wv = self.get_pssh_for(DRMType.WIDEVINE)
         if pssh_wv:
-            result["widevine"].append({"pssh": pssh_wv, "type": "Widevine", "kid": self.kid})
+            result["widevine"].append(
+                {
+                    "pssh": pssh_wv,
+                    "type": "Widevine",
+                    "kid": self.kid,
+                    "key_uri": self.get_key_uri(DRMType.WIDEVINE, pssh_wv),
+                }
+            )
         pssh_pr = self.get_pssh_for(DRMType.PLAYREADY)
         if pssh_pr:
-            result["playready"].append({"pssh": pssh_pr, "type": "PlayReady", "kid": self.kid})
+            result["playready"].append(
+                {
+                    "pssh": pssh_pr,
+                    "type": "PlayReady",
+                    "kid": self.kid,
+                    "key_uri": self.get_key_uri(DRMType.PLAYREADY, pssh_pr),
+                }
+            )
         pssh_fp = self.get_pssh_for(DRMType.FAIRPLAY)
         if pssh_fp:
-            result["fairplay"].append({"uri": pssh_fp, "type": "FairPlay", "kid": self.kid})
+            result["fairplay"].append(
+                {
+                    "uri": pssh_fp,
+                    "type": "FairPlay",
+                    "kid": self.kid,
+                    "key_uri": self.get_key_uri(DRMType.FAIRPLAY, pssh_fp),
+                }
+            )
         return result
 
     def add_advertised_type(self, drm_type: str) -> None:
@@ -197,7 +244,7 @@ class DRMInfo:
         if not self.default_kid:
             self.default_kid = kid
 
-    def get_all_kids(self) -> List[str]:
+    def get_all_kids(self) -> list[str]:
         kids = list(self.default_kids)
         if not kids:
             for candidate in (self.kid, self.default_kid):
@@ -211,15 +258,15 @@ class DRMInfo:
     def set_method(self, scheme_id_uri: str) -> None:
         if not scheme_id_uri:
             return
-        
+
         s = scheme_id_uri.lower()
         if "cbcs" in s:
             self.method = "cbcs"
         elif "cenc" in s or "mp4protection" in s:
             self.method = "cenc"
         else:
-            self.method = (scheme_id_uri.split(":")[-1] if ":" in scheme_id_uri else scheme_id_uri)
-        
+            self.method = scheme_id_uri.split(":")[-1] if ":" in scheme_id_uri else scheme_id_uri
+
         detected = DRMType.from_scheme(scheme_id_uri)
         if detected and detected != DRMType.UNKNOWN:
             if detected not in self._drm_types:
@@ -234,22 +281,22 @@ class DRMInfo:
     def get_drm_display(self) -> str:
         if self._drm_types:
             return "+".join(self._drm_types)
-        
+
         if self.drm_type:
             return self.drm_type
-        
+
         if self.default_kids:
             first = self.default_kids[0][:8] + "…"
             if len(self.default_kids) > 1:
                 return f"{first} (+{len(self.default_kids) - 1})"
             return first
-        
+
         if self.default_kid:
             return self.default_kid[:8] + "…"
-        
+
         return "-"
 
-    def get_key_pair(self) -> Optional[str]:
+    def get_key_pair(self) -> str | None:
         kid = self.kid or self.default_kid or (self.default_kids[0] if self.default_kids else None)
         if kid and self.key:
             return f"{kid}:{self.key}"
@@ -258,7 +305,7 @@ class DRMInfo:
     def __repr__(self) -> str:
         if not self.is_encrypted():
             return "DRMInfo(plain)"
-        
+
         kid_source = self.kid or self.default_kid or (self.default_kids[0] if self.default_kids else "")
         kid = kid_source[:8]
         types = "+".join(self._drm_types) if self._drm_types else (self.drm_type or "?")
@@ -273,10 +320,11 @@ class Segment:
     size: int = 0
     downloaded: bool = False
     byte_range: str = ""  # e.g. "12132-31195" for byte-range requests
-    duration: float = 0.0          # seconds; set by parser when known (e.g. #EXTINF or <S d=…/>)
-    estimated_size: int = 0        # bytes; computed from stream bitrate × duration when size == 0
-    period_idx: int = 0            # DASH Period this segment belongs to (multi-period manifests)
-    encrypted: bool = False        # True when this segment's Period is DRM-protected
+    duration: float = 0.0  # seconds; set by parser when known (e.g. #EXTINF or <S d=…/>)
+    estimated_size: int = 0  # bytes; computed from stream bitrate × duration when size == 0
+    period_idx: int = 0  # DASH Period this segment belongs to (multi-period manifests)
+    encrypted: bool = False  # True when this segment's Period is DRM-protected
+    inline_data: bytes | None = None  # segment bytes carried by the manifest itself
 
     def get_effective_size(self) -> int:
         """Return real size if downloaded/known, otherwise the estimate."""
@@ -292,6 +340,7 @@ class Stream:
     """
     Unified stream descriptor for both HLS and DASH content.
     """
+
     type: str
 
     id: str = ""
@@ -330,15 +379,14 @@ class Stream:
 
     drm: DRMInfo = field(default_factory=DRMInfo)
 
-    key_uri: Optional[str] = None
-    key_data: Optional[bytes] = None
-    iv: Optional[str] = None
+    key_data: bytes | None = None
+    iv: str | None = None
 
     # Smooth Streaming / ISM: raw CodecPrivateData (set by manifest/ism.py, consumed by velora/_ism_postproc.py)
-    codec_private_data: Optional[bytes] = None
+    codec_private_data: bytes | None = None
 
-    playlist_url: Optional[str] = None
-    segments: List[Segment] = field(default_factory=list)
+    playlist_url: str | None = None
+    segments: list[Segment] = field(default_factory=list)
 
     selected: bool = False
     duration: float = 0.0
@@ -350,7 +398,7 @@ class Stream:
 
     # ── Size estimation ───────────────────────────────────────────────────────
     # Populated by compute_estimated_size(); do not set manually.
-    estimated_size: int = 0        # bytes; total stream size estimate
+    estimated_size: int = 0  # bytes; total stream size estimate
 
     def add_segment(self, seg: Segment) -> None:
         self.segments.append(seg)
@@ -436,7 +484,9 @@ class Stream:
             return 0.0
 
     def get_type_display(self) -> str:
-        base = {"video": "Video", "audio": "Audio", "subtitle": "Subtitle", "image": "Thumbnail"}.get(self.type, self.type.capitalize())
+        base = {"video": "Video", "audio": "Audio", "subtitle": "Subtitle", "image": "Thumbnail"}.get(
+            self.type, self.type.capitalize()
+        )
         return f"{base} *EXT" if self.is_external else base
 
     def get_duration_display(self) -> str:
@@ -449,10 +499,12 @@ class Stream:
 
     def get_short_codec(self) -> str:
         from VibraVid.core.utils.codec import get_short_codec as _gsc
+
         return _gsc(self.type, self.codecs)
 
     def get_channel_label(self) -> str:
         from VibraVid.core.utils.codec import get_channel_label as _gcl
+
         return _gcl(self.channels) if self.channels else ""
 
     def get_hdr_display(self) -> str:
@@ -460,12 +512,12 @@ class Stream:
         return vr if vr and vr != "SDR" else ""
 
     @property
-    def encryption_method(self) -> Optional[str]:
+    def encryption_method(self) -> str | None:
         """Encryption mode (cenc/cbcs/SAMPLE-AES…), derived from the attached DRMInfo."""
         return self.drm.method if self.drm else None
 
     @encryption_method.setter
-    def encryption_method(self, value: Optional[str]) -> None:
+    def encryption_method(self, value: str | None) -> None:
         # Backward-compatible no-op: the value is owned by DRMInfo.method.
         if value and self.drm and not self.drm.method:
             self.drm.method = value
@@ -481,7 +533,7 @@ class Stream:
         if self.default:
             flags.append("Default")
         return f"[{', '.join(flags)}]" if flags else ""
-    
+
     def __str__(self) -> str:
         """
         Human-readable one-liner for logger.info and debug output.
@@ -503,7 +555,17 @@ class Stream:
                 vrange = self.video_range if self.video_range and self.video_range != "SDR" else None
                 avg_s = self.avg_bitrate_display or None
                 scan_s = self.scan_type if self.scan_type and self.scan_type != "progressive" else None
-                parts = [id_s, self.resolution or None, self.bitrate_display if self.bitrate else None, avg_s, codec, fps_s, vrange, scan_s, drm]
+                parts = [
+                    id_s,
+                    self.resolution or None,
+                    self.bitrate_display if self.bitrate else None,
+                    avg_s,
+                    codec,
+                    fps_s,
+                    vrange,
+                    scan_s,
+                    drm,
+                ]
 
             elif self.type == "audio":
                 ch = self.get_channel_label() or (self.channels if self.channels else None)
@@ -528,11 +590,11 @@ class Stream:
 
         if self.type == "video":
             return f"Stream(video, {self.resolution}{hdr_s}, {self.bitrate_display}{drm_s})"
-        
+
         if self.type == "audio":
             flags = self.get_flags_display()
             return f"Stream(audio, {lang_s}{f' {flags}' if flags else ''}, {self.bitrate_display}{drm_s})"
-        
+
         flags = self.get_flags_display()
         wvtt_s = " [wvtt-mp4]" if self.is_wvtt_mp4 else ""
         return f"Stream({self.type}, {lang_s}{f' {flags}' if flags else ''}{wvtt_s})"

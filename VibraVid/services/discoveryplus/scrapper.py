@@ -3,11 +3,10 @@
 import logging
 import threading
 
+from VibraVid.services._base.object import Episode, Season, SeasonManager
 from VibraVid.utils.http_client import create_client
-from VibraVid.services._base.object import SeasonManager, Episode, Season
 
 from .client import get_client
-
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ class GetStandaloneInfo:
         """Fetch standalone content information using /cms/routes/movie endpoint"""
         try:
             url = f"{self.client.base_url}/cms/routes/movie/{self.standalone_id}"
-            params = {'include': 'default', 'decorators': 'isFavorite,playbackAllowed,contentAction,badges'}
+            params = {"include": "default", "decorators": "isFavorite,playbackAllowed,contentAction,badges"}
             with create_client(headers=self.client.headers, cookies=self.client.cookies) as client:
                 response = client.get(url, params=params)
             response.raise_for_status()
@@ -31,11 +30,14 @@ class GetStandaloneInfo:
 
             # Search for the standalone video in included
             self.content_info = next(
-                (x for x in data.get('included', [])
-                 if x.get('attributes', {}).get('videoType', '').lower() == 'standalone'),
-                None
+                (
+                    x
+                    for x in data.get("included", [])
+                    if x.get("attributes", {}).get("videoType", "").lower() == "standalone"
+                ),
+                None,
             )
-            
+
             if not self.content_info:
                 logger.error(f"Standalone content not found for: {self.standalone_id}")
                 return
@@ -48,23 +50,23 @@ class GetStandaloneInfo:
     def get_edit_id(self):
         """
         Get the edit ID for playback
-        
+
         Returns:
             str: The edit ID for the standalone content
         """
         if not self.content_info:
             logger.error("Content info not loaded, cannot get edit_id")
             return None
-        
+
         try:
-            edit_id = self.content_info.get('relationships', {}).get('edit', {}).get('data', {}).get('id')
+            edit_id = self.content_info.get("relationships", {}).get("edit", {}).get("data", {}).get("id")
             if edit_id:
                 logger.debug(f"Edit ID: {edit_id}")
                 return edit_id
             else:
                 logger.error("Edit ID not found in relationships")
                 return None
-        
+
         except Exception as e:
             logger.error(f"Error getting edit ID: {e}")
             return None
@@ -87,7 +89,7 @@ class GetLiveInfo:
         """Fetch live event information using the sport/video detail endpoint."""
         try:
             url = f"{self.client.base_url}/cms/routes/sport/{self.video_id}"
-            params = {'include': 'default', 'decorators': 'isFavorite,playbackAllowed,contentAction,badges'}
+            params = {"include": "default", "decorators": "isFavorite,playbackAllowed,contentAction,badges"}
             with create_client(headers=self.client.headers, cookies=self.client.cookies) as client:
                 response = client.get(url, params=params)
 
@@ -98,8 +100,8 @@ class GetLiveInfo:
                     response = client.get(url)
                 response.raise_for_status()
                 data = response.json()
-                if data.get('data', {}).get('type') == 'video':
-                    self.content_info = data['data']
+                if data.get("data", {}).get("type") == "video":
+                    self.content_info = data["data"]
                 if not self.content_info:
                     logger.error(f"Live content not found for video_id: {self.video_id}")
                 return
@@ -110,9 +112,8 @@ class GetLiveInfo:
             # Use alternateId to find the content node (matches reference implementation _sport)
             title_id = self.video_id.split("/")[-1] if "/" in self.video_id else self.video_id
             self.content_info = next(
-                (x for x in data.get('included', [])
-                 if x.get('attributes', {}).get('alternateId', '') == title_id),
-                None
+                (x for x in data.get("included", []) if x.get("attributes", {}).get("alternateId", "") == title_id),
+                None,
             )
 
             if not self.content_info:
@@ -136,7 +137,7 @@ class GetLiveInfo:
             return None
 
         try:
-            edit_id = self.content_info.get('relationships', {}).get('edit', {}).get('data', {}).get('id')
+            edit_id = self.content_info.get("relationships", {}).get("edit", {}).get("data", {}).get("id")
             if edit_id:
                 logger.debug(f"Live edit ID: {edit_id}")
                 return edit_id
@@ -153,7 +154,7 @@ class GetSerieInfo:
     def __init__(self, show_id: str):
         """
         Initialize series scraper for Discovery+
-        
+
         Args:
             show_id (str): The alternate ID of the show
         """
@@ -173,39 +174,48 @@ class GetSerieInfo:
         try:
             # Fetch show data (includes season filter information)
             url = f"{self.client.base_url}/cms/routes/show/{self.show_id}"
-            params = {
-                'include': 'default',
-                'decorators': 'viewingHistory,badges,isFavorite,contentAction'
-            }
+            params = {"include": "default", "decorators": "viewingHistory,badges,isFavorite,contentAction"}
             with create_client(headers=self.client.headers, cookies=self.client.cookies) as client:
                 response = client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
-            included = data.get('included', [])
+            included = data.get("included", [])
 
             # Extract show info
-            show_info = next((x for x in included if x.get('attributes', {}).get('alternateId', '') == self.show_id), None)
+            show_info = next(
+                (x for x in included if x.get("attributes", {}).get("alternateId", "") == self.show_id), None
+            )
             if not show_info:
                 logger.error(f"Show info not found for: {self.show_id}")
                 return []
-            self.universal_id = show_info.get('attributes', {}).get('universalId')
-            self.series_name = show_info.get('attributes', {}).get('name', 'Unknown')
+            self.universal_id = show_info.get("attributes", {}).get("universalId")
+            self.series_name = show_info.get("attributes", {}).get("name", "Unknown")
 
             # Locate the episodes content block
-            content = next((x for x in included if 'show-page-rail-episodes-tabbed-content' in x.get('attributes', {}).get('alias', '')), None)
+            content = next(
+                (
+                    x
+                    for x in included
+                    if "show-page-rail-episodes-tabbed-content" in x.get("attributes", {}).get("alias", "")
+                ),
+                None,
+            )
             if not content:
                 logger.error(f"Episodes content block not found for show {self.show_id}")
                 return []
 
-            content_id = content.get('id')
-            show_params = content['attributes']['component'].get('mandatoryParams', '')
+            content_id = content.get("id")
+            show_params = content["attributes"]["component"].get("mandatoryParams", "")
 
             # Season filter options (parameters for each season)
-            season_filter = next((f for f in content['attributes']['component'].get('filters', []) if f.get('id') == 'seasonNumber'), None)
+            season_filter = next(
+                (f for f in content["attributes"]["component"].get("filters", []) if f.get("id") == "seasonNumber"),
+                None,
+            )
             if not season_filter:
                 logger.error(f"Season filter not found for show {self.show_id}")
                 return []
-            season_params = [opt.get('parameter') for opt in season_filter.get('options', [])]
+            season_params = [opt.get("parameter") for opt in season_filter.get("options", [])]
 
             all_episodes = []
 
@@ -213,60 +223,64 @@ class GetSerieInfo:
                 for season_param in season_params:
                     coll_url = f"{self.client.base_url}/cms/collections/{content_id}?{season_param}&{show_params}"
                     coll_params = {
-                        'include': 'default',
-                        'decorators': 'viewingHistory,badges,isFavorite,contentAction',
+                        "include": "default",
+                        "decorators": "viewingHistory,badges,isFavorite,contentAction",
                     }
                     with create_client(headers=self.client.headers, cookies=self.client.cookies) as client:
                         response = client.get(coll_url, params=coll_params)
                     response.raise_for_status()
                     season_data = response.json()
 
-                    for item in season_data.get('included', []):
-                        if item.get('type') == 'video' and item.get('attributes', {}).get('videoType') == 'EPISODE':
-                            attrs = item['attributes']
-                            relationships = item.get('relationships', {})
-                            edit_id = relationships.get('edit', {}).get('data', {}).get('id') or item.get('id')
-                            all_episodes.append({
-                                'id': edit_id,
-                                'show': self.series_name,
-                                'season': attrs.get('seasonNumber'),
-                                'episode': attrs.get('episodeNumber'),
-                                'title': attrs.get('name'),
-                            })
+                    for item in season_data.get("included", []):
+                        if item.get("type") == "video" and item.get("attributes", {}).get("videoType") == "EPISODE":
+                            attrs = item["attributes"]
+                            relationships = item.get("relationships", {})
+                            edit_id = relationships.get("edit", {}).get("data", {}).get("id") or item.get("id")
+                            all_episodes.append(
+                                {
+                                    "id": edit_id,
+                                    "show": self.series_name,
+                                    "season": attrs.get("seasonNumber"),
+                                    "episode": attrs.get("episodeNumber"),
+                                    "title": attrs.get("name"),
+                                }
+                            )
             else:
-                item_refs = content.get('relationships', {}).get('items', {}).get('data', [])
-                collection_items = {x['id']: x for x in included if x.get('type') == 'collectionItem'}
-                videos_by_id = {x['id']: x for x in included if x.get('type') == 'video'}
+                item_refs = content.get("relationships", {}).get("items", {}).get("data", [])
+                collection_items = {x["id"]: x for x in included if x.get("type") == "collectionItem"}
+                videos_by_id = {x["id"]: x for x in included if x.get("type") == "video"}
 
                 for ref in item_refs:
-                    citem = collection_items.get(ref.get('id'))
+                    citem = collection_items.get(ref.get("id"))
                     if not citem:
                         continue
 
-                    video_ref = citem.get('relationships', {}).get('video', {}).get('data')
+                    video_ref = citem.get("relationships", {}).get("video", {}).get("data")
                     if not video_ref:
                         continue
 
-                    video = videos_by_id.get(video_ref.get('id'))
+                    video = videos_by_id.get(video_ref.get("id"))
                     if not video:
                         continue
 
-                    vattrs = video.get('attributes', {})
-                    if vattrs.get('videoType') not in ('EPISODE', 'STANDALONE'):
+                    vattrs = video.get("attributes", {})
+                    if vattrs.get("videoType") not in ("EPISODE", "STANDALONE"):
                         continue
-                    
-                    relationships = video.get('relationships', {})
-                    edit_id = relationships.get('edit', {}).get('data', {}).get('id') or video.get('id')
-                    all_episodes.append({
-                        'id': edit_id,
-                        'show': self.series_name,
-                        'season': vattrs.get('seasonNumber') or 1,
-                        'episode': vattrs.get('episodeNumber') or (len(all_episodes) + 1),
-                        'title': vattrs.get('name'),
-                    })
+
+                    relationships = video.get("relationships", {})
+                    edit_id = relationships.get("edit", {}).get("data", {}).get("id") or video.get("id")
+                    all_episodes.append(
+                        {
+                            "id": edit_id,
+                            "show": self.series_name,
+                            "season": vattrs.get("seasonNumber") or 1,
+                            "episode": vattrs.get("episodeNumber") or (len(all_episodes) + 1),
+                            "title": vattrs.get("name"),
+                        }
+                    )
 
             # Sort by season and episode
-            all_episodes.sort(key=lambda x: (x['season'], x['episode']))
+            all_episodes.sort(key=lambda x: (x["season"], x["episode"]))
             return all_episodes
 
         except Exception as e:
@@ -283,7 +297,7 @@ class GetSerieInfo:
                 return False
 
             # Distinct seasons
-            seasons_set = set(ep['season'] for ep in self._all_episodes if ep['season'] is not None)
+            seasons_set = set(ep["season"] for ep in self._all_episodes if ep["season"] is not None)
             self.n_seasons = len(seasons_set)
             self.seasons_list = sorted(list(seasons_set))
 
@@ -300,15 +314,17 @@ class GetSerieInfo:
 
         season_episodes = []
         for episode in self._all_episodes:
-            if episode['season'] == season_number:
-                season_episodes.append({
-                    'id': episode['id'],
-                    'video_id': episode['id'],
-                    'name': episode['title'],
-                    'episode_number': episode['episode'],
-                    'duration': 0
-                })
-        season_episodes.sort(key=lambda x: x['episode_number'])
+            if episode["season"] == season_number:
+                season_episodes.append(
+                    {
+                        "id": episode["id"],
+                        "video_id": episode["id"],
+                        "name": episode["title"],
+                        "episode_number": episode["episode"],
+                        "duration": 0,
+                    }
+                )
+        season_episodes.sort(key=lambda x: x["episode_number"])
         return season_episodes
 
     def collect_season(self):
@@ -316,22 +332,22 @@ class GetSerieInfo:
         for season_num in self.seasons_list:
             episodes = self._get_season_episodes(season_num)
             if episodes:
-                season_obj = self.seasons_manager.add(Season(
-                    number=season_num,
-                    name=f"Season {season_num}",
-                    id=f"season_{season_num}"
-                ))
+                season_obj = self.seasons_manager.add(
+                    Season(number=season_num, name=f"Season {season_num}", id=f"season_{season_num}")
+                )
                 if season_obj:
                     for ep in episodes:
-                        season_obj.episodes.add(Episode(
-                            id=ep.get('id'),
-                            video_id=ep.get('video_id'),
-                            name=ep.get('name'),
-                            number=ep.get('episode_number'),
-                            duration=ep.get('duration')
-                        ))
+                        season_obj.episodes.add(
+                            Episode(
+                                id=ep.get("id"),
+                                video_id=ep.get("video_id"),
+                                name=ep.get("name"),
+                                number=ep.get("episode_number"),
+                                duration=ep.get("duration"),
+                            )
+                        )
 
-    
+
     # ------------- FOR GUI -------------
     def getNumberSeason(self) -> int:
         """Get total number of seasons"""

@@ -5,7 +5,6 @@ import threading
 
 from VibraVid.utils.vault.supa import supa_vault
 
-
 logger = logging.getLogger(__name__)
 
 

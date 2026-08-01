@@ -1,35 +1,39 @@
 # 2.03.26
 
-import os
-import re
-import uuid
 import glob
 import json
-import shutil
 import logging
-import threading
+import os
+import re
+import shutil
 import subprocess
+import threading
+import uuid
 from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Optional
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager, os_manager
-from VibraVid.core.ui.tracker import download_tracker, context_tracker
-from VibraVid.core.muxing import join_video, join_audios, join_subtitles, inject_chapters, embed_poster, build_hybrid_output, probe_media_file
-from VibraVid.core.muxing.helper.video import get_media_metadata
+from VibraVid.core.muxing import (
+    build_hybrid_output,
+    embed_poster,
+    inject_chapters,
+    join_audios,
+    join_subtitles,
+    join_video,
+    probe_media_file,
+)
 from VibraVid.core.muxing.helper.audio import audio_ext_for_codec
-from VibraVid.utils.vault_upload.hook import upload_after
-from VibraVid.setup import get_ffmpeg_path
-
+from VibraVid.core.muxing.helper.video import get_media_metadata
 from VibraVid.core.muxing.helper.video_hybrid import download_other_tracks
+from VibraVid.core.ui.tracker import context_tracker, download_tracker
+from VibraVid.setup import get_ffmpeg_path
+from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.hooks import execute_hooks
-
+from VibraVid.utils.vault_upload.hook import upload_after
 
 console = Console()
 logger = logging.getLogger(__name__)
-LAST_DOWNLOADER_ERROR: Optional[str] = None
+LAST_DOWNLOADER_ERROR: str | None = None
 EXTENSION_OUTPUT = config_manager.config.get("PROCESS", "extension")
 MERGE_SUBTITLES = config_manager.config.get_bool("PROCESS", "merge_subtitle")
 MERGE_AUDIO = config_manager.config.get_bool("PROCESS", "merge_audio")
@@ -37,36 +41,42 @@ CLEANUP_TMP = config_manager.config.get_bool("DOWNLOAD", "cleanup_tmp_folder")
 DEBUG_TRACK_JSON = config_manager.config.get_bool("DEFAULT", "debug_track_json")
 
 
-def get_last_downloader_error() -> Optional[str]:
+def get_last_downloader_error() -> str | None:
     return LAST_DOWNLOADER_ERROR
 
 
-_tracks_json_file: Optional[Path] = None
+_written_track_files: list[str] = []
 
 
-def _append_tracks_json(payload: dict) -> None:
-    """Append *payload* to a single timestamped JSON file under .cache/logs."""
-    global _tracks_json_file
+def get_written_track_files() -> list[str]:
+    """Paths of every TRACKS_JSON file written so far this run (see _append_tracks_json)."""
+    return list(_written_track_files)
+
+
+def _append_tracks_json(payload: dict, service: str, media_type: str, title: str) -> None:
+    """Write *payload* to a JSON file under .cache/logs, named ``<service>_<type>_<title>.json``."""
     try:
         log_dir = Path(config_manager.base_path or ".") / ".cache" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
-        if _tracks_json_file is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            _tracks_json_file = log_dir / f"{timestamp}.json"
+
+        parts = [service or "unknown", media_type or "Film", title or payload.get("name") or "output"]
+        safe_name = re.sub(r'[\\/:*?"<>|]+', "_", "_".join(p for p in parts if p))
+        safe_name = re.sub(r"\s+", "_", safe_name).strip("_") or "output"
+
+        track_file = log_dir / f"{safe_name}.json"
 
         entries = []
-        if _tracks_json_file.exists():
+        if track_file.exists():
             try:
-                entries = json.loads(_tracks_json_file.read_text(encoding="utf-8"))
+                entries = json.loads(track_file.read_text(encoding="utf-8"))
                 if not isinstance(entries, list):
                     entries = []
             except Exception:
                 entries = []
 
         entries.append(payload)
-        _tracks_json_file.write_text(
-            json.dumps(entries, indent=4, ensure_ascii=False), encoding="utf-8"
-        )
+        track_file.write_text(json.dumps(entries, indent=4, ensure_ascii=False), encoding="utf-8")
+        _written_track_files.append(str(track_file))
     except Exception as e:
         logger.error(f"Could not write TRACKS_JSON file: {e}")
 
@@ -120,23 +130,23 @@ class BaseDownloader:
         """True if the final file already exists, INCLUDING media-token variants
         like '<name> [1080p].mkv' (the quality suffix is only added after muxing,
         so the plain stripped path may not match an already-downloaded episode)."""
-        
+
         if os.path.exists(self.output_path):
             return True
-        
+
         directory = os.path.dirname(self.output_path) or "."
         if not os.path.isdir(directory):
             return False
-        
+
         pattern = os.path.join(directory, glob.escape(self.filename_base) + f"*.{EXTENSION_OUTPUT}")
         return any(os.path.isfile(p) for p in glob.glob(pattern))
 
     @property
-    def error(self) -> Optional[str]:
+    def error(self) -> str | None:
         return getattr(self, "_error", None)
 
     @error.setter
-    def error(self, value: Optional[str]) -> None:
+    def error(self, value: str | None) -> None:
         self._error = value
         global LAST_DOWNLOADER_ERROR
         try:
@@ -150,7 +160,7 @@ class BaseDownloader:
             return url_or_path
         stripped = url_or_path.strip()
 
-        if re.match(r'^[a-zA-Z][a-zA-Z0-9+\-.]*://', stripped):
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+\-.]*://", stripped):
             return stripped
 
         path = Path(stripped)
@@ -176,7 +186,7 @@ class BaseDownloader:
     def _format_keys(self, keys: list) -> list:
         """Return DRM keys formatted as ``kid:key`` strings."""
         formatted_keys = []
-        for k in (keys or []):
+        for k in keys or []:
             if isinstance(k, (list, tuple)) and len(k) == 2:
                 formatted_keys.append(f"{k[0]}:{k[1]}")
             else:
@@ -184,23 +194,25 @@ class BaseDownloader:
         return formatted_keys
 
     def _build_download_cmd(self, name: str, manifest_url: str, formatted_keys: list) -> str:
-        """Build a ready-to-run ``python manual.py --down`` command that re-downloads this video directly from its manifest + already-extracted keys."""
+        """Build a ready-to-run ``python manual.py --down`` command that re-downloads this video"""
         if not manifest_url:
             return ""
-        
+
         safe_name = re.sub(r'[\\/:*?"<>|]+', "_", (name or "output")).strip() or "output"
-        parts = [f'python manual.py --down "{manifest_url}"']
+        parts = [f"python manual.py --down '{manifest_url}'"]
         for k in formatted_keys:
-            parts.append(f'--key {k}')
-        
-        parts.append(f'-o "{safe_name}"')
+            parts.append(f"--key {k}")
+
+        parts.append(f"-o '{safe_name}'")
         return " ".join(parts)
 
     def track_download_start(self, title: str, media_type: str, site: str) -> None:
         """Fire-and-forget: notify Supabase that a download has started."""
+
         def _run():
             try:
                 from VibraVid.utils.vault.supa import supa_vault
+
                 if supa_vault:
                     title_str = (title or "").strip()
                     media_type_str = (media_type or "Film").strip()
@@ -229,7 +241,7 @@ class BaseDownloader:
             media_type = "TV"
 
         title = context_tracker.title or self.filename_base
-        site  = context_tracker.site_name or getattr(self, "site_name", "") or ""
+        site = context_tracker.site_name or getattr(self, "site_name", "") or ""
 
         # Build the display name: "<title> S<season>_E<episode> <episode name>" for TV.
         name = title
@@ -243,11 +255,10 @@ class BaseDownloader:
             "name": name,
             "manifest": manifest_url,
             "other_tracks": self._build_other_tracks(),
-            "keys": formatted_keys,
             "cmd": self._build_download_cmd(name, manifest_url, formatted_keys),
         }
         if DEBUG_TRACK_JSON:
-            _append_tracks_json(payload)
+            _append_tracks_json(payload, service=site, media_type=media_type, title=title)
         self.track_download_start(title=title, media_type=media_type, site=site)
 
     def _no_media_downloaded(self, status: dict) -> bool:
@@ -259,7 +270,7 @@ class BaseDownloader:
             and not status.get("subtitles")
             and not status.get("external_subtitles")
         )
-    
+
     def _move_to_final_location(self, final_file: str) -> None:
         """
         Move *final_file* to ``self.output_path``.
@@ -279,15 +290,15 @@ class BaseDownloader:
             except Exception as e:
                 console.print(f"[yellow]Warning: Could not move file: {e}")
                 self.output_path = final_file
-    
-    def _merge_files(self, status: dict) -> Optional[str]:
+
+    def _merge_files(self, status: dict) -> str | None:
         """
         Merge downloaded files using FFmpeg.
         Returns the resulting file path, or None on failure.
         """
         video_track = status.get("video")
-        audio_tracks: List[Dict] = list(status.get("audios") or [])
-        subtitle_tracks: List[Dict] = list(status.get("subtitles") or [])
+        audio_tracks: list[dict] = list(status.get("audios") or [])
+        subtitle_tracks: list[dict] = list(status.get("subtitles") or [])
 
         # DASH-specific external tracks
         for ext_audio in status.get("external_audios") or []:
@@ -338,7 +349,7 @@ class BaseDownloader:
 
         for track in other_track_results:
             track_kind = (track.get("kind") or track.get("type") or "").lower()
-            base_kind = track_kind.split(":")[0]   # "video:hdr10" -> "video"
+            base_kind = track_kind.split(":")[0]  # "video:hdr10" -> "video"
             if base_kind == "video":
                 continue
             if base_kind == "audio":
@@ -356,11 +367,7 @@ class BaseDownloader:
                 return self.output_path
             return None
 
-        video_path = (
-            video_track["path"]
-            if isinstance(video_track, dict)
-            else video_track.get("path")
-        )
+        video_path = video_track["path"] if isinstance(video_track, dict) else video_track.get("path")
 
         if not os.path.exists(video_path):
             console.print(f"[red]Video file not found: {video_path}")
@@ -372,7 +379,11 @@ class BaseDownloader:
         if other_track_results or (video_probe or {}).get("dolby_vision"):
             hybrid_file = build_hybrid_output(
                 video_track=video_track if isinstance(video_track, dict) else {"path": video_path},
-                other_videos=[track for track in other_track_results if (track.get("kind") or track.get("type") or "").lower().split(":")[0] == "video"],
+                other_videos=[
+                    track
+                    for track in other_track_results
+                    if (track.get("kind") or track.get("type") or "").lower().split(":")[0] == "video"
+                ],
                 audio_tracks=audio_tracks,
                 subtitle_tracks=subtitle_tracks,
                 output_path=self.output_path,
@@ -383,7 +394,6 @@ class BaseDownloader:
                 # hybrid_file include già audio e subtitle via mkvmerge:
                 # non chiamare join_audios/join_subtitles separatamente
                 return self._embed_poster(self._inject_chapters(hybrid_file))
-
 
         if not audio_tracks and not subtitle_tracks:
             merged_file, result_json = join_video(
@@ -406,9 +416,7 @@ class BaseDownloader:
         subtitle_tracks = self._prepare_subtitle_tracks_for_merge(subtitle_tracks, current_file)
         if subtitle_tracks:
             if MERGE_SUBTITLES:
-                current_file = self._merge_subtitle_tracks(
-                    current_file, subtitle_tracks
-                )
+                current_file = self._merge_subtitle_tracks(current_file, subtitle_tracks)
             else:
                 self._track_subtitles_for_copy(subtitle_tracks)
 
@@ -424,6 +432,7 @@ class BaseDownloader:
     def _embed_poster(self, file_path: str) -> str:
         """Embed this downloader's poster/still image (self.poster_url) as the final muxing step."""
         from VibraVid.services._base.tmdb_artwork import embed_enabled
+
         if not embed_enabled():
             return file_path
 
@@ -440,9 +449,7 @@ class BaseDownloader:
     def _merge_audio_tracks(self, current_file: str, audio_tracks: list) -> str:
         """Merge audio tracks into the video file. Returns the resulting file path (or original on failure)."""
         console.print(f"[cyan]\nMerging [red]{len(audio_tracks)} [cyan]audio track(s)...")
-        audio_output = os.path.join(
-            self.output_dir, f"{self.filename_base}_with_audio.{EXTENSION_OUTPUT}"
-        )
+        audio_output = os.path.join(self.output_dir, f"{self.filename_base}_with_audio.{EXTENSION_OUTPUT}")
         merged_file, _, result_json = join_audios(
             video_path=current_file,
             audio_tracks=audio_tracks,
@@ -456,16 +463,14 @@ class BaseDownloader:
         console.print("[yellow]Audio merge failed, continuing with video only")
         return current_file
 
-    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, current_file: Optional[str] = None) -> list:
+    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, current_file: str | None = None) -> list:
         """Hook for subclasses to materialize subtitle assets right before subtitle merge."""
         return subtitle_tracks
 
     def _merge_subtitle_tracks(self, current_file: str, subtitle_tracks: list) -> str:
         """Merge subtitle tracks into the video file. Returns the resulting file path (or original on failure)."""
         console.print(f"[cyan]\nMerging [red]{len(subtitle_tracks)} [cyan]subtitle track(s)...")
-        sub_output = os.path.join(
-            self.output_dir, f"{self.filename_base}_final.{EXTENSION_OUTPUT}"
-        )
+        sub_output = os.path.join(self.output_dir, f"{self.filename_base}_final.{EXTENSION_OUTPUT}")
         merged_file, result_json = join_subtitles(
             video_path=current_file,
             subtitles_list=subtitle_tracks,
@@ -509,7 +514,7 @@ class BaseDownloader:
         """Move staged subtitle files to final location."""
         if not self.copied_subtitles:
             return
-        
+
         output_dir = os.path.dirname(self.output_path)
         filename_base = os.path.splitext(os.path.basename(self.output_path))[0]
         for sub_info in self.copied_subtitles:
@@ -527,7 +532,7 @@ class BaseDownloader:
         """Move staged audio files to final location."""
         if not self.copied_audios:
             return
-        
+
         output_dir = os.path.dirname(self.output_path)
         filename_base = os.path.splitext(os.path.basename(self.output_path))[0]
         for idx, audio_info in enumerate(self.copied_audios):
@@ -568,19 +573,18 @@ class BaseDownloader:
     def _remux_audio(self, src: str, dst: str) -> None:
         """Remux audio to change container without re-encoding, using FFmpeg. Falls back to raw move on failure."""
         try:
-            proc = subprocess.run([
-                    get_ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
-                    "-i", src,
-                    "-c:a", "copy", 
-                    dst
-                ],
-                capture_output=True, text=True,
+            proc = subprocess.run(
+                [get_ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-i", src, "-c:a", "copy", dst],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
             )
-            
+
             if proc.returncode == 0 and os.path.exists(dst):
                 os.remove(src)
                 return
-            
+
             logger.warning(f"Audio remux failed ({proc.returncode}): {proc.stderr[-200:]}; falling back to raw move")
         except Exception as e:
             logger.warning(f"Audio remux error: {e}; falling back to raw move")
@@ -599,6 +603,7 @@ class BaseDownloader:
             detail = failures[0].get("message", "")
             err = f"Decryption failed - track(s) still encrypted: {labels}"
             logger.error(f"Decryption verification FAILED for {os.path.basename(self.output_path or '')}: {err} ({detail})")
+            
             LAST_DOWNLOADER_ERROR = err
             self.error = err
             return False
@@ -606,7 +611,14 @@ class BaseDownloader:
             logger.warning(f"Output verification skipped due to error: {exc}")
             return True
 
-    _MEDIA_PLACEHOLDERS = ("%(quality)", "%(language)", "%(video_codec)", "%(audio_codec)", "%(audio_flags)", "%(sub_flags)")
+    _MEDIA_PLACEHOLDERS = (
+        "%(quality)",
+        "%(language)",
+        "%(video_codec)",
+        "%(audio_codec)",
+        "%(audio_flags)",
+        "%(sub_flags)",
+    )
 
     @classmethod
     def _strip_media_tokens(cls, path: str) -> str:
@@ -642,14 +654,18 @@ class BaseDownloader:
 
                 # Resolve placeholders on the template's name root
                 new_root = os.path.splitext(template)[0]
-                cur_ext  = os.path.splitext(self.output_path)[1]
+                cur_ext = os.path.splitext(self.output_path)[1]
 
                 for key, val in replacements.items():
                     placeholder = f"%({key})"
                     if val:
                         new_root = new_root.replace(placeholder, str(val))
                     else:
-                        new_root = new_root.replace(f"[{placeholder}]", "").replace(f"({placeholder})", "").replace(placeholder, "")
+                        new_root = (
+                            new_root.replace(f"[{placeholder}]", "")
+                            .replace(f"({placeholder})", "")
+                            .replace(placeholder, "")
+                        )
 
                 new_root = new_root.replace("  ", " ").rstrip(" .")
                 new_path = new_root + cur_ext
@@ -681,7 +697,12 @@ class BaseDownloader:
                 upload_after(self.output_path)
 
         if self.download_id:
-            download_tracker.complete_download(self.download_id, success=verified_ok, path=os.path.abspath(self.output_path), error=None if verified_ok else LAST_DOWNLOADER_ERROR)
+            download_tracker.complete_download(
+                self.download_id,
+                success=verified_ok,
+                path=os.path.abspath(self.output_path),
+                error=None if verified_ok else LAST_DOWNLOADER_ERROR,
+            )
 
         if CLEANUP_TMP:
             shutil.rmtree(self.output_dir, ignore_errors=True)

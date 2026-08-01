@@ -1,34 +1,46 @@
-# 29.01.26
+﻿# 29.01.26
 
-import json
 import base64
+import json
 import logging
 
 from rich.console import Console
 
-from VibraVid.setup import get_info_prd, binary_paths
-from VibraVid.utils.http_client import create_client
 from VibraVid.core.decryptor import KeysManager
-from VibraVid.core.drm.system import normalize_kid, accumulate_content_key
-
+from VibraVid.core.drm.system import accumulate_content_key, normalize_kid
+from VibraVid.setup import binary_paths, get_info_prd
+from VibraVid.utils.http_client import create_client
 
 console = Console()
 logger = logging.getLogger(__name__)
 
 
-def get_playready_keys(pssh_list: list[dict], license_url: str, cdm_device_path: str = None, cdm_remote_api: list[str] = None, headers: dict = None, key: str = None, license_data: dict = None, prefer_remote_cdm: bool = True):
+def get_playready_keys(
+    pssh_list: list[dict],
+    license_url: str,
+    cdm_device_path: str = None,
+    cdm_remote_api: list[str] = None,
+    headers: dict = None,
+    key: str = None,
+    license_data: dict = None,
+    prefer_remote_cdm: bool = True,
+    license_request_fn=None,
+):
     """
     Extract PlayReady CONTENT keys (KID/KEY) from a license.
 
     Args:
-        - pssh_list (list[dict]): List of dicts {'pssh': ..., 'kid': ..., 'type': ...}
-        - license_url (str): PlayReady license URL (may include query params).
-        - cdm_device_path (str): Path to local .prd CDM file. Optional if using remote.
-        - cdm_remote_api (list): Remote CDM API config. Optional if using local device.
-        - headers (dict): HTTP headers for the license request.
-        - key (str): Pre-existing KID:KEY — bypasses CDM entirely.
-        - license_data (dict):    Extra fields merged into the license request body BEFORE the challenge is added.
-        - prefer_remote_cdm (bool): Prefer remote CDM over local. If True and remote config missing, raises error instead of fallback.
+        pssh_list (list[dict]): List of dicts {'pssh': ..., 'kid': ..., 'type': ...}
+        license_url (str): PlayReady license URL (may include query params).
+        cdm_device_path (str): Path to local .prd CDM file. Optional if using remote.
+        cdm_remote_api (list): Remote CDM API config. Optional if using local device.
+        headers (dict): HTTP headers for the license request.
+        key (str): Pre-existing KID:KEY — bypasses CDM entirely.
+        license_data (dict):    Extra fields merged into the license request body BEFORE the challenge is added.
+        prefer_remote_cdm (bool): Prefer remote CDM over local. If True and remote config missing, raises error instead of fallback.
+        license_request_fn (Callable[[bytes, dict], str]): Optional callback that takes the raw
+          challenge bytes and the current pssh_list item ({'pssh', 'kid', 'type'}) being licensed,
+          and returns the decoded license payload (XML string)
 
     Returns:
         KeysManager | None
@@ -39,27 +51,27 @@ def get_playready_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
 
     # Check if we have either local or remote CDM
     cdm_remote_api = cdm_remote_api if cdm_remote_api else None
-    
+
     if prefer_remote_cdm and cdm_remote_api is None:
         logger.error("PlayReady: prefer_remote_cdm=true but no remote CDM config found")
         console.print(
             "[red]Error: prefer_remote_cdm=true but no remote CDM config found. Database lookup will continue."
             f"\n[yellow]If no database key exists, place device.prd in:[/] [white]{binary_paths.get_binary_directory()}[/white]"
         )
-        
+
         # Return None here to skip CDM extraction but allow database lookup in manager._resolve_keys
         return None
-    
+
     if not prefer_remote_cdm and cdm_device_path is None:
         logger.error("PlayReady: prefer_remote_cdm=false but no local CDM device found")
         console.print(
             "[red]Error: prefer_remote_cdm=false but no local CDM device found. Database lookup will continue."
             f"\n[yellow]If no database key exists, place device.prd in:[/] [white]{binary_paths.get_binary_directory()}[/white]"
         )
-        
+
         # Return None here to skip CDM extraction but allow database lookup in manager._resolve_keys
         return None
-    
+
     if cdm_device_path is None and cdm_remote_api is None:
         logger.error("Must provide either cdm_device_path or cdm_remote_api")
         console.print(
@@ -68,10 +80,20 @@ def get_playready_keys(pssh_list: list[dict], license_url: str, cdm_device_path:
         )
         return None
 
-    return _get_playready_keys_local_cdm(pssh_list, license_url, cdm_device_path, cdm_remote_api, headers, license_data)
+    return _get_playready_keys_local_cdm(
+        pssh_list, license_url, cdm_device_path, cdm_remote_api, headers, license_data, license_request_fn
+    )
 
 
-def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_device_path: str, cdm_remote_api: list[str], headers: dict = None, license_data: dict = None):
+def _get_playready_keys_local_cdm(
+    pssh_list: list[dict],
+    license_url: str,
+    cdm_device_path: str,
+    cdm_remote_api: list[str],
+    headers: dict = None,
+    license_data: dict = None,
+    license_request_fn=None,
+):
     """Extract PlayReady keys using local or remote CDM device."""
     from pyplayready.cdm import Cdm
     from pyplayready.device import Device
@@ -124,14 +146,38 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
 
             # Create license challenge
             challenge = cdm.get_license_challenge(session_id, pssh_obj.wrm_headers[0])
-            challenge_bytes = (challenge if isinstance(challenge, bytes) else challenge.encode("utf-8"))
+            challenge_bytes = challenge if isinstance(challenge, bytes) else challenge.encode("utf-8")
+
+            # Custom license request (service-supplied): bypass the built-in HTTP POST.
+            if license_request_fn is not None:
+                try:
+                    license_payload = license_request_fn(challenge_bytes, item)
+                except Exception as e:
+                    logger.error(f"Custom license request error for {kid_info}: {e}")
+                    console.print(f"[red]License request error for PSSH {pssh[:30]}...: {e}")
+                    continue
+
+                if not license_payload:
+                    console.print(f"[red]License data is empty for PSSH {pssh[:30]}...]")
+                    continue
+
+                try:
+                    cdm.parse_license(session_id, license_payload)
+                    for key_obj in cdm.get_keys(session_id):
+                        accumulate_content_key(all_content_keys, extracted_kids, key_obj.key_id.hex, key_obj.key.hex())
+                except Exception as e:
+                    logger.error(f"Error extracting keys for {kid_info}: {e}")
+                    console.print(f"[red]Error extracting keys for PSSH {pssh[:30]}...: {e}")
+                continue
 
             # Build request body and headers
             req_headers = (headers or {}).copy()
 
             if license_data:
                 encoded_challenge = base64.b64encode(challenge_bytes).decode("utf-8")
-                body = json.dumps({**license_data, "licenseChallenge": encoded_challenge}, separators=(",", ":")).encode("utf-8")
+                body = json.dumps(
+                    {**license_data, "licenseChallenge": encoded_challenge}, separators=(",", ":")
+                ).encode("utf-8")
                 req_headers.pop("Content-Type", None)
                 req_headers.pop("content-type", None)
                 req_headers["Content-Type"] = "text/plain"
@@ -154,7 +200,7 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
 
             if response.status_code != 200:
                 logger.error(f"License error for {kid_info}: HTTP {response.status_code}")
-                console.print(f"[red]License error for pssh {pssh[15]}...: {response.status_code}\nResponse: {response.text[:100]}\nUrl: {license_url}\n")
+                console.print(f"[red]Status error for {pssh}: {response.status_code}\nResponse text: {response.text}\nLicense url: {license_url}\nHeaders: {req_headers}\n")
                 continue
 
             # Parse license response
@@ -170,7 +216,7 @@ def _get_playready_keys_local_cdm(pssh_list: list[dict], license_url: str, cdm_d
                 except Exception as e:
                     console.print(f"[red]Failed to parse license response: {e}\nRaw: {response.text[:200]}")
                     continue
-            
+
             # Extract CONTENT keys
             try:
                 cdm.parse_license(session_id, license_payload)

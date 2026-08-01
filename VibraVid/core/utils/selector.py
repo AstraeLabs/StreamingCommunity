@@ -1,15 +1,15 @@
 # 13.03.26
 
-import re
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
 
-from VibraVid.core.utils.codec import get_codec_token, DV_CODEC_PREFIXES
-
+from VibraVid.core.utils.codec import DV_CODEC_PREFIXES, get_codec_token
 
 logger = logging.getLogger(__name__)
+
+_RES_TOKEN_RE = re.compile(r"^(\d+)[pP]?$")
 
 
 def _height(s) -> int:
@@ -74,18 +74,20 @@ class FilterSpec:
     "bitrate=1000-8000:for=best"            bitrate range in kbps, best within range (video).
     "bitrate=-8000:for=best"                bitrate cap (no lower bound), best within range (video).
     """
+
     drop: bool = False
     select_all: bool = False
     select_best: bool = True
 
-    res: Optional[str] = None
-    langs: Optional[str] = None
-    codec: Optional[str] = None
-    id: Optional[str] = None
-    bitrate_min: Optional[int] = None
-    bitrate_max: Optional[int] = None
+    res: str | None = None
+    langs: str | None = None
+    codec: str | None = None
+    id: str | None = None
+    bitrate_min: int | None = None
+    bitrate_max: int | None = None
     fallback_to_best: bool = False
-    select_default: Optional[bool] = None  # None=no filter, True=only default, False=only non-default
+    explicit_fallback: bool = False
+    select_default: bool | None = None  # None=no filter, True=only default, False=only non-default
     extra: dict = field(default_factory=dict)
 
     @classmethod
@@ -125,14 +127,15 @@ class FilterSpec:
             codec_parts = codec_s.split("|", 1)
             codec_part = codec_parts[0].strip()
             fallback_part = codec_parts[1].strip().lower()
-            
+
             if fallback_part in ("best", "worst"):
+                spec.explicit_fallback = True
                 if fallback_part == "best":
                     spec.fallback_to_best = True
                 elif fallback_part == "worst":
                     spec.fallback_to_best = False
                     spec.select_best = False
-                
+
                 codec_s = codec_part
 
         if codec_s:
@@ -150,6 +153,7 @@ class FilterSpec:
 
             # Check if this is a fallback strategy pattern (second part is "best" or "worst")
             if fallback_part in ("best", "worst"):
+                spec.explicit_fallback = True
                 if fallback_part == "best":
                     spec.fallback_to_best = True
                 elif fallback_part == "worst":
@@ -157,18 +161,20 @@ class FilterSpec:
                     spec.select_best = False
 
                 # Now parse the constraint part (first part)
-                if re.match(r"^\d+$", constraint_part):
-                    # Video height constraint: "1080|best"
-                    spec.res = constraint_part
+                res_m = _RES_TOKEN_RE.match(constraint_part)
+                if res_m:
+                    # Video height constraint: "1080|best" (also accepts "1080p|best")
+                    spec.res = res_m.group(1)
                     return spec
                 else:
                     # Language/audio constraint: "ita|best"
-                    spec.langs = "|".join(t.strip() for t in re.split(r'[|\s]+', constraint_part) if t.strip())
+                    spec.langs = "|".join(t.strip() for t in re.split(r"[|\s]+", constraint_part) if t.strip())
                     return spec
 
         # Original logic for resolution constraint
-        if re.match(r"^\d+$", primary):
-            spec.res = primary
+        res_m = _RES_TOKEN_RE.match(primary)
+        if res_m:
+            spec.res = res_m.group(1)
             return spec
 
         # Original logic for codec-only patterns
@@ -180,7 +186,7 @@ class FilterSpec:
 
         # Language/subtitle tokens (including patterns like "ita|it", "ita it")
         raw_langs = primary
-        spec.langs = "|".join(t.strip() for t in re.split(r'[|\s]+', raw_langs) if t.strip())
+        spec.langs = "|".join(t.strip() for t in re.split(r"[|\s]+", raw_langs) if t.strip())
         return spec
 
     def _parse_native(self, r: str, stream_type: str) -> None:
@@ -211,6 +217,9 @@ class FilterSpec:
             self.select_best = True
         elif for_val == "worst":
             self.select_best = False
+            self.explicit_fallback = True
+        elif for_val == "best":
+            self.explicit_fallback = True
 
     def _parse_bitrate_range(self, v: str) -> None:
         """Parse a bitrate spec in kbps: 'MIN-MAX', '-MAX' (cap only), 'MIN-' (floor
@@ -235,6 +244,7 @@ class FilterSpec:
 # Selection result
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class SelectionResult:
     """
@@ -246,12 +256,13 @@ class SelectionResult:
     matched_ids       Pipe-separated real manifest IDs (synthetic vid: excluded).
     extra             Passthrough key-values for the formatter (bwMin, bwMax, ...).
     """
+
     streams: list = field(default_factory=list)
 
-    matched_res: Optional[str] = None
-    matched_langs: Optional[str] = None
-    matched_codec: Optional[str] = None
-    matched_ids: Optional[str] = None
+    matched_res: str | None = None
+    matched_langs: str | None = None
+    matched_codec: str | None = None
+    matched_ids: str | None = None
     extra: dict = field(default_factory=dict)
 
     drop: bool = False
@@ -277,12 +288,12 @@ class StreamSelectorFormatter(BaseFormatter):
     """Converts a SelectionResult to a stream-selection argument string."""
 
     @staticmethod
-    def _dedup_real_ids(matched_ids: Optional[str]) -> Optional[str]:
+    def _dedup_real_ids(matched_ids: str | None) -> str | None:
         """Strip synthetic 'vid:...' IDs and deduplicate."""
         if not matched_ids:
             return None
         seen: set = set()
-        result: List[str] = []
+        result: list[str] = []
         for i in matched_ids.split("|"):
             i = i.strip()
             if i and not i.startswith("vid:") and i not in seen:
@@ -291,7 +302,7 @@ class StreamSelectorFormatter(BaseFormatter):
         return "|".join(result) if result else None
 
     @staticmethod
-    def _bw_range(stream) -> Optional[str]:
+    def _bw_range(stream) -> str | None:
         """Return 'bwMin=N-10:bwMax=N+10' from stream.bitrate (kbps), or None."""
         bw = _bitrate(stream)
         if not bw:
@@ -300,7 +311,7 @@ class StreamSelectorFormatter(BaseFormatter):
         return f"bwMin={kbps - 10}:bwMax={kbps + 10}"
 
     @staticmethod
-    def _stream_codecs(stream) -> Optional[str]:
+    def _stream_codecs(stream) -> str | None:
         """Return raw codecs string from stream, or None.
         For video streams, extract only the first codec (video codec, not audio).
         """
@@ -318,7 +329,9 @@ class StreamSelectorFormatter(BaseFormatter):
         if result.drop:
             return "false"
 
-        has_filters = bool(result.matched_ids or result.matched_res or result.matched_langs or result.matched_codec or result.extra)
+        has_filters = bool(
+            result.matched_ids or result.matched_res or result.matched_langs or result.matched_codec or result.extra
+        )
         if result.select_all and not has_filters:
             return "all"
         if not has_filters:
@@ -331,7 +344,7 @@ class StreamSelectorFormatter(BaseFormatter):
 
         return self._format_single(result, real_ids)
 
-    def _format_multi(self, result: SelectionResult, real_ids: Optional[str]) -> str:
+    def _format_multi(self, result: SelectionResult, real_ids: str | None) -> str:
         """
         Multiple selected streams.
 
@@ -339,7 +352,7 @@ class StreamSelectorFormatter(BaseFormatter):
           • Has real IDs  -> id='\bA\b|\bB\b'  (no for=, downloader picks all matching)
           • No real IDs   -> lang='ita|it':codecs=...:for=allN
         """
-        parts: List[str] = []
+        parts: list[str] = []
 
         if real_ids and not result.matched_res:
             id_tokens = [i.strip() for i in real_ids.split("|") if i.strip()]
@@ -355,7 +368,7 @@ class StreamSelectorFormatter(BaseFormatter):
         if result.matched_langs:
             raw_tokens = [t.strip().lower() for t in result.matched_langs.split("|") if t.strip()]
             seen_t: set = set()
-            unique: List[str] = []
+            unique: list[str] = []
             for t in raw_tokens:
                 if t not in seen_t:
                     seen_t.add(t)
@@ -369,11 +382,11 @@ class StreamSelectorFormatter(BaseFormatter):
         parts.append(f"for=all{n}")
         return ":".join(parts)
 
-    def _format_single(self, result: SelectionResult, real_ids: Optional[str]) -> str:
+    def _format_single(self, result: SelectionResult, real_ids: str | None) -> str:
         """
         Single selected stream (video or audio/subtitle).
         """
-        parts: List[str] = []
+        parts: list[str] = []
         stream = result.streams[0] if result.streams else None
 
         if real_ids and not result.select_all:
@@ -405,7 +418,7 @@ class StreamSelectorFormatter(BaseFormatter):
         if result.matched_langs:
             raw_tokens = [t.strip().lower() for t in result.matched_langs.split("|") if t.strip()]
             seen_t: set = set()
-            unique: List[str] = []
+            unique: list[str] = []
             for t in raw_tokens:
                 if t not in seen_t:
                     seen_t.add(t)
@@ -436,6 +449,23 @@ class StreamSelectorFormatter(BaseFormatter):
         return "best" if result.select_best else "worst"
 
 
+def _nearest_by_res(streams: list, res: str):
+    """Stream whose height (or width, for portrait sources) is closest to *res*."""
+    try:
+        target = int(res)
+    except (ValueError, TypeError):
+        return None
+    if not streams:
+        return None
+
+    def _distance(s):
+        h = _height(s)
+        w = getattr(s, "width", 0) or 0
+        return min(abs(h - target), abs(w - target)) if (h or w) else abs(target)
+
+    return min(streams, key=_distance)
+
+
 def _matches_res(s, res: str) -> bool:
     try:
         target = int(res)
@@ -446,7 +476,7 @@ def _matches_res(s, res: str) -> bool:
     return h == target or w == target
 
 
-def _matches_bitrate(s, bmin: Optional[int], bmax: Optional[int]) -> bool:
+def _matches_bitrate(s, bmin: int | None, bmax: int | None) -> bool:
     """bmin/bmax are kbps; stream.bitrate is bps."""
     kbps = _bitrate(s) // 1000
     if not kbps:
@@ -479,7 +509,7 @@ def _matches_lang(s, langs: str) -> bool:
       ISO 639-1 + region tags (en-US, it-IT, fr-FR ...) by trying the
       two-letter prefix.
     """
-    tokens = [t.strip().lower() for t in re.split(r'[|\s]+', langs) if t.strip()]
+    tokens = [t.strip().lower() for t in re.split(r"[|\s]+", langs) if t.strip()]
     sl = _language(s)
     rl = _resolved_language(s)
     for t in tokens:
@@ -487,7 +517,7 @@ def _matches_lang(s, langs: str) -> bool:
             return True
         if rl and (t == rl or t in rl):
             return True
-        
+
         if len(t) == 3 and t.isalpha():
             t2 = t[:2]
             if t2 == sl or t2 in sl:
@@ -507,10 +537,10 @@ def _matches_id(s, id_pattern: str) -> bool:
         return sid == id_pattern
 
 
-def _collect_ids(streams: list) -> Optional[str]:
+def _collect_ids(streams: list) -> str | None:
     """Deduplicated real manifest IDs (synthetic vid: excluded)."""
     seen: set = set()
-    ids: List[str] = []
+    ids: list[str] = []
     for s in streams:
         sid = _stream_id(s)
         if sid and sid not in seen:
@@ -567,12 +597,12 @@ def _canon_lang_token(token: str) -> str:
     return base
 
 
-def _parse_subtitle_lang_requests(langs: str) -> List[Tuple[str, set]]:
+def _parse_subtitle_lang_requests(langs: str) -> list[tuple[str, set]]:
     """Parse subtitle language requests into a list of (base_lang, flags) tuples."""
-    requests: List[Tuple[str, set]] = []
+    requests: list[tuple[str, set]] = []
     seen: set = set()
 
-    for raw in [t.strip().lower() for t in re.split(r'[|\s]+', langs or "") if t.strip()]:
+    for raw in [t.strip().lower() for t in re.split(r"[|\s]+", langs or "") if t.strip()]:
         parts = [p for p in raw.split("_") if p]
         if not parts:
             continue
@@ -608,10 +638,10 @@ def _subtitle_matches_request(s, base: str, req_flags: set) -> bool:
     return req_flags.issubset(sflags)
 
 
-def _subtitle_variant_key(s) -> Tuple[str, ...]:
+def _subtitle_variant_key(s) -> tuple[str, ...]:
     """Variant bucket used for plain language requests (no explicit flags)."""
     flags = _subtitle_flags(s)
-    ordered: List[str] = []
+    ordered: list[str] = []
     for f in ("forced", "cc", "sdh"):
         if f in flags:
             ordered.append(f)
@@ -621,19 +651,19 @@ def _subtitle_variant_key(s) -> Tuple[str, ...]:
 class StreamSelector:
     def __init__(self, video_filter: str, audio_filter: str, subtitle_filter: str, formatter: BaseFormatter = None):
         raw_vf = (video_filter or "best").strip()
-        m = re.search(r'&dv(?:=([^&]*))?', raw_vf, re.IGNORECASE)   # select_video in config.json
+        m = re.search(r"&dv(?:=([^&]*))?", raw_vf, re.IGNORECASE)  # select_video in config.json
         if m:
-            self._dv_quality: Optional[str] = (m.group(1) or "worst").strip() or "worst"
-            raw_vf = (raw_vf[:m.start()] + raw_vf[m.end():]).strip()
+            self._dv_quality: str | None = (m.group(1) or "worst").strip() or "worst"
+            raw_vf = (raw_vf[: m.start()] + raw_vf[m.end() :]).strip()
         else:
             self._dv_quality = None
-        
+
         self._vf = raw_vf
         self._af = (audio_filter or "best").strip()
         self._sf = (subtitle_filter or "all").strip()
         self._formatter = formatter or StreamSelectorFormatter()
 
-    def apply(self, streams: list) -> Tuple[str, str, str]:
+    def apply(self, streams: list) -> tuple[str, str, str]:
         """Mark stream.selected and return (sv, sa, ss) formatter strings."""
         pv = FilterSpec.parse(self._vf, "video")
         pa = FilterSpec.parse(self._af, "audio")
@@ -660,7 +690,7 @@ class StreamSelector:
             return selected
         if not selected:
             return selected
-        
+
         filtered = [s for s in selected if bool(getattr(s, "default", False)) == spec.select_default]
         if filtered:
             logger.info(f"StreamSelector: applied default filter (select_default={spec.select_default}) -> {len(filtered)}/{len(selected)} streams")
@@ -741,11 +771,16 @@ class StreamSelector:
                 return self._mark_one_video(pool, pick_exact, result, spec.res)
             logger.info(f"StreamSelector video: res={spec.res} — no match, falling back")
 
-        if had_constraints:
+        if spec.res and not spec.explicit_fallback:
+            s = _nearest_by_res(videos, spec.res)
+            if s:
+                logger.info(f"StreamSelector video: res={spec.res} — no exact match, using nearest available ({_height(s)}p)")
+        elif had_constraints:
             result.select_best = spec.fallback_to_best
             s = pick_fallback(videos)
         else:
             s = pick_exact(videos)
+
         if s:
             s.selected = True
             result.streams = [s]
@@ -771,7 +806,13 @@ class StreamSelector:
                 logger.info(f"StreamSelector audio: bitrate=[{spec.bitrate_min},{spec.bitrate_max}] — no match, ignoring range")
 
         # Handle explicit "default" or "non-default" filter
-        if spec.select_default is not None and not spec.langs and not spec.codec and not spec.id and not spec.select_all:
+        if (
+            spec.select_default is not None
+            and not spec.langs
+            and not spec.codec
+            and not spec.id
+            and not spec.select_all
+        ):
             filtered = [s for s in audios if bool(getattr(s, "default", False)) == spec.select_default]
             if filtered:
                 self._mark_best_per_lang(filtered, spec.select_best)
@@ -823,8 +864,11 @@ class StreamSelector:
             if pool:
                 if spec.langs:
                     logger.info(f"StreamSelector audio: lang={spec.langs!r} not found with codec={spec.codec}")
+
                 # Use fallback strategy when falling back to codec-only selection
-                use_best_per_lang = spec.select_best if not (spec.langs and not spec.fallback_to_best) else spec.fallback_to_best
+                use_best_per_lang = (
+                    spec.select_best if not (spec.langs and not spec.fallback_to_best) else spec.fallback_to_best
+                )
                 self._mark_best_per_lang(pool, use_best_per_lang)
                 selected = [s for s in pool if s.selected]
                 result.streams = self._apply_default_filter(selected, spec)
@@ -864,7 +908,12 @@ class StreamSelector:
 
     def _select_subtitle(self, streams: list, spec: FilterSpec) -> SelectionResult:
         result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
-        subs = [s for s in streams if getattr(s, "type", "") == "subtitle" and (getattr(s, "playlist_url", None) or getattr(s, "segments", None))]
+        subs = [
+            s
+            for s in streams
+            if getattr(s, "type", "") == "subtitle"
+            and (getattr(s, "playlist_url", None) or getattr(s, "segments", None))
+        ]
         logger.debug(f"Subtitle available: {[f'{_language(s)}({_resolved_language(s)})' for s in subs]} | filter: id={spec.id} lang={spec.langs} all={spec.select_all} drop={spec.drop} default={spec.select_default}")
 
         if spec.drop or not subs:
@@ -906,7 +955,7 @@ class StreamSelector:
 
         if spec.langs:
             requests = _parse_subtitle_lang_requests(spec.langs)
-            selected: List = []
+            selected: list = []
             used_ids: set = set()
 
             for base, req_flags in requests:
@@ -947,7 +996,7 @@ class StreamSelector:
                 result.matched_ids = _collect_ids(result.streams)
                 result.select_all = len(result.streams) > 1
                 return result
-            
+
             logger.info(f"StreamSelector subtitle: lang={spec.langs!r} — no match, dropping")
             result.drop = True
             return result
@@ -961,7 +1010,9 @@ class StreamSelector:
     # ── Internal helpers ───────────────────────────────────────────────────────
 
     @staticmethod
-    def _mark_one_video(pool: list, pick_fn, result: SelectionResult, res: Optional[str] = None, codec: Optional[str] = None) -> SelectionResult:
+    def _mark_one_video(
+        pool: list, pick_fn, result: SelectionResult, res: str | None = None, codec: str | None = None
+    ) -> SelectionResult:
         """Pick one video stream and populate result."""
         s = pick_fn(pool)
         if s:
@@ -996,6 +1047,7 @@ class StreamSelector:
 
     def _mark_dv_companion(self, video_streams: list, quality: str) -> None:
         """Find the DV companion stream and mark it with dv_companion=True (not selected)."""
+
         def _is_dv(s) -> bool:
             codecs = (getattr(s, "codecs", "") or "").lower()
             if any(codecs.startswith(p) for p in DV_CODEC_PREFIXES):
@@ -1044,11 +1096,12 @@ class StreamSelector:
         return result
 
     @staticmethod
-    def extract_order_from_filter(filter_string: str) -> List[str]:
+    def extract_order_from_filter(filter_string: str) -> list[str]:
         spec = FilterSpec.parse(filter_string or "", "audio")
         if spec.langs:
             return [v.strip() for v in spec.langs.split("|") if v.strip()]
         return []
+
 
 def _best(streams: list):
     return max(streams, key=_bitrate) if streams else None

@@ -1,8 +1,7 @@
 # 01.04.26
 
-import re
 import logging
-from typing import Optional
+import re
 
 from ._models import extract_widevine_kid
 
@@ -63,7 +62,7 @@ class KeysManager:
 
         if isinstance(keys, (list, tuple)):
             # A bare 2-element pair of plain values (no ':' in the first) is one (kid, key).
-            if (len(keys) == 2 and all(isinstance(v, str) for v in keys) and ":" not in keys[0]):
+            if len(keys) == 2 and all(isinstance(v, str) for v in keys) and ":" not in keys[0]:
                 yield (keys[0], keys[1])
             else:
                 for item in keys:
@@ -74,13 +73,13 @@ class KeysManager:
             s = keys.strip()
             if not s:
                 return
-            
+
             # Fast, robust path for standard 32-hex pairs: tolerant of any/no separator.
             hex_pairs = cls._HEX_PAIR_RE.findall(s)
             if hex_pairs:
                 yield from hex_pairs
                 return
-            
+
             # Generic path: split on separators, then on the first ':' of each token.
             for token in cls._SPLIT_RE.split(s):
                 if not token:
@@ -99,12 +98,14 @@ class KeysManager:
         return list(cls(keys))
 
     @staticmethod
-    def is_zero_kid(kid: Optional[str]) -> bool:
+    def is_zero_kid(kid: str | None) -> bool:
         """Return True when *kid* is all-zero hex (fixed-key stream)."""
         return bool(kid and kid.lower() == "0" * len(kid))
 
     @classmethod
-    def resolve_placeholder_kid(cls, detected_kid: Optional[str], normalized_keys: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    def resolve_placeholder_kid(
+        cls, detected_kid: str | None, normalized_keys: list[tuple[str, str]]
+    ) -> list[tuple[str, str]]:
         """A single key supplied with the "1" no-KID placeholder should be replaced with the detected KID, if available and non-zero."""
         if len(normalized_keys) != 1 or normalized_keys[0][0] != "1":
             return normalized_keys
@@ -113,13 +114,10 @@ class KeysManager:
         return [(detected_kid.lower(), normalized_keys[0][1])]
 
     @classmethod
-    def resolve_fixed_key(cls, encrypted_path: str, detected_kid: Optional[str], normalized_keys: list[tuple[str, str]]) -> list[tuple[str, str]]:
-        """
-        For fixed-key streams (all-zero KID) with multiple candidates, narrow to the
-        correct key by extracting the real KID from the Widevine PSSH.
-
-        Returns an empty list when the real KID cannot be determined or none of the candidates match it
-        """
+    def resolve_fixed_key(
+        cls, encrypted_path: str, detected_kid: str | None, normalized_keys: list[tuple[str, str]]
+    ) -> list[tuple[str, str]]:
+        """For fixed-key streams (all-zero KID) with multiple candidates, narrow to the correct key by extracting the real KID from the Widevine PSSH."""
         if not cls.is_zero_kid(detected_kid) or len(normalized_keys) <= 1:
             return normalized_keys
 
@@ -138,12 +136,12 @@ class KeysManager:
 
     def __len__(self) -> int:
         return len(self._keys)
-    
+
     def __iter__(self):
         return iter(self._keys)
-    
+
     def __getitem__(self, index):
         return self._keys[index]
-    
+
     def __bool__(self) -> bool:
         return len(self._keys) > 0

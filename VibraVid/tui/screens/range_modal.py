@@ -2,7 +2,6 @@
 
 """Modal dialog for entering episode range expressions (e.g. 1-10, 15, odd, even)."""
 
-from typing import Optional
 
 from textual import on
 from textual.app import ComposeResult
@@ -13,7 +12,7 @@ from textual.widgets import Button, Input, Static
 from VibraVid.tui.i18n import t
 
 
-class RangeSelectModal(ModalScreen[Optional[str]]):
+class RangeSelectModal(ModalScreen[str | None]):
     """Modal dialog to enter episode range expression."""
 
     def compose(self) -> ComposeResult:

@@ -1,27 +1,34 @@
-# 19.06.24
+﻿# 19.06.24
 
-import sys
 import logging
 import re as _re
-from typing import List
+import sys
 
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.utils import config_manager, os_manager
 from VibraVid.provider.tmdb import tmdb_client
+from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.console import TVShowManager
-
 
 msg = Prompt()
 console = Console()
 logger = logging.getLogger(__name__)
-MOVIE_FORMAT = config_manager.config.get('OUTPUT', 'movie_format')
-EPISODE_FORMAT = config_manager.config.get('OUTPUT', 'episode_format')
-SONG_FORMAT = config_manager.config.get('OUTPUT', 'song_format', default=None)
-_MEDIA_TOKENS = {'quality', 'language', 'video_codec', 'audio_codec'}
-_TMDB_TOKENS = ('%(tmdb_id)', '%(imdb_id)', '%(original_title)', '%(original_language)', '%(tmdb_title)', '%(tmdb_episode_title)', '%(tmdb_season_name)', '%(tmdb_season_number')
-_DUB_TAG_RE = _re.compile(r'\s*\((?:ita|sub|sub\s*ita|dub|cr)\)\s*$', _re.IGNORECASE)
+MOVIE_FORMAT = config_manager.config.get("OUTPUT", "movie_format")
+EPISODE_FORMAT = config_manager.config.get("OUTPUT", "episode_format")
+SONG_FORMAT = config_manager.config.get("OUTPUT", "song_format", default=None)
+_MEDIA_TOKENS = {"quality", "language", "video_codec", "audio_codec"}
+_TMDB_TOKENS = (
+    "%(tmdb_id)",
+    "%(imdb_id)",
+    "%(original_title)",
+    "%(original_language)",
+    "%(tmdb_title)",
+    "%(tmdb_episode_title)",
+    "%(tmdb_season_name)",
+    "%(tmdb_season_number",
+)
+_DUB_TAG_RE = _re.compile(r"\s*\((?:ita|sub|sub\s*ita|dub|cr)\)\s*$", _re.IGNORECASE)
 
 
 def _apply_format_token(token: str, value: int) -> str:
@@ -40,9 +47,9 @@ def _apply_format_token(token: str, value: int) -> str:
     Returns:
         str: The formatted number string.
     """
-    if token == 'd':
+    if token == "d":
         return str(value)
-    if token.endswith('d') and token[:-1].isdigit():
+    if token.endswith("d") and token[:-1].isdigit():
         return str(value).zfill(int(token[:-1]))
     return str(value).zfill(2)
 
@@ -66,6 +73,7 @@ def _replace_format_key(fmt_string: str, key: str, value) -> str:
     Returns:
         str: The format string with all occurrences of the key replaced.
     """
+
     def replacer(match):
         token = match.group(1)
         try:
@@ -74,29 +82,31 @@ def _replace_format_key(fmt_string: str, key: str, value) -> str:
         except (ValueError, TypeError):
             return str(value)
 
-    pattern = _re.compile(r'%\(' + _re.escape(key) + r':([^)]+)\)')
+    pattern = _re.compile(r"%\(" + _re.escape(key) + r":([^)]+)\)")
     return pattern.sub(replacer, fmt_string)
 
 
-def _resolve_tmdb_tokens(fmt: str, title: str, year, media_type: str, season_number: int = None, episode_number: int = None) -> str:
+def _resolve_tmdb_tokens(
+    fmt: str, title: str, year, media_type: str, season_number: int = None, episode_number: int = None
+) -> str:
     """Resolve TMDB-backed tokens (%(tmdb_id), %(imdb_id), %(original_title), %(original_language), %(tmdb_title), %(tmdb_episode_title)) when present in the format string."""
     if not title or not any(tok in fmt for tok in _TMDB_TOKENS):
         return fmt
 
     try:
-        lookup_title = _DUB_TAG_RE.sub('', title)
+        lookup_title = _DUB_TAG_RE.sub("", title)
         slug = tmdb_client._slugify(lookup_title)
         year_str = None
         if year is not None:
-            y = str(year).split('-')[0].strip()
+            y = str(year).split("-")[0].strip()
             year_str = y if (y.isdigit() and len(y) == 4) else None
 
         info = tmdb_client.get_type_and_id_by_slug_year(slug, year_str, media_type)
-        if not info or not info.get('id'):
+        if not info or not info.get("id"):
             return fmt
 
-        tmdb_id = info['id']
-        resolved_type = info.get('type', media_type)
+        tmdb_id = info["id"]
+        resolved_type = info.get("type", media_type)
 
         if "%(tmdb_id)" in fmt:
             fmt = fmt.replace("%(tmdb_id)", str(tmdb_id))
@@ -115,20 +125,32 @@ def _resolve_tmdb_tokens(fmt: str, title: str, year, media_type: str, season_num
             original_title = tmdb_client.get_original_title(tmdb_id, resolved_type)
             if original_title:
                 fmt = fmt.replace("%(original_title)", os_manager.get_sanitize_file(original_title))
-                
+
         if "%(original_language)" in fmt:
             original_language = tmdb_client.get_original_language(tmdb_id, resolved_type)
             if original_language:
                 fmt = fmt.replace("%(original_language)", str(original_language))
 
-        if "%(tmdb_episode_title)" in fmt and resolved_type == "tv" and season_number is not None and episode_number is not None:
-            real_season, real_episode = tmdb_client.resolve_actual_season_episode(tmdb_id, season_number, episode_number)
+        if (
+            "%(tmdb_episode_title)" in fmt
+            and resolved_type == "tv"
+            and season_number is not None
+            and episode_number is not None
+        ):
+            real_season, real_episode = tmdb_client.resolve_actual_season_episode(
+                tmdb_id, season_number, episode_number
+            )
             tmdb_episode_title = tmdb_client.get_episode_title(tmdb_id, real_season, real_episode)
             if tmdb_episode_title:
                 fmt = fmt.replace("%(tmdb_episode_title)", os_manager.get_sanitize_file(tmdb_episode_title))
 
         # Only mapped when explicitly requested — avoids extra TMDB calls for everyone else.
-        if ("%(tmdb_season_name)" in fmt or "%(tmdb_season_number" in fmt) and resolved_type == "tv" and season_number is not None and episode_number is not None:
+        if (
+            ("%(tmdb_season_name)" in fmt or "%(tmdb_season_number" in fmt)
+            and resolved_type == "tv"
+            and season_number is not None
+            and episode_number is not None
+        ):
             real_season, _ = tmdb_client.resolve_actual_season_episode(tmdb_id, season_number, episode_number)
 
             if "%(tmdb_season_name)" in fmt:
@@ -138,7 +160,7 @@ def _resolve_tmdb_tokens(fmt: str, title: str, year, media_type: str, season_num
 
             if "%(tmdb_season_number" in fmt:
                 fmt = fmt.replace("%(tmdb_season_number)", str(real_season))
-                fmt = _replace_format_key(fmt, 'tmdb_season_number', real_season)
+                fmt = _replace_format_key(fmt, "tmdb_season_number", real_season)
 
     except Exception as e:
         logger.warning(f"TMDB token resolution failed for '{title}': {e}")
@@ -155,25 +177,26 @@ def _strip_unknown_tokens(fmt: str) -> str:
 
     Mirrors the cleanup already applied to track_number in map_song_path.
     """
+
     def replacer(match):
-        key = match.group('key')
+        key = match.group("key")
         if key in _MEDIA_TOKENS:
             return match.group(0)
-        return ''
+        return ""
 
-    pattern = _re.compile(r'[\[(]?%\((?P<key>\w+)(?::[^)]+)?\)[\])]?')
+    pattern = _re.compile(r"[\[(]?%\((?P<key>\w+)(?::[^)]+)?\)[\])]?")
     fmt = pattern.sub(replacer, fmt)
-    fmt = _re.sub(r'  +', ' ', fmt).replace(' /', '/').replace('/ ', '/')
+    fmt = _re.sub(r"  +", " ", fmt).replace(" /", "/").replace("/ ", "/")
     return fmt.strip()
 
 
-def manage_selection(cmd_insert: str, max_count: int) -> List[int]:
+def manage_selection(cmd_insert: str, max_count: int) -> list[int]:
     """
     Manage user selection for seasons or episodes to download.
 
     Parameters:
-        - cmd_insert (str): User input for selection.
-        - max_count (int): Maximum count available.
+        cmd_insert (str): User input for selection.
+        max_count (int): Maximum count available.
 
     Returns:
         list_selection (List[int]): List of selected items.
@@ -199,7 +222,7 @@ def manage_selection(cmd_insert: str, max_count: int) -> List[int]:
                     continue
 
                 if "-" in part:
-                    start, end = map(str.strip, part.split('-'))
+                    start, end = map(str.strip, part.split("-"))
                     start = int(start)
 
                     # Handle end part (could be numeric or '*' or empty for max_count)
@@ -207,22 +230,22 @@ def manage_selection(cmd_insert: str, max_count: int) -> List[int]:
                         end = int(end)
                     else:
                         end = max_count
-                    
+
                     list_selection.extend(list(range(start, end + 1)))
                 elif part.isnumeric():
                     list_selection.append(int(part))
                 else:
                     raise ValueError
-            
+
             if list_selection:
                 list_selection = sorted(list(set(list_selection)))
                 break
-            
+
         except (ValueError, TypeError):
             pass
 
         cmd_insert = msg.ask("[red]Invalid input. Please enter a valid command")
-    
+
     return list_selection
 
 
@@ -246,7 +269,7 @@ def map_movie_path(title_name: str, title_year: str = None) -> tuple:
         map_movie_temp = map_movie_temp.replace("%(title_name_slug)", tmdb_client._slugify(title_name))
 
     if title_year is not None:
-        y = str(title_year).split('-')[0].strip()
+        y = str(title_year).split("-")[0].strip()
         if y.isdigit() and len(y) == 4:
             map_movie_temp = map_movie_temp.replace("%(title_year)", y)
         else:
@@ -263,11 +286,10 @@ def map_movie_path(title_name: str, title_year: str = None) -> tuple:
     map_movie_temp = _strip_unknown_tokens(map_movie_temp)
 
     # Split into path components and filename
-    parts = map_movie_temp.split('/')
+    parts = map_movie_temp.split("/")
     filename = parts[-1] if parts else map_movie_temp
     path_components = parts[:-1] if len(parts) > 1 else []
     return (path_components, filename)
-
 
 
 def map_song_path(artist: str, album: str, title: str, year: str = None, track_number: int = None) -> tuple:
@@ -314,7 +336,7 @@ def map_song_path(artist: str, album: str, title: str, year: str = None, track_n
 
     # ── year (optional — strip surrounding parens when absent)
     if year is not None:
-        y = str(year).split('-')[0].strip()
+        y = str(year).split("-")[0].strip()
         if y.isdigit() and len(y) == 4:
             fmt = fmt.replace("%(year)", y)
         else:
@@ -326,20 +348,27 @@ def map_song_path(artist: str, album: str, title: str, year: str = None, track_n
 
     # ── track_number (optional — strip surrounding text when absent)
     if track_number is not None:
-        fmt = _replace_format_key(fmt, 'track_number', int(track_number))
+        fmt = _replace_format_key(fmt, "track_number", int(track_number))
     else:
-        fmt = _re.sub(r'%\(track_number:[^)]+\)[.\s]*', '', fmt)
+        fmt = _re.sub(r"%\(track_number:[^)]+\)[.\s]*", "", fmt)
 
     # Clean up any double spaces left after removals
-    fmt = _re.sub(r'  +', ' ', fmt).strip()
+    fmt = _re.sub(r"  +", " ", fmt).strip()
 
-    parts = fmt.split('/')
+    parts = fmt.split("/")
     filename = parts[-1] if parts else fmt
     path_components = parts[:-1] if len(parts) > 1 else []
     return (path_components, filename)
 
 
-def map_episode_path(series_name: str, series_year: str = None, season_number: int = None, episode_number: int = None, episode_name: str = None, absolute_number: int = None) -> tuple:
+def map_episode_path(
+    series_name: str,
+    series_year: str = None,
+    season_number: int = None,
+    episode_number: int = None,
+    episode_name: str = None,
+    absolute_number: int = None,
+) -> tuple:
     """
     Maps the complete episode path and filename using the consolidated episode_format config.
 
@@ -365,7 +394,7 @@ def map_episode_path(series_name: str, series_year: str = None, season_number: i
 
     # Replace series_year if present
     if series_year is not None:
-        y = str(series_year).split('-')[0].strip()
+        y = str(series_year).split("-")[0].strip()
         if y.isdigit() and len(y) == 4:
             map_episode_temp = map_episode_temp.replace("%(series_year)", y)
         else:
@@ -377,10 +406,10 @@ def map_episode_path(series_name: str, series_year: str = None, season_number: i
 
     # Replace season and episode numbers (honours inline format spec e.g. :02d, :d, :03d)
     season_val = season_number if season_number is not None else 0
-    map_episode_temp = _replace_format_key(map_episode_temp, 'season', season_val)
+    map_episode_temp = _replace_format_key(map_episode_temp, "season", season_val)
 
     episode_val = episode_number if episode_number is not None else 0
-    map_episode_temp = _replace_format_key(map_episode_temp, 'episode', episode_val)
+    map_episode_temp = _replace_format_key(map_episode_temp, "episode", episode_val)
 
     # Replace episode_name and its variant
     if episode_name is not None:
@@ -389,7 +418,7 @@ def map_episode_path(series_name: str, series_year: str = None, season_number: i
 
     # Absolute episode number (anime) — honours inline format spec e.g. :000, :d
     if absolute_number is not None:
-        map_episode_temp = _replace_format_key(map_episode_temp, 'absolute', absolute_number)
+        map_episode_temp = _replace_format_key(map_episode_temp, "absolute", absolute_number)
 
     # TMDB-backed tokens (best-effort)
     map_episode_temp = _resolve_tmdb_tokens(map_episode_temp, series_name, series_year, "tv", season_val, episode_val)
@@ -398,41 +427,40 @@ def map_episode_path(series_name: str, series_year: str = None, season_number: i
     map_episode_temp = _strip_unknown_tokens(map_episode_temp)
 
     # Split into path components and filename
-    parts = map_episode_temp.split('/')
+    parts = map_episode_temp.split("/")
     filename = parts[-1] if parts else map_episode_temp
     path_components = parts[:-1] if len(parts) > 1 else []
-    
+
     return (path_components, filename)
 
 
-def validate_selection(list_season_select: List[int], available_seasons: List[int]) -> List[int]:
+def validate_selection(list_season_select: list[int], available_seasons: list[int]) -> list[int]:
     """
     Validates and adjusts the selected seasons based on the available seasons.
 
     Parameters:
-        - list_season_select (List[int]): List of seasons selected by the user.
-        - available_seasons (List[int]): List of available season numbers.
+        list_season_select (List[int]): List of seasons selected by the user.
+        available_seasons (List[int]): List of available season numbers.
 
     Returns:
         - List[int]: Adjusted list of valid season numbers.
     """
     while True:
         try:
-            
             # Remove any seasons not in the available seasons
             valid_seasons = [season for season in list_season_select if season in available_seasons]
 
             # If the list is empty, the input was completely invalid
             if not valid_seasons:
                 input_seasons = msg.ask(f"[red]Enter valid season numbers ({', '.join(map(str, available_seasons))})")
-                list_season_select = list(map(int, input_seasons.split(',')))
+                list_season_select = list(map(int, input_seasons.split(",")))
                 continue
-            
+
             return valid_seasons
-        
+
         except ValueError:
             input_seasons = input(f"Enter valid season numbers ({', '.join(map(str, available_seasons))}): ")
-            list_season_select = list(map(int, input_seasons.split(',')))
+            list_season_select = list(map(int, input_seasons.split(",")))
 
 
 def display_seasons_list(seasons_manager) -> str:
@@ -454,8 +482,8 @@ def display_seasons_list(seasons_manager) -> str:
     # Check if 'type', 'id' or 'extra' attributes exist in seasons
     try:
         first = seasons_manager.seasons[0]
-        has_type = hasattr(first, 'type') and (first.type) is not None and str(first.type) != ''
-        has_id = hasattr(first, 'id') and (first.id) is not None and str(first.id) != ''
+        has_type = hasattr(first, "type") and (first.type) is not None and str(first.type) != ""
+        has_id = hasattr(first, "id") and (first.id) is not None and str(first.id) != ""
     except IndexError:
         has_type = False
         has_id = False
@@ -463,32 +491,32 @@ def display_seasons_list(seasons_manager) -> str:
     # Determine if any season has a non-empty extra field
     has_extra = False
     for s in seasons_manager.seasons:
-        extra = getattr(s, 'extra', None)
-        if extra is not None and str(extra).strip() != '':
+        extra = getattr(s, "extra", None)
+        if extra is not None and str(extra).strip() != "":
             has_extra = True
             break
 
     # Add columns to the table
-    column_info = {"Index": {'color': 'red'}, "Name": {'color': 'yellow'}}
+    column_info = {"Index": {"color": "red"}, "Name": {"color": "yellow"}}
     if has_type:
-        column_info["Type"] = {'color': 'magenta'}
+        column_info["Type"] = {"color": "magenta"}
     if has_id:
-        column_info["ID"] = {'color': 'cyan'}
+        column_info["ID"] = {"color": "cyan"}
     if has_extra:
-        column_info["Extra"] = {'color': 'green'}
+        column_info["Extra"] = {"color": "green"}
 
     table_show_manager.add_column(column_info)
 
     # Populate the table with seasons information
     for i, season in enumerate(seasons_manager.seasons):
-        season_name = season.name if hasattr(season, 'name') else 'N/A'
-        season_info = {'Index': str(i + 1), 'Name': season_name}
+        season_name = season.name if hasattr(season, "name") else "N/A"
+        season_info = {"Index": str(i + 1), "Name": season_name}
         if has_type:
-            season_info['Type'] = season.type if hasattr(season, 'type') else 'N/A'
+            season_info["Type"] = season.type if hasattr(season, "type") else "N/A"
         if has_id:
-            season_info['ID'] = season.id if hasattr(season, 'id') else 'N/A'
+            season_info["ID"] = season.id if hasattr(season, "id") else "N/A"
         if has_extra:
-            season_info['Extra'] = getattr(season, 'extra', '')
+            season_info["Extra"] = getattr(season, "extra", "")
         table_show_manager.add_tv_show(season_info)
 
     # Run the table and handle user input
@@ -513,51 +541,51 @@ def display_episodes_list(episodes_manager) -> str:
         return media.get(key) if isinstance(media, dict) else getattr(media, key, None)
 
     def _has(key):
-        return any(_field(m, key) is not None and str(_field(m, key)).strip() != '' for m in episodes_manager)
+        return any(_field(m, key) is not None and str(_field(m, key)).strip() != "" for m in episodes_manager)
 
-    has_category    = _has('category')
-    has_duration    = _has('duration')
-    has_releasedate = _has('release_date')
-    has_genre       = _has('genre')
+    has_category = _has("category")
+    has_duration = _has("duration")
+    has_releasedate = _has("release_date")
+    has_genre = _has("genre")
 
     # Add columns to the table
     column_info = {
-        "Index": {'color': 'red'},
+        "Index": {"color": "red"},
     }
 
-    column_info["Name"] = {'color': 'magenta'}
+    column_info["Name"] = {"color": "magenta"}
 
     if has_category:
-        column_info["Category"] = {'color': 'green'}
+        column_info["Category"] = {"color": "green"}
 
     if has_duration:
-        column_info["Duration"] = {'color': 'blue'}
+        column_info["Duration"] = {"color": "blue"}
 
     if has_releasedate:
-        column_info["Release Date"] = {'color': 'cyan'}
+        column_info["Release Date"] = {"color": "cyan"}
 
     if has_genre:
-        column_info["Genre"] = {'color': 'green'}
+        column_info["Genre"] = {"color": "green"}
 
     table_show_manager.add_column(column_info)
 
     # Populate the table with episodes information
     for i, media in enumerate(episodes_manager):
         episode_info = {
-            'Index': str(i + 1),
-            'Name': _field(media, 'name'),
+            "Index": str(i + 1),
+            "Name": _field(media, "name"),
         }
         if has_category:
-            episode_info['Category'] = _field(media, 'category')
+            episode_info["Category"] = _field(media, "category")
 
         if has_duration:
-            episode_info['Duration'] = _field(media, 'duration')
+            episode_info["Duration"] = _field(media, "duration")
 
         if has_releasedate:
-            episode_info['Release Date'] = _field(media, 'release_date')
+            episode_info["Release Date"] = _field(media, "release_date")
 
         if has_genre:
-            episode_info['Genre'] = _field(media, 'genre')
+            episode_info["Genre"] = _field(media, "genre")
 
         table_show_manager.add_tv_show(episode_info)
 

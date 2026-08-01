@@ -7,23 +7,22 @@ from rich.console import Console
 
 from VibraVid.utils import config_manager
 
-
 console = Console()
-CLEAN = config_manager.config.get_bool('DEFAULT', 'show_message')
-SHOW = config_manager.config.get_bool('DEFAULT', 'show_message')
+CLEAN = config_manager.config.get_bool("DEFAULT", "show_message")
+SHOW = config_manager.config.get_bool("DEFAULT", "show_message")
 
 
-def start_message(clean: bool=True):
+def start_message(clean: bool = True):
     """Display a stylized start message in the console."""
-    msg = r'''[#7C3AED]       ___                                      [#FFD60A]           [#7C3AED] _    ___ __              _    ___     __
+    msg = r"""[#7C3AED]       ___                                      [#FFD60A]           [#7C3AED] _    ___ __              _    ___     __
 [#7C3AED]      /   |  ______________ _      ______ ______[#FFD60A]   _  __   [#7C3AED]| |  / (_) /_  _________ | |  / (_)___/ /
 [#7C3AED]     / /| | / ___/ ___/ __ \ | /| / / __ `/ ___/[#FFD60A]  | |/_/   [#7C3AED]| | / / / __ \/ ___/ __ `/ | / / / __  / 
 [#7C3AED]    / ___ |/ /  / /  / /_/ / |/ |/ / /_/ / /    [#FFD60A] _>  <     [#7C3AED]| |/ / / /_/ / /  / /_/ /| |/ / / /_/ /  
 [#7C3AED]   /_/  |_/_/  /_/   \____/|__/|__/\__,_/_/     [#FFD60A]/_/|_|     [#7C3AED]|___/_/_.___/_/   \__,_/ |___/_/\__,_/      
-'''
+"""
 
-    if CLEAN and clean: 
-        os.system("cls" if platform.system() == 'Windows' else "clear")
-        
+    if CLEAN and clean:
+        os.system("cls" if platform.system() == "Windows" else "clear")
+
     if SHOW:
         console.print(f"[#7C3AED]{msg}")

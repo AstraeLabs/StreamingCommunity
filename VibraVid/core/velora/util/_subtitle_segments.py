@@ -1,20 +1,17 @@
 # 10.07.26
 
-import re
 import gzip
 import logging
-from typing import Any, Dict, List, Tuple
+import re
+from typing import Any
 from urllib.parse import urljoin
 
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_headers
 
-
 logger = logging.getLogger(__name__)
 
-_CUE_TIME_RE = re.compile(
-    r"^(\d{2,}):(\d{2}):(\d{2})\.(\d{3})(\s*-->\s*)(\d{2,}):(\d{2}):(\d{2})\.(\d{3})(.*)$"
-)
+_CUE_TIME_RE = re.compile(r"^(\d{2,}):(\d{2}):(\d{2})\.(\d{3})(\s*-->\s*)(\d{2,}):(\d{2}):(\d{2})\.(\d{3})(.*)$")
 RESTART_MAX_START = 3.0
 RESTART_MIN_GAP = 15.0
 
@@ -27,13 +24,14 @@ def get_subtitle_resolve_workers() -> int:
 def _ext_from_url(url: str, fallback: str = "") -> str:
     """Detect subtitle format from URL path, ignoring query string."""
     from VibraVid.core.velora.util._stream_helpers import _ext_from_url_canon
+
     _SUB_EXTENSIONS = ("webvtt", "vtt", "srt", "ass", "ssa", "ttml2", "ttml", "xml", "dfxp")
     return _ext_from_url_canon(url, _SUB_EXTENSIONS, default=fallback)
 
 
-def parse_subtitle_playlist_segments(text: str, base_url: str) -> List[Tuple[str, float]]:
+def parse_subtitle_playlist_segments(text: str, base_url: str) -> list[tuple[str, float]]:
     """Parse every media segment (url, duration_seconds) referenced by an HLS subtitle child playlist, in order, including segments after ``#EXT-X-DISCONTINUITY`` tags."""
-    segments: List[Tuple[str, float]] = []
+    segments: list[tuple[str, float]] = []
     duration = 0.0
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -42,7 +40,7 @@ def parse_subtitle_playlist_segments(text: str, base_url: str) -> List[Tuple[str
 
         if line.startswith("#EXTINF:"):
             try:
-                duration = float(line[len("#EXTINF:"):].split(",", 1)[0])
+                duration = float(line[len("#EXTINF:") :].split(",", 1)[0])
             except ValueError:
                 duration = 0.0
             continue
@@ -55,7 +53,7 @@ def parse_subtitle_playlist_segments(text: str, base_url: str) -> List[Tuple[str
     return segments
 
 
-def resolve_subtitle_segments_sync(url: str, headers: Dict) -> Tuple[List[Tuple[str, float]], str]:
+def resolve_subtitle_segments_sync(url: str, headers: dict) -> tuple[list[tuple[str, float]], str]:
     """
     Synchronously probe *url* and return every subtitle segment ``(url, duration)``
     referenced by the manifest, in playback order, plus the detected extension.
@@ -76,8 +74,12 @@ def resolve_subtitle_segments_sync(url: str, headers: Dict) -> Tuple[List[Tuple[
     if not text.startswith("#EXTM3U"):
         content_type = resp.headers.get("content-type", "").lower()
         for mime, ext in (
-            ("vtt", "vtt"), ("webvtt", "vtt"), ("srt", "srt"),
-            ("ttml", "ttml"), ("xml", "xml"), ("dfxp", "dfxp"),
+            ("vtt", "vtt"),
+            ("webvtt", "vtt"),
+            ("srt", "srt"),
+            ("ttml", "ttml"),
+            ("xml", "xml"),
+            ("dfxp", "dfxp"),
         ):
             if mime in content_type:
                 return [(url, 0.0)], ext
@@ -94,7 +96,7 @@ def resolve_subtitle_segments_sync(url: str, headers: Dict) -> Tuple[List[Tuple[
     return segments, resolved_ext
 
 
-async def resolve_subtitle_segments_async(client: Any, url: str) -> Tuple[List[Tuple[str, float]], str]:
+async def resolve_subtitle_segments_async(client: Any, url: str) -> tuple[list[tuple[str, float]], str]:
     """Async counterpart of ``resolve_subtitle_segments_sync``, used at download time."""
     try:
         resp = await client.get(url)
@@ -117,11 +119,12 @@ async def resolve_subtitle_segments_async(client: Any, url: str) -> Tuple[List[T
     return segments, fmt
 
 
-async def download_and_merge_subtitle_segments(client: Any, segments: List[Tuple[str, float]]) -> str:
-    """Fetch every subtitle segment concurrently and merge them (in order) into a single WebVTT track with cue timestamps shifted by cumulative offset."""
+async def download_and_merge_subtitle_segments(client: Any, segments: list[tuple[str, float]]) -> str:
+    """Fetch every subtitle segment concurrently and merge them (in order) into a single WebVTT track, using each segment's nominal (EXTINF) duration to shift segments that restart their clock."""
     import asyncio
 
-    texts: List[str] = [""] * len(segments)
+    texts: list[str] = [""] * len(segments)
+    durations = [dur for _url, dur in segments]
 
     async def _fetch(index: int, url: str) -> None:
         resp = await client.get(url)
@@ -129,34 +132,13 @@ async def download_and_merge_subtitle_segments(client: Any, segments: List[Tuple
         texts[index] = resp.text
 
     await asyncio.gather(*(_fetch(i, url) for i, (url, _dur) in enumerate(segments)))
-    durations = [dur for _url, dur in segments]
-    return merge_vtt_segments(texts, durations)
+    return merge_vtt_segments(texts, durations=durations)
 
 
-def merge_vtt_segments(segment_texts: List[str], durations: List[float]) -> str:
-    """Concatenate consecutive WebVTT segments into a single track, shifting every cue's timestamps by the cumulative duration of the segments before it."""
-    out_lines: List[str] = ["WEBVTT", ""]
-    offset = 0.0
-
-    for text, dur in zip(segment_texts, durations):
-        body = text.strip("﻿ \r\n")
-        for raw_line in body.splitlines():
-            line = raw_line.rstrip("\r")
-            stripped = line.strip()
-            if stripped.startswith("WEBVTT") or stripped.startswith("X-TIMESTAMP-MAP"):
-                continue
-
-            m = _CUE_TIME_RE.match(stripped)
-            if m:
-                start = _shift_timestamp(m.group(1), m.group(2), m.group(3), m.group(4), offset)
-                end = _shift_timestamp(m.group(6), m.group(7), m.group(8), m.group(9), offset)
-                out_lines.append(f"{start}{m.group(5)}{end}{m.group(10)}")
-            else:
-                out_lines.append(line)
-
-        offset += dur
-
-    return "\n".join(out_lines) + "\n"
+def merge_vtt_segments(segment_texts: list[str], durations: list[float] | None = None) -> str:
+    """Concatenate consecutive in-memory WebVTT segments into a single track."""
+    per_segment = [_extract_vtt_cues(text) for text in segment_texts]
+    return _merge_cue_segments(per_segment, logger, durations=durations)
 
 
 def _ts_to_seconds(hh: str, mm: str, ss: str, ms: str) -> float:
@@ -190,11 +172,11 @@ def _extract_vtt_cues(text: str):
             continue
         if stripped.startswith(("NOTE", "STYLE", "REGION")):
             i += 1
-            while i < n and lines[i].strip():   # skip the whole block until a blank line
+            while i < n and lines[i].strip():  # skip the whole block until a blank line
                 i += 1
             continue
         m = _CUE_TIME_RE.match(stripped)
-        if not m:                               # a cue identifier line: the timestamp is next
+        if not m:  # a cue identifier line: the timestamp is next
             i += 1
             if i >= n:
                 break
@@ -234,20 +216,44 @@ def merge_vtt_files(paths, merge_logger=None) -> str:
         except Exception as exc:
             log.warning(f"[merge_vtt] skipping unreadable segment {getattr(p, 'name', p)}: {exc}")
 
+    return _merge_cue_segments(per_segment, log, segment_count=len(paths))
+
+
+def _merge_cue_segments(
+    per_segment: list[list], log, segment_count: int | None = None, durations: list[float] | None = None
+) -> str:
+    """Shared merge core for both ``merge_vtt_files`` and ``merge_vtt_segments``."""
     out_lines = ["WEBVTT", ""]
     running_end = 0.0
     seen = set()
     emitted = 0
+
+    nominal_starts: list[float] | None = None
+    if durations and len(durations) == len(per_segment) and any(d > 0 for d in durations):
+        nominal_starts = []
+        acc = 0.0
+        for d in durations:
+            nominal_starts.append(acc)
+            acc += d
+
     for idx, cues in enumerate(per_segment):
         if not cues:
             continue
 
         first_start = cues[0][0]
-        is_real_restart = (first_start < RESTART_MAX_START) and (running_end > RESTART_MIN_GAP)
-        seg_offset = running_end if is_real_restart else 0.0
 
-        if seg_offset > 0:
-            log.debug(f"[merge_vtt] segment {idx}: detected relative restart (first_start={first_start:.2f}s, running_end={running_end:.2f}s) -> offset={seg_offset:.2f}s")
+        if nominal_starts is not None:
+            nominal_start = nominal_starts[idx]
+            dist_absolute = abs(first_start - nominal_start)
+            dist_local = first_start
+            seg_offset = nominal_start if dist_local < dist_absolute else 0.0
+            if seg_offset > 0:
+                log.debug(f"[merge_vtt] segment {idx}: duration-based restart (first_start={first_start:.2f}s, nominal_start={nominal_start:.2f}s) -> offset={seg_offset:.2f}s")
+        else:
+            is_real_restart = (first_start < RESTART_MAX_START) and (running_end > RESTART_MIN_GAP)
+            seg_offset = running_end if is_real_restart else 0.0
+            if seg_offset > 0:
+                log.debug(f"[merge_vtt] segment {idx}: detected relative restart (first_start={first_start:.2f}s, running_end={running_end:.2f}s) -> offset={seg_offset:.2f}s")
 
         for start, end, m, body in cues:
             s, e = start + seg_offset, end + seg_offset
@@ -255,7 +261,7 @@ def merge_vtt_files(paths, merge_logger=None) -> str:
             key = (round(s, 3), round(e, 3), text)
             if key in seen:
                 continue
-            
+
             seen.add(key)
             out_lines.append(f"{_seconds_to_ts(s)}{m.group(5)}{_seconds_to_ts(e)}{m.group(10)}")
             out_lines.extend(body)
@@ -265,28 +271,7 @@ def merge_vtt_files(paths, merge_logger=None) -> str:
 
     log.info(f"[merge_vtt] merged {len(per_segment)} segment(s) -> {emitted} cue(s), final_end={running_end:.2f}s")
     if emitted == 0:
-        log.warning(f"[merge_vtt] 0 cues extracted from {len(paths)} segment(s)")
+        log.warning(
+            f"[merge_vtt] 0 cues extracted from {segment_count if segment_count is not None else len(per_segment)} segment(s)"
+        )
     return "\n".join(out_lines) + "\n"
-
-
-def _shift_timestamp(hh: str, mm: str, ss: str, ms: str, offset_seconds: float) -> str:
-    """Shift a WebVTT cue timestamp by *offset_seconds* and return the new timestamp string."""
-    total = int(hh) * 3600 + int(mm) * 60 + int(ss) + int(ms) / 1000.0 + offset_seconds
-    if total < 0:
-        total = 0.0
-
-    hours = int(total // 3600)
-    minutes = int((total % 3600) // 60)
-    seconds = int(total % 60)
-    millis = round((total - int(total)) * 1000)
-    if millis == 1000:
-        millis = 0
-        seconds += 1
-        if seconds == 60:
-            seconds = 0
-            minutes += 1
-            if minutes == 60:
-                minutes = 0
-                hours += 1
-    
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}"

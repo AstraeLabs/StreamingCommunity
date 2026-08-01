@@ -1,7 +1,8 @@
 # 03.07.26
 
 import logging
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,28 @@ class EquivalentCommandBuilder:
         ("cli_season_selection", "--season"),
         ("cli_episode_selection", "--episode"),
     )
-    _SHELL_UNSAFE = (" ", "\t", "*", "?", "[", "]", "(", ")", "{", "}", "&", "|", ";", "<", ">", "$", "`", "'", '"', "\\")
+    _SHELL_UNSAFE = (
+        " ",
+        "\t",
+        "*",
+        "?",
+        "[",
+        "]",
+        "(",
+        ")",
+        "{",
+        "}",
+        "&",
+        "|",
+        ";",
+        "<",
+        ">",
+        "$",
+        "`",
+        "'",
+        '"',
+        "\\",
+    )
 
     def __init__(self, excluded_dests: Iterable[str], program_name: str = "manual.py"):
         """

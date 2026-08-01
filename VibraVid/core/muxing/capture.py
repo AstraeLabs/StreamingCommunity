@@ -1,16 +1,14 @@
-# 16.04.24
+﻿# 16.04.24
 
-import re
 import logging
-import threading
+import re
 import subprocess
-from typing import Optional
+import threading
 
-from VibraVid.utils.os import internet_manager
-from VibraVid.core.ui.tracker import context_tracker, download_tracker
 from VibraVid.core.ui.bar_manager import console
+from VibraVid.core.ui.tracker import context_tracker, download_tracker
 from VibraVid.core.velora.util.formatting import parse_time_scalar
-
+from VibraVid.utils.os import internet_manager
 
 logger = logging.getLogger(__name__)
 terminate_flag = threading.Event()
@@ -18,6 +16,7 @@ terminate_flag = threading.Event()
 
 class ProgressData:
     """Class to store the last progress data"""
+
     def __init__(self):
         self.last_data = None
         self.lock = threading.Lock()
@@ -46,17 +45,23 @@ def _format_eta(eta_seconds: float) -> str:
         return f"{s}s"
 
 
-def capture_output(process: subprocess.Popen, description: str, progress_data: ProgressData, terminate_flag: threading.Event = None, total_duration: Optional[float] = None) -> None:
+def capture_output(
+    process: subprocess.Popen,
+    description: str,
+    progress_data: ProgressData,
+    terminate_flag: threading.Event = None,
+    total_duration: float | None = None,
+) -> None:
     """
     Function to capture and print output from a subprocess.
 
     Parameters:
-        - process (subprocess.Popen): The subprocess whose output is captured.
-        - description (str): Description of the command being executed.
-        - progress_data (ProgressData): Object to store the last progress data.
-        - log_path (Optional[str]): Path to log file to write output.
-        - terminate_flag (threading.Event): Per-invocation flag to signal termination.
-        - total_duration (Optional[float]): Total video duration in seconds, used to compute ETA.
+        process (subprocess.Popen): The subprocess whose output is captured.
+        description (str): Description of the command being executed.
+        progress_data (ProgressData): Object to store the last progress data.
+        log_path (Optional[str]): Path to log file to write output.
+        terminate_flag (threading.Event): Per-invocation flag to signal termination.
+        total_duration (Optional[float]): Total video duration in seconds, used to compute ETA.
     """
     if terminate_flag is None:
         terminate_flag = threading.Event()
@@ -65,7 +70,7 @@ def capture_output(process: subprocess.Popen, description: str, progress_data: P
         max_length = 0
         last_progress_string = ""
 
-        for line in iter(process.stdout.readline, ''):
+        for line in iter(process.stdout.readline, ""):
             try:
                 line = line.strip()
                 logger.debug(f"{line}")
@@ -81,19 +86,19 @@ def capture_output(process: subprocess.Popen, description: str, progress_data: P
                     try:
                         data = parse_output_line(line)
 
-                        if 'q' in data:
-                            is_end = (float(data.get('q', -1.0)) == -1.0)
-                            size_key = 'Lsize' if is_end else 'size'
-                            byte_size = int(re.findall(r'\d+', data.get(size_key, '0'))[0]) * 1000
+                        if "q" in data:
+                            is_end = float(data.get("q", -1.0)) == -1.0
+                            size_key = "Lsize" if is_end else "size"
+                            byte_size = int(re.findall(r"\d+", data.get(size_key, "0"))[0]) * 1000
                         else:
-                            byte_size = int(re.findall(r'\d+', data.get('size', '0'))[0]) * 1000
+                            byte_size = int(re.findall(r"\d+", data.get("size", "0"))[0]) * 1000
 
-                        speed   = data.get('speed', 'N/A')
-                        bitrate = data.get('bitrate', 'N/A')
-                        time_processed = data.get('time', 'N/A')
+                        speed = data.get("speed", "N/A")
+                        bitrate = data.get("bitrate", "N/A")
+                        time_processed = data.get("time", "N/A")
 
                         # Compute ETA from total_duration and time already processed
-                        eta_str = 'N/A'
+                        eta_str = "N/A"
                         if total_duration and total_duration > 0:
                             processed_sec = parse_time_scalar(time_processed)
                             if processed_sec is not None and processed_sec > 0:
@@ -101,10 +106,10 @@ def capture_output(process: subprocess.Popen, description: str, progress_data: P
                                 eta_str = _format_eta(remaining_sec)
 
                         json_data = {
-                            'speed': speed,
-                            'bitrate': bitrate,
-                            'time': time_processed,
-                            'eta': eta_str,
+                            "speed": speed,
+                            "bitrate": bitrate,
+                            "time": time_processed,
+                            "eta": eta_str,
                         }
                         progress_data.update(json_data)
 
@@ -149,7 +154,7 @@ def parse_output_line(line: str) -> dict:
     Function to parse the output line and extract relevant information.
 
     Parameters:
-        - line (str): The output line to parse.
+        line (str): The output line to parse.
 
     Returns:
         dict: A dictionary containing parsed information.
@@ -159,14 +164,14 @@ def parse_output_line(line: str) -> dict:
         parts = line.replace("  ", "").replace("= ", "=").split()
 
         for part in parts:
-            key_value = part.split('=')
+            key_value = part.split("=")
 
             if len(key_value) == 2:
                 key = key_value[0]
                 value = key_value[1]
 
-                if key == 'time' and isinstance(value, str) and '.' in value:
-                    value = value.split('.')[0]
+                if key == "time" and isinstance(value, str) and "." in value:
+                    value = value.split(".")[0]
                 data[key] = value
 
         return data
@@ -181,7 +186,7 @@ def terminate_process(process):
     Function to terminate a subprocess if it's still running.
 
     Parameters:
-        - process (subprocess.Popen): The subprocess to terminate.
+        process (subprocess.Popen): The subprocess to terminate.
     """
     try:
         if process.poll() is None:
@@ -194,14 +199,16 @@ def terminate_process(process):
         logger.error(f"Failed to terminate process: {e}")
 
 
-def capture_ffmpeg_real_time(ffmpeg_command: list, description: str, total_duration: Optional[float] = None, wait_timeout_seconds: float = 1800.0) -> dict:
+def capture_ffmpeg_real_time(
+    ffmpeg_command: list, description: str, total_duration: float | None = None, wait_timeout_seconds: float = 1800.0
+) -> dict:
     """
     Function to capture real-time output from ffmpeg process.
 
     Parameters:
-        - ffmpeg_command (list): The command to execute ffmpeg.
-        - description (str): Description of the command being executed.
-        - total_duration (Optional[float]): Total video duration in seconds, used to compute ETA.
+        ffmpeg_command (list): The command to execute ffmpeg.
+        description (str): Description of the command being executed.
+        total_duration (Optional[float]): Total video duration in seconds, used to compute ETA.
 
     Returns:
         dict: JSON dictionary with the last progress data.
@@ -213,8 +220,8 @@ def capture_ffmpeg_real_time(ffmpeg_command: list, description: str, total_durat
 
     _parent_download_id = context_tracker.download_id
     _parent_is_parallel = context_tracker.is_parallel_cli
-    process: Optional[subprocess.Popen] = None
-    output_thread: Optional[threading.Thread] = None
+    process: subprocess.Popen | None = None
+    output_thread: threading.Thread | None = None
     timed_out = False
 
     try:
@@ -224,6 +231,8 @@ def capture_ffmpeg_real_time(ffmpeg_command: list, description: str, total_durat
             stderr=subprocess.STDOUT,
             universal_newlines=True,
             bufsize=1,
+            encoding="utf-8",
+            errors="replace",
         )
 
         def _output_worker():

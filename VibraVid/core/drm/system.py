@@ -1,8 +1,8 @@
 # 09.06.24
 
+import base64
 import re
 import struct
-import base64
 
 
 def normalize_kid(kid) -> str:
@@ -20,19 +20,19 @@ def accumulate_content_key(keys_list: list, extracted_kids: set, kid_raw, key_ra
 
 
 _SYSTEMS_DATA = {
-    "WIDEVINE":    ("edef8ba979d64acea3c827dcd51d21ed", "Widevine", "WV"),
-    "PLAYREADY":   ("9a04f07998404286ab92e65be0885f95", "PlayReady", "PR"),
-    "FAIRPLAY":    ("94ce86fb07ff4f43adb893d2fa968ca2", "FairPlay", "FP"),
-    "PRIMETIME":   ("f239e769efa348509c16a903c6932efb", "Adobe Primetime", "PT"),
-    "NAGRA":       ("adb41c242dbf4a6d958b4457c0d27b95", "Nagra", "NA"),
-    "CLEARKEY":    ("1077efecc0b24d02ace33c1e52e2fb4b", "ClearKey", "CK"),
+    "WIDEVINE": ("edef8ba979d64acea3c827dcd51d21ed", "Widevine", "WV"),
+    "PLAYREADY": ("9a04f07998404286ab92e65be0885f95", "PlayReady", "PR"),
+    "FAIRPLAY": ("94ce86fb07ff4f43adb893d2fa968ca2", "FairPlay", "FP"),
+    "PRIMETIME": ("f239e769efa348509c16a903c6932efb", "Adobe Primetime", "PT"),
+    "NAGRA": ("adb41c242dbf4a6d958b4457c0d27b95", "Nagra", "NA"),
+    "CLEARKEY": ("1077efecc0b24d02ace33c1e52e2fb4b", "ClearKey", "CK"),
     "CLEARKEY_V1": ("e2719d58a985b3c9781ab030af78d30e", "ClearKey (v0.1)", "CK"),
-    "IRDETO":      ("644fe7b5260f4fad949a0762ffd8b0f4", "Irdeto", "IR"),
-    "CMLA":        ("69f908af481646ea910ccd5dcccb0a3a", "CMLA (OMA DRM)", "CM"),
-    "ITTIAM":      ("80a6be7e14484c379e70d5aebe04c8d2", "Ittiam", "IT"),
+    "IRDETO": ("644fe7b5260f4fad949a0762ffd8b0f4", "Irdeto", "IR"),
+    "CMLA": ("69f908af481646ea910ccd5dcccb0a3a", "CMLA (OMA DRM)", "CM"),
+    "ITTIAM": ("80a6be7e14484c379e70d5aebe04c8d2", "Ittiam", "IT"),
     "SECUREMEDIA": ("3ea8778f77424bf9b18be834b2356d01", "SecureMedia", "SM"),
-    "MARLIN":      ("5e629af538da4332a621485ea588cb3f", "Marlin", "ML"),
-    "MARLIN_MSB":  ("29701fe43cc74a348c5bae90c7439a47", "Marlin", "ML"),
+    "MARLIN": ("5e629af538da4332a621485ea588cb3f", "Marlin", "ML"),
+    "MARLIN_MSB": ("29701fe43cc74a348c5bae90c7439a47", "Marlin", "ML"),
 }
 
 
@@ -90,14 +90,14 @@ class _DRMSystems(dict):
 
             offset = 6
             while offset + 4 <= len(data):
-                rec_type = int.from_bytes(data[offset:offset + 2], "little")
-                rec_len = int.from_bytes(data[offset + 2:offset + 4], "little")
+                rec_type = int.from_bytes(data[offset : offset + 2], "little")
+                rec_len = int.from_bytes(data[offset + 2 : offset + 4], "little")
                 offset += 4
                 if rec_len <= 0 or offset + rec_len > len(data):
                     break
 
                 if rec_type == 0x0001:
-                    wrm_xml = data[offset:offset + rec_len].decode("utf-16-le", errors="ignore")
+                    wrm_xml = data[offset : offset + rec_len].decode("utf-16-le", errors="ignore")
 
                     m = re.search(r"<KID[^>]*>([A-Za-z0-9+/=]+)</KID>", wrm_xml)
                     if m:
@@ -105,9 +105,10 @@ class _DRMSystems(dict):
                         kid_bytes = base64.b64decode(kid_b64)
                         if len(kid_bytes) == 16:
                             b = kid_bytes
-                            return (f"{b[3]:02x}{b[2]:02x}{b[1]:02x}{b[0]:02x}"
-                                    f"{b[5]:02x}{b[4]:02x}{b[7]:02x}{b[6]:02x}"
-                                    + b[8:16].hex())
+                            return (
+                                f"{b[3]:02x}{b[2]:02x}{b[1]:02x}{b[0]:02x}"
+                                f"{b[5]:02x}{b[4]:02x}{b[7]:02x}{b[6]:02x}" + b[8:16].hex()
+                            )
 
                     m = re.search(r'KeyID="([^"]+)"', wrm_xml)
                     if m:
@@ -118,9 +119,13 @@ class _DRMSystems(dict):
                         kid_b64 = m.group(1)
                         kid_bytes = base64.b64decode(kid_b64 + "==")
                         if len(kid_bytes) >= 16:
-                            return (kid_bytes[3::-1].hex() + kid_bytes[5:3:-1].hex()
-                                    + kid_bytes[7:5:-1].hex() + kid_bytes[8:10].hex()
-                                    + kid_bytes[10:16].hex())
+                            return (
+                                kid_bytes[3::-1].hex()
+                                + kid_bytes[5:3:-1].hex()
+                                + kid_bytes[7:5:-1].hex()
+                                + kid_bytes[8:10].hex()
+                                + kid_bytes[10:16].hex()
+                            )
 
                 offset += rec_len
 
@@ -128,6 +133,20 @@ class _DRMSystems(dict):
             pass
 
         return None
+
+    @staticmethod
+    def kid_from_pssh_b64(pssh_b64: str, drm_type: str) -> "str | None":
+        """Decode the KID out of a base64 Widevine PSSH box or PlayReady PRO/WRM header."""
+        if drm_type == DRMType.PLAYREADY:
+            return _DRMSystems.extract_kid_from_playready_pro(pssh_b64)
+
+        try:
+            from pywidevine.pssh import PSSH as WV_PSSH
+
+            pssh = WV_PSSH(pssh_b64)
+            return normalize_kid(pssh.key_ids[0].hex) if pssh.key_ids else None
+        except Exception:
+            return None
 
     @staticmethod
     def build_widevine_pssh_from_kid(kid_hex: str) -> str:
@@ -179,14 +198,14 @@ class DRMType:
         s = (scheme or "").lower()
         if not s:
             return cls.UNKNOWN
-        
+
         sd = s.replace("-", "")
         if "widevine" in s or "edef8ba9" in sd:
             return cls.WIDEVINE
-        
+
         if "playready" in s or "com.microsoft" in s or "9a04f079" in sd:
             return cls.PLAYREADY
-        
+
         if "fairplay" in s or "com.apple" in s or "streamingkeydelivery" in s or "94ce86fb" in sd:
             return cls.FAIRPLAY
         return cls.UNKNOWN

@@ -1,7 +1,7 @@
 # 15.07.26
 
-import os
 import functools
+import os
 
 
 def ffprobe_cached(func):

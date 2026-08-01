@@ -1,33 +1,35 @@
 # 09.06.26
 
-import re
-import os
 import copy
 import logging
+import os
+import re
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager, os_manager
-from VibraVid.utils.http_client import create_client, get_headers
-from VibraVid.core.ui.tracker import download_tracker, context_tracker
-from VibraVid.core.ui.bar_manager import DownloadBarManager
-
-from VibraVid.core.velora.util.formatting import parse_max_time as _parse_max_time, parse_max_segments as _parse_max_segments
-from VibraVid.core.velora.downloader import MediaDownloader
-from VibraVid.core.velora.util._stream_helpers import join_interruptible
-
 from VibraVid.core.decryptor.keys_manager import KeysManager
-from VibraVid.core.utils.selector import StreamSelector, StreamSelectorFormatter
+from VibraVid.core.muxing import probe_media_file
+from VibraVid.core.ui.bar_manager import DownloadBarManager
+from VibraVid.core.ui.tracker import context_tracker, download_tracker
+from VibraVid.core.ui.ui import build_table
 from VibraVid.core.utils.codec import DV_CODEC_PREFIXES
 from VibraVid.core.utils.language import language_variants
-from VibraVid.core.muxing import probe_media_file
-from VibraVid.core.ui.ui import build_table
+from VibraVid.core.utils.selector import StreamSelector, StreamSelectorFormatter
+from VibraVid.core.velora.downloader import MediaDownloader
+from VibraVid.core.velora.util._stream_helpers import join_interruptible
+from VibraVid.core.velora.util.formatting import (
+    parse_max_segments as _parse_max_segments,
+)
+from VibraVid.core.velora.util.formatting import (
+    parse_max_time as _parse_max_time,
+)
+from VibraVid.utils import config_manager, os_manager
+from VibraVid.utils.http_client import create_client, get_headers
 
 from .base import BaseDownloader
 from .mp4 import MP4_Downloader
-
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -45,24 +47,31 @@ def _track_signature(s) -> tuple:
     if s.type == "video":
         res = (getattr(s, "resolution", "") or "").lower() or f"{getattr(s, 'width', 0)}x{getattr(s, 'height', 0)}"
         return ("video", codec, res, btr)
-    
+
     if s.type == "audio":
         lang = (getattr(s, "resolved_language", "") or getattr(s, "language", "") or "").lower()
         ch = (getattr(s, "channels", "") or "").lower()
         return ("audio", codec, lang, ch, btr)
-    
+
     lang = (getattr(s, "resolved_language", "") or getattr(s, "language", "") or "").lower()
-    return ("subtitle", lang, codec, bool(getattr(s, "forced", False)), bool(getattr(s, "is_cc", False)), bool(getattr(s, "is_sdh", False)))
+    return (
+        "subtitle",
+        lang,
+        codec,
+        bool(getattr(s, "forced", False)),
+        bool(getattr(s, "is_cc", False)),
+        bool(getattr(s, "is_sdh", False)),
+    )
 
 
 def _is_dv(s) -> bool:
     """True if the stream is a Dolby Vision video track."""
     if getattr(s, "type", "") != "video":
         return False
-    
+
     if (getattr(s, "video_range", "") or "").upper() == "DV":
         return True
-    
+
     codecs = (getattr(s, "codecs", "") or "").lower()
     return any(codecs.startswith(p) for p in DV_CODEC_PREFIXES)
 
@@ -71,11 +80,11 @@ def _normalize_lang(s) -> None:
     """Normalise language code"""
     if s.type not in ("audio", "subtitle"):
         return
-    
+
     base = getattr(s, "resolved_language", "") or getattr(s, "language", "")
     if not base:
         return
-    
+
     if s.type == "audio":
         s.language = base.split("-")[0].lower()
     else:
@@ -83,7 +92,17 @@ def _normalize_lang(s) -> None:
 
 
 class Generic_Downloader(BaseDownloader):
-    def __init__(self, sources: List[Dict[str, Any]], output_path: Optional[str] = None, max_segments: Optional[int] = None, max_time=None, cookies: Optional[Dict[str, str]] = None, custom_filters: Optional[Dict[str, str]] = None, chapters: Optional[list] = None, poster_url: Optional[str] = None,) -> None:
+    def __init__(
+        self,
+        sources: list[dict[str, Any]],
+        output_path: str | None = None,
+        max_segments: int | None = None,
+        max_time=None,
+        cookies: dict[str, str] | None = None,
+        custom_filters: dict[str, str] | None = None,
+        chapters: list | None = None,
+        poster_url: str | None = None,
+    ) -> None:
         """
         Parameters:
             - sources: list of source dicts (see class docstring).
@@ -98,20 +117,24 @@ class Generic_Downloader(BaseDownloader):
         """
         self.sources = [dict(s or {}) for s in (sources or [])]
         self.cookies = cookies or {}
-        self.max_segments = _parse_max_segments(max_segments if max_segments is not None else context_tracker.max_segments)
+        self.max_segments = _parse_max_segments(
+            max_segments if max_segments is not None else context_tracker.max_segments
+        )
         self.max_time = _parse_max_time(max_time if max_time is not None else context_tracker.max_time)
         self.custom_filters = custom_filters or {}
         self.chapters = chapters if chapters is not None else context_tracker.chapters
-        self.poster_url = poster_url if poster_url is not None else context_tracker.poster_url
-        self._active: List[Tuple[MediaDownloader, Dict[str, Any]]] = []
+        self.poster_url = context_tracker.poster_url or poster_url or context_tracker.fallback_poster_url
+        context_tracker.poster_url = self.poster_url
+        context_tracker.poster_url = self.poster_url
+        self._active: list[tuple[MediaDownloader, dict[str, Any]]] = []
         self._dv_stream = None
         self._dv_isolated = False
         self.other_tracks: list = []
-        self._direct_sources: List[Dict[str, Any]] = []
+        self._direct_sources: list[dict[str, Any]] = []
         logger.info(f"Initialized GENERIC_Downloader with {len(self.sources)} source(s), max_segments={self.max_segments}")
         super().__init__(output_path, "_generic_temp")
 
-    def _fetch_manifest_content(self, url: str, headers: Dict[str, str]) -> Optional[str]:
+    def _fetch_manifest_content(self, url: str, headers: dict[str, str]) -> str | None:
         """Fetch raw manifest text (needed only when a source forces a protocol, because the type auto-detection keys off the URL extension)."""
         try:
             with create_client(headers=headers or get_headers(), timeout=20, follow_redirects=True) as c:
@@ -127,9 +150,9 @@ class Generic_Downloader(BaseDownloader):
         """True if the URL points at a plain media file (not a manifest to parse) — e.g. a raw .mp4/.m4a."""
         return url.lower().split("?")[0].endswith(_DIRECT_MEDIA_EXTS)
 
-    def _parse_sources(self) -> List[Tuple[MediaDownloader, Dict[str, Any]]]:
+    def _parse_sources(self) -> list[tuple[MediaDownloader, dict[str, Any]]]:
         """Parse every source into a MediaDownloader with its streams. The source dict is kept alongside for reference (e.g. headers, protocol)."""
-        parsed: List[Tuple[MediaDownloader, Dict[str, Any]]] = []
+        parsed: list[tuple[MediaDownloader, dict[str, Any]]] = []
         for i, source in enumerate(self.sources):
             label = source.get("label") or f"src{i}"
             url = self._resolve_url(str(source.get("url") or "").strip())
@@ -145,7 +168,9 @@ class Generic_Downloader(BaseDownloader):
                 continue
 
             protocol = source.get("protocol")
-            content = self._fetch_manifest_content(url, source.get("headers") or {}) if protocol else None
+            content = source.get("manifest_content")
+            if not content and protocol:
+                content = self._fetch_manifest_content(url, source.get("headers") or {})
 
             md = MediaDownloader(
                 url=url,
@@ -163,7 +188,7 @@ class Generic_Downloader(BaseDownloader):
 
             md.parse_stream(show_table=False)
             for s in md.streams:
-                setattr(s, "_src_label", label)
+                s._src_label = label
                 _normalize_lang(s)
 
             parsed.append((md, source))
@@ -210,7 +235,9 @@ class Generic_Downloader(BaseDownloader):
 
         return True
 
-    def _apply_explicit_roles(self, parsed: List[Tuple[MediaDownloader, Dict[str, Any]]]) -> Tuple[List, List[Tuple[MediaDownloader, Dict[str, Any]]]]:
+    def _apply_explicit_roles(
+        self, parsed: list[tuple[MediaDownloader, dict[str, Any]]]
+    ) -> tuple[list, list[tuple[MediaDownloader, dict[str, Any]]]]:
         """Apply per-source explicit ``role`` tags and split them off from auto-selection.
 
             {"url": ..., "key": ..., "role": "video:dv"}   # Dolby Vision video
@@ -220,8 +247,8 @@ class Generic_Downloader(BaseDownloader):
 
         Returns ``(role_streams, auto_parsed)`` where ``auto_parsed`` are the sources left to the normal pool/dedup/StreamSelector path.
         """
-        role_streams: List = []
-        auto_parsed: List[Tuple[MediaDownloader, Dict[str, Any]]] = []
+        role_streams: list = []
+        auto_parsed: list[tuple[MediaDownloader, dict[str, Any]]] = []
 
         for md, src in parsed:
             role = str(src.get("role") or src.get("type") or "").strip().lower()
@@ -241,7 +268,7 @@ class Generic_Downloader(BaseDownloader):
             # several are present keep the highest-bitrate one.
             stream = max(cands, key=lambda s: getattr(s, "bitrate", 0) or 0)
             for s in md.streams:
-                s.selected = (s is stream)
+                s.selected = s is stream
 
             lang = src.get("language") or src.get("lang")
             name = src.get("name")
@@ -255,31 +282,31 @@ class Generic_Downloader(BaseDownloader):
                     self._dv_isolated = True
                 elif tag:
                     stream.video_range = tag.upper()  # HDR10, HDR10PLUS, SDR, ...
-            
+
             elif kind in ("audio", "aud"):
                 stream.type = "audio"
                 if lang:
                     stream.language = lang
-            
+
             elif kind in ("subtitle", "sub"):
                 stream.type = "subtitle"
                 if lang:
                     stream.language = lang
-                
+
                 # Also read the source's "tag" field (e.g. "forced")
                 src_tag = (src.get("tag") or tag or "").strip().lower()
                 if src_tag == "forced":
                     stream.forced = True
                 elif src_tag:
                     logger.debug(f"Subtitle tag '{src_tag}' not recognized — ignoring")
-            
+
             else:
                 logger.warning(f"Unknown source role '{role}' — treating as video")
                 stream.type = "video"
 
             if name:
                 stream.name = name
-            setattr(stream, "_src_label", src.get("label") or kind)
+            stream._src_label = src.get("label") or kind
             _normalize_lang(stream)
 
             role_streams.append(stream)
@@ -287,7 +314,7 @@ class Generic_Downloader(BaseDownloader):
 
         return role_streams, auto_parsed
 
-    def _select(self, parsed: List[Tuple[MediaDownloader, Dict[str, Any]]]) -> List:
+    def _select(self, parsed: list[tuple[MediaDownloader, dict[str, Any]]]) -> list:
         # Sources with an explicit role bypass attribute-based dedup/selection.
         role_streams, parsed = self._apply_explicit_roles(parsed)
 
@@ -315,10 +342,10 @@ class Generic_Downloader(BaseDownloader):
         sub = f.get("subtitle") or config_manager.config.get("DOWNLOAD", "select_subtitle")
 
         # Check for the &dv companion tag in the video filter. If present, we run a first pass of selection on the non-DV pool with the main video filter.
-        dv_match = re.search(r'&dv(?:=([^&]*))?', v, re.IGNORECASE)
+        dv_match = re.search(r"&dv(?:=([^&]*))?", v, re.IGNORECASE)
         if dv_match:
             dv_quality = (dv_match.group(1) or "worst").strip() or "worst"
-            v_main = (v[:dv_match.start()] + v[dv_match.end():]).strip() or "best"
+            v_main = (v[: dv_match.start()] + v[dv_match.end() :]).strip() or "best"
             non_dv_pool = [s for s in pool if not _is_dv(s)]
             StreamSelector(v_main, a, sub, formatter=StreamSelectorFormatter()).apply(non_dv_pool)
 
@@ -363,19 +390,24 @@ class Generic_Downloader(BaseDownloader):
         os_manager.create_path(dv_dir)
 
         dv_md = MediaDownloader(
-            url=md.url, output_dir=dv_dir, filename=self.filename_base,
-            headers=source.get("headers") or {}, cookies=source.get("cookies") or self.cookies,
-            download_id=self.download_id, site_name=self.site_name,
-            max_segments=self.max_segments, max_time=self.max_time,
+            url=md.url,
+            output_dir=dv_dir,
+            filename=self.filename_base,
+            headers=source.get("headers") or {},
+            cookies=source.get("cookies") or self.cookies,
+            download_id=self.download_id,
+            site_name=self.site_name,
+            max_segments=self.max_segments,
+            max_time=self.max_time,
         )
         dv_md.manifest_type = md.manifest_type
         dv_md.streams = [target]
 
-        setattr(target, "_src_label", "dv")
+        target._src_label = "dv"
         self._dv_stream = target
         self._active.append((dv_md, source))
         logger.info(f"&dv: companion isolated in dedicated downloader -> {target}")
-    
+
     def _stop_all(self) -> None:
         if self.download_id:
             download_tracker.request_stop(self.download_id)
@@ -431,7 +463,7 @@ class Generic_Downloader(BaseDownloader):
 
         bar = DownloadBarManager(self.download_id)
         stop_event = threading.Event()
-        threads: List[threading.Thread] = []
+        threads: list[threading.Thread] = []
         try:
             with bar as bm:
                 for md, _ in self._active:
@@ -458,38 +490,49 @@ class Generic_Downloader(BaseDownloader):
             return False
         return True
 
-    def _dv_entry(self, video_track: Dict[str, Any]) -> Dict[str, Any]:
+    def _dv_entry(self, video_track: dict[str, Any]) -> dict[str, Any]:
         """Wrap the downloaded Dolby Vision video file as an 'other video' track consumable by ``build_hybrid_output`` (mkvmerge)."""
         path = video_track["path"]
         probe = probe_media_file(path) or {}
         entry = {
-            "path": path, "url": "", "type": "video:dv", "kind": "video", "tag": "dv",
-            "language": "und", "name": "Dolby Vision",
-            "size": video_track.get("size", 0), "probe": probe,
+            "path": path,
+            "url": "",
+            "type": "video:dv",
+            "kind": "video",
+            "tag": "dv",
+            "language": "und",
+            "name": "Dolby Vision",
+            "size": video_track.get("size", 0),
+            "probe": probe,
         }
         entry.update(probe)
         return entry
 
-    def _collect_status(self) -> Dict[str, Any]:
+    def _collect_status(self) -> dict[str, Any]:
         """Assemble a combined status dict (video/audios/subtitles) for muxing."""
-        status: Dict[str, Any] = {
-            "video": None, "audios": [], "subtitles": [],
-            "external_audios": [], "external_subtitles": [], "other_tracks": [],
+        status: dict[str, Any] = {
+            "video": None,
+            "audios": [],
+            "subtitles": [],
+            "external_audios": [],
+            "external_subtitles": [],
+            "other_tracks": [],
             "other_tracks_downloaded": [],
         }
-        
+
         for md, _ in self._active:
             md_status = md._build_status([], [])
 
             sel_audio_langs = [
                 (getattr(s, "resolved_language", "") or getattr(s, "language", "") or "und")
-                for s in md.streams if s.selected and s.type == "audio"
+                for s in md.streams
+                if s.selected and s.type == "audio"
             ]
 
             md_video = md_status.get("video")
             if md_video:
                 is_dv = self._dv_stream is not None and self._dv_stream in md.streams
-                
+
                 if is_dv:
                     status["other_tracks_downloaded"].append(self._dv_entry(md_video))
                 elif status["video"] is None:
@@ -497,7 +540,9 @@ class Generic_Downloader(BaseDownloader):
 
             for i, a in enumerate(md_status.get("audios", []) or []):
                 lang = sel_audio_langs[i] if i < len(sel_audio_langs) else (a.get("name") or "und")
-                status["audios"].append({**a, "name": a.get("name") or lang, "language": lang, **language_variants(lang)})
+                status["audios"].append(
+                    {**a, "name": a.get("name") or lang, "language": lang, **language_variants(lang)}
+                )
 
             for sub in md_status.get("subtitles", []) or []:
                 if sub.get("path"):
@@ -515,14 +560,24 @@ class Generic_Downloader(BaseDownloader):
                 if status["video"] is None:
                     status["video"] = {"path": result["path"], "size": result["size"]}
             elif kind in ("audio", "aud"):
-                status["audios"].append({
-                    "path": result["path"], "name": lang, "language": lang,
-                    "size": result["size"], **language_variants(lang),
-                })
+                status["audios"].append(
+                    {
+                        "path": result["path"],
+                        "name": lang,
+                        "language": lang,
+                        "size": result["size"],
+                        **language_variants(lang),
+                    }
+                )
             elif kind in ("subtitle", "sub"):
-                status["subtitles"].append({
-                    "path": result["path"], "name": lang, "language": lang, "size": result["size"],
-                })
+                status["subtitles"].append(
+                    {
+                        "path": result["path"],
+                        "name": lang,
+                        "language": lang,
+                        "size": result["size"],
+                    }
+                )
             else:
                 logger.warning(f"Direct source '{entry['label']}' has unknown kind '{kind}' — treating as video")
                 if status["video"] is None:
@@ -530,19 +585,19 @@ class Generic_Downloader(BaseDownloader):
 
         return status
 
-    def start(self) -> Tuple[Optional[str], bool, Optional[str]]:
+    def start(self) -> tuple[str | None, bool, str | None]:
         try:
             return self._start()
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupt received — stopping all sources...")
             logger.warning("KeyboardInterrupt during hybrid pipeline")
             self._stop_all()
-            
+
             if self.download_id:
                 download_tracker.complete_download(self.download_id, success=False, error="cancelled")
             return None, True, "cancelled"
 
-    def _start(self) -> Tuple[Optional[str], bool, Optional[str]]:
+    def _start(self) -> tuple[str | None, bool, str | None]:
         if self.file_already_exists:
             console.print("[yellow]File already exists.")
             return self.output_path, False, None
@@ -568,9 +623,17 @@ class Generic_Downloader(BaseDownloader):
             console.print("[yellow][HYBRID] No track selected.")
             return None, True, "no tracks selected"
 
-        self._active = [(md, src) for md, src in parsed if any(s.selected and not s.is_external and s.type in _MEDIA_TYPES for s in md.streams)]
+        self._active = [
+            (md, src)
+            for md, src in parsed
+            if any(s.selected and not s.is_external and s.type in _MEDIA_TYPES for s in md.streams)
+        ]
         self._setup_dv_companion()
-        self._active = [(md, src) for md, src in self._active if any(s.selected and not s.is_external and s.type in _MEDIA_TYPES for s in md.streams)]
+        self._active = [
+            (md, src)
+            for md, src in self._active
+            if any(s.selected and not s.is_external and s.type in _MEDIA_TYPES for s in md.streams)
+        ]
 
         # ── 4) Concurrent download (clean Ctrl+C)
         if self.download_id:

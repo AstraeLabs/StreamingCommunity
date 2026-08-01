@@ -1,13 +1,14 @@
 # 27-01-26
 
-from .generic import GenericStreamingAPI
-from .base import Entries
-
 from VibraVid.services.realtime.scrapper import GetSerieInfo
+
+from .base import Entries
+from .generic import GenericStreamingAPI
 
 
 class RealtimeAPI(GenericStreamingAPI):
     """Realtime — uses the shared realtime scrapper."""
+
     site_name = "realtime"
     base_url = "https://public.aurora.enhanced.live"
     log_label = "Realtime"

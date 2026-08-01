@@ -2,8 +2,8 @@
 
 import os
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -49,9 +49,11 @@ _NEW_DB = _DB_DIR / "db.sqlite3"
 if _DB_DIR != BASE_DIR and _LEGACY_DB.exists() and not _NEW_DB.exists():
     try:
         import shutil as _shutil
+
         _shutil.copy2(_LEGACY_DB, _NEW_DB)
     except Exception:
         pass
+
 
 def _get_secret_key() -> str:
     """Resolve the Django secret key with a safe default."""
@@ -66,11 +68,13 @@ def _get_secret_key() -> str:
             if existing:
                 return existing
         from django.core.management.utils import get_random_secret_key
+
         generated = get_random_secret_key()
         key_file.write_text(generated, encoding="utf-8")
         return generated
     except Exception:
         from django.core.management.utils import get_random_secret_key
+
         return get_random_secret_key()
 
 
@@ -161,6 +165,7 @@ except Exception:
 # ── VibraVid log level (read from config so Django stays in sync) ────────────────
 try:
     from VibraVid.utils import config_manager as _vm_config
+
     _VIBRAVID_LOG_LEVEL = _vm_config.config.get("DEFAULT", "log_level", default="INFO").upper()
 except Exception:
     _VIBRAVID_LOG_LEVEL = "INFO"
@@ -204,7 +209,9 @@ LOGGING = {
             "class": "logging.FileHandler",
             "formatter": "verbose",
             "filename": os.path.join(
-                PROJECT_ROOT, ".cache", "arr",
+                PROJECT_ROOT,
+                ".cache",
+                "arr",
                 datetime.now().strftime("arr_%Y%m%d_%H%M%S.log"),
             ),
             "encoding": "utf-8",
