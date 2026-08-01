@@ -1,4 +1,5 @@
 # 29.07.26
+# by @ManoloZocco
 
 """Title detail screen: metadata, season/episode multi-select, DSL preview, directional nav & QoL shortcuts."""
 
