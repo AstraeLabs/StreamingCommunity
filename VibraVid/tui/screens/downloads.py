@@ -1,4 +1,5 @@
 # 30.07.26
+# by @ManoloZocco
 
 """Downloads screen: live progress panel with per-track bars, status badges, cancel/retry."""
 
