@@ -1,4 +1,5 @@
 # 31.07.26
+# by @ManoloZocco
 
 """SelectionList with advanced range selection, Shift+Click, Shift+Arrows, visual anchor & invert."""
 
