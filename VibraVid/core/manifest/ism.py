@@ -12,6 +12,7 @@ from rich.console import Console
 from VibraVid.core.drm.system import DRMType, _DRMSystems
 from VibraVid.core.manifest._utils import fast_urljoin, is_simple_relative_ref, save_raw_manifest
 from VibraVid.core.manifest.stream import DRMInfo, Segment, Stream
+from VibraVid.core.utils.codec import infer_video_range
 from VibraVid.core.utils.language import resolve_locale
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_headers
@@ -306,6 +307,7 @@ class ISMParser:
 
         # Scan type: ISM does not encode this explicitly — assume progressive
         s.scan_type = "progressive"
+        s.video_range = infer_video_range(s.codecs)
 
     def _parse_audio_fields(self, ql, s: Stream, lang_raw: str, si_name: str, default_lang: str) -> None:
         s.language = lang_raw or "und"
