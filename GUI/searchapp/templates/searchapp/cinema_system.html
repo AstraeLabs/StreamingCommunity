@@ -100,6 +100,23 @@
 					</p>
 				{% endif %}
 			</div>
+
+			<div class="cn-box">
+				<h3>Custom CLI options <span class="cn-sp"></span><span class="cn-st is-done" id="cn-extra-args-count">{{ site_extra_args|length }}</span></h3>
+				<p class="cn-sub" style="margin:0 0 12px">
+					Extra CLI flags applied automatically to every future download for a
+					provider (e.g. Prime Video's <code>--optimize-audio</code>).
+				</p>
+				<div class="cn-lines" id="cn-extra-args-list" style="gap:2px;max-height:220px;overflow-y:auto"></div>
+				<div class="cn-row" style="margin-top:12px;gap:8px">
+					<select id="cn-extra-args-site" class="cn-mini" style="flex:1;min-width:0">
+						{% for p in providers %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+					</select>
+					<input type="text" id="cn-extra-args-value" class="cn-mini" placeholder="--optimize-audio" style="flex:2;min-width:0">
+					<button class="cn-cta is-ghost" type="button" id="cn-extra-args-add">Add</button>
+				</div>
+				<p class="cn-sub" id="cn-extra-args-msg" style="margin-top:8px"></p>
+			</div>
 		</div>
 	</section>
 
@@ -287,6 +304,7 @@
 {% endcomment %}
 {{ config_content|json_script:"cn-src-config" }}
 {{ login_content|json_script:"cn-src-login" }}
+{{ site_extra_args|json_script:"cn-src-extra-args" }}
 
 <script>
 (function () {
@@ -516,6 +534,105 @@
 			.finally(function () {
 				setTimeout(function () { btn.disabled = false; arrStatus(); }, 3000);
 			});
+	});
+
+	// ── Opzioni CLI personalizzate per provider ──────────────────────────────
+	var extraArgsState = source("cn-src-extra-args") || {};
+	var extraArgsMsg = el("cn-extra-args-msg");
+	var extraArgsList = el("cn-extra-args-list");
+
+	function renderExtraArgs() {
+		var keys = Object.keys(extraArgsState).sort();
+		el("cn-extra-args-count").textContent = keys.length;
+
+		if (!keys.length) {
+			extraArgsList.innerHTML = '<p class="cn-empty" style="padding:10px 0">No custom options configured.</p>';
+			return;
+		}
+
+		extraArgsList.innerHTML = "";
+		keys.forEach(function (site) {
+			var row = document.createElement("div");
+			row.className = "cn-ln";
+			row.style.background = "var(--cn-surf-2)";
+			row.style.padding = "9px 13px";
+
+			var label = document.createElement("span");
+			label.className = "cn-grow";
+			var t = document.createElement("span");
+			t.className = "cn-t";
+			t.style.fontSize = "14px";
+			t.textContent = site;
+			var s = document.createElement("span");
+			s.className = "cn-s";
+			s.textContent = extraArgsState[site];
+			label.appendChild(t);
+			label.appendChild(s);
+
+			var removeBtn = document.createElement("button");
+			removeBtn.className = "cn-cta is-ghost cn-round";
+			removeBtn.type = "button";
+			removeBtn.title = "Remove";
+			removeBtn.setAttribute("aria-label", "Remove");
+			removeBtn.dataset.removeExtraArgs = site;
+			removeBtn.textContent = "×";
+
+			row.appendChild(label);
+			row.appendChild(removeBtn);
+			extraArgsList.appendChild(row);
+		});
+	}
+	renderExtraArgs();
+
+	function saveExtraArgs() {
+		var full;
+		try { full = JSON.parse(editor.login.value); }
+		catch (err) { say(extraArgsMsg, "login.json is invalid: fix it first.", "bad"); return; }
+
+		// Per-site "extra_args" key, alongside each site's other login.json fields.
+		// Drop it from sites no longer in extraArgsState, set/update it for the rest.
+		Object.keys(full).forEach(function (site) {
+			if (isObj(full[site]) && "extra_args" in full[site] && !(site in extraArgsState)) {
+				delete full[site].extra_args;
+			}
+		});
+		Object.keys(extraArgsState).forEach(function (site) {
+			full[site] = full[site] || {};
+			full[site].extra_args = extraArgsState[site];
+		});
+
+		var content = JSON.stringify(full, null, 4);
+
+		say(extraArgsMsg, "Saving…");
+		post(URL_SAVE, JSON.stringify({ file_type: "login", content: content }), true)
+			.then(function (data) {
+				if (!data.success) { say(extraArgsMsg, data.error || "Not saved.", "bad"); return; }
+				editor.login.value = content;
+				original.login = content;
+				say(extraArgsMsg, "Saved.", "good");
+			})
+			.catch(function (err) { say(extraArgsMsg, "Save failed: " + err.message, "bad"); });
+	}
+
+	el("cn-extra-args-add").addEventListener("click", function () {
+		var siteSel = el("cn-extra-args-site");
+		var valInput = el("cn-extra-args-value");
+		var site = siteSel.value;
+		var val = valInput.value.trim();
+		if (!site || !val) { say(extraArgsMsg, "Pick a provider and enter options.", "bad"); return; }
+
+		extraArgsState[site] = val;
+		renderExtraArgs();
+		valInput.value = "";
+		saveExtraArgs();
+	});
+
+	extraArgsList.addEventListener("click", function (e) {
+		var b = e.target.closest("[data-remove-extra-args]");
+		if (!b) return;
+		delete extraArgsState[b.dataset.removeExtraArgs];
+		renderExtraArgs();
+		saveExtraArgs();
 	});
 
 	// ── ZIP di un provider ──────────────────────────────────────────────────
