@@ -1,6 +1,7 @@
 # 18.07.25
 
 from .binary_paths import binary_paths
+from .device_install import resolve_service_cdm_paths
 from .system import (
     get_bento4_decrypt_path,
     get_dovi_tool_path,
@@ -32,4 +33,5 @@ __all__ = [
     "get_prd_path",
     "get_info_prd",
     "get_info_wvd",
+    "resolve_service_cdm_paths",
 ]
