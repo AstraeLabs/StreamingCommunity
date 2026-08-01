@@ -1,4 +1,5 @@
 # 30.07.26
+# by @ManoloZocco
 
 """Queue screen: batch queue viewer, runner and queue item manager."""
 
