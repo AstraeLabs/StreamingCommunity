@@ -1,4 +1,5 @@
 # 30.07.26
+# by @ManoloZocco
 
 """Settings screen: section navigation, interactive config form and login editor."""
 
