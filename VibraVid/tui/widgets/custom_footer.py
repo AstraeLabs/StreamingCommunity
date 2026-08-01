@@ -1,4 +1,5 @@
 # 30.07.26
+# by @ManoloZocco
 
 """Custom bracketed footer widget displaying interactive shortcut labels."""
 
