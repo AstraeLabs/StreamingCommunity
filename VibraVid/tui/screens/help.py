@@ -1,4 +1,5 @@
 # 30.07.26
+# by @ManoloZocco
 
 """Modal help overlay listing all global & contextual keybindings."""
 
