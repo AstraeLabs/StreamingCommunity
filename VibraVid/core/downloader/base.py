@@ -50,7 +50,7 @@ _written_track_files: list[str] = []
 
 def get_written_track_files() -> list[str]:
     """Paths of every TRACKS_JSON file written so far this run (see _append_tracks_json)."""
-    return list(_written_track_files)
+    return list(dict.fromkeys(_written_track_files))
 
 
 def _append_tracks_json(payload: dict, service: str, media_type: str, title: str) -> None:
