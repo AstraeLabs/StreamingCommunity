@@ -1,4 +1,5 @@
 # 30.07.26
+# by @ManoloZocco
 
 """History screen: past downloads viewer with status, paths, timestamps and errors."""
 
