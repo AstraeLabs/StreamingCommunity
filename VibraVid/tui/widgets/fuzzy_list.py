@@ -1,4 +1,5 @@
 # 29.07.26
+# by @ManoloZocco
 
 """Filter-as-you-type list: an Input over a ListView of labelled items with mouse hover & directional events."""
 
