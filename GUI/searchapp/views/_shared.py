@@ -1,10 +1,12 @@
 # 06.06.25
 
+import argparse
 import concurrent.futures
 import inspect
 import json
 import logging
 import os
+import shlex
 import shutil
 import threading
 import time
@@ -19,6 +21,8 @@ from GUI.searchapp.api import get_api, get_available_sites, get_site_categories
 from GUI.searchapp.api.base import Entries
 from VibraVid.cli.run import equivalent_command_builder
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
+from VibraVid.services._base.site_loader import load_search_functions
+from VibraVid.utils import config_manager
 
 from .._download_infra import (
     _acquire_download_slot,
@@ -189,6 +193,53 @@ def _run_global_search(query: str, sites: list[str]):
     return results, failed
 
 
+def parse_site_extra_args(site: str, raw: str) -> dict:
+    """
+    Parse a free-text CLI-style string (e.g. "--optimize-audio --quality UHD") using the target
+    site's own register_cli_args(parser), the same argparse definitions the CLI already uses.
+    """
+    if not raw or not raw.strip():
+        return {}
+
+    lazy = load_search_functions().get(f"{site}_search")
+    module = lazy.get_module() if lazy else None
+    register = getattr(module, "register_cli_args", None) if module else None
+    if not callable(register):
+        return {}
+
+    mini_parser = argparse.ArgumentParser(add_help=False, exit_on_error=False)
+    dests = list(register(mini_parser) or [])
+
+    try:
+        tokens = shlex.split(raw)
+        parsed, _unknown = mini_parser.parse_known_args(tokens)
+    except (SystemExit, argparse.ArgumentError, ValueError) as e:
+        raise ValueError(f"Invalid custom option for '{site}': {e}") from e
+
+    return {dest: getattr(parsed, dest) for dest in dests}
+
+
+def _resolve_persisted_site_options(site: str) -> dict:
+    """
+    Look up this site's persisted custom CLI args (Settings > Overview, login.json's
+    per-site "extra_args" key) and parse them, so every future download for that site
+    automatically picks them up without any per-download input.
+    """
+    if not site:
+        return {}
+
+    section = config_manager.login.get_section(site) or config_manager.login.get_section(site.lower())
+    raw = (section or {}).get("extra_args", "")
+    if not raw:
+        return {}
+
+    try:
+        return parse_site_extra_args(site, raw)
+    except ValueError:
+        logger.warning("Invalid persisted custom CLI args for site '%s': %r", site, raw)
+        return {}
+
+
 def _log_gui_equivalent_command(site: str, item_payload: dict[str, Any], season: str = None, episodes: str = None) -> None:
     """Log the CLI command equivalent to a GUI download."""
     try:
@@ -229,6 +280,7 @@ def _run_download_in_thread(site: str, item_payload: dict[str, Any], season: str
             context_tracker.is_cancelled_callback = _is_scheduled_cancelled
             context_tracker.season = int(season) if str(season or "").isdigit() else 0
             context_tracker.episode = int(episodes) if str(episodes or "").isdigit() else 0
+            context_tracker.site_options = _resolve_persisted_site_options(site)
 
             api = get_api(site)
 
@@ -300,6 +352,7 @@ def _run_download_in_thread(site: str, item_payload: dict[str, Any], season: str
             context_tracker.episode_name = None
             context_tracker.series_tmdb_id = None
             context_tracker.is_cancelled_callback = None
+            context_tracker.site_options = None
             _release_download_slot()
 
     return _submit_download_task(_task)
@@ -371,6 +424,7 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
                         context_tracker.series_tmdb_id = _known_series_tmdb_id(item_payload.get("tmdb_id"))
                         context_tracker.is_gui = True
                         context_tracker.is_cancelled_callback = _is_scheduled_cancelled
+                        context_tracker.site_options = _resolve_persisted_site_options(source_alias)
                         _log_gui_equivalent_command(source_alias, item_payload, season_num, "*")
 
                         api.start_download(media_item, season=season_num, episodes="*")
@@ -387,6 +441,7 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
                         except Exception as tracker_err:
                             logger.exception("[_task] Failed to update download tracker: %s", tracker_err)
                     finally:
+                        context_tracker.site_options = None
                         _release_download_slot()
 
             except Exception as e:
@@ -407,7 +462,7 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
             item_payload=item_payload,
             season=season_number,
             episodes="*",
-            media_type=media_type
+            media_type=media_type,
         )
 
         return redirect("download_dashboard")
@@ -459,6 +514,7 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
                         context_tracker.series_tmdb_id = _known_series_tmdb_id(item_payload.get("tmdb_id"))
                         context_tracker.is_gui = True
                         context_tracker.is_cancelled_callback = _is_scheduled_cancelled
+                        context_tracker.site_options = _resolve_persisted_site_options(source_alias)
                         _log_gui_equivalent_command(source_alias, item_payload, season_num, "*")
 
                         api.start_download(media_item, season=season_num, episodes="*")
@@ -475,6 +531,7 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
                         except Exception as tracker_err:
                             logger.exception("[_task] Failed to update download tracker: %s", tracker_err)
                     finally:
+                        context_tracker.site_options = None
                         _release_download_slot()
 
             except Exception as e:
@@ -505,7 +562,7 @@ def _handle_series_download(request: HttpRequest) -> HttpResponse:
             item_payload=item_payload,
             season=season_number,
             episodes=episode_param,
-            media_type=media_type
+            media_type=media_type,
         )
         logger.debug("Download thread started for S%s E%s", season_number, episode_param)
 
