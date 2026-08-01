@@ -1,4 +1,5 @@
 # 31.07.26
+# by @ManoloZocco
 
 """Modal dialog for entering episode range expressions (e.g. 1-10, 15, odd, even)."""
 
