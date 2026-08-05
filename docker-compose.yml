@@ -109,6 +109,8 @@ services:
       # WATCHLIST_AUTO_INTERVAL_SECONDS: "14400"
 
       # ── ARR Integration (Sonarr / Radarr / Overseerr) ──
+      # A non-empty .env value overrides Provider.tmdb in Conf/login.json.
+      TMDB_API_KEY: "${TMDB_API_KEY:-}"
       # USE_ARR_SERVICES: "false"
       # ENABLE_ARR_POLLING: "true"
       # ENABLE_SEERR_WEBHOOK: "false"

@@ -1,6 +1,7 @@
 ﻿# 24.08.24
 
 import logging
+import os
 import re
 import time
 import unicodedata
@@ -13,7 +14,15 @@ from VibraVid.utils.http_client import create_client, get_headers
 
 console = Console()
 logger = logging.getLogger(__name__)
-api_key = config_manager.login.get("Provider", "tmdb", default=None)
+
+
+def _configured_api_key() -> str | None:
+    login_api_key = config_manager.login.get("Provider", "tmdb", default=None)
+    env_api_key = str(os.environ.get("TMDB_API_KEY") or "").strip()
+    return env_api_key or str(login_api_key or "").strip() or None
+
+
+api_key = _configured_api_key()
 
 
 class TMDBClient:
@@ -33,7 +42,10 @@ class TMDBClient:
 
         if self.api_key is None or self.api_key == "":
             if not self._warned_no_api_key:
-                logger.error("TMDB API key is not set. Please provide a valid API key. Create a free key at https://www.themoviedb.org/settings/api and set it in Conf/login.json under Provider.tmdb.")
+                logger.error(
+                    "TMDB API key is not set. Set TMDB_API_KEY or Conf/login.json Provider.tmdb "
+                    "(create a key at https://www.themoviedb.org/settings/api)."
+                )
                 self._warned_no_api_key = True
             return {}
 
@@ -433,6 +445,43 @@ class TMDBClient:
         logger.info(f"No IMDb ID found for {media_type} TMDB ID {tmdb_id}")
         return None
 
+    def get_tmdb_id_by_external_id(
+        self,
+        external_id: str | int,
+        external_source: str,
+        media_type: str,
+        language_preference: str = "en-US",
+    ) -> int | None:
+        """Resolve a TVDB/IMDb identifier to a TMDB id without title matching."""
+        if not external_id or media_type not in {"movie", "tv"}:
+            return None
+
+        result_key = "movie_results" if media_type == "movie" else "tv_results"
+        details = self._make_request(
+            f"find/{external_id}",
+            {"external_source": external_source, "language": language_preference},
+        )
+        results = details.get(result_key) or []
+        ids = {result.get("id") for result in results if result.get("id")}
+        if len(ids) == 1:
+            return int(ids.pop())
+
+        if len(ids) > 1:
+            logger.warning(
+                "External id %s (%s) maps to multiple TMDB %s entries; refusing an ambiguous match",
+                external_id,
+                external_source,
+                media_type,
+            )
+        return None
+
+    def get_external_id(self, tmdb_id: int, media_type: str, external_id_type: str) -> str | int | None:
+        """Return one external identifier attached to a canonical TMDB entry."""
+        if not tmdb_id or media_type not in {"movie", "tv"} or not external_id_type:
+            return None
+        details = self._make_request(f"{media_type}/{tmdb_id}/external_ids")
+        return details.get(external_id_type)
+
     def get_original_title(self, tmdb_id: int, media_type: str, language_preference: str = "it"):
         """Return the original-language title for a movie or TV entry."""
         details = self._make_request(f"{media_type}/{tmdb_id}", {"language": language_preference})
@@ -565,3 +614,15 @@ class TMDBClient:
 # Istance
 tmdb_client = TMDBClient(api_key)
 tmdb = tmdb_client
+
+
+def refresh_api_key() -> str | None:
+    """Refresh the shared client after login.json is reloaded at runtime."""
+    global api_key
+
+    refreshed = _configured_api_key()
+    if refreshed != tmdb_client.api_key:
+        tmdb_client.api_key = refreshed
+        tmdb_client._warned_no_api_key = False
+    api_key = refreshed
+    return refreshed

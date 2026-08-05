@@ -229,7 +229,7 @@ def sonarr_webhook(request: HttpRequest) -> JsonResponse:
     Validates X-Webhook-Token, logs the event, and triggers immediate targeted sync.
     """
     try:
-        from ..arr.arr_service import _load_arr_config, trigger_sonarr_webhook_sync
+        from ..arr.arr_service import _load_arr_config, _series_tmdb_id, trigger_sonarr_webhook_sync
         from ..models import ArrWebhookEvent
 
         # ── Log incoming request ──
@@ -271,7 +271,9 @@ def sonarr_webhook(request: HttpRequest) -> JsonResponse:
         logger.info(f"[SONARR WEBHOOK] eventType: {event_type}")
 
         series_data = payload.get("series", {}) or {}
-        tmdb_id = series_data.get("tmdbId") or series_data.get("tvdbId")
+        # Keep the request thread network-free. A TVDB-only payload is resolved
+        # to TMDB in the async worker below; never store tvdbId as a tmdbId.
+        tmdb_id = series_data.get("tmdbId")
         tmdb_id_str = str(tmdb_id) if tmdb_id is not None else None
         _mark_native_webhook_seen(tmdb_id_str, "sonarr")
 
@@ -311,6 +313,17 @@ def sonarr_webhook(request: HttpRequest) -> JsonResponse:
                 try:
                     from django.db import close_old_connections
                     close_old_connections()
+                    resolved_tmdb_id = _series_tmdb_id(series_data)
+                    if resolved_tmdb_id:
+                        resolved_tmdb_id = str(resolved_tmdb_id)
+                        # Avoid resolving the same TVDB id again inside the
+                        # targeted sync and make native-webhook priority work
+                        # with Sonarr payloads that omit tmdbId.
+                        series_data["tmdbId"] = resolved_tmdb_id
+                        _mark_native_webhook_seen(resolved_tmdb_id, "sonarr")
+                        if webhook_event.tmdb_id != resolved_tmdb_id:
+                            webhook_event.tmdb_id = resolved_tmdb_id
+                            webhook_event.save(update_fields=["tmdb_id"])
                     logger.info(f"[SONARR WEBHOOK ASYNC] Starting sync for event {webhook_event.id} (type={event_type})")
                     if event_type == "SERIESADD":
                         # For SeriesAdd, use trigger_sonarr_webhook_sync which is

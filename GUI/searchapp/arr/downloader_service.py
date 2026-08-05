@@ -4,6 +4,7 @@ import concurrent.futures
 import datetime
 import json
 import logging
+import os
 import pathlib
 import re
 import time
@@ -25,6 +26,7 @@ class ArrDownloaderService:
         self.last_error: str | None = None
         self.download_timeout = self._load_download_timeout()
         self._sonarr_season_format: str | None = None
+        self._provider_tmdb_cache: dict[tuple, str] = {}
 
     @staticmethod
     def _load_download_timeout() -> int:
@@ -61,7 +63,12 @@ class ArrDownloaderService:
         provider = (serie.get("provider") or "").strip()
         any_success = False
 
-        tmdb_id = serie.get("tmdbId")
+        tmdb_id = self._resolve_request_tmdb_id(serie, "tv")
+        if self._strict_tmdb_matching_enabled() and not tmdb_id:
+            logger.error(f"[_process_serie] '{title}' has no resolvable TMDB id; refusing title/year matching")
+            self.last_error = self.last_error or "tmdb_id_missing"
+            return False
+
         titles = self._resolve_sonarr_title(title, series_id, tmdb_id) or [title]
         logger.info(f"[_process_serie] Title='{title}', Title candidates={titles}, TMDB ID='{tmdb_id}'")
 
@@ -95,7 +102,7 @@ class ArrDownloaderService:
                     provider,
                     year_range=year_range,
                     expected_year=year,
-                    tmdb_id=serie.get("tmdbId"),
+                    tmdb_id=tmdb_id,
                     media_type="tv",
                     season_number=season_num,
                 )
@@ -207,7 +214,12 @@ class ArrDownloaderService:
 
         title = movie["title"]
         movie_id = movie["id"]
-        tmdb_id = movie.get("tmdbId")
+        tmdb_id = self._resolve_request_tmdb_id(movie, "movie")
+        if self._strict_tmdb_matching_enabled() and not tmdb_id:
+            logger.error(f"[_process_movie] '{title}' has no resolvable TMDB id; refusing title/year matching")
+            self.last_error = self.last_error or "tmdb_id_missing"
+            return False
+
         provider = (movie.get("provider") or "").strip()
 
         if self.radarr.is_movie_in_queue(movie_id):
@@ -375,6 +387,174 @@ class ArrDownloaderService:
         return path
 
     @staticmethod
+    def _tmdb_client():
+        try:
+            from VibraVid.provider.tmdb import tmdb_client
+
+            return tmdb_client
+        except Exception as exc:
+            logger.debug(f"TMDB client unavailable: {exc}")
+            return None
+
+    @classmethod
+    def _strict_tmdb_matching_enabled(cls) -> bool:
+        # If the operator explicitly configured strict matching through the
+        # environment, an unrelated TMDB client import failure must not reopen
+        # the legacy title/year path.
+        if str(os.environ.get("TMDB_API_KEY") or "").strip():
+            return True
+        tmdb = cls._tmdb_client()
+        return bool(tmdb and tmdb.api_key)
+
+    @staticmethod
+    def _normalize_tmdb_id(value: Any) -> str | None:
+        """Normalize numeric TMDB ids so int/string payloads compare identically."""
+        if value in (None, "") or isinstance(value, bool):
+            return None
+        try:
+            normalized = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return str(normalized) if normalized > 0 else None
+
+    def _resolve_request_tmdb_id(self, item: dict, media_type: str) -> int | None:
+        """Resolve the ARR target id from TMDB or an authoritative external id."""
+        direct = self._normalize_tmdb_id(item.get("tmdbId") or item.get("tmdb_id"))
+        tmdb = self._tmdb_client()
+        if direct and (media_type != "tv" or not tmdb or not tmdb.api_key):
+            item["tmdbId"] = int(direct)
+            return int(direct)
+        if not direct and (not tmdb or not tmdb.api_key):
+            return None
+
+        arr_details: dict[str, Any] = {}
+        item_tvdb_id = item.get("tvdbId") or item.get("tvdb_id")
+        needs_arr_details = not direct or (media_type == "tv" and not item_tvdb_id)
+        if needs_arr_details:
+            try:
+                if media_type == "tv" and self.sonarr and item.get("id"):
+                    arr_details = self.sonarr.get_series_by_id(item["id"]) or {}
+                elif media_type == "movie" and self.radarr and item.get("id"):
+                    arr_details = self.radarr.get_movie_by_id(item["id"]) or {}
+            except Exception as exc:
+                logger.debug(f"Could not load ARR external ids for '{item.get('title')}': {exc}")
+
+        direct = direct or self._normalize_tmdb_id(arr_details.get("tmdbId"))
+        if direct:
+            item["tmdbId"] = int(direct)
+
+            # Sonarr may expose both namespaces. When TMDB confirms that its
+            # TVDB id points to a different TV entry, the record is internally
+            # inconsistent and must not be downloaded under either identity.
+            if media_type == "tv":
+                tvdb_id = item_tvdb_id or arr_details.get("tvdbId")
+                if tvdb_id:
+                    try:
+                        resolved_from_tvdb = tmdb.get_tmdb_id_by_external_id(tvdb_id, "tvdb_id", "tv")
+                    except Exception as exc:
+                        logger.warning(
+                            f"Could not validate tvdb_id={tvdb_id} for '{item.get('title')}': {exc}"
+                        )
+                    else:
+                        normalized_tvdb_tmdb = self._normalize_tmdb_id(resolved_from_tvdb)
+                        if normalized_tvdb_tmdb and normalized_tvdb_tmdb != direct:
+                            logger.error(
+                                f"[tmdb_request] Conflicting Sonarr identity for '{item.get('title')}': "
+                                f"tmdbId={direct}, but tvdbId={tvdb_id} maps to TMDB tv/{normalized_tvdb_tmdb}"
+                            )
+                            self.last_error = "external_id_conflict"
+                            return None
+
+            return int(direct)
+
+        external_candidates = []
+        if media_type == "tv":
+            external_candidates.append(
+                (item.get("tvdbId") or item.get("tvdb_id") or arr_details.get("tvdbId"), "tvdb_id")
+            )
+        external_candidates.append(
+            (item.get("imdbId") or item.get("imdb_id") or arr_details.get("imdbId"), "imdb_id")
+        )
+
+        for external_id, external_source in external_candidates:
+            if not external_id:
+                continue
+            try:
+                resolved = tmdb.get_tmdb_id_by_external_id(external_id, external_source, media_type)
+            except Exception as exc:
+                logger.warning(
+                    f"Could not resolve {external_source}={external_id} for '{item.get('title')}': {exc}"
+                )
+                continue
+            normalized = self._normalize_tmdb_id(resolved)
+            if normalized:
+                item["tmdbId"] = int(normalized)
+                logger.info(
+                    f"[tmdb_request] Resolved {external_source}={external_id} to {media_type} TMDB id={normalized}"
+                )
+                return int(normalized)
+
+        return None
+
+    @staticmethod
+    def _result_media_type(result: Any) -> str | None:
+        raw_type = str(getattr(result, "type", "") or "").strip().lower()
+        if raw_type in {"film", "movie"}:
+            return "movie"
+        if raw_type in {"tv", "serie", "series", "show", "tv show", "ona", "ova", "tv short", "special"}:
+            return "tv"
+        return None
+
+    def _resolve_provider_tmdb_id(self, api: Any, result: Any, provider: str, media_type: str) -> str | None:
+        """Return only an id attested by the provider result/detail, never title inference."""
+        stable_identifiers = (
+            str(getattr(result, "id", "") or ""),
+            str(getattr(result, "url", "") or ""),
+            str(getattr(result, "path_id", "") or ""),
+            str(getattr(result, "slug", "") or ""),
+        )
+        provider_language = str(getattr(result, "provider_language", "") or "")
+        cache_key = (
+            (provider, media_type, *stable_identifiers, provider_language)
+            if any(stable_identifiers)
+            else None
+        )
+
+        resolved = self._normalize_tmdb_id(getattr(result, "tmdb_id", None))
+        if not resolved:
+            raw_data = getattr(result, "raw_data", None)
+            if isinstance(raw_data, dict):
+                resolved = self._normalize_tmdb_id(raw_data.get("tmdb_id") or raw_data.get("tmdbId"))
+
+        # A direct id on the current search result is stronger than any cached
+        # detail response and prevents stale provider records from overriding it.
+        if not resolved and cache_key is not None:
+            resolved = self._provider_tmdb_cache.get(cache_key)
+
+        if not resolved:
+            resolver = getattr(api, "resolve_tmdb_id", None)
+            if callable(resolver):
+                try:
+                    resolved = self._normalize_tmdb_id(resolver(result))
+                except Exception as exc:
+                    logger.warning(
+                        f"[tmdb_check] Could not read provider TMDB id for '{getattr(result, 'name', '')}' "
+                        f"on '{provider}': {exc}"
+                    )
+
+        if resolved:
+            # Cache only verified identities. A temporary provider-detail
+            # failure must remain retryable on the next ARR item. Anonymous
+            # results are never cached because they have no collision-safe key.
+            if cache_key is not None:
+                self._provider_tmdb_cache[cache_key] = resolved
+            result.tmdb_id = resolved
+            raw_data = getattr(result, "raw_data", None)
+            if isinstance(raw_data, dict):
+                raw_data["tmdb_id"] = resolved
+        return resolved
+
+    @staticmethod
     def _strip_accents(text: str) -> str:
         """Replace accented characters with their ASCII base: à->a, è->e, ì->i, ò->o, ù->u, etc."""
         import unicodedata
@@ -535,8 +715,9 @@ class ArrDownloaderService:
     ) -> dict[str, Any] | None:
         """Search VibraVid's streaming API for a title and return an item_payload dict.
 
-        Verifies candidate results using TMDB id, media type, title compatibility,
-        and year range. Localized title fallback is handled before this method.
+        With a TMDB key, verifies only the canonical media type + TMDB id
+        identity. Title/year checks remain limited to keyless legacy mode.
+        Localized title fallback is handled before this method.
         """
         try:
             from searchapp.api import get_api
@@ -583,100 +764,193 @@ class ArrDownloaderService:
                 except (ValueError, IndexError):
                     logger.debug(f"[search] Could not parse year_range '{year_range}'")
 
-            expected_tmdb_str = str(tmdb_id) if tmdb_id else ""
+            expected_tmdb_str = self._normalize_tmdb_id(tmdb_id)
+            strict_tmdb = self._strict_tmdb_matching_enabled()
+
+            _conf_path = pathlib.Path(__file__).parent.parent.parent.parent / "Conf" / "config.json"
+            try:
+                with open(_conf_path, encoding="utf-8") as _f:
+                    _prefer_ita = json.load(_f).get("ARR", {}).get("download_italian_anime_default", True)
+            except Exception:
+                _prefer_ita = True
 
             best = None
-            if media_type == "tv" and provider in {"animeunity", "animeworld"} and season_number:
-                try:
-                    season_int = int(season_number)
-                except (TypeError, ValueError):
-                    season_int = 0
-                if season_int > 1:
-                    expected_season_title = self._normalize_title(f"{title} {season_int}")
-                    season_best = next(
-                        (
+            if strict_tmdb:
+                if not expected_tmdb_str:
+                    logger.error(
+                        f"[tmdb_check] No target TMDB id for '{expected_title or title}'; "
+                        "strict matching refuses title/year fallback"
+                    )
+                    return None
+
+                strict_candidates = list(results)
+                if media_type == "tv" and provider in {"animeunity", "animeworld"} and season_number:
+                    try:
+                        season_int = int(season_number)
+                    except (TypeError, ValueError):
+                        season_int = 0
+                    if season_int > 1:
+                        expected_season_title = self._normalize_title(f"{title} {season_int}")
+                        strict_candidates = [
                             r
-                            for r in results
+                            for r in strict_candidates
                             if self._normalize_title(r.name or "") == expected_season_title
                             or self._normalize_title(r.name or "").startswith(expected_season_title + " ")
-                        ),
-                        None,
-                    )
-                    if season_best:
-                        best = season_best
-                        logger.info(f"[search] ACCEPT '{season_best.name}' — season-specific anime match for S{season_int}")
-                    else:
-                        logger.warning(f"[search] No season-specific anime result for S{season_int} on '{provider}', rejecting generic results")
-                        return None
+                        ]
+                        if not strict_candidates:
+                            logger.warning(
+                                f"[search] No season-specific anime result for S{season_int} on '{provider}', "
+                                "rejecting generic results"
+                            )
+                            return None
 
-            for r in results:
-                if best is not None:
-                    break
-                r_name = r.name or ""
-                r_year = r.year or ""
-                r_tmdb = str(getattr(r, "tmdb_id", "") or "")
-                r_type = str(getattr(r, "type", "") or "").lower()
+                # Preference only changes the order. Every candidate, including
+                # an ITA variant, still has to pass the exact identity check.
+                if _prefer_ita:
+                    strict_candidates.sort(key=lambda r: "(ITA)" not in (r.name or "").upper())
 
-                if media_type == "tv" and r_type == "movie":
-                    logger.warning(f"[type_check] SKIP '{r_name}' ({r_year}) — movie result cannot satisfy a Sonarr TV request")
-                    continue
-
-                # ── TMDB ID check (highest priority) ──────────────────────
-                if expected_tmdb_str and r_tmdb:
-                    if r_tmdb != expected_tmdb_str:
-                        logger.warning(f"[tmdb_check] SKIP '{r_name}' ({r_year}) — tmdb_id mismatch: got={r_tmdb} expected={expected_tmdb_str}")
+                for r in strict_candidates:
+                    r_name = r.name or ""
+                    r_year = r.year or ""
+                    result_media_type = self._result_media_type(r)
+                    if result_media_type != media_type:
+                        logger.warning(
+                            f"[type_check] SKIP '{r_name}' ({r_year}) — provider type={result_media_type or 'unknown'} "
+                            f"cannot satisfy TMDB type={media_type}"
+                        )
                         continue
+
+                    result_tmdb = self._resolve_provider_tmdb_id(api, r, provider, media_type)
+                    if not result_tmdb:
+                        logger.warning(
+                            f"[tmdb_check] SKIP '{r_name}' ({r_year}) — provider cannot attest a TMDB id"
+                        )
+                        continue
+                    if result_tmdb != expected_tmdb_str:
+                        logger.warning(
+                            f"[tmdb_check] SKIP '{r_name}' ({r_year}) — "
+                            f"{media_type} tmdb_id mismatch: got={result_tmdb} expected={expected_tmdb_str}"
+                        )
+                        continue
+
                     best = r
-                    logger.info(f"[tmdb_check] MATCH '{r_name}' ({r_year}) — tmdb_id={r_tmdb} OK")
+                    logger.info(
+                        f"[tmdb_check] MATCH '{r_name}' ({r_year}) — "
+                        f"identity=({media_type}, {result_tmdb})"
+                    )
                     break
-
-                # ── Title compatibility check ──────────────────────────────
-                if not self._titles_are_compatible(title, r_name):
-                    logger.warning(f"[title_check] SKIP '{r_name}' ({r_year}) — title too different from '{title}'")
-                    continue
-
-                # ── Year range check ──────────────────────────────────────
-                if year_start is not None and year_end is not None:
-                    if not r_year:
-                        # No year on result but title matches well — accept it
-                        best = r
-                        logger.info(f"[search] ACCEPT '{r_name}' (no year) — title match, year unverifiable")
-                        break
+            else:
+                # Legacy matching is intentionally retained only when no TMDB
+                # key is configured.
+                if media_type == "tv" and provider in {"animeunity", "animeworld"} and season_number:
                     try:
-                        if not (year_start <= int(r_year) <= year_end):
-                            logger.debug(
-                                f"[search] SKIP '{r_name}' ({r_year}) — year out of range [{year_start}-{year_end}]"
+                        season_int = int(season_number)
+                    except (TypeError, ValueError):
+                        season_int = 0
+                    if season_int > 1:
+                        expected_season_title = self._normalize_title(f"{title} {season_int}")
+                        best = next(
+                            (
+                                r
+                                for r in results
+                                if self._normalize_title(r.name or "") == expected_season_title
+                                or self._normalize_title(r.name or "").startswith(expected_season_title + " ")
+                            ),
+                            None,
+                        )
+                        if best:
+                            logger.info(f"[search] ACCEPT '{best.name}' — season-specific anime match for S{season_int}")
+                        else:
+                            logger.warning(
+                                f"[search] No season-specific anime result for S{season_int} on '{provider}', "
+                                "rejecting generic results"
+                            )
+                            return None
+
+                for r in results:
+                    if best is not None:
+                        break
+                    r_name = r.name or ""
+                    r_year = r.year or ""
+                    r_tmdb = self._normalize_tmdb_id(getattr(r, "tmdb_id", None))
+                    r_type = str(getattr(r, "type", "") or "").lower()
+
+                    if media_type == "tv" and r_type == "movie":
+                        logger.warning(
+                            f"[type_check] SKIP '{r_name}' ({r_year}) — movie result cannot satisfy a Sonarr TV request"
+                        )
+                        continue
+
+                    if expected_tmdb_str and r_tmdb:
+                        if r_tmdb != expected_tmdb_str:
+                            logger.warning(
+                                f"[tmdb_check] SKIP '{r_name}' ({r_year}) — "
+                                f"tmdb_id mismatch: got={r_tmdb} expected={expected_tmdb_str}"
                             )
                             continue
-                    except (ValueError, TypeError):
+                        best = r
+                        logger.info(f"[tmdb_check] MATCH '{r_name}' ({r_year}) — tmdb_id={r_tmdb} OK")
+                        break
+
+                    if not self._titles_are_compatible(title, r_name):
+                        logger.warning(
+                            f"[title_check] SKIP '{r_name}' ({r_year}) — title too different from '{title}'"
+                        )
                         continue
 
-                best = r
-                logger.info(f"[search] ACCEPT '{r_name}' ({r_year}) — title+year match (no tmdb_id to verify)")
-                break
-
-            # Last-chance fallback: first title-compatible result
-            if best is None and results:
-                first = results[0]
-                f_tmdb = str(getattr(first, "tmdb_id", "") or "")
-                if expected_tmdb_str and f_tmdb and f_tmdb != expected_tmdb_str:
-                    logger.error(f"[tmdb_check] HARD REJECT '{first.name}' ({first.year}) on '{provider}' — tmdb_id mismatch: got={f_tmdb} expected={expected_tmdb_str}. Trying next provider.")
-                    return None
-                if self._titles_are_compatible(title, first.name or ""):
-                    f_year = first.year or ""
-                    year_ok = True
-                    if year_start is not None and year_end is not None and f_year:
+                    if year_start is not None and year_end is not None:
+                        if not r_year:
+                            best = r
+                            logger.info(f"[search] ACCEPT '{r_name}' (no year) — title match, year unverifiable")
+                            break
                         try:
-                            year_ok = year_start <= int(f_year) <= year_end
+                            if not (year_start <= int(r_year) <= year_end):
+                                logger.debug(
+                                    f"[search] SKIP '{r_name}' ({r_year}) — "
+                                    f"year out of range [{year_start}-{year_end}]"
+                                )
+                                continue
                         except (ValueError, TypeError):
-                            year_ok = False
-                    if year_ok:
-                        best = first
-                        logger.info(f"[search] ACCEPT first result '{first.name}' ({first.year or 'no year'}) — title match fallback")
+                            continue
+
+                    best = r
+                    logger.info(f"[search] ACCEPT '{r_name}' ({r_year}) — title+year match (legacy mode)")
+                    break
+
+                # Last-chance fallback is likewise legacy-only.
+                if best is None and results:
+                    first = results[0]
+                    f_tmdb = self._normalize_tmdb_id(getattr(first, "tmdb_id", None))
+                    if expected_tmdb_str and f_tmdb and f_tmdb != expected_tmdb_str:
+                        logger.error(
+                            f"[tmdb_check] HARD REJECT '{first.name}' ({first.year}) on '{provider}' — "
+                            f"tmdb_id mismatch: got={f_tmdb} expected={expected_tmdb_str}. Trying next provider."
+                        )
+                        return None
+                    if self._titles_are_compatible(title, first.name or ""):
+                        f_year = first.year or ""
+                        year_ok = True
+                        if year_start is not None and year_end is not None and f_year:
+                            try:
+                                year_ok = year_start <= int(f_year) <= year_end
+                            except (ValueError, TypeError):
+                                year_ok = False
+                        if year_ok:
+                            best = first
+                            logger.info(
+                                f"[search] ACCEPT first result '{first.name}' "
+                                f"({first.year or 'no year'}) — title match fallback"
+                            )
+                        else:
+                            logger.warning(
+                                f"[search] SKIP first result '{first.name}' ({first.year}) — "
+                                f"year out of range [{year_start}-{year_end}]"
+                            )
                     else:
-                        logger.warning(f"[search] SKIP first result '{first.name}' ({first.year}) — year out of range [{year_start}-{year_end}]")
-                else:
-                    logger.warning(f"[title_check] SKIP first result '{first.name}' ({first.year}) — title too different from '{title}'")
+                        logger.warning(
+                            f"[title_check] SKIP first result '{first.name}' ({first.year}) — "
+                            f"title too different from '{title}'"
+                        )
 
             if best is None:
                 logger.error(f"[search] No match for '{expected_title or title}' on '{provider}' (year_range={year_range}, expected_tmdb={tmdb_id}). Top result was: '{results[0].name}' ({results[0].year})")
@@ -685,20 +959,13 @@ class ArrDownloaderService:
             # ── ITA preference ────────────────────────────────────────────
             # If download_italian_anime_default=true and the best result is not
             # already an ITA version, look for one among the remaining results.
-            _conf_path = pathlib.Path(__file__).parent.parent.parent.parent / "Conf" / "config.json"
-            try:
-                with open(_conf_path, encoding="utf-8") as _f:
-                    _prefer_ita = json.load(_f).get("ARR", {}).get("download_italian_anime_default", True)
-            except Exception:
-                _prefer_ita = True
-
             season_int_for_ita = 0
             try:
                 season_int_for_ita = int(season_number or 0)
             except (TypeError, ValueError):
                 season_int_for_ita = 0
 
-            if _prefer_ita and "(ITA)" not in (best.name or "").upper():
+            if not strict_tmdb and _prefer_ita and "(ITA)" not in (best.name or "").upper():
                 expected_season_title = (
                     self._normalize_title(f"{title} {season_int_for_ita}")
                     if media_type == "tv" and provider in {"animeunity", "animeworld"} and season_int_for_ita > 1
@@ -726,7 +993,22 @@ class ArrDownloaderService:
                 else:
                     logger.info(f"[ita] No ITA version available, keeping '{best.name}'")
 
-            payload = {**best.__dict__, "is_movie": best.is_movie}
+            payload = {
+                **best.__dict__,
+                # Once the strict (media type, TMDB id) identity has been
+                # verified, preserve that canonical type in the payload too.
+                "is_movie": media_type == "movie" if strict_tmdb else best.is_movie,
+            }
+            if strict_tmdb:
+                canonical_type = "movie" if media_type == "movie" else "tv"
+                payload["type"] = canonical_type
+                payload["tmdb_id"] = expected_tmdb_str
+                raw_data = payload.get("raw_data")
+                if isinstance(raw_data, dict):
+                    # Most adapters pass raw_data back into the service-level
+                    # dispatcher, so it must carry the same verified identity.
+                    raw_data["type"] = canonical_type
+                    raw_data["tmdb_id"] = expected_tmdb_str
             logger.debug(f"[search] Payload: {json.dumps(payload, default=str, ensure_ascii=False)}")
             return payload
 

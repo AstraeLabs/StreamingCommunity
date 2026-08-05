@@ -536,6 +536,12 @@ The `ARR` block enables VibraVid to work as an automation layer between **Seerr/
 
 > **The ARR integration requires the VibraVid web GUI to be running.** All polling loops, webhook listeners, and download workers are managed by the Django application server. The CLI (`vibraNid` / `python -m VibraVid`) does not start the ARR stack.
 
+#### TMDB identity matching
+
+When a TMDB API key is configured, ARR matches provider results strictly by the **media type + TMDB ID** pair. Movies and TV series are therefore kept in separate identity namespaces even if they share the same numeric ID. Sonarr records that expose only a TVDB ID are converted through TMDB's exact external-ID lookup. Provider results whose TMDB identity cannot be verified are skipped instead of being accepted from a similar title or year; requests without a resolvable target TMDB ID fail safely and are left available for a later retry.
+
+Set the key with the `TMDB_API_KEY` environment variable or with `Provider.tmdb` in `Conf/login.json`. A non-empty `TMDB_API_KEY` environment value takes precedence over the value in `Conf/login.json`. If no TMDB API key is configured, ARR retains the legacy title/year matching fallback.
+
 #### Configuration reference
 
 ```json
@@ -594,6 +600,7 @@ These keys can also be set via environment variables (useful in Docker):
 
 ```bash
 USE_ARR_SERVICES=true
+TMDB_API_KEY=your-tmdb-api-key
 SONARR_URL=http://sonarr:8989
 SONARR_API_KEY=your-key
 RADARR_URL=http://radarr:7878
@@ -1187,6 +1194,7 @@ Key variables (full list in `.env.example`):
 | `VIBRAVID_LOGS_DIR` | named volume | Host path for application logs |
 | `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames Django accepts |
 | `CSRF_TRUSTED_ORIGINS` | `http://localhost:8000,...` | Origins for CSRF validation |
+| `TMDB_API_KEY` | — | Optional TMDB key; enables strict media-type + TMDB-ID matching for ARR |
 
 **NAS example** — store downloads on a NAS share, expose on port 9000:
 
@@ -1226,6 +1234,7 @@ ARR-related variables can be added to the same `environment` block:
 ```yaml
 environment:
   USE_ARR_SERVICES: "true"
+  TMDB_API_KEY: "your-tmdb-api-key"
   SONARR_URL: "http://sonarr:8989"
   SONARR_API_KEY: "your-sonarr-api-key"
   RADARR_URL: "http://radarr:7878"

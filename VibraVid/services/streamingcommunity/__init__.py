@@ -129,6 +129,7 @@ def title_search(query: str) -> int:
                         image=image_url,
                         year=year.split("-")[0] if year and "-" in year else "9999",
                         provider_language=lang,
+                        tmdb_id=dict_title.get("tmdb_id"),
                     )
                 )
 

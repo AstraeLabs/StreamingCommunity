@@ -38,6 +38,9 @@ class CinezoAPI(BaseStreamingAPI):
                         url=item_dict.get("url"),
                         poster=item_dict.get("image"),
                         year=item_dict.get("year"),
+                        # Cinezo searches TMDB directly, so its native id is
+                        # already the canonical TMDB id.
+                        tmdb_id=item_dict.get("id"),
                         raw_data=item_dict,
                     )
                 )
