@@ -1,4 +1,4 @@
-﻿# 24.08.24
+# 24.08.24
 
 import logging
 import os
@@ -9,29 +9,49 @@ from difflib import SequenceMatcher
 
 from rich.console import Console
 
+from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_headers
 
 console = Console()
 logger = logging.getLogger(__name__)
+_warned_legacy_login_key = False
 
 
 def _configured_api_key() -> str | None:
-    """Return the TMDB key configured exclusively through the environment."""
-    return str(os.environ.get("TMDB_API_KEY") or "").strip() or None
+    """Return the TMDB key: TMDB_API_KEY env var takes priority; falls back to the legacy Conf/login.json Provider.tmdb key (deprecated)."""
+    global _warned_legacy_login_key
 
+    env_key = str(os.environ.get("TMDB_API_KEY") or "").strip()
+    if env_key:
+        return env_key
 
-api_key = _configured_api_key()
+    legacy_key = config_manager.login.get("Provider", "tmdb", default=None)
+    if legacy_key:
+        if not _warned_legacy_login_key:
+            logger.warning(
+                "TMDB key read from Conf/login.json (Provider.tmdb) — deprecated, "
+                "set the TMDB_API_KEY environment variable instead. Legacy support "
+                "will be removed in a future release."
+            )
+            _warned_legacy_login_key = True
+        return legacy_key
+
+    return None
 
 
 class TMDBClient:
     ANIMATION_GENRE_ID = 16
 
-    def __init__(self, api_key: str):
-        """Initialize the class with the API key."""
-        self.api_key = api_key
+    def __init__(self, api_key: str | None = None):
+        """Initialize the class with the API key (resolved lazily if not given)."""
+        self._api_key = api_key
         self.base_url = "https://api.themoviedb.org/3"
         self._cache: dict = {}
         self._warned_no_api_key = False
+
+    @property
+    def api_key(self) -> str | None:
+        return self._api_key if self._api_key is not None else _configured_api_key()
 
     def _make_request(self, endpoint, params=None, retries=3):
         """Make a request to the given API endpoint with optional parameters."""
@@ -378,9 +398,6 @@ class TMDBClient:
 
             episode_count = season.get("episode_count") or 0
             if remaining <= episode_count:
-                # Resolve the real in-season episode_number by position: some long-running shows
-                # (e.g. this Naruto entry) keep continuous numbering across seasons instead of
-                # restarting at 1 each season, so `remaining` itself is not always the right value.
                 season_details = self._make_request(
                     f"tv/{tmdb_id}/season/{season_number}", {"language": language_preference}
                 )
@@ -522,16 +539,7 @@ class TMDBClient:
         return None
 
     def search_movies(self, query: str, language_preference: str = "it"):
-        """
-        Search for movies and return a list of results with details.
-
-        Parameters:
-            query (str): The search query
-            language_preference (str): Language preference (default: "it")
-
-        Returns:
-            - list: List of dicts containing movie info (id, title, release_date)
-        """
+        """Search for movies and return a list of results with details."""
         results = self._search_movie_with_fallback(query, language_preference)
         logger.info(f"Found {len(results)} movie results for query '{query}'")
 
@@ -552,16 +560,7 @@ class TMDBClient:
         return movies
 
     def search_series(self, query: str, language_preference: str = "it"):
-        """
-        Search for TV series and return a list of results with details.
-
-        Parameters:
-            query (str): The search query
-            language_preference (str): Language preference (default: "it")
-
-        Returns:
-            - list: List of dicts containing series info (id, name, first_air_date)
-        """
+        """Search for TV series and return a list of results with details"""
         results = self._search_tv_with_fallback(query, language_preference)
         logger.info(f"Found {len(results)} TV results for query '{query}'")
 
@@ -582,17 +581,7 @@ class TMDBClient:
         return series
 
     def get_alternative_titles(self, tmdb_id: int, media_type: str, language: str = "it") -> list:
-        """
-        Get alternative titles for a movie or TV show.
-
-        Parameters:
-            tmdb_id (int): The TMDB ID
-            media_type (str): "movie" or "tv"
-            language (str): Language to get titles for (default: "it")
-
-        Returns:
-            - list: List of titles in the specified language
-        """
+        """Get alternative titles for a movie or TV show."""
         details = self._make_request(
             f"{media_type}/{tmdb_id}", {"language": language, "append_to_response": "alternative_titles"}
         )
@@ -610,5 +599,5 @@ class TMDBClient:
         return titles
 
 # Istance
-tmdb_client = TMDBClient(api_key)
+tmdb_client = TMDBClient()
 tmdb = tmdb_client
