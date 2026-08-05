@@ -27,6 +27,8 @@ class ArrDownloaderService:
         self.download_timeout = self._load_download_timeout()
         self._sonarr_season_format: str | None = None
         self._provider_tmdb_cache: dict[tuple, str] = {}
+        self._sonarr_rename_checked = False
+        self._radarr_rename_checked = False
 
     @staticmethod
     def _load_download_timeout() -> int:
@@ -195,6 +197,7 @@ class ArrDownloaderService:
                         logger.info(f"Rename command issued for S{season_num}E{ep_num} of '{title}'")
                     except Exception as rename_exc:
                         logger.warning(f"Sonarr rename failed for '{title}': {rename_exc}")
+                    self._warn_if_sonarr_rename_disabled()
 
                     logger.info(f"S{season_num}E{ep_num} of '{title}' completed and imported")
                 except Exception as exc:
@@ -316,6 +319,7 @@ class ArrDownloaderService:
                 logger.info(f"Rename command issued for '{title}'")
             except Exception as rename_exc:
                 logger.warning(f"Radarr rename failed for '{title}': {rename_exc}")
+            self._warn_if_radarr_rename_disabled()
 
             logger.info(f"'{title}' completed and imported")
             return True
@@ -1156,6 +1160,36 @@ class ArrDownloaderService:
                 logger.warning(f"Could not fetch Sonarr naming config, using default season folder format: {exc}")
             self._sonarr_season_format = fmt
         return self._sonarr_season_format or "Season {season:00}"
+
+    def _warn_if_sonarr_rename_disabled(self) -> None:
+        """Sonarr's own naming config decides the final on-disk filename after import."""
+        if self._sonarr_rename_checked:
+            return
+        self._sonarr_rename_checked = True
+        try:
+            if not self.sonarr.get_naming_config().get("renameEpisodes", True):
+                logger.warning(
+                    "Sonarr has 'Rename Episodes' disabled (Settings -> Media Management): "
+                    "imported episodes will keep VibraVid's raw filename instead of Sonarr's "
+                    "configured naming format. Enable it in Sonarr to get clean filenames."
+                )
+        except Exception as exc:
+            logger.debug(f"Could not check Sonarr naming config for rename warning: {exc}")
+
+    def _warn_if_radarr_rename_disabled(self) -> None:
+        """Same caveat as _warn_if_sonarr_rename_disabled, for Radarr's 'Rename Movies'."""
+        if self._radarr_rename_checked:
+            return
+        self._radarr_rename_checked = True
+        try:
+            if not self.radarr.get_naming_config().get("renameMovies", True):
+                logger.warning(
+                    "Radarr has 'Rename Movies' disabled (Settings -> Media Management): "
+                    "imported movies will keep VibraVid's raw filename instead of Radarr's "
+                    "configured naming format. Enable it in Radarr to get clean filenames."
+                )
+        except Exception as exc:
+            logger.debug(f"Could not check Radarr naming config for rename warning: {exc}")
 
     @staticmethod
     def _render_season_format(fmt: str, season_num: int) -> str:

@@ -78,6 +78,12 @@ class RadarrClient:
         except Exception:
             return False
 
+    # ── config ───────────────────────────────────────────
+
+    def get_naming_config(self) -> dict[str, Any]:
+        """Get Radarr's naming/folder-format configuration (includes renameMovies)."""
+        return self._get("/config/naming").json()
+
     # ── wanted / missing ─────────────────────────────────
 
     def wanted_missing(self, page: int = 1, page_size: int = 20) -> dict[str, Any]:

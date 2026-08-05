@@ -10,6 +10,17 @@ from VibraVid.core.utils.codec import DV_CODEC_PREFIXES, get_codec_token
 logger = logging.getLogger(__name__)
 
 _RES_TOKEN_RE = re.compile(r"^(\d+)[pP]?$")
+_DV_SUFFIX_RE = re.compile(r"&dv(?:=([^&]*))?", re.IGNORECASE)
+
+
+def strip_dv_suffix(video_filter: str) -> tuple[str, str | None]:
+    """Strip a trailing '&dv' / '&dv=<quality>' companion tag from a video filter string."""
+    vf = video_filter or ""
+    m = _DV_SUFFIX_RE.search(vf)
+    if not m:
+        return vf.strip(), None
+    quality = (m.group(1) or "worst").strip() or "worst"
+    return (vf[: m.start()] + vf[m.end() :]).strip(), quality
 
 
 def _height(s) -> int:
@@ -69,10 +80,13 @@ class FilterSpec:
     ",AAC"                                  codec only (audio)
     "ita|best"                              language with fallback to best (audio)
     "ita|best,AAC"                          language + codec with fallback to best (audio)
-    "res=1080:codecs=hvc1:for=best"         native passthrough
-    "id=audio_128k_en:for=best"             id-based (real manifest IDs).
-    "bitrate=1000-8000:for=best"            bitrate range in kbps, best within range (video).
-    "bitrate=-8000:for=best"                bitrate cap (no lower bound), best within range (video).
+    "r=1080:c=hvc1:f=best"                  native passthrough (resolution, codec, fallback)
+    "i=audio_128k_en:f=best"                id-based (real manifest IDs).
+    "b=1000-8000:f=best"                    bitrate range in kbps, best within range (video).
+    "b=-8000:f=best"                        bitrate cap (no lower bound), best within range (video).
+
+    Native `key=value` keys: r=res, l=lang, c=codec/codecs, b=bitrate, i=id, f=for.
+    E.g. "l=ita:c=aac:f=best" combines language + codec + fallback for audio.
     """
 
     drop: bool = False
@@ -144,6 +158,13 @@ class FilterSpec:
         if not primary:
             return spec
 
+        # "best,H265" / "worst,H265" (also "best,AAC" for audio): explicit best/worst directive combined with a codec constraint.
+        if primary.lower() in ("best", "worst"):
+            spec.select_best = primary.lower() == "best"
+            spec.explicit_fallback = True
+            spec.fallback_to_best = spec.select_best
+            return spec
+
         # Check for fallback strategy pattern (e.g., "1080|best", "ita|best")
         # Only trigger if primary contains "|" AND the second part is "best" or "worst"
         if "|" in primary:
@@ -197,17 +218,17 @@ class FilterSpec:
             k, v = seg.split("=", 1)
             k = k.strip()
             v = v.strip().strip("'\"")
-            if k == "res":
+            if k == "r":
                 self.res = v
-            elif k == "lang":
+            elif k == "l":
                 self.langs = v
-            elif k in ("codecs", "codec"):
+            elif k == "c":
                 self.codec = v
-            elif k == "id":
+            elif k == "i":
                 self.id = v
-            elif k == "bitrate":
+            elif k == "b":
                 self._parse_bitrate_range(v)
-            elif k == "for":
+            elif k == "f":
                 for_val = v.lower()
             else:
                 self.extra[k] = v
@@ -648,19 +669,21 @@ def _subtitle_variant_key(s) -> tuple[str, ...]:
     return tuple(ordered)
 
 
+def _normalize_filter_value(value, default: str) -> str:
+    """Coerce a raw config/filter value to the string FilterSpec.parse() expects."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 class StreamSelector:
     def __init__(self, video_filter: str, audio_filter: str, subtitle_filter: str, formatter: BaseFormatter = None):
-        raw_vf = (video_filter or "best").strip()
-        m = re.search(r"&dv(?:=([^&]*))?", raw_vf, re.IGNORECASE)  # select_video in config.json
-        if m:
-            self._dv_quality: str | None = (m.group(1) or "worst").strip() or "worst"
-            raw_vf = (raw_vf[: m.start()] + raw_vf[m.end() :]).strip()
-        else:
-            self._dv_quality = None
-
-        self._vf = raw_vf
-        self._af = (audio_filter or "best").strip()
-        self._sf = (subtitle_filter or "all").strip()
+        raw_vf = _normalize_filter_value(video_filter, "best").strip()
+        self._vf, self._dv_quality = strip_dv_suffix(raw_vf)  # select_video in config.json
+        self._af = _normalize_filter_value(audio_filter, "best").strip()
+        self._sf = _normalize_filter_value(subtitle_filter, "all").strip()
         self._formatter = formatter or StreamSelectorFormatter()
 
     def apply(self, streams: list) -> tuple[str, str, str]:
@@ -675,7 +698,8 @@ class StreamSelector:
 
         if self._dv_quality is not None:
             videos = [s for s in streams if getattr(s, "type", "") == "video"]
-            self._mark_dv_companion(videos, self._dv_quality)
+            target_res = rv.matched_res or pv.res
+            self._mark_dv_companion(videos, self._dv_quality, target_res)
 
         sv = self._formatter.format(rv)
         sa = self._formatter.format(ra)
@@ -1045,7 +1069,7 @@ class StreamSelector:
                 seen[lang] = True
                 s.selected = True
 
-    def _mark_dv_companion(self, video_streams: list, quality: str) -> None:
+    def _mark_dv_companion(self, video_streams: list, quality: str, target_res: str | None = None) -> None:
         """Find the DV companion stream and mark it with dv_companion=True (not selected)."""
 
         def _is_dv(s) -> bool:
@@ -1060,14 +1084,29 @@ class StreamSelector:
             return
 
         q = (quality or "worst").strip().lower()
-        sortable = [s for s in dv_streams if _bitrate(s)]
-        pool = sortable or dv_streams
+        is_explicit_height = bool(re.match(r"^\d+$", q))
 
-        if q == "best":
-            companion = max(pool, key=_bitrate)
-        elif re.match(r"^\d+$", q):
+        pool = dv_streams
+        if target_res and not is_explicit_height:
+            res_pool = [s for s in dv_streams if _matches_res(s, target_res)]
+            if res_pool:
+                pool = res_pool
+            else:
+                nearest = _nearest_by_res(dv_streams, target_res)
+                if nearest:
+                    nearest.dv_companion = True
+                    nearest.dv_companion_quality = quality
+                    logger.info(f"StreamSelector &dv: no DV stream at {target_res}p, using nearest available ({_height(nearest)}p/{_codecs(nearest)})")
+                    return
+
+        sortable = [s for s in pool if _bitrate(s)]
+        pool = sortable or pool
+
+        if is_explicit_height:
             target_h = int(q)
             companion = min(pool, key=lambda s: abs(_height(s) - target_h))
+        elif q == "best":
+            companion = max(pool, key=_bitrate)
         else:
             companion = min(pool, key=_bitrate)
 

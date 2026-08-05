@@ -17,9 +17,7 @@ from VibraVid.core.muxing import (
     build_hybrid_output,
     embed_poster,
     inject_chapters,
-    join_audios,
-    join_subtitles,
-    join_video,
+    join_media,
     probe_media_file,
 )
 from VibraVid.core.muxing.helper.audio import audio_ext_for_codec
@@ -391,36 +389,36 @@ class BaseDownloader:
             )
             if hybrid_file:
                 self.last_merge_result = {"hybrid": True, "output": hybrid_file}
-                # hybrid_file include già audio e subtitle via mkvmerge:
-                # non chiamare join_audios/join_subtitles separatamente
                 return self._embed_poster(self._inject_chapters(hybrid_file))
 
-        if not audio_tracks and not subtitle_tracks:
-            merged_file, result_json = join_video(
-                video_path=video_path,
-                out_path=self.output_path,
-            )
-            self.last_merge_result = result_json
-            if not self._merge_output_ok(merged_file):
-                return None
-            return self._embed_poster(self._inject_chapters(merged_file))
-
-        current_file = video_path
-
+        audio_tracks_to_merge: list = []
         if audio_tracks:
             if MERGE_AUDIO:
-                current_file = self._merge_audio_tracks(current_file, audio_tracks)
+                audio_tracks_to_merge = audio_tracks
             else:
                 self._track_audios_for_copy(audio_tracks)
 
-        subtitle_tracks = self._prepare_subtitle_tracks_for_merge(subtitle_tracks, current_file)
+        # CC-embedded subtitles are extracted straight from the raw video stream
+        subtitle_tracks = self._prepare_subtitle_tracks_for_merge(subtitle_tracks, video_path)
+        subtitle_tracks_to_merge: list = []
         if subtitle_tracks:
             if MERGE_SUBTITLES:
-                current_file = self._merge_subtitle_tracks(current_file, subtitle_tracks)
+                subtitle_tracks_to_merge = subtitle_tracks
             else:
                 self._track_subtitles_for_copy(subtitle_tracks)
 
-        return self._embed_poster(self._inject_chapters(current_file))
+        merged_file, result_json = join_media(
+            video_path=video_path,
+            audio_tracks=audio_tracks_to_merge,
+            subtitle_tracks=subtitle_tracks_to_merge,
+            out_path=self.output_path,
+            chapters=getattr(self, "chapters", None),
+        )
+        self.last_merge_result = result_json
+        if not self._merge_output_ok(merged_file):
+            return None
+        # Chapters are already baked into merged_file by join_media() above — no separate _inject_chapters() pass needed.
+        return self._embed_poster(merged_file)
 
     def _inject_chapters(self, file_path: str) -> str:
         """Add this downloader's queued chapters (self.chapters) as the final muxing step."""
@@ -446,43 +444,9 @@ class BaseDownloader:
         """A merge step only succeeded if ffmpeg produced a non-empty file"""
         return bool(path) and os.path.exists(path) and os.path.getsize(path) > 0
 
-    def _merge_audio_tracks(self, current_file: str, audio_tracks: list) -> str:
-        """Merge audio tracks into the video file. Returns the resulting file path (or original on failure)."""
-        console.print(f"[cyan]\nMerging [red]{len(audio_tracks)} [cyan]audio track(s)...")
-        audio_output = os.path.join(self.output_dir, f"{self.filename_base}_with_audio.{EXTENSION_OUTPUT}")
-        merged_file, _, result_json = join_audios(
-            video_path=current_file,
-            audio_tracks=audio_tracks,
-            out_path=audio_output,
-        )
-        self.last_merge_result = result_json
-        if self._merge_output_ok(merged_file):
-            return merged_file
-
-        logger.error(f"Audio merge failed (ffmpeg exit_code={(result_json or {}).get('exit_code')}); output missing or empty: {merged_file}")
-        console.print("[yellow]Audio merge failed, continuing with video only")
-        return current_file
-
-    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, current_file: str | None = None) -> list:
-        """Hook for subclasses to materialize subtitle assets right before subtitle merge."""
+    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, video_path: str | None = None) -> list:
+        """Hook for subclasses to materialize subtitle assets right before muxing (e.g. embedded-CC extraction from the raw video stream)."""
         return subtitle_tracks
-
-    def _merge_subtitle_tracks(self, current_file: str, subtitle_tracks: list) -> str:
-        """Merge subtitle tracks into the video file. Returns the resulting file path (or original on failure)."""
-        console.print(f"[cyan]\nMerging [red]{len(subtitle_tracks)} [cyan]subtitle track(s)...")
-        sub_output = os.path.join(self.output_dir, f"{self.filename_base}_final.{EXTENSION_OUTPUT}")
-        merged_file, result_json = join_subtitles(
-            video_path=current_file,
-            subtitles_list=subtitle_tracks,
-            out_path=sub_output,
-        )
-        self.last_merge_result = result_json
-        if self._merge_output_ok(merged_file):
-            return merged_file
-
-        logger.error(f"Subtitle merge failed (ffmpeg exit_code={(result_json or {}).get('exit_code')}); output missing or empty: {merged_file}")
-        console.print("[yellow]Subtitle merge failed, continuing without subtitles")
-        return current_file
 
     def _track_subtitles_for_copy(self, subtitles_list: list) -> None:
         """Stage subtitle files for deferred copy to final location."""

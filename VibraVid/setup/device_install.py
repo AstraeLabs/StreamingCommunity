@@ -122,14 +122,17 @@ def resolve_service_cdm_paths(site_name: str | None) -> tuple[str | None, str | 
 
         resolved = searcher.search(filename=filename)
         if not resolved:
-            console.print(f"[yellow]Warning: [red]cdm[/red] file '{filename}' configured for '{site_name}' in login.json was not found in the binary directory - falling back to the default device.")
-            continue
+            console.print(f"[red]Error: [red]cdm[/red] file '{filename}' configured for '{site_name}' in login.json was not found in the binary directory.")
+            raise FileNotFoundError(
+                f"cdm file '{filename}' configured for '{site_name}' in login.json was not found in the binary directory."
+            )
 
         if filename.lower().endswith(".wvd"):
             wvd_path = resolved
         elif filename.lower().endswith(".prd"):
             prd_path = resolved
         else:
+            console.print(f"[yellow]Warning: [red]cdm[/red] file '{filename}' configured for '{site_name}' in login.json has an unrecognized extension (expected .wvd or .prd) - ignoring.")
             logger.warning(f"Unrecognized cdm file extension for '{filename}' (site '{site_name}'), ignoring.")
 
     return wvd_path, prd_path

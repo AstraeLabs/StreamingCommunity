@@ -4,9 +4,7 @@ import importlib.metadata
 import json
 import logging
 import os
-import re
 import stat
-import subprocess
 import sys
 
 from rich.console import Console
@@ -24,11 +22,20 @@ if get_is_binary_installation():
     base_path = os.path.join(sys._MEIPASS, "VibraVid")
 else:
     base_path = os.path.dirname(__file__)
+
 console = Console()
 logger = logging.getLogger(__name__)
+
 auto_update_check = config_manager.config.get_bool("DEFAULT", "auto_update_check")
 timeout = config_manager.config.get_int("REQUESTS", "timeout")
-
+_GENERIC_UPDATABLE_TOOLS = {
+    "ffmpeg": ["ffmpeg", "ffprobe"],
+    "bento4": ["mp4decrypt", "mp4dump"],
+    "shaka_packager": ["packager"],
+    "dovi_tool": ["dovi_tool"],
+    "mkvtoolnix": ["mkvmerge", "mkvinfo"],
+    "velora": ["velora"],
+}
 
 def fetch_github_releases():
     """Fetch releases data from GitHub API (sync)"""
@@ -145,128 +152,91 @@ def auto_update():
         return False
 
 
-def _fetch_latest_velora_version():
-    """Return the latest Velora version from the Velora repo's Cargo.toml, or None."""
-    prefetched = _startup_prefetch.collect("velora_version", timeout=timeout)
-    if prefetched is not None:
-        return prefetched
+def check_binary_update(tool: str, exec_names: list[str]) -> dict:
+    """Re-download *tool*'s binaries when AstraeLabs/Binary has published a newer version."""
+    remote = binary_paths.get_remote_tool_version(tool)
+    if not remote:
+        return {"success": False, "message": f"Could not fetch the latest {tool} version."}
 
-    try:
-        url = f"https://raw.githubusercontent.com/{__author__}/Velora/main/Cargo.toml"
-        logger.info(f"Checking latest Velora version: {url}")
-        with create_client(headers=get_headers()) as client:
-            response = client.get(url)
-        response.raise_for_status()
-
-        # The package version is the first `version = "x.y.z"` line under [package].
-        for line in response.text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("version") and "=" in stripped:
-                return stripped.split("=", 1)[1].strip().strip('"').strip("'")
-
-    except Exception as e:
-        logger.debug(f"Failed to fetch latest Velora version: {e}")
-    return None
-
-
-def _get_local_velora_version(velora_path):
-    """Return the version reported by `velora --version`, or None if unavailable."""
-    try:
-        out = subprocess.run([velora_path, "--version"], capture_output=True, text=True, timeout=5)
-        raw = (out.stdout or out.stderr).strip()
-        first = raw.splitlines()[0] if raw else ""
-
-        # Velora prints a JSON line e.g. {"version": "2.0.2"}; fall back to a regex.
-        try:
-            version = str(json.loads(first).get("version", "")).strip()
-            if version:
-                return version
-        except Exception:
-            pass
-
-        m = re.search(r"v?(\d+(?:\.\d+){1,3})", raw)
-        return m.group(1) if m else None
-    except Exception as e:
-        logger.debug(f"Failed to read local Velora version: {e}")
-        return None
-
-
-def _version_tuple(version):
-    """Parse a dotted version string into a comparable tuple of ints, or None."""
-    if not version:
-        return None
-    parts = re.findall(r"\d+", version)
-    return tuple(int(p) for p in parts) if parts else None
-
-
-def check_velora_update() -> dict:
-    """Re-download the Velora binary when it is outdated."""
-    latest_version = _fetch_latest_velora_version()
-    if not latest_version:
-        return {"success": False, "message": "Could not fetch the latest Velora version."}
-
-    from VibraVid.setup import get_velora_path
-    from VibraVid.setup import system as setup_system
-
-    velora_path = get_velora_path()
-    if not velora_path:
-        return {"success": False, "message": "Velora binary not found."}
-
-    # Only manage the binary we downloaded ourselves; never touch a system-PATH install.
-    managed_dir = os.path.abspath(binary_paths.get_binary_directory())
-    if os.path.dirname(os.path.abspath(velora_path)) != managed_dir:
-        logger.info("Velora resolved outside the managed binary directory; skipping auto-update")
-        return {"success": False, "message": "Velora is a system-installed binary; skipping auto-update."}
-
-    local_version = _get_local_velora_version(velora_path)
-    local_tuple = _version_tuple(local_version)
-    latest_tuple = _version_tuple(latest_version)
-
-    needs_update = local_tuple is None or (latest_tuple is not None and local_tuple < latest_tuple)
-    if not needs_update:
-        logger.debug(f"Velora is up to date (local: {local_version}, latest: {latest_version})")
+    local = binary_paths.get_local_tool_version(tool)
+    if local is None:
+        binary_paths.set_local_tool_version(tool, remote)
         return {
             "success": True,
             "updated": False,
-            "local": local_version,
-            "latest": latest_version,
-            "message": f"Velora is up to date ({local_version}).",
+            "local": None,
+            "latest": remote,
+            "message": f"{tool} version baseline recorded ({remote}).",
         }
 
-    console.print(f"[#FFD60A]Velora outdated (local: {local_version or 'unknown'} -> latest: {latest_version}), updating...")
+    if local == remote:
+        logger.debug(f"{tool} is up to date (local: {local}, latest: {remote})")
+        return {
+            "success": True,
+            "updated": False,
+            "local": local,
+            "latest": remote,
+            "message": f"{tool} is up to date ({local}).",
+        }
 
-    try:
-        os.remove(velora_path)
-    except OSError as e:
-        logger.warning(f"Failed to remove stale Velora binary: {e}")
-        return {"success": False, "message": f"Failed to remove stale Velora binary: {e}"}
+    console.print(f"[#FFD60A]{tool} outdated (local: {local} -> latest: {remote}), updating...")
 
-    # Drop cached resolutions so the next lookup re-downloads the binary.
-    binary_paths.invalidate_binary(os.path.basename(velora_path))
-    setup_system.reset_velora_path()
+    managed_dir = os.path.abspath(binary_paths.get_binary_directory())
+    ext = ".exe" if binary_paths.system == "windows" else ""
+    updated_any = False
 
-    new_path = get_velora_path()
-    if not new_path:
-        console.print("[#E63946]Velora re-download failed")
-        return {"success": False, "message": "Velora re-download failed."}
+    for name in exec_names:
+        binary_name = f"{name}{ext}"
+        path = binary_paths.get_binary_path(tool, binary_name)
+        if not path:
+            continue  # not installed locally; nothing to refresh
+
+        # Only manage the binary we downloaded ourselves; never touch a system-PATH install.
+        if os.path.dirname(os.path.abspath(path)) != managed_dir:
+            logger.info(f"{binary_name} resolved outside the managed binary directory; skipping")
+            continue
+
+        try:
+            os.remove(path)
+        except OSError as e:
+            logger.warning(f"Failed to remove stale {binary_name}: {e}")
+            continue
+
+        binary_paths.invalidate_binary(binary_name)
+        if binary_paths.download_binary(tool, binary_name):
+            updated_any = True
+
+    if updated_any:
+        binary_paths.set_local_tool_version(tool, remote)
 
     return {
         "success": True,
-        "updated": True,
-        "local": local_version,
-        "latest": latest_version,
-        "message": f"Velora updated: {local_version or 'unknown'} -> {latest_version}.",
+        "updated": updated_any,
+        "local": local,
+        "latest": remote,
+        "message": (
+            f"{tool} updated: {local} -> {remote}."
+            if updated_any
+            else f"{tool}: nothing installed locally to update."
+        ),
     }
+
+
+def check_all_binaries_update() -> dict:
+    """Refresh every managed third-party binary (FFmpeg, Bento4, Shaka Packager, dovi_tool, MKVToolNix) that is behind the version published in AstraeLabs/Binary."""
+    results = {}
+    for tool, exec_names in _GENERIC_UPDATABLE_TOOLS.items():
+        try:
+            results[tool] = check_binary_update(tool, exec_names)
+        except Exception as e:
+            logger.debug(f"{tool} update check failed: {e}")
+            results[tool] = {"success": False, "message": str(e)}
+    return results
 
 
 def update():
     """Check for updates on GitHub and display relevant information."""
     if auto_update_check:
-        try:
-            check_velora_update()
-        except Exception as e:
-            logger.debug(f"Velora update check failed: {e}")
-
         try:
             response_releases = fetch_github_releases()
         except Exception as e:

@@ -54,10 +54,66 @@ def _rpu_profile(dovi_tool: str, rpu_file: Path) -> int | None:
             errors="replace",
         )
         m = re.search(r"Profile:\s*(\d+)", result.stdout or "")
+        if m is None:
+            logger.error(f"Could not parse RPU profile from dovi_tool info output:\n{result.stdout}")
         return int(m.group(1)) if m else None
     except Exception as exc:
         logger.warning(f"Could not determine RPU profile: {exc}")
         return None
+
+
+def _dump_rpu_info(dovi_tool: str, rpu_file: Path, label: str) -> None:
+    """Debug helper: dump full dovi_tool info (non -s) for a given RPU file."""
+    try:
+        result = subprocess.run(
+            [dovi_tool, "info", "-i", str(rpu_file)],
+            capture_output=True,
+            text=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.stderr:
+            logger.info(f"dovi_tool info STDERR for {label}:\n{result.stderr}")
+    except Exception as exc:
+        logger.warning(f"Could not dump RPU info for {label}: {exc}")
+
+
+def _validate_rpu_in_stream(dovi_tool: str, hevc_file: Path, label: str) -> bool:
+    """Debug/safety helper: re-extract the RPU from a muxed hevc stream and check for validation errors dovi_tool/ffmpeg would otherwise raise silently later."""
+    tmp_out = hevc_file.with_suffix(".validate_rpu.bin")
+    try:
+        result = subprocess.run(
+            [dovi_tool, "extract-rpu", str(hevc_file), "-o", str(tmp_out)],
+            capture_output=True,
+            text=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.stdout:
+            logger.debug(f"stdout rpu:\n{result.stdout}")
+        if result.stderr:
+            logger.debug(f"stderr rpu:\n{result.stderr}")
+
+        combined = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        if "validation failed" in combined or "error parsing" in combined:
+            logger.warning(f"Extraction of RPU from {label} failed validation: {combined.strip()}")
+            return False
+        if result.returncode != 0:
+            logger.error(f"Extraction of RPU from {label} failed with exit code {result.returncode}: {combined.strip()}")
+            return False
+        return True
+    except Exception as exc:
+        logger.warning(f"Could not validate RPU in stream {label}: {exc}")
+        return False
+    
+    finally:
+        try:
+            if tmp_out.exists():
+                tmp_out.unlink()
+        except OSError:
+            pass
 
 
 def _run_progress_command(
@@ -335,15 +391,32 @@ def build_hybrid_output(
     if not _run_command([dovi_tool, "extract-rpu", str(dv_hevc), "-o", str(rpu_file)], "dovi_tool extract-rpu"):
         return None
 
+    _dump_rpu_info(dovi_tool, rpu_file, "RPU grezzo (pre-conversione)")
+
     # The RPU must match the HDR10 base to make a valid cross-compatible file.
     src_profile = _rpu_profile(dovi_tool, rpu_file)
     convert_mode = {5: "3", 7: "2"}.get(src_profile) if src_profile is not None else None
     dv_profile_label = f"DV {src_profile}" if src_profile is not None else "DV"
+    logger.debug(f"Src_profile resolved = {src_profile!r} -> convert_mode = {convert_mode!r}")
+    if src_profile is None:
+        logger.warning("profile rpu not detected, skipping conversion")
+
     if convert_mode:
         logger.info(f"Hybrid: DV source is profile {src_profile}; converting RPU to 8.1 (dovi_tool -m {convert_mode})")
-        if not _run_command([dovi_tool, "-m", convert_mode, "extract-rpu", str(dv_hevc), "-o", str(rpu_file)], "dovi_tool extract-rpu (convert to 8.1)",):
+        conv_result = subprocess.run(
+            [dovi_tool, "-m", convert_mode, "extract-rpu", str(dv_hevc), "-o", str(rpu_file)],
+            capture_output=True, text=True, check=False, encoding="utf-8", errors="replace",
+        )
+        logger.debug(f"Src_profile resolved = {src_profile!r} -> convert_mode = {convert_mode!r}")
+        if conv_result.stdout:
+            logger.info(f"Conversion stdout:\n{conv_result.stdout}")
+        if conv_result.stderr:
+            logger.debug(f"Conversion stderr:\n{conv_result.stderr}")
+        if conv_result.returncode != 0:
+            logger.error(f"dovi_tool extract-rpu (convert to 8.1) failed: {conv_result.stderr.strip()}")
             return None
         dv_profile_label = "DV 8.1"
+        _dump_rpu_info(dovi_tool, rpu_file, f"RPU convertito (post -m {convert_mode})")
 
     dovi_label = f"[cyan]Proc[/cyan] [green]{base_hevc.name}[/green] - [yellow]DoviTool[/yellow] \\[{dv_profile_label}]"
     if not _run_progress_command(
@@ -361,6 +434,10 @@ def build_hybrid_output(
         base_hevc,
         hybrid_hevc,
     ):
+        return None
+
+    if not _validate_rpu_in_stream(dovi_tool, hybrid_hevc, "hybrid_hevc post inject-rpu"):
+        logger.error("Hybrid mux abortito: RPU corrotto rilevato subito dopo inject-rpu (vedi debug log)")
         return None
 
     if output_file.exists():

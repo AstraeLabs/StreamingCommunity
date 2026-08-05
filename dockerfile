@@ -54,12 +54,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY GUI/requirements.txt ./GUI/requirements.txt
 RUN pip install --no-cache-dir -r GUI/requirements.txt
 
+# Telegram bot deps (telethon/cryptg)
+COPY docker/telegram_bot/requirements.txt ./docker/telegram_bot/requirements.txt
+RUN pip install --no-cache-dir -r docker/telegram_bot/requirements.txt
+
 # Copy application code
 COPY . .
 
 # Snapshot the default Conf directory so the entrypoint can seed it on first start
 # when the Conf volume is empty (e.g., fresh NAS install).
 RUN cp -r /app/Conf /app/Conf.defaults
+
+# Snapshot the default binary directory (mp4decrypt, packager)
+RUN cp -r /home/appuser/.local/bin/binary /home/appuser/.local/bin/binary.defaults
 
 # Install entrypoint script
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

@@ -2,7 +2,7 @@
 
 from django.urls import path
 
-from . import views
+from . import api_bot, views
 
 urlpatterns = [
     # Search is the home page.
@@ -51,5 +51,14 @@ urlpatterns = [
     # In-app update
     path("api/version/check/", views.check_updates, name="check_updates"),
     path("api/version/update/", views.trigger_update, name="trigger_update"),
-    path("api/velora/update/", views.trigger_velora_update, name="trigger_velora_update"),
+    path("api/binaries/update/", views.trigger_binaries_update, name="trigger_binaries_update"),
+
+    # Telegram bot bridge (docker/telegram_bot/, trigger-download only — see api_bot.py)
+    path("api/bot/search/", api_bot.bot_search, name="bot_search"),
+    path("api/bot/seasons/", api_bot.bot_seasons, name="bot_seasons"),
+    path("api/bot/download/", api_bot.bot_download, name="bot_download"),
+    path("api/bot/sites/", api_bot.bot_sites, name="bot_sites"),
+    path("api/bot/cancel/", api_bot.bot_cancel, name="bot_cancel"),
+    path("api/bot/status/", api_bot.bot_status, name="bot_status"),
+    path("api/bot/logs/", api_bot.bot_logs, name="bot_logs"),
 ]

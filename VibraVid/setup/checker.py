@@ -265,42 +265,6 @@ def check_mkvmerge() -> str | None:
     return None
 
 
-def check_mkvpropedit() -> str | None:
-    """
-    Check for mkvpropedit binary and download if not found.
-    Order: system PATH -> binary directory -> download from GitHub
-    """
-    system_platform = binary_paths.system
-    binary_exec = "mkvpropedit.exe" if system_platform == "windows" else "mkvpropedit"
-
-    # STEP 1: Check system PATH
-    binary_path = shutil.which(binary_exec)
-    if binary_path:
-        logger.debug(f"Found {binary_exec} in system PATH ({binary_path})")
-        return binary_path
-
-    # STEP 2: Check local binary directory (same mkvtoolnix package as mkvmerge)
-    binary_local = binary_paths.get_binary_path("mkvtoolnix", binary_exec)
-    if binary_local and os.path.isfile(binary_local):
-        logger.debug(f"Found {binary_exec} in local binary directory ({binary_local})")
-        return binary_local
-
-    if is_termux():
-        return None
-
-    if not _should_download("mkvtoolnix"):
-        logger.info(f"Skipping download of {binary_exec}")
-        return None
-
-    binary_downloaded = binary_paths.download_binary("mkvtoolnix", binary_exec)
-    if binary_downloaded:
-        logger.debug(f"Downloaded {binary_exec} to {binary_downloaded}")
-        return binary_downloaded
-
-    logger.error(f"Failed to download {binary_exec}")
-    return None
-
-
 def check_velora() -> str | None:
     system_platform = binary_paths.system
     binary_exec = "velora.exe" if system_platform == "windows" else "velora"

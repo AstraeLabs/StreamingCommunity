@@ -1,6 +1,4 @@
 #!/bin/sh
-# Container entrypoint — handles PUID/PGID remapping, first-run Conf seeding,
-# and Django migrations before handing off to the application.
 set -e
 
 # ── 1. PUID / PGID remapping ─────────────────────────────────────────────────
@@ -19,7 +17,7 @@ if [ -n "$PGID" ] && [ "$PGID" != "$CURRENT_GID" ]; then
 fi
 
 if [ -n "$PUID" ] || [ -n "$PGID" ]; then
-    chown -R appuser:appuser /app/Video /app/Conf /app/data /app/logs /app/.cache 2>/dev/null || true
+    chown -R appuser:appuser /app/Video /app/Conf /app/data /app/logs /app/.cache /home/appuser/.local/bin/binary 2>/dev/null || true
 fi
 
 # Create a logs cache directory for the appuser to write to, if it doesn't exist.
@@ -27,12 +25,17 @@ mkdir -p /app/.cache/logs
 chown appuser:appuser /app/.cache /app/.cache/logs 2>/dev/null || true
 
 # ── 2. First-run Conf seeding ─────────────────────────────────────────────────
-# If the Conf volume is empty (first start), seed it from the defaults baked
-# into the image at build time. Existing volumes are never touched.
 if [ -z "$(ls -A /app/Conf 2>/dev/null)" ]; then
     echo "VibraVid: seeding /app/Conf from image defaults..."
     cp -r /app/Conf.defaults/. /app/Conf/
     chown -R appuser:appuser /app/Conf
+fi
+
+# ── 2a. First-run binary directory seeding ────────────────────────────────────
+if [ -z "$(ls -A /home/appuser/.local/bin/binary 2>/dev/null)" ]; then
+    echo "VibraVid: seeding /home/appuser/.local/bin/binary from image defaults..."
+    cp -r /home/appuser/.local/bin/binary.defaults/. /home/appuser/.local/bin/binary/
+    chown -R appuser:appuser /home/appuser/.local/bin/binary
 fi
 
 # ── 2b. Docker socket access (in-app updater) ────────────────────────────────

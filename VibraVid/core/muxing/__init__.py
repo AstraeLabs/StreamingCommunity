@@ -1,12 +1,10 @@
 # 16.04.24
 
 from .hybrid import build_hybrid_output, probe_media_file
-from .merge import embed_poster, inject_chapters, join_audios, join_subtitles, join_video
+from .merge import embed_poster, inject_chapters, join_media
 
 __all__ = [
-    "join_video",
-    "join_audios",
-    "join_subtitles",
+    "join_media",
     "inject_chapters",
     "embed_poster",
     "build_hybrid_output",

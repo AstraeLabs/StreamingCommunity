@@ -1,0 +1,255 @@
+# CLI Usage
+
+## Basic Commands
+
+```bash
+# Show help and available sites
+python manual.py -h
+
+# Search and download
+python manual.py --site streamingcommunity --search "interstellar"
+
+# Auto-download the first result
+python manual.py --site streamingcommunity --search "interstellar" --auto-first
+
+# Select a specific result by index (0-based) instead of the first
+python manual.py --site streamingcommunity --search "interstellar" --item 2
+
+# Use a site by its index number
+python manual.py --site 0 --search "interstellar"
+
+# Skip TS/CAM releases (StreamingCommunity only)
+python manual.py --site streamingcommunity --search "interstellar" --skip-ts
+
+# Disable the log file for this run
+python manual.py --site streamingcommunity --search "interstellar" --no-log
+```
+
+## Series Selection
+
+Use `--season` and `--episode` to skip interactive prompts:
+
+```bash
+# Specific episode
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season 1 --episode 3
+
+# Range of episodes
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season 1 --episode "1-5"
+
+# All episodes of a season
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season 1 --episode "*"
+
+# All episodes of all seasons
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season "*"
+
+# Multiple seasons
+python manual.py --site streamingcommunity --search "breaking bad" --auto-first --season "1-3"
+```
+
+## Year Filter
+
+```bash
+# Exact year
+python manual.py --site streamingcommunity --search "dune" --year 2021
+
+# Year range
+python manual.py --site streamingcommunity --search "batman" --year "1990-2015"
+```
+
+## Stream Track Overrides
+
+```bash
+# Video resolution
+python manual.py --site streamingcommunity --search "interstellar" -sv 1080
+
+# Audio language
+python manual.py --site streamingcommunity --search "interstellar" -sa "eng"
+
+# Subtitles
+python manual.py --site streamingcommunity --search "interstellar" -ss "eng"
+```
+
+See [Stream Selection Filters](configuration.md#stream-selection-filters) for the full
+`-sv`/`-sa`/`-ss` filter syntax (resolution, codec, bitrate, language, Dolby Vision companion).
+
+## Console Behaviour Override
+
+```bash
+# Keep console open (loop mode)
+python manual.py --close-console false
+
+# Close console after download
+python manual.py --site streamingcommunity --search "interstellar" --close-console true
+```
+
+## Proxy
+
+```bash
+# Use the configured proxy for everything (default scope)
+python manual.py --site streamingcommunity --search "interstellar" --use_proxy
+
+# Proxy only the downloads (Velora), scrape directly
+python manual.py --site streamingcommunity --search "interstellar" --use_proxy --proxy-scope down
+
+# Proxy only the scraping, download directly
+python manual.py --site streamingcommunity --search "interstellar" --use_proxy --proxy-scope scrap
+```
+
+## Show Dependency Paths
+
+```bash
+python manual.py --dep
+```
+
+## Direct Download by URL (`--down`)
+
+Download a stream directly from its URL, bypassing site search entirely. The stream type is
+auto-detected (MP4 / HLS / DASH / ISM) or can be forced with `--type`.
+
+```bash
+# Simple MP4 / auto-detected stream
+python manual.py --down "https://example.com/video.mp4" -o "./Video/clip.mp4"
+
+# HLS with a known decryption key
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --key "<KID>:<KEY>" -o "./Video/movie.mkv"
+
+# DASH with a DRM license server (Widevine)
+python manual.py --down "https://example.com/manifest.mpd" --type dash \
+  --license-url "https://example.com/wv/license" --drm widevine \
+  --headers "Authorization: Bearer <token>" -o "./Video/movie.mkv"
+
+# Grab just a clip: segments 10-50, or the 00:01:00-00:05:00 time range
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --max-segments "10-50" -o "./Video/clip.mkv"
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --max-time "00:01:00-00:05:00" -o "./Video/clip.mkv"
+```
+
+### Custom JSON Manifest
+
+`--down` also accepts a local path or URL pointing at a **custom JSON manifest** — a plain
+stream description for sources that don't expose a real HLS/DASH/ISM manifest. It's
+auto-detected when the target is a `.json` file/URL containing the `"vibravid_manifest"`
+marker, no `--type` needed.
+
+```json
+{
+  "vibravid_manifest": true,
+  "base_url": "https://cdn.example.com/movie/",
+  "duration": 5410.0,
+  "tracks": [
+    {
+      "type": "video", "id": "v1", "codecs": "avc1.640028",
+      "width": 1920, "height": 1080, "bitrate": 4500000,
+      "init": "init_video.mp4",
+      "segments": {"template": "chunk_video_$Number$.m4s", "start": 1, "end": 1352, "duration": 4.0}
+    },
+    {
+      "type": "audio", "id": "a1", "language": "eng", "codecs": "mp4a.40.2",
+      "init": "init_audio.mp4",
+      "segments": {"list": ["seg0.m4s", "seg1.m4s", "seg2.m4s"]}
+    }
+  ]
+}
+```
+
+```bash
+python manual.py --down "https://example.com/manifest.json" -o "./Video/movie.mkv"
+python manual.py --down "./local_manifest.json" -o "./Video/movie.mkv"
+```
+
+Segment modes for a track's `segments` field:
+
+| Mode | Fields | Behaviour |
+|---|---|---|
+| `list` | array of URLs, or objects with `url`/`size`/`duration`/`range` | explicit segment list |
+| `template` | `template`, `start`, `step` (or `duration`), `end` (or `count`) | DASH-style `$Number$` / `$Time$` / `$RepresentationID$` placeholder expansion |
+| `ranges` / `chunk` | `url` + explicit `ranges` array, or `chunk` + `size` to auto-split | byte-range segments carved out of a single file |
+
+`init` accepts a URL string, an object (`url`, `range`), or inline base64 (`data`) for the
+initialization segment. Placeholders support zero-padding, e.g. `$Number%05d$`; `$$` escapes
+a literal `$`.
+
+## Advanced Options
+
+| Flag | Effect |
+|---|---|
+| `--use-curl-cffi` | Download segments via curl_cffi (browser TLS impersonation) instead of Velora — for sites where individual segments are Cloudflare-protected |
+| `--no-vault-cache` | Bypass the DRM key vault cache; force a fresh CDM license request every run (for dynamic/time-sensitive tokens) |
+| `--abc` | Anonymize printed KID:KEY pairs in the console/log, masking alternating characters with `?` |
+| `--hls-method AES_128\|NONE` | Override the HLS segment encryption method, ignoring the manifest's own `#EXT-X-KEY` tag (or supplying one when it has none). `NONE` treats every segment as already clear; `AES_128` forces AES-128-CBC (pair with `--hls-key`/`--hls-iv`) |
+| `--hls-key <HEX\|BASE64\|FILE>` | Raw AES-128 key to use instead of fetching `URI=` from the manifest's `#EXT-X-KEY` tag |
+| `--hls-iv <HEX>` | IV to use instead of the manifest's `IV=0x...` (or the implicit per-segment IV) |
+| `--skip-content-check` | Skip the preflight HEAD content-type check for MP4 direct downloads (`--type mp4`) — needed for single-use download URLs where a HEAD request consumes the link |
+| `--skip-sanitize` | Use the `-o` output path verbatim (MP4/HLS/DASH/ISM direct downloads), skipping path sanitization (transliteration of non-ASCII characters) |
+| `--no-manifest-info` | Don't print the parsed manifest/streams table |
+| `--binary-update` | Check FFmpeg/Bento4/Shaka Packager/dovi_tool/MKVToolNix/Velora against AstraeLabs/Binary and re-download whichever is outdated |
+
+```bash
+# Manual AES-128 override, e.g. for a manifest missing its own #EXT-X-KEY tag
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --hls-method AES_128 \
+  --hls-key "0011223344556677889900112233445566" \
+  --hls-iv "00000000000000000000000000000001" \
+  -o "./Video/clip.mkv"
+```
+
+## Download Queue (`--queue-*`)
+
+```bash
+# Queue instead of downloading now
+python manual.py --site streamingcommunity --search "interstellar" --item 0 --queue-add
+python manual.py --down "https://example.com/movie.mkv" -o "./Video/movie.mkv" --queue-add
+
+# Inspect / manage the queue
+python manual.py --queue-list
+python manual.py --queue-remove <ID>
+python manual.py --queue-clear
+
+# Process every pending (or interrupted) item in order
+python manual.py --queue-run
+
+# A failed item is never retried automatically - re-queue it explicitly
+python manual.py --queue-retry <ID>
+python manual.py --queue-retry-all
+
+# Optional extra pause between items, on top of DOWNLOAD.delay_after_download
+# (which each download already sleeps for on its own before exiting)
+python manual.py --queue-run --queue-delay 15
+```
+
+!!! note
+    Only invocations that would already complete without any prompt can be queued; anything
+    ambiguous (e.g. `--global`, or a site search with no `--item`/`--auto-first`) is rejected at
+    enqueue time.
+
+Items enqueued together share one auto-generated queue name (e.g. `20260723-152525`, shown
+by `--queue-list`). Most queue commands accept that name to target just one batch instead of
+every queue, and a run can be further narrowed to specific item ids:
+
+```bash
+# Target one specific batch
+python manual.py --queue-run 20260723-152525
+python manual.py --queue-list 20260723-152525
+python manual.py --queue-clear 20260723-152525
+
+# Restrict a run to specific item ids (as shown by --queue-list)
+python manual.py --queue-run --queue-ids abc12345,def67890
+
+# Interactively pick which queue to run from a numbered list
+python manual.py --queue-select
+```
+
+## Global Search
+
+```bash
+# Global search
+python manual.py --global -s "cars"
+
+# Filter by category
+python manual.py --category 1    # Anime
+python manual.py --category 2    # Movies & Series
+python manual.py --category 3    # Series only
+python manual.py --category 4    # Movies only
+```

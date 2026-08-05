@@ -133,22 +133,38 @@ class SettingsScreen(Screen):
             if isinstance(fields, dict):
                 for key, val in fields.items():
                     field_id = f"login-{service}-{key}".replace(".", "_").replace(" ", "_")
-                    self._field_map[field_id] = ("LOGIN", (service, key), str)
+                    orig_type = type(val)
+                    self._field_map[field_id] = ("LOGIN", (service, key), orig_type)
                     is_password = key.lower() in ("password", "token", "adminbetoken", "etp_rt", "st")
-                    row = Horizontal(
-                        Static(f"{key}:", classes="field-label"),
-                        Input(value="" if val is None else str(val), password=is_password, id=field_id),
-                        classes="settings-field"
-                    )
+                    if isinstance(val, (list, dict)):
+                        row = Horizontal(
+                            Static(f"{key} (JSON):", classes="field-label"),
+                            Input(value=json.dumps(val), id=field_id),
+                            classes="settings-field"
+                        )
+                    else:
+                        row = Horizontal(
+                            Static(f"{key}:", classes="field-label"),
+                            Input(value="" if val is None else str(val), password=is_password, id=field_id),
+                            classes="settings-field"
+                        )
                     form.mount(row)
             else:
                 field_id = f"login-{service}".replace(".", "_").replace(" ", "_")
-                self._field_map[field_id] = ("LOGIN", service, str)
-                row = Horizontal(
-                    Static(f"{service}:", classes="field-label"),
-                    Input(value="" if fields is None else str(fields), id=field_id),
-                    classes="settings-field"
-                )
+                orig_type = type(fields)
+                self._field_map[field_id] = ("LOGIN", service, orig_type)
+                if isinstance(fields, (list, dict)):
+                    row = Horizontal(
+                        Static(f"{service} (JSON):", classes="field-label"),
+                        Input(value=json.dumps(fields), id=field_id),
+                        classes="settings-field"
+                    )
+                else:
+                    row = Horizontal(
+                        Static(f"{service}:", classes="field-label"),
+                        Input(value="" if fields is None else str(fields), id=field_id),
+                        classes="settings-field"
+                    )
                 form.mount(row)
 
     @on(ListView.Highlighted, "#settings-sections")
@@ -163,10 +179,18 @@ class SettingsScreen(Screen):
         status = self.query_one("#settings-status", Static)
         try:
             if self._current_section == "LOGIN":
-                for field_id, (_, target, _) in self._field_map.items():
+                for field_id, (_, target, orig_type) in self._field_map.items():
                     try:
                         inp = self.query_one(f"#{field_id}", Input)
-                        val = inp.value.strip()
+                        raw_val = inp.value.strip()
+                        if orig_type in (list, dict):
+                            try:
+                                val = json.loads(raw_val)
+                            except Exception:
+                                logger.warning(f"Field {field_id}: invalid JSON, keeping previous value")
+                                continue
+                        else:
+                            val = raw_val
                         if isinstance(target, tuple):
                             service, key = target
                             config_manager._login_data.setdefault(service, {})[key] = val

@@ -20,6 +20,11 @@ USE_CDM = config_manager.config.get_bool("DRM", "use_cdm")
 BYPASS_VAULT_CACHE = config_manager.config.get_bool("DRM", "bypass_vault_cache")
 
 
+def _anonymize(value: str) -> str:
+    """Mask every other character with '?' (position 0 real, 1 masked, 2 real, ...)."""
+    return "".join(c if i % 2 == 0 else "?" for i, c in enumerate(value))
+
+
 class DRMManager:
     _VAULT_REGISTRY = [
         ("lab", lab_vault),
@@ -67,8 +72,11 @@ class DRMManager:
         plain = [k for k in resolved if k.split(":")[0].strip().lower() not in vault_kids]
         tagged = [k for k in resolved if k.split(":")[0].strip().lower() in vault_kids]
 
+        anonymize = getattr(context_tracker, "anonymize_keys", False)
         for k in plain + tagged:
             kid_val, key_val = k.split(":", 1)
+            if anonymize:
+                kid_val, key_val = _anonymize(kid_val), _anonymize(key_val)
             if k in tagged:
                 tag = label
             elif default_label:
@@ -101,9 +109,12 @@ class DRMManager:
                 continue
 
             label = self._VAULT_LABELS.get(name, name)
+            anonymize = getattr(context_tracker, "anonymize_keys", False)
             for k in keys:
                 kid_val, _, key_val = k.partition(":")
                 logger.info(f"Bypassing cached {drm_type} key {kid_val}:{key_val} from {label}")
+                if anonymize:
+                    kid_val, key_val = _anonymize(kid_val), _anonymize(key_val)
                 console.print(f"[#a855f7]Bypassing [red]{kid_val}[white]:[green]{key_val}[#a855f7] from [cyan]{label}[#a855f7]")
 
     def _missing_kids(self, all_kids: list[str], found_keys: list[str]) -> list[str]:
@@ -404,6 +415,22 @@ class DRMManager:
                 prefer_remote_cdm=self.prefer_remote_cdm,
                 license_request_fn=license_request_fn,
             ),
+            key=key,
+        )
+
+    def get_fp_keys(
+        self,
+        pssh_list: list[dict],
+        license_url: str,
+        key: str = None,
+    ):
+        """Get FairPlay keys — vault lookup only, no CDM (there is no FairPlay CDM backend)."""
+        return self._resolve_keys(
+            pssh_list,
+            license_url,
+            "fairplay",
+            cdm_fn=lambda *args, **kwargs: None,
+            cdm_kwargs={},
             key=key,
         )
 

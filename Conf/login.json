@@ -1,7 +1,5 @@
 {
     "crunchyroll": {
-        "device_id": "",
-        "etp_rt": ""
     },
     "tubi": {
         "email": "",
@@ -13,7 +11,12 @@
     "discoveryplus": {
         "st": ""
     },
-    "primevideo": {},
-    "amazon_music": {},
-    "appletv": {}
+    "primevideo": {
+    },
+    "amazon_music": {
+    },
+    "appletv": {
+    },
+    "paramountplus": {
+    }
 }

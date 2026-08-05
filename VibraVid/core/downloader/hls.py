@@ -313,6 +313,16 @@ class HLS_Downloader(BaseDownloader):
             except Exception as exc:
                 logger.error(f"PlayReady key fetch failed: {exc}")
 
+        if self.drm_preference == DRMType.FAIRPLAY and drm_psshs.get(DRMType.FAIRPLAY):
+            try:
+                keys = self.drm_manager.get_fp_keys(
+                    drm_psshs[DRMType.FAIRPLAY],
+                    self.license_url,
+                    key=self.key,
+                )
+            except Exception as exc:
+                logger.error(f"FairPlay key fetch failed: {exc}")
+
         if not keys and self.key:
             keys = [self.key] if isinstance(self.key, str) else list(self.key)
 
@@ -339,17 +349,17 @@ class HLS_Downloader(BaseDownloader):
             logger.info(f"HLS: {len(matches)} embedded CLOSED-CAPTIONS stream(s) matched select_subtitle filter ({langs}) — will attempt extraction from merged video after download")
         return matches
 
-    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, current_file: str | None = None) -> list:
-        """Hook for subclasses to materialize subtitle assets right before subtitle merge."""
+    def _prepare_subtitle_tracks_for_merge(self, subtitle_tracks: list, video_path: str | None = None) -> list:
+        """Hook for subclasses to materialize subtitle assets right before muxing. CC extraction reads straight from the raw (video-only) source."""
         embedded = getattr(self, "_embedded_cc_streams", None)
-        if not embedded or not current_file or not os.path.exists(current_file):
+        if not embedded or not video_path or not os.path.exists(video_path):
             return subtitle_tracks
 
         for s in embedded:
             lang = getattr(s, "resolved_language", "") or getattr(s, "language", "") or "und"
             console.print(f"\n[cyan]Found CC in manifest for [red]{lang}[cyan], trying extraction...")
             srt_path = os.path.join(self.output_dir, f"{self.filename_base}.{lang}_cc.srt")
-            result = extract_embedded_cc(current_file, srt_path)
+            result = extract_embedded_cc(video_path, srt_path)
             if result:
                 console.print(f"[yellow]    Extracted embedded CC subtitle: [green]{lang}")
                 subtitle_tracks.append(
@@ -422,22 +432,25 @@ class HLS_Downloader(BaseDownloader):
         self._embedded_cc_streams = self._collect_embedded_cc(streams)
 
         # ── DRM key fetch ─────────────────────────────────────────────────────
-        if self.license_url or self.key or self.license_request_fn:
-            raw_m3u8 = str(self.media_downloader.raw_m3u8) if self.media_downloader.raw_m3u8 else None
+        raw_m3u8 = str(self.media_downloader.raw_m3u8) if self.media_downloader.raw_m3u8 else None
 
-            # Primary: PSSH from Stream.drm (populated by HLSParser)
-            drm_psshs = self._collect_drm_from_streams(streams)
+        # Primary: PSSH from Stream.drm (populated by HLSParser)
+        drm_psshs = self._collect_drm_from_streams(streams)
+        is_protected = bool(drm_psshs.get(DRMType.WIDEVINE) or drm_psshs.get(DRMType.PLAYREADY) or drm_psshs.get(DRMType.FAIRPLAY))
 
-            # Fallback: scan raw manifest via M3U8Parser
-            if not drm_psshs[DRMType.WIDEVINE] and not drm_psshs[DRMType.PLAYREADY]:
-                logger.info("No PSSH in Stream objects — falling back to M3U8Parser")
-                drm_psshs = self._collect_drm_from_m3u8(raw_m3u8)
+        # Fallback: scan raw manifest via M3U8Parser
+        if not is_protected and raw_m3u8:
+            logger.info("No PSSH in Stream objects — falling back to M3U8Parser")
+            drm_psshs = self._collect_drm_from_m3u8(raw_m3u8)
+            is_protected = bool(drm_psshs.get(DRMType.WIDEVINE) or drm_psshs.get(DRMType.PLAYREADY) or drm_psshs.get(DRMType.FAIRPLAY))
 
+        # Vault/CDM resolution runs whenever DRM is detected
+        if is_protected or self.key or self.license_request_fn:
             keys = self._fetch_keys(drm_psshs)
 
             if keys:
                 self.media_downloader.set_key(keys)
-            elif drm_psshs.get(DRMType.WIDEVINE) or drm_psshs.get(DRMType.PLAYREADY):
+            elif is_protected:
                 console.print("[red]Warning: DRM detected but no decryption keys found")
         else:
             keys = []

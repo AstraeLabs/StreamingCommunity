@@ -21,7 +21,7 @@ from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.core.ui.ui import build_table
 from VibraVid.core.utils.codec import AUDIO_EXTENSIONS, SUBTITLE_CODEC_MAP, SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS
 from VibraVid.core.utils.language import LANGUAGE_MAP, language_variants, resolve_locale, subtitle_flags
-from VibraVid.core.utils.selector import StreamSelector, StreamSelectorFormatter
+from VibraVid.core.utils.selector import FilterSpec, StreamSelector, StreamSelectorFormatter
 from VibraVid.core.utils.stream_selector_ui import InteractiveStreamSelector
 from VibraVid.core.velora.subtitle import build_ext_track_label, ext_from_url, is_valid_format, normalize_sub_filename
 from VibraVid.core.velora.util._subtitle_segments import get_subtitle_resolve_workers, resolve_subtitle_segments_sync
@@ -272,6 +272,14 @@ class BaseMediaDownloader:
         cfg_key = "select_subtitle" if track_type == "subtitle" else "select_audio"
         return (self.custom_filters or {}).get(cf_key) or config_manager.config.get("DOWNLOAD", cfg_key) or ""
 
+    @staticmethod
+    def _ext_filter_tokens(cfg: str, track_type: str) -> list[str]:
+        """Split a select_audio/select_subtitle filter string into lowercase language tokens."""
+        if "=" in cfg:
+            spec = FilterSpec.parse(cfg, track_type)
+            return [t.strip().lower() for t in (spec.langs or "").split("|") if t.strip()]
+        return [t.strip().lower() for t in re.split(r"[|,]", cfg) if t.strip()]
+
     def _ext_lang_matches(self, lang: str, track_type: str) -> bool:
         """Return True if the external track with *lang* tag should be downloaded."""
         cfg = self._effective_filter(track_type)
@@ -280,7 +288,7 @@ class BaseMediaDownloader:
         if cfg.lower() == "false":
             return False
 
-        tokens = [t.strip().lower() for t in re.split(r"[|,]", cfg) if t.strip()]
+        tokens = self._ext_filter_tokens(cfg, track_type)
         lang_l = lang.strip().lower()
 
         for token in tokens:
@@ -305,7 +313,7 @@ class BaseMediaDownloader:
             return False
 
         lang = (track.get("language") or "").strip().lower()
-        tokens = [t.strip().lower() for t in re.split(r"[|,]", cfg) if t.strip()]
+        tokens = self._ext_filter_tokens(cfg, track_type)
 
         for token in tokens:
             parts = token.split("_")

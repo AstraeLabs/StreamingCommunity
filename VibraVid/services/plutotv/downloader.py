@@ -12,7 +12,7 @@ from VibraVid.services._base.tv_download_manager import process_episode_download
 from VibraVid.utils import config_manager, start_message
 
 from .client import get_playback_url_episode
-from .scrapper import GetSerieInfo
+from .scrapper import GetSerieInfo, GetSerieInfoBySlug
 
 msg = Prompt()
 console = Console()
@@ -52,12 +52,14 @@ def download_series(
     """
     start_message()
     if not scrape_serie:
-        url = f"https://service-vod.clusters.pluto.tv/v4/vod/series/{select_season.id}/seasons"
-        scrape_serie = GetSerieInfo(url)
+        if getattr(select_season, "slug", None):
+            scrape_serie = GetSerieInfoBySlug(select_season.slug)
+        else:
+            url = f"https://service-vod.clusters.pluto.tv/v4/vod/series/{select_season.id}/seasons"
+            scrape_serie = GetSerieInfo(url)
         scrape_serie.getNumberSeason()
     seasons_count = len(scrape_serie.seasons_manager)
 
-    # Create callback function for downloading episodes
     def download_episode_callback(season_number: int, download_all: bool, episode_selection: str = None):
         """Callback to handle episode downloads for a specific season"""
 

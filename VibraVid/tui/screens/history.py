@@ -283,8 +283,18 @@ class HistoryScreen(Screen):
             self.app.notify("Missing site or title information to retry.", severity="warning")
             return
 
+        # Reuse the exact search query + selected result index captured at download time when available, instead of guessing item 1
+        cli_search = dl.get("cli_search") or title
+        cli_item = dl.get("cli_item")
+        if cli_item is None:
+            self.app.notify(
+                "Original search selection unknown for this entry; re-queuing item 1 (may not match).",
+                severity="warning",
+            )
+            cli_item = 0
+
         builder = EquivalentCommandBuilder(excluded_dests=[])
-        argv = builder.build_argv_from_params(site=site, search=title, item="1")
+        argv = builder.build_argv_from_params(site=site, search=cli_search, item=cli_item)
 
         if not argv:
             self.app.notify("Could not construct equivalent command to retry.", severity="error")

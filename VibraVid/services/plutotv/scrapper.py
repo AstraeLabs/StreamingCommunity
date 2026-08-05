@@ -1,12 +1,15 @@
 # 26.11.2025
 
 import logging
+import re
 import threading
 
 from VibraVid.services._base.object import Episode, Season, SeasonManager
-from VibraVid.utils.http_client import create_client
+from VibraVid.utils.http_client import create_client, get_headers
 
 from .client import get_api
+
+_BUILD_ID_RE = re.compile(r'"buildId":"([^"]+)"')
 
 
 class GetSerieInfo:
@@ -70,6 +73,90 @@ class GetSerieInfo:
 
         except Exception as e:
             logging.error(f"Error collecting series info: {e}")
+            raise
+
+    # ------------- FOR GUI -------------
+    def getNumberSeason(self) -> int:
+        """Get total number of seasons"""
+        return len(self.seasons_manager.seasons)
+
+    def getEpisodeSeasons(self, season_number: int) -> list:
+        """Get all episodes for a specific season"""
+        season = self.seasons_manager.get_season_by_number(season_number)
+        if season:
+            return season.episodes.episodes
+
+        return []
+
+
+class GetSerieInfoBySlug:
+    def __init__(self, slug: str):
+        self.api = get_api()
+        self.slug = slug
+        self.series_name = ""
+        self.seasons_manager = SeasonManager()
+        self._get_series_info()
+
+    def _get_build_id(self) -> str:
+        response = create_client(headers=get_headers()).get(f"https://pluto.tv/it/shows/{self.slug}/")
+        response.raise_for_status()
+
+        match = _BUILD_ID_RE.search(response.text)
+        if not match:
+            raise RuntimeError("Could not resolve Pluto TV Next.js build id")
+
+        return match.group(1)
+
+    def _fetch_season_page(self, build_id: str, season_number: int) -> dict:
+        url = f"https://pluto.tv/_next/data/{build_id}/it/shows/{self.slug}/season/{season_number}.json"
+        params = {"path": ["it", "shows", self.slug, "season", str(season_number)]}
+        response = create_client(headers=get_headers()).get(url, params=params)
+        response.raise_for_status()
+
+        return response.json().get("pageProps", {})
+
+    def _get_num_seasons(self, page_props: dict) -> int:
+        queries = (page_props.get("dehydratedState") or {}).get("queries", [])
+        for query in queries:
+            if query.get("queryKey", [None])[0] == "show-home":
+                show = query.get("state", {}).get("data", {}).get("showHome", {}).get("show", {})
+                return show.get("numSeasons", 1)
+
+        return 1
+
+    def _get_series_info(self):
+        try:
+            build_id = self._get_build_id()
+
+            page_props = self._fetch_season_page(build_id, 1)
+            episodes = page_props.get("initialEpisodes") or []
+            if episodes:
+                self.series_name = episodes[0].get("seriesTitle", self.slug)
+
+            num_seasons = self._get_num_seasons(page_props)
+
+            for season_number in range(1, num_seasons + 1):
+                if season_number != 1:
+                    page_props = self._fetch_season_page(build_id, season_number)
+                    episodes = page_props.get("initialEpisodes") or []
+
+                season = self.seasons_manager.add(
+                    Season(number=season_number, name=f"Season {season_number}", id=f"season-{season_number}")
+                )
+
+                for index, episode in enumerate(episodes, start=1):
+                    season.episodes.add(
+                        Episode(
+                            id=episode.get("contentId"),
+                            video_id=episode.get("contentId"),
+                            name=episode.get("label") or f"Episode {index}",
+                            number=index,
+                            duration=round(episode.get("duration", 0) / 60) if episode.get("duration") else 0,
+                        )
+                    )
+
+        except Exception as e:
+            logging.error(f"Error collecting series info by slug: {e}")
             raise
 
     # ------------- FOR GUI -------------

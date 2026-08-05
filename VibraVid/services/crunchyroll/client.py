@@ -5,15 +5,19 @@ import json
 import logging
 import time
 
+from rich.console import Console
+
 from VibraVid.services._base.login_status import ACCOUNT, ANONYMOUS, print_login
 from VibraVid.utils import config_manager, disk_cache
 from VibraVid.utils.http_client import create_client, get_userAgent
 
+console = Console()
 logger = logging.getLogger(__name__)
 PUBLIC_TOKEN = "bm9haWhkZXZtXzZpeWcwYThsMHE6"
 BASE_URL = "https://www.crunchyroll.com"
 API_BETA_BASE_URL = "https://beta-api.crunchyroll.com"
 PLAY_SERVICE_URL = "https://cr-play-service.prd.crunchyrollsvc.com"
+SKIP_EVENTS_URL = "https://static.crunchyroll.com/skip-events/production/{episode_id}.json"
 
 
 class CrunchyrollError(Exception):
@@ -157,8 +161,9 @@ class CrunchyrollClient:
         return headers
 
     def _get_cookies(self) -> dict:
-        """Generate cookies for API requests including device_id and etp_rt."""
-        cookies = {"device_id": self.device_id}
+        """Generate cookies for API requests"""
+        cookies = dict(config_manager.login.get_section("crunchyroll"))
+        cookies["device_id"] = self.device_id
         if self.etp_rt:
             cookies["etp_rt"] = self.etp_rt
         return cookies
@@ -284,8 +289,28 @@ class CrunchyrollClient:
         """Public refresh method."""
         self._refresh()
 
-    def get_streams(self, media_id: str) -> dict:
-        """Get playback data - single attempt only."""
+    def get_streams(self, media_id: str, max_retries: int = 3) -> dict:
+        """Get playback data, retrying with backoff on rate-limit/concurrent-stream errors."""
+        for attempt in range(max_retries + 1):
+            try:
+                return self._get_streams_once(media_id)
+            except CrunchyrollError as e:
+                is_rate_limited = "429" in str(e) or "TOO_MANY_ACTIVE_STREAMS" in str(e)
+                if not is_rate_limited or attempt >= max_retries:
+                    raise
+
+                cleared = self.clear_all_sessions()
+                wait_time = min(5 * (2**attempt), 30)
+                if not cleared:
+                    wait_time = max(wait_time, 15)
+                console.print(f"[yellow]Crunchyroll rate limit ({e}); cleared {cleared} session(s), waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
+                logger.warning(f"Crunchyroll rate limit ({e}); cleared {cleared} session(s), waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
+                time.sleep(wait_time)
+
+        raise CrunchyrollError(f"Playback failed for {media_id} after {max_retries} retries")
+
+    def _get_streams_once(self, media_id: str) -> dict:
+        """Single playback-data fetch attempt (no retry)."""
         pb_url = f"{self.play_service_url}/v3/{media_id}/web/chrome/play"
 
         response = self.request("GET", pb_url, params={"locale": self.locale})
@@ -325,6 +350,33 @@ class CrunchyrollClient:
             raise CrunchyrollError("Playback Rejected: Premium required")
 
         return data
+
+    def get_active_sessions(self) -> list[dict]:
+        """List every currently-open streaming session for this account."""
+        try:
+            response = self.request("GET", f"{self.web_base_url}/playback/v1/sessions/streaming")
+            if response.status_code != 200:
+                logger.warning(f"Failed to list active sessions (status {response.status_code})")
+                return []
+            return response.json().get("items") or []
+        except Exception as e:
+            logger.warning(f"Error listing active sessions: {e}")
+            return []
+
+    def clear_all_sessions(self) -> int:
+        """Close every open streaming session on the account (e.g. leaked by a crashed/killed run)."""
+        sessions = self.get_active_sessions()
+        cleared = 0
+        for s in sessions:
+            content_id = s.get("contentId")
+            token = s.get("token")
+            if content_id and token and self.deauth_video(content_id, token):
+                cleared += 1
+
+        if cleared:
+            console.print(f"[dim]Cleared {cleared} leftover Crunchyroll streaming session(s).")
+            logger.info(f"Cleared {cleared} leftover Crunchyroll streaming session(s)")
+        return cleared
 
     def deauth_video(self, media_id: str, token: str) -> bool:
         """Mark playback token as inactive to free stream slot."""
@@ -563,3 +615,49 @@ def get_playback_session(
 
     headers = client._get_headers()
     return mpd_url, headers, subtitles, token, audio_locale
+
+def get_episode_chapters(client: CrunchyrollClient, episode_id: str) -> list[dict]:
+    """Fetch intro/recap/credits/preview skip-events for an episode and turn them into chapter markers."""
+    try:
+        response = client.session.get(SKIP_EVENTS_URL.format(episode_id=episode_id))
+        if response.status_code != 200:
+            return []
+        data = response.json()
+    except Exception as e:
+        logger.warning(f"Failed to fetch chapters for {episode_id}: {e}")
+        return []
+
+    special_chapters = []
+    for chapter_type in ("intro", "recap", "credits", "preview"):
+        info = data.get(chapter_type)
+        if not info:
+            continue
+        try:
+            start = float(info["start"])
+            end = float(info.get("end", start))
+            special_chapters.append({"start": start, "end": end, "name": chapter_type.capitalize()})
+        except Exception:
+            continue
+
+    if not special_chapters:
+        return []
+
+    special_chapters.sort(key=lambda c: c["start"])
+
+    chapters = [{"name": "Chapter 1", "seconds": 0}]
+    counter = 2
+    for idx, special in enumerate(special_chapters):
+        chapters.append({"name": special["name"], "seconds": special["start"]})
+
+        should_add_after = False
+        if special["end"] > special["start"]:
+            if idx + 1 < len(special_chapters):
+                should_add_after = special_chapters[idx + 1]["start"] - special["end"] > 2.0
+            else:
+                should_add_after = True
+
+        if should_add_after:
+            chapters.append({"name": f"Chapter {counter}", "seconds": special["end"]})
+            counter += 1
+
+    return chapters

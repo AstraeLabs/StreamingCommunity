@@ -187,6 +187,12 @@ class CustomParser:
             s.is_cc = bool(track.get("is_cc"))
             s.is_sdh = bool(track.get("is_sdh"))
 
+        drm = track.get("drm")
+        if isinstance(drm, dict) and drm.get("kid"):
+            s.drm.set_kid(str(drm["kid"]))
+            if drm.get("type"):
+                s.drm.display_type = str(drm["type"])  # cosmetic only, see DRMInfo.display_type
+
         number = 0
         init_seg = self._build_init(track.get("init"))
         if init_seg is not None:

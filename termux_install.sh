@@ -177,6 +177,12 @@ pip install -r requirements.txt < /dev/null || {
     exit 1
 }
 
+# Install the VibraVid package itself to register the 'vibravid' console script
+pip install --no-deps . < /dev/null || {
+    echo -e "${RED}Errore durante l'installazione del pacchetto VibraVid!${NC_REG}"
+    exit 1
+}
+
 # Create lowercase symlink for command availability
 usr_bin="/data/data/com.termux/files/usr/bin"
 if [ -f "$usr_bin/VibraVid" ]; then

@@ -63,14 +63,14 @@ def _kind_to_filters(_kind: str, _tag: str, quality: str = "worst") -> dict[str,
         q = (quality or "worst").strip().lower()
 
         if q in ("best", "worst"):
-            video_filter = f"codecs=dvh:for={q}"
+            video_filter = f"c=dvh:f={q}"
         elif re.match(r"^\d+$", q):
-            video_filter = f"res={q}:codecs=dvh:for=worst"
+            video_filter = f"r={q}:c=dvh:f=worst"
         elif "|" in q:
             res_part, _, fallback = q.partition("|")
             if re.match(r"^\d+$", res_part.strip()):
                 fallback = fallback.strip() or "worst"
-                video_filter = f"res={res_part.strip()}:codecs=dvh:for={fallback}"
+                video_filter = f"r={res_part.strip()}:c=dvh:f={fallback}"
             else:
                 video_filter = quality
         else:

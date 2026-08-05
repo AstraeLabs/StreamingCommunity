@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from rich.console import Console
@@ -26,7 +26,7 @@ _STATUS_COLOR = {"pending": "yellow", "running": "cyan", "done": "green", "faile
 
 _QUEUE_FLAGS_BOOL = {"--queue-add", "--queue-run", "--queue-list", "--queue-clear", "--queue-select"}
 _QUEUE_FLAGS_VALUE = {"--queue-remove", "--queue-ids"}
-_PROCESS_TAG = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+_PROCESS_TAG = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 
 def _queue_dir() -> str:
@@ -52,7 +52,7 @@ def _all_queue_paths() -> list:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def add_queue_arguments(parser) -> None:

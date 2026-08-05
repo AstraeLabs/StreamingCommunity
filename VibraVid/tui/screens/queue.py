@@ -92,6 +92,7 @@ class QueueScreen(Screen):
             )
             with Horizontal(id="queue-actions"):
                 yield Button(t("run_queue"), id="run-queue-btn", variant="primary")
+                yield Button(t("enqueue_job"), id="add-command-btn")
                 yield Button(t("remove_item"), id="remove-btn")
                 yield Button(t("retry_failed"), id="retry-btn")
                 yield Button(t("clear_queue"), id="clear-queue-btn")

@@ -1,18 +1,19 @@
-## Crunchyroll
+## Crunchyroll: Get Cookies via Extension
+
+### Prerequisites
+
+- Install the [CookieInspector] browser extension from DISCORD
 
 ### Steps
 
 1. **Open** [Crunchyroll](https://www.crunchyroll.com/) and **log in** with your credentials.
-2. **Open Developer Tools** by pressing <kbd>F12</kbd> (or <kbd>Cmd+Opt+I</kbd> on macOS).
-3. Navigate to the **Application** tab (or **Storage** in Firefox).
-4. In the left sidebar, expand **Cookies** and click the Crunchyroll domain.
-5. **Search for cookies:**
-   - Use the search/filter field to find `etp_rt`
-   - Find `device_id` cookie
-6. **Copy the values** of both cookies.
-
-### Screenshot Reference
-![etp_rt location](../img/login/crunchyroll_etp_rt.png)
+2. **Click** the CookieInspector extension icon in your browser toolbar.
+3. **Click** "Get Cookies" button.
+4. **Click** "Copy JSON" to copy the authentication data.
+5. Add it to `Conf/login.json`:
+   ```json
+   "crunchyroll": <paste_copied_json_here>
+   ```
 
 ---
 
@@ -27,7 +28,7 @@
 5. **Copy the value** of the `adminBeToken` field inside it.
 
 ### Screenshot Reference
-![beToken location](../img/login/mediasetinfinity_beToken.png)
+![beToken location](assets/login/mediasetinfinity_beToken.png)
 
 ---
 
@@ -42,7 +43,7 @@
 5. **Copy the value** of the `st` token.
 
 ### Screenshot Reference
-![st location](../img/login/discoveryplus_eu_st.png)
+![st location](assets/login/discoveryplus_eu_st.png)
 
 ---
 
