@@ -103,6 +103,17 @@ class BaseStreamingAPI(ABC):
         key = self._get_cache_key(media_item)
         self._scraper_cache[key] = (scraper, time.monotonic())
 
+    def resolve_tmdb_id(self, media_item: Entries) -> str | int | None:
+        """Return a provider-attested TMDB id for ``media_item``, if availables"""
+        direct_id = getattr(media_item, "tmdb_id", None)
+        if direct_id not in (None, ""):
+            return direct_id
+
+        raw_data = getattr(media_item, "raw_data", None)
+        if isinstance(raw_data, dict):
+            return raw_data.get("tmdb_id") or raw_data.get("tmdbId")
+        return None
+
     @abstractmethod
     def search(self, query: str) -> list[Entries]:
         """

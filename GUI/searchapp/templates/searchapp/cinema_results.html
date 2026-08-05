@@ -17,8 +17,7 @@
 			<span id="cn-count">{{ results|length }}</span> result{{ results|length|pluralize }}
 			{% if is_global %}across all providers{% elif selected_site %}from {{ selected_site|provider }}{% endif %}
 			{% if not tmdb_available %}
-				· TMDB covers aren't active: set <code>Provider.tmdb</code> in
-				<a href="{% url 'settings_editor' %}" style="color:var(--cn-hot)">settings</a>
+				· TMDB covers aren't active: set <code>TMDB_API_KEY</code> in the environment and recreate the container
 			{% endif %}
 		</p>
 	</div>

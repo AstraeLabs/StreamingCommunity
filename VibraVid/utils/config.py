@@ -609,6 +609,9 @@ class ConfigManager:
         try:
             with open(self.login_file_path, "w") as f:
                 json.dump(self._login_data, f, indent=4)
+            stale = [key for key in self.cache if key.startswith("login.")]
+            for key in stale:
+                del self.cache[key]
         except Exception as e:
             console.print(f"[red]Error saving login configuration: {e}")
 

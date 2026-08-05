@@ -69,6 +69,31 @@ class StreamingCommunityAPI(BaseStreamingAPI):
                 deduped[seen[key]] = item
         return deduped
 
+    def resolve_tmdb_id(self, media_item: Entries) -> str | int | None:
+        """Read StreamingCommunity's own TMDB id from the exact title detail."""
+        direct_id = super().resolve_tmdb_id(media_item)
+        if direct_id not in (None, ""):
+            return direct_id
+
+        scraper = self.get_cached_scraper(media_item)
+        if not scraper:
+            scraper = GetSerieInfo(
+                url=f"{self.base_url}{media_item.provider_language or 'it'}",
+                media_id=media_item.id,
+                series_name=media_item.slug,
+                year=media_item.year,
+                provider_language=media_item.provider_language or "it",
+                series_display_name=media_item.name,
+            )
+            self.set_cached_scraper(media_item, scraper)
+
+        tmdb_id = scraper.get_tmdb_id()
+        if tmdb_id:
+            media_item.tmdb_id = str(tmdb_id)
+            if isinstance(media_item.raw_data, dict):
+                media_item.raw_data["tmdb_id"] = str(tmdb_id)
+        return tmdb_id
+
     def get_series_metadata(self, media_item: Entries) -> list[Season] | None:
         """Get seasons and episodes for a StreamingCommunity series."""
         if media_item.is_movie:

@@ -115,6 +115,8 @@ class ArrProcessorService:
                 "tags": elem["series"]["tags"],
                 "year": elem["series"].get("year"),
                 "tmdbId": elem["series"].get("tmdbId"),
+                "tvdbId": elem["series"].get("tvdbId"),
+                "imdbId": elem["series"].get("imdbId"),
                 "monitored": elem["series"].get("monitored", True),
                 "seasons": [],
             }
@@ -153,6 +155,7 @@ class ArrProcessorService:
                         "path": elem["path"],
                         "tags": elem["tags"],
                         "tmdbId": elem.get("tmdbId"),
+                        "imdbId": elem.get("imdbId"),
                         "monitored": elem.get("monitored", True),
                         "provider": self._extract_provider(elem["tags"], "radarr"),
                     }

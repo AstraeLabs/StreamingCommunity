@@ -171,6 +171,51 @@ def _dedup_key(item: dict, season_num: int | None = None, ep_num: int | None = N
         return f"sonarr_{arr_id}_s{season_num}_e{ep_num}"
 
 
+def _normalize_external_id(value) -> str | None:
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    value = str(value).strip()
+    return value or None
+
+
+def _series_tmdb_id(series: dict, fallback_tmdb_id=None) -> str | None:
+    """Return a TMDB id for Sonarr data, converting TVDB via TMDB when needed."""
+    direct = _normalize_external_id(series.get("tmdbId") or fallback_tmdb_id)
+    if direct:
+        return direct
+
+    tvdb_id = _normalize_external_id(series.get("tvdbId"))
+    if not tvdb_id:
+        return None
+
+    try:
+        from VibraVid.provider.tmdb import tmdb_client
+
+        if not tmdb_client.api_key:
+            return None
+        resolved = tmdb_client.get_tmdb_id_by_external_id(tvdb_id, "tvdb_id", "tv")
+        return _normalize_external_id(resolved)
+    except Exception as exc:
+        logger.warning(f"Could not convert Sonarr tvdbId={tvdb_id} to TMDB: {exc}")
+        return None
+
+
+def _tvdb_id_for_tmdb(tmdb_id) -> str | None:
+    """Resolve Seerr's TMDB id to TVDB for Sonarr versions lacking tmdbId."""
+    normalized = _normalize_external_id(tmdb_id)
+    if not normalized:
+        return None
+    try:
+        from VibraVid.provider.tmdb import tmdb_client
+
+        if not tmdb_client.api_key:
+            return None
+        return _normalize_external_id(tmdb_client.get_external_id(int(normalized), "tv", "tvdb_id"))
+    except Exception as exc:
+        logger.warning(f"Could not resolve TVDB id for TMDB tv/{normalized}: {exc}")
+        return None
+
+
 def _enqueue_if_new(
     item: dict,
     sync_source: str,
@@ -186,6 +231,10 @@ def _enqueue_if_new(
     from searchapp.models import ArrMediaRequest, ArrProcessingQueue
 
     key = _dedup_key(item, season_num, ep_num)
+    if item.get("content_type") != "movie" and not item.get("tmdbId"):
+        resolved_tmdb_id = _series_tmdb_id(item)
+        if resolved_tmdb_id:
+            item["tmdbId"] = resolved_tmdb_id
 
     with _enqueue_lock:
         # Check for active (non-completed) queue entry
@@ -226,7 +275,12 @@ def _enqueue_if_new(
             reusable.media_request.status = ArrMediaRequest.Status.PENDING
             reusable.media_request.sync_source = sync_source
             reusable.media_request.last_synced_at = timezone.now()
-            reusable.media_request.save(update_fields=["status", "sync_source", "last_synced_at"])
+            reusable.media_request.tmdb_id = str(item.get("tmdbId") or "") or None
+            reusable.media_request.tvdb_id = str(item.get("tvdbId") or item.get("tvdb_id") or "") or None
+            reusable.media_request.imdb_id = str(item.get("imdbId") or item.get("imdb_id") or "") or None
+            reusable.media_request.save(
+                update_fields=["status", "sync_source", "last_synced_at", "tmdb_id", "tvdb_id", "imdb_id"]
+            )
             logger.info(f"Re-enqueued for retry: {key}")
             return True
 
@@ -246,7 +300,9 @@ def _enqueue_if_new(
                     provider=item.get("provider", ""),
                     status=ArrMediaRequest.Status.PENDING,
                     sync_source=sync_source,
-                    tmdb_id=str(item.get("tmdbId", "")) or None,
+                    imdb_id=str(item.get("imdbId") or item.get("imdb_id") or "") or None,
+                    tmdb_id=str(item.get("tmdbId") or item.get("tmdb_id") or "") or None,
+                    tvdb_id=str(item.get("tvdbId") or item.get("tvdb_id") or "") or None,
                     last_synced_at=timezone.now(),
                 )
 
@@ -658,6 +714,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
     # Parse the webhook payload - handle both Seerr and Sonarr formats
     media = event_data.get("media", {})
     series = event_data.get("series", {})
+    tvdb_id = None
 
     if media:
         # Seerr/Overseerr payload format
@@ -668,12 +725,10 @@ def trigger_webhook_sync(event_data: dict) -> int:
     elif series:
         # Sonarr SeriesAdd payload format
         media_type = "tv"  # Sonarr series events are always TV
-        tmdb_id = series.get("tmdbId") or series.get("tvdbId")
+        tmdb_id = _series_tmdb_id(series)
+        tvdb_id = _normalize_external_id(series.get("tvdbId"))
         media_title = series.get("title", "")
         logger.info("[trigger_webhook_sync] Detected Sonarr payload format (SeriesAdd)")
-        # Sonarr passes tmdbId as int, ensure string comparison works
-        if tmdb_id is not None:
-            tmdb_id = str(tmdb_id)
     else:
         logger.warning("[trigger_webhook_sync] Unknown payload format - no 'media' or 'series' key")
         return trigger_polling_sync()
@@ -681,7 +736,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
     logger.info(f"[trigger_webhook_sync] media_type={media_type}, tmdbId={tmdb_id}")
     logger.info(f"[trigger_webhook_sync] media title: {media_title}")
 
-    if not tmdb_id:
+    if not tmdb_id and not (media_type == "tv" and series.get("id")):
         logger.warning("[trigger_webhook_sync] Webhook payload missing tmdbId, falling back to full polling sync")
         return trigger_polling_sync()
 
@@ -732,6 +787,7 @@ def trigger_webhook_sync(event_data: dict) -> int:
             "path": matched.get("path", ""),
             "tags": matched.get("tags", []),
             "tmdbId": matched.get("tmdbId"),
+            "imdbId": matched.get("imdbId"),
             "monitored": matched.get("monitored", True),
             "provider": provider,
         }
@@ -784,10 +840,16 @@ def trigger_webhook_sync(event_data: dict) -> int:
             if not matched:
                 logger.warning(f"[trigger_webhook_sync] Series id={series_id} not found after retries, trying by tmdbId/tvdbId...")
 
-        # Search by tmdbId or tvdbId (for Seerr payloads or fallback)
+        # Search each external-id namespace independently. Seerr gives us a
+        # TMDB id; older Sonarr payloads may expose only TVDB.
         if not matched:
+            target_tmdb = _normalize_external_id(tmdb_id)
+            target_tvdb = tvdb_id or _tvdb_id_for_tmdb(target_tmdb)
+            identity_conflict = False
             try:
-                logger.info(f"[trigger_webhook_sync] Searching for tmdbId={tmdb_id} in Sonarr series list...")
+                logger.info(
+                    f"[trigger_webhook_sync] Searching Sonarr for tmdbId={target_tmdb}, tvdbId={target_tvdb}..."
+                )
                 series_list = sonarr.get_series()
                 logger.info(f"[trigger_webhook_sync] Got {len(series_list)} series from Sonarr")
             except Exception as exc:
@@ -797,11 +859,24 @@ def trigger_webhook_sync(event_data: dict) -> int:
             # Try multiple times as Sonarr might still be processing
             for attempt in range(3):
                 for s in series_list:
-                    s_tmdb = str(s.get("tmdbId") or "")
-                    s_tvdb = str(s.get("tvdbId") or "")
-                    if s_tmdb == str(tmdb_id) or s_tvdb == str(tmdb_id):
+                    s_tmdb = _normalize_external_id(s.get("tmdbId"))
+                    s_tvdb = _normalize_external_id(s.get("tvdbId"))
+                    tmdb_match = bool(target_tmdb and s_tmdb == target_tmdb)
+                    tvdb_match = bool(target_tvdb and s_tvdb == target_tvdb)
+                    if tvdb_match and target_tmdb and s_tmdb and s_tmdb != target_tmdb:
+                        identity_conflict = True
+                        logger.warning(
+                            f"[trigger_webhook_sync] Skipping '{s.get('title')}' because its Sonarr "
+                            f"tmdbId={s_tmdb} conflicts with requested tmdbId={target_tmdb}, "
+                            f"despite matching tvdbId={target_tvdb}"
+                        )
+                        continue
+                    if tmdb_match or tvdb_match:
                         matched = s
-                        logger.info(f"[trigger_webhook_sync] Found series by tmdbId/tvdbId: '{s.get('title')}'")
+                        logger.info(
+                            f"[trigger_webhook_sync] Found series by "
+                            f"{'tmdbId' if tmdb_match else 'tvdbId'}: '{s.get('title')}'"
+                        )
                         break
 
                 if matched:
@@ -817,7 +892,16 @@ def trigger_webhook_sync(event_data: dict) -> int:
                         pass
 
             if not matched:
-                logger.warning(f"[trigger_webhook_sync] TV tmdbId={tmdb_id} not found in Sonarr after retries, falling back to full sync")
+                if identity_conflict:
+                    logger.error(
+                        f"[trigger_webhook_sync] Sonarr external IDs conflict with requested TMDB tv/{target_tmdb}; "
+                        "refusing full-polling fallback"
+                    )
+                    return -1
+                logger.warning(
+                    f"[trigger_webhook_sync] TV tmdbId={target_tmdb}/tvdbId={target_tvdb} "
+                    "not found in Sonarr after retries, falling back to full sync"
+                )
                 return trigger_polling_sync()
 
         logger.info(f"[trigger_webhook_sync] Found series in Sonarr: {matched.get('title')} (id={matched.get('id')})")
@@ -840,7 +924,9 @@ def trigger_webhook_sync(event_data: dict) -> int:
             "year": matched.get("year"),
             "path": matched.get("path", ""),
             "tags": matched.get("tags", []),
-            "tmdbId": matched.get("tmdbId"),
+            "tmdbId": _series_tmdb_id(matched, fallback_tmdb_id=tmdb_id),
+            "tvdbId": matched.get("tvdbId"),
+            "imdbId": matched.get("imdbId"),
             "monitored": matched.get("monitored", True),
             "provider": _extract_provider_from_tags(sonarr, matched.get("tags", [])),
         }
@@ -983,7 +1069,9 @@ def trigger_sonarr_webhook_sync(event_data: dict) -> int:
         "year": series.get("year"),
         "path": series.get("path", ""),
         "tags": series.get("tags", []),
-        "tmdbId": series.get("tmdbId"),
+        "tmdbId": _series_tmdb_id(series, fallback_tmdb_id=series_data.get("tmdbId")),
+        "tvdbId": series.get("tvdbId"),
+        "imdbId": series.get("imdbId"),
         "monitored": series.get("monitored", True),
         "provider": _extract_provider_from_tags(sonarr, series.get("tags", [])),
     }
@@ -1199,6 +1287,7 @@ def trigger_radarr_webhook_sync(event_data: dict) -> int:
         "path": movie.get("path", ""),
         "tags": movie.get("tags", []),
         "tmdbId": movie.get("tmdbId"),
+        "imdbId": movie.get("imdbId"),
         "monitored": movie.get("monitored", True),
         "provider": _extract_provider_from_tags(radarr, movie.get("tags", [])),
     }

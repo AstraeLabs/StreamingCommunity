@@ -38,6 +38,7 @@ class CinezoAPI(BaseStreamingAPI):
                         url=item_dict.get("url"),
                         poster=item_dict.get("image"),
                         year=item_dict.get("year"),
+                        tmdb_id=item_dict.get("id"),
                         raw_data=item_dict,
                     )
                 )
