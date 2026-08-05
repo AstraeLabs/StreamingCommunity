@@ -104,13 +104,7 @@ class BaseStreamingAPI(ABC):
         self._scraper_cache[key] = (scraper, time.monotonic())
 
     def resolve_tmdb_id(self, media_item: Entries) -> str | int | None:
-        """Return a provider-attested TMDB id for ``media_item``, if available.
-
-        Adapters whose native identifier is a TMDB id, or whose detail endpoint
-        exposes one, should override this hook.  The default deliberately does
-        not infer an id from title/year: ARR strict matching must not turn an
-        heuristic title match into an apparently authoritative identity.
-        """
+        """Return a provider-attested TMDB id for ``media_item``, if availables"""
         direct_id = getattr(media_item, "tmdb_id", None)
         if direct_id not in (None, ""):
             return direct_id
