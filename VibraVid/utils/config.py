@@ -582,7 +582,6 @@ class ConfigManager:
         self.cache.clear()
         self.config.reset_repair_flag()
         self.load_all_configs()
-        self._refresh_login_consumers()
 
     def reload_config_only(self) -> None:
         """Reload only config.json and refresh related settings."""
@@ -595,15 +594,6 @@ class ConfigManager:
         """Reload only login.json."""
         self.cache.clear()
         self._load_login()
-        self._refresh_login_consumers()
-
-    @staticmethod
-    def _refresh_login_consumers() -> None:
-        """Refresh already-imported clients that cache login credentials."""
-        tmdb_module = sys.modules.get("VibraVid.provider.tmdb")
-        refresher = getattr(tmdb_module, "refresh_api_key", None) if tmdb_module else None
-        if callable(refresher):
-            refresher()
 
     def save_config(self) -> None:
         """Save the main configuration to file."""
@@ -622,7 +612,6 @@ class ConfigManager:
             stale = [key for key in self.cache if key.startswith("login.")]
             for key in stale:
                 del self.cache[key]
-            self._refresh_login_consumers()
         except Exception as e:
             console.print(f"[red]Error saving login configuration: {e}")
 

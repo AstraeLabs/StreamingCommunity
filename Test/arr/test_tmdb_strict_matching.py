@@ -438,15 +438,23 @@ def test_tmdb_client_reads_tvdb_id_from_exact_tv_entry(monkeypatch: pytest.Monke
     assert calls == ["tv/603/external_ids"]
 
 
-def test_shared_tmdb_key_can_be_refreshed_after_login_reload(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tmdb_module, "_configured_api_key", lambda: "new-live-key")
-    monkeypatch.setattr(tmdb_module, "api_key", tmdb_module.api_key)
-    monkeypatch.setattr(tmdb_module.tmdb_client, "api_key", "old-key")
-    monkeypatch.setattr(
-        tmdb_module.tmdb_client,
-        "_warned_no_api_key",
-        tmdb_module.tmdb_client._warned_no_api_key,
-    )
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [(None, None), ("", None), ("   ", None), ("  env-key  ", "env-key")],
+)
+def test_tmdb_key_is_loaded_only_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    env_value: str | None,
+    expected: str | None,
+) -> None:
+    from VibraVid.utils import config_manager
 
-    assert tmdb_module.refresh_api_key() == "new-live-key"
-    assert tmdb_module.tmdb_client.api_key == "new-live-key"
+    # A persisted value from an older installation must no longer configure
+    # TMDB, even if it is still present in a mounted login.json file.
+    monkeypatch.setitem(config_manager._login_data, "Provider", {"tmdb": "legacy-login-key"})
+    if env_value is None:
+        monkeypatch.delenv("TMDB_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("TMDB_API_KEY", env_value)
+
+    assert tmdb_module._configured_api_key() == expected

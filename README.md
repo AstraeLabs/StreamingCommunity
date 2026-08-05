@@ -540,7 +540,7 @@ The `ARR` block enables VibraVid to work as an automation layer between **Seerr/
 
 When a TMDB API key is configured, ARR matches provider results strictly by the **media type + TMDB ID** pair. Movies and TV series are therefore kept in separate identity namespaces even if they share the same numeric ID. Sonarr records that expose only a TVDB ID are converted through TMDB's exact external-ID lookup. Provider results whose TMDB identity cannot be verified are skipped instead of being accepted from a similar title or year; requests without a resolvable target TMDB ID fail safely and are left available for a later retry.
 
-Set the key with the `TMDB_API_KEY` environment variable or with `Provider.tmdb` in `Conf/login.json`. A non-empty `TMDB_API_KEY` environment value takes precedence over the value in `Conf/login.json`. If no TMDB API key is configured, ARR retains the legacy title/year matching fallback.
+Set the key with the `TMDB_API_KEY` environment variable. This is the only supported TMDB credential source; legacy `Provider.tmdb` values in `Conf/login.json` are ignored. After adding or changing the variable, recreate the application container so the new environment is applied. If no TMDB API key is configured, ARR retains the legacy title/year matching fallback.
 
 #### Configuration reference
 

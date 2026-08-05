@@ -9,7 +9,6 @@ from difflib import SequenceMatcher
 
 from rich.console import Console
 
-from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client, get_headers
 
 console = Console()
@@ -17,9 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 def _configured_api_key() -> str | None:
-    login_api_key = config_manager.login.get("Provider", "tmdb", default=None)
-    env_api_key = str(os.environ.get("TMDB_API_KEY") or "").strip()
-    return env_api_key or str(login_api_key or "").strip() or None
+    """Return the TMDB key configured exclusively through the environment."""
+    return str(os.environ.get("TMDB_API_KEY") or "").strip() or None
 
 
 api_key = _configured_api_key()
@@ -43,7 +41,7 @@ class TMDBClient:
         if self.api_key is None or self.api_key == "":
             if not self._warned_no_api_key:
                 logger.error(
-                    "TMDB API key is not set. Set TMDB_API_KEY or Conf/login.json Provider.tmdb "
+                    "TMDB API key is not set. Set the TMDB_API_KEY environment variable "
                     "(create a key at https://www.themoviedb.org/settings/api)."
                 )
                 self._warned_no_api_key = True
@@ -614,15 +612,3 @@ class TMDBClient:
 # Istance
 tmdb_client = TMDBClient(api_key)
 tmdb = tmdb_client
-
-
-def refresh_api_key() -> str | None:
-    """Refresh the shared client after login.json is reloaded at runtime."""
-    global api_key
-
-    refreshed = _configured_api_key()
-    if refreshed != tmdb_client.api_key:
-        tmdb_client.api_key = refreshed
-        tmdb_client._warned_no_api_key = False
-    api_key = refreshed
-    return refreshed
