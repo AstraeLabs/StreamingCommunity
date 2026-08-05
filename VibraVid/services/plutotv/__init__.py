@@ -8,7 +8,7 @@ from VibraVid.services._base.site_search_manager import base_process_search_resu
 from VibraVid.utils import TVShowManager
 from VibraVid.utils.http_client import create_client
 
-from .client import get_api
+from .client import get_api, hub_search
 from .downloader import download_series
 
 indice = 17
@@ -46,19 +46,42 @@ def title_search(query: str) -> int:
 
     # Parse response
     data = response.json().get("data", [])
+    seen_ids = set()
     for dict_title in data:
         try:
             if dict_title.get("type") == "channel":
                 continue
 
             define_type = "tv" if dict_title.get("type") == "series" else dict_title.get("type")
+            entry_id = dict_title.get("id")
 
-            entries_manager.add(
-                Entries(id=dict_title.get("id"), name=dict_title.get("name"), type=define_type, image=None, year=None)
-            )
+            entries_manager.add(Entries(id=entry_id, name=dict_title.get("name"), type=define_type, image=None, year=None))
+            seen_ids.add(entry_id)
 
         except Exception as e:
             console.print(f"Error parsing entry: {e}")
+
+    # The v1/search REST index is incomplete for some titles
+    try:
+        for hub_title in hub_search(query):
+            entry_id = hub_title.get("id")
+            if not entry_id or entry_id in seen_ids:
+                continue
+
+            entries_manager.add(
+                Entries(
+                    id=entry_id,
+                    name=hub_title.get("name"),
+                    type=hub_title.get("type"),
+                    image=None,
+                    year=None,
+                    slug=hub_title.get("slug"),
+                )
+            )
+            seen_ids.add(entry_id)
+
+    except Exception as e:
+        console.print(f"[red]Site: {site_constants.SITE_NAME}, hub search error: {e}")
 
     return len(entries_manager)
 

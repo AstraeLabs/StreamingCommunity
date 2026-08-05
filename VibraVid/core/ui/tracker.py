@@ -76,14 +76,19 @@ class DownloadTracker(metaclass=SingletonMeta):
 
     def _persist_history_entry(self, entry: dict[str, Any]) -> None:
         model = self._get_history_model()
+        persisted_to_model = False
         if model:
             try:
                 model.objects.create(
                     download_id=str(entry.get("id") or ""),
                     payload=json.dumps(entry),
                 )
+                persisted_to_model = True
             except Exception:
                 pass
+
+        if persisted_to_model:
+            return
 
         try:
             from VibraVid.utils import config_manager
@@ -119,6 +124,8 @@ class DownloadTracker(metaclass=SingletonMeta):
                 "start_time": time.time(),
                 "last_update": time.time(),
                 "tasks": {},  # For multi-stream downloads (video, audio, etc)
+                "cli_search": context_tracker.cli_search,
+                "cli_item": context_tracker.cli_item,
             }
             hook_context = {
                 "download_id": download_id,
@@ -557,6 +564,14 @@ class ContextTracker:
     @bypass_vault_cache.setter
     def bypass_vault_cache(self, value):
         self.local.bypass_vault_cache = value
+
+    @property
+    def anonymize_keys(self):
+        return getattr(self.local, "anonymize_keys", False)
+
+    @anonymize_keys.setter
+    def anonymize_keys(self, value):
+        self.local.anonymize_keys = value
 
     @property
     def resolve_only(self):

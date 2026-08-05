@@ -1,10 +1,17 @@
 # 29.07.26
 
-from VibraVid.tui.app import main
+import sys
+
 from VibraVid.utils.frozen import fix_ld_library_path
 
 fix_ld_library_path()
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        from VibraVid.cli.run import main as cli_main
 
+        cli_main()
+    else:
+        from VibraVid.tui.app import main as tui_main
+
+        tui_main()

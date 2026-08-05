@@ -10,6 +10,7 @@ from rich.console import Console
 
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.drm.system import DRMType, _DRMSystems
+from VibraVid.core.manifest.custom import is_custom_manifest
 from VibraVid.core.manifest.mpd import DashParser
 from VibraVid.core.manifest.stream import track_label
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
@@ -521,7 +522,7 @@ class DASH_Downloader(BaseDownloader):
                 )
                 audio_dl.custom_filters = {
                     "video": "false",
-                    "audio": "for=best",
+                    "audio": "best",
                     "subtitle": (self.custom_filters or {}).get("subtitle") or SUBTITLE_FILTER,
                 }
 
@@ -647,7 +648,7 @@ class DASH_Downloader(BaseDownloader):
             max_segments=self.max_segments,
             max_time=self.max_time,
             manifest_content=self.mpd_content,
-            manifest_protocol="dash",
+            manifest_protocol="custom" if is_custom_manifest(self.mpd_content or "") else "dash",
         )
         self.media_downloader.other_tracks = self._merge_other_tracks
         self.media_downloader.license_url = self.license_url

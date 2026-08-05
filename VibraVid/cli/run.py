@@ -29,7 +29,6 @@ from VibraVid.setup.system import (
     get_ffmpeg_path,
     get_ffprobe_path,
     get_mkvmerge_path,
-    get_mkvpropedit_path,
     get_prd_path,
     get_shaka_packager_path,
     get_velora_path,
@@ -55,7 +54,6 @@ _VERSION_FLAGS = {
     "Shaka Packager": ["--version"],
     "dovi_tool": ["--version"],
     "mkvmerge": ["--version"],
-    "mkvpropedit": ["--version"],
     "Bento4 (mp4decrypt)": [],
 }
 
@@ -184,8 +182,8 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
 
     # ── Track selection
     track_group = parser.add_argument_group("Track selection")
-    track_group.add_argument("-sv", "--video", type=str, metavar="SPEC", help='Video track filter (e.g. "best", "1080p")')
-    track_group.add_argument("-sa", "--audio", type=str, metavar="SPEC", help='Audio track filter (e.g. "ita|it")')
+    track_group.add_argument("-sv", "--video", type=str, metavar="SPEC", help='Video track filter (e.g. "best", "1080p", "r=1080:c=hvc1:f=best")')
+    track_group.add_argument("-sa", "--audio", type=str, metavar="SPEC", help='Audio track filter (e.g. "ita|it", "l=ita:c=aac:f=best")')
     track_group.add_argument("-ss", "--subtitle", type=str, metavar="SPEC", help='Subtitle track filter (e.g. "ita|eng")')
 
     # ── Download options
@@ -197,6 +195,7 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     dl_opts.add_argument("--skip-ts", dest="skip_ts", action="store_const", const=True, default=None, help="Skip TS/CAM releases (StreamingCommunity)")
     dl_opts.add_argument("--close-console", dest="close_console", type=str, choices=["true", "false"],metavar="true|false", help="Exit after last download (overrides config)")
     dl_opts.add_argument("--no-vault-cache", dest="bypass_vault_cache", action="store_const", const=True, default=None, help="Bypass DRM key vault cache; force a fresh CDM license request every run (for dynamic/time-sensitive tokens)")
+    dl_opts.add_argument("--abc", dest="abc", action="store_true", help="Anonymize printed kid/key pairs, masking alternating characters with '?'")
     dl_opts.add_argument("--resolve-only", dest="resolve_only", action="store_true",help="Only resolve & cache the master playlist without downloading.",)
 
     # ── Direct download
@@ -227,6 +226,7 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     util_group.add_argument("--no-log", action="store_true", help="Disable log file for this run")
     util_group.add_argument("--no-manifest-info", action="store_true", help="Don't print the parsed manifest/streams table")
     util_group.add_argument("-UP", "--update", action="store_true", help="Auto-update to latest version (binary only)")
+    util_group.add_argument("--binary-update", dest="binary_update", action="store_true", help="Check FFmpeg/Bento4/Shaka Packager/dovi_tool/MKVToolNix/Velora against AstraeLabs/Binary and re-download whichever is outdated")
     util_group.add_argument("--dep", action="store_true", help="Show dependency paths (config, services, binaries)")
     util_group.add_argument("--version", action="version", version=f"{__title__} {__version__}")
 
@@ -453,7 +453,6 @@ def show_dependencies(search_functions):
         "Shaka Packager": get_shaka_packager_path(),
         "dovi_tool": get_dovi_tool_path(),
         "mkvmerge": get_mkvmerge_path(),
-        "mkvpropedit": get_mkvpropedit_path(),
         "Velora": get_velora_path(),
     }
 
@@ -561,11 +560,24 @@ def main():
                 console.print("\n[yellow]Update was not performed")
             return
 
+        # Handle third-party binaries update (FFmpeg, Bento4, Shaka Packager, dovi_tool, MKVToolNix, Velora)
+        if args.binary_update:
+            from VibraVid.utils.upload.update import check_all_binaries_update
+
+            console.print("\n[cyan]  BINARY UPDATE MODE")
+            logger.info("User initiated binary update via command line.")
+            results = check_all_binaries_update()
+            for tool, result in results.items():
+                style = "green" if result.get("success") else "red"
+                console.print(f"[{style}]{tool}: {result.get('message')}")
+            return
+
         apply_config_updates(args)
 
         # Propagate CLI download limits to the service flow
         apply_limits(args)
         context_tracker.bypass_vault_cache = getattr(args, "bypass_vault_cache", None)
+        context_tracker.anonymize_keys = bool(getattr(args, "abc", False))
         context_tracker.resolve_only = bool(getattr(args, "resolve_only", False))
         site_options = {"drm": getattr(args, "drm", None)}
         site_options.update({dest: getattr(args, dest, None) for dest in site_option_dests})

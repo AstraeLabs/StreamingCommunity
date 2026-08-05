@@ -53,6 +53,7 @@ class DRMInfo:
         self._drm_types: list[str] = []
         self._key_uri_by_type: dict[str, str] = {}
         self._key_uri_by_pssh: dict[str, str] = {}
+        self.display_type: str | None = None
 
     def _record_pssh(self, drm_type: str, pssh_base64: str) -> None:
         bucket = self._all_pssh_by_type.setdefault(drm_type, [])
@@ -285,14 +286,11 @@ class DRMInfo:
         if self.drm_type:
             return self.drm_type
 
-        if self.default_kids:
-            first = self.default_kids[0][:8] + "…"
-            if len(self.default_kids) > 1:
-                return f"{first} (+{len(self.default_kids) - 1})"
-            return first
+        if self.display_type:
+            return self.display_type
 
-        if self.default_kid:
-            return self.default_kid[:8] + "…"
+        if self.default_kids or self.default_kid:
+            return "UNK"
 
         return "-"
 

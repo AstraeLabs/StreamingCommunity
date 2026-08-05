@@ -63,6 +63,22 @@ def _episode_languages(episode_data: dict) -> str | None:
     return ",".join(langs) if langs else None
 
 
+def _episode_main_guid(episode_data: dict) -> str | None:
+    """GUID of the 'main' version (carries the complete subtitle set), or None."""
+    meta = episode_data.get("episode_metadata") or {}
+    versions = (meta.get("versions") if isinstance(meta, dict) else None) or episode_data.get("versions") or []
+    if not isinstance(versions, list):
+        return None
+
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        if "main" in (version.get("roles") or []):
+            return version.get("guid")
+
+    return None
+
+
 def _extract_episode_number(episode_data: dict) -> str:
     """Extract episode number from episode data."""
     meta = episode_data.get("episode_metadata") or {}
@@ -214,6 +230,7 @@ class GetSerieInfo:
                     "duration": int(ep_data.get("duration_ms", 0) / 60000),
                     "image": _episode_thumbnail(ep_data),
                     "language": _episode_languages(ep_data),
+                    "main_guid": _episode_main_guid(ep_data),
                 }
             )
 

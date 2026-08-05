@@ -1,14 +1,18 @@
 ﻿# 16.03.25
 
+import re
+
 from rich.console import Console
 from rich.prompt import Prompt
 
+from VibraVid.core.ui.tracker import context_tracker
 from VibraVid.services._base import Entries, EntriesManager, site_constants
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
 from VibraVid.utils import TVShowManager, config_manager
 
 from .client import CrunchyrollClient
 from .downloader import download_film, download_series
+from .scrapper import GetSerieInfo
 
 indice = 6
 _useFor = "Anime"
@@ -16,6 +20,39 @@ msg = Prompt()
 console = Console()
 entries_manager = EntriesManager()
 table_show_manager = TVShowManager()
+
+_SERIES_ID_RE = re.compile(r"/series/([A-Z0-9]+)", re.IGNORECASE)
+
+
+def register_cli_args(parser) -> list:
+    """
+    Register CLI options.
+    """
+    group = parser.add_argument_group("Crunchyroll options (--site 6)")
+    group.add_argument("--url", dest="url", default=None, metavar="URL", help="Crunchyroll series URL.")
+    return ["url"]
+
+
+def _resolve_url_to_item(url: str):
+    """Resolve a Crunchyroll series URL to an item dict"""
+    match = _SERIES_ID_RE.search(url)
+    if not match:
+        console.print("[red]Could not extract series ID from URL (expected .../series/<ID>/...)")
+        return None
+
+    series_id = match.group(1)
+
+    try:
+        info = GetSerieInfo(series_id)
+        info.collect_season()
+        name = getattr(info, "series_name", None) or series_id
+        info.close()
+    except Exception as e:
+        console.print(f"[red]Error resolving Crunchyroll URL: {e}")
+        return None
+
+    console.print(f"[cyan]Detected series from URL: [green]{name}")
+    return {"id": series_id, "name": name, "type": "tv", "url": f"https://www.crunchyroll.com/series/{series_id}", "image": None}
 
 
 def title_search(query: str) -> int:
@@ -140,6 +177,13 @@ def search(
     scrape_serie=None,
 ):
     """Wrapper for the generalized search function."""
+    if direct_item is None and not get_onlyDatabase:
+        url = (context_tracker.site_options or {}).get("url")
+        if url:
+            direct_item = _resolve_url_to_item(url)
+            if not direct_item:
+                return False
+
     return base_search(
         title_search_func=title_search,
         process_result_func=process_search_result,

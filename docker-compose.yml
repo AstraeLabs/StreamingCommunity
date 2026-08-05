@@ -64,6 +64,8 @@ services:
       - ${VIBRAVID_LOGS_DIR:-vibravid_logs}:/app/.cache/logs
       # Configuration persistence
       - ${VIBRAVID_CONFIG_DIR:-vibravid_config}:/app/Conf
+      # CDM / binary directory persistence
+      - ${VIBRAVID_BINARY_DIR:-vibravid_binary}:/home/appuser/.local/bin/binary
       # Docker socket — enables the in-app "Update now" button to pull the new
       # image and recreate the container by driving the host Docker daemon.
       - /var/run/docker.sock:/var/run/docker.sock
@@ -92,7 +94,7 @@ services:
       # PGID: "1000"
 
       # Host Configuration
-      ALLOWED_HOSTS: "localhost,127.0.0.1"
+      ALLOWED_HOSTS: "localhost,127.0.0.1,vibravid"
       CSRF_TRUSTED_ORIGINS: "http://localhost:8000,http://127.0.0.1:8000"
 
       # ── Cloudflare-challenge solver sidecars ──
@@ -133,6 +135,45 @@ services:
     #       cpus: '1'
     #       memory: 1G
 
+  telegram:
+    profiles: ["telegram"]
+    image: ghcr.io/astraelabs/vibravid:${VIBRAVID_TAG:-latest}
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: ${TELEGRAM_CONTAINER_NAME:-vibravid-telegram}
+    entrypoint: ["/bin/sh", "/app/docker/telegram-entrypoint.sh"]
+
+    networks:
+      - vibravid_network
+
+    depends_on:
+      vibravid:
+        condition: service_started
+
+    ### Credentials: dedicated .env file
+    env_file:
+      - path: ./.env.telegram
+        required: false
+
+    volumes:
+      # Read-only: the bot only reads the TELEGRAM section of config.json
+      # (enabled/gui_url/max_results); it never writes to Conf.
+      - ${VIBRAVID_CONFIG_DIR:-vibravid_config}:/app/Conf:ro
+      # Telethon session + per-user site-filter prefs. Writable, bot-only.
+      - telegram_state:/app/tgstate
+
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: "/app:${PYTHONPATH}"
+      STATE_DIR: "/app/tgstate"
+      VIBRAVID_CONFIG: "/app/Conf/config.json"
+      # TG_GUI_URL default (http://vibravid:8000) already matches this
+      # compose network; override here or in .env.telegram if needed.
+      # VIBRAVID_BOT_SECRET: ""
+
+    restart: unless-stopped
+
 ### Persistent Named Volumes
 # These are only created when the corresponding VIBRAVID_*_DIR variable is NOT set to a host
 # path. If you override a variable with a host path (e.g. VIBRAVID_VIDEO_DIR=/mnt/nas/movies),
@@ -145,6 +186,10 @@ volumes:
   vibravid_logs:
     driver: local
   vibravid_config:
+    driver: local
+  vibravid_binary:
+    driver: local
+  telegram_state:
     driver: local
 
 ### Internal Network

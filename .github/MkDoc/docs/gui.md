@@ -1,12 +1,8 @@
 # Web GUI
 
-**🌍 Language / Lingua:** [🇬🇧 English](gui.md) | [🇮🇹 Italiano](../../docs/it/gui.md)
-
-<- [Back to main README](../../../README.md)
-
 A web-based interface built with Django for searching and downloading content directly from your browser.
 
-![Home](../img/gui/home.png)
+![Home](assets/gui/home.png)
 
 ## Quick Start
 
@@ -16,8 +12,9 @@ python GUI/manage.py migrate
 python GUI/manage.py runserver 0.0.0.0:8000
 ```
 
-Then open `http://<host>:8000` in a browser. For Docker/NAS deployments see the main README
-and the [NAS deployment guide](nas.md) instead of running the dev server directly.
+Then open `http://<host>:8000` in a browser. For Docker/NAS deployments see the [Docker
+guide](docker.md) and the [NAS deployment guide](nas.md) instead of running the dev server
+directly.
 
 ---
 
@@ -41,7 +38,7 @@ and the [NAS deployment guide](nas.md) instead of running the dev server directl
 - **Clear history** of completed/failed entries (`api/clear-history/`).
 
 > For some providers the progress bar may stay at 0% even though the download is running —
-> see *Known Issues* in the main README.
+> see [Known Issues](index.md#known-issues).
 
 ### Watchlist & auto-download
 
@@ -82,15 +79,15 @@ ships a matching stub at `GUI/searchapp/api/<service_name>.py`.
 
 When a newer release is available the UI shows an update banner. The version check
 (`api/version/check/`) is cached for one hour; the update action (`api/version/update/`)
-applies it in place. For Docker one-click updates (Docker socket requirement) see the main
-README.
+applies it in place. For Docker one-click updates (Docker socket requirement) see the
+[Docker guide](docker.md).
 
 ### ARR stack page
 
 `/arr-stack/` is a status and control panel for the Seerr/Sonarr/Radarr integration: it lists
 VibraVid's internal ARR processing queue (filterable by status/source/sync) and can trigger a
 sync (`api/arr/trigger-sync/`). Webhook endpoints and full configuration are documented in the
-[ARR section of the main README](../../../README.md#arr-integration).
+[ARR Integration guide](arr.md).
 
 ---
 

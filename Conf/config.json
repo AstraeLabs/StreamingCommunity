@@ -24,9 +24,10 @@
         "song_format": "%(album)/%(track_number:02d). %(title)"
     },
     "DOWNLOAD": {
-        "auto_select": true,
-        "delay_after_download": 0,
         "skip_download": false,
+        "auto_select": true,
+        "use_curl_cffi_segments": false,
+        "delay_after_download": 0,
         "thread_count": 10,
         "segment_delay_seconds": 0,
         "segment_delay_jitter_seconds": 0,
@@ -35,16 +36,15 @@
         "realtime_decrypt": true,
         "concurrent_download": true,
         "select_video": "best",
-        "select_audio": "ita|it",
-        "select_subtitle": "ita|eng|it|en",
+        "select_audio": "it|en",
+        "select_subtitle": "it|en",
         "extract_embedded_cc": false,
         "live_max_empty_polls": 8,
         "max_token_refresh_rounds": 10,
         "token_refresh_backoff_seconds": 4.0,
         "token_refresh_stall_rounds": 3,
         "embed_poster": false,
-        "cleanup_tmp_folder": true,
-        "use_curl_cffi_segments": false
+        "cleanup_tmp_folder": true
     },
     "PROCESS": {
         "engine": "ffmpeg",
@@ -125,5 +125,10 @@
         "radarr_webhook": {
             "webhook_secret": ""
         }
+    },
+    "TELEGRAM": {
+        "enabled": false,
+        "gui_url": "http://vibravid:8000",
+        "max_results": 8
     }
 }

@@ -3,7 +3,6 @@
 import copy
 import logging
 import os
-import re
 import threading
 from typing import Any
 
@@ -16,7 +15,14 @@ from VibraVid.core.ui.tracker import context_tracker, download_tracker
 from VibraVid.core.ui.ui import build_table
 from VibraVid.core.utils.codec import DV_CODEC_PREFIXES
 from VibraVid.core.utils.language import language_variants
-from VibraVid.core.utils.selector import StreamSelector, StreamSelectorFormatter
+from VibraVid.core.utils.selector import (
+    FilterSpec,
+    StreamSelector,
+    StreamSelectorFormatter,
+    _height,
+    _matches_res,
+    strip_dv_suffix,
+)
 from VibraVid.core.velora.downloader import MediaDownloader
 from VibraVid.core.velora.util._stream_helpers import join_interruptible
 from VibraVid.core.velora.util.formatting import (
@@ -92,6 +98,16 @@ def _normalize_lang(s) -> None:
 
 
 class Generic_Downloader(BaseDownloader):
+    _ROLE_KIND_TO_TYPE = {
+        "video": "video",
+        "vid": "video",
+        "audio": "audio",
+        "aud": "audio",
+        "subtitle": "subtitle",
+        "sub": "subtitle",
+    }
+
+
     def __init__(
         self,
         sources: list[dict[str, Any]],
@@ -234,9 +250,9 @@ class Generic_Downloader(BaseDownloader):
             }
 
         return True
-
+    
     def _apply_explicit_roles(
-        self, parsed: list[tuple[MediaDownloader, dict[str, Any]]]
+        self, parsed: list[tuple[MediaDownloader, dict[str, Any]]], video_filter: str = ""
     ) -> tuple[list, list[tuple[MediaDownloader, dict[str, Any]]]]:
         """Apply per-source explicit ``role`` tags and split them off from auto-selection.
 
@@ -249,6 +265,8 @@ class Generic_Downloader(BaseDownloader):
         """
         role_streams: list = []
         auto_parsed: list[tuple[MediaDownloader, dict[str, Any]]] = []
+        vf_stripped, _ = strip_dv_suffix(video_filter or "")
+        video_res = FilterSpec.parse(vf_stripped, "video").res if vf_stripped else None
 
         for md, src in parsed:
             role = str(src.get("role") or src.get("type") or "").strip().lower()
@@ -264,9 +282,28 @@ class Generic_Downloader(BaseDownloader):
                 logger.warning(f"Source role '{role}' has no parsable stream — skipping")
                 continue
 
-            # Rendition manifests expose a single stream (parsed as video); if
-            # several are present keep the highest-bitrate one.
-            stream = max(cands, key=lambda s: getattr(s, "bitrate", 0) or 0)
+            # A role manifest often contains OTHER stream types too
+            expected_type = self._ROLE_KIND_TO_TYPE.get(kind)
+            if expected_type:
+                typed_cands = [s for s in cands if getattr(s, "type", "") == expected_type]
+                if typed_cands:
+                    cands = typed_cands
+                else:
+                    logger.warning(f"Source role '{role}': manifest has no {expected_type} stream, using full pool as fallback")
+
+            # "video:dv" is a compatibility companion track
+            if expected_type == "video" and tag == "dv":
+                stream = min(cands, key=lambda s: getattr(s, "bitrate", 0) or 0)
+            else:
+                # Other video roles (e.g. "video:hdr10", the base/primary track)
+                if expected_type == "video" and video_res:
+                    res_cands = [s for s in cands if _matches_res(s, video_res)]
+                    if res_cands:
+                        cands = res_cands
+                    else:
+                        logger.info(f"Source role '{role}': no stream matches res={video_res}, using full pool")
+
+                stream = max(cands, key=lambda s: getattr(s, "bitrate", 0) or 0)
             for s in md.streams:
                 s.selected = s is stream
 
@@ -315,8 +352,13 @@ class Generic_Downloader(BaseDownloader):
         return role_streams, auto_parsed
 
     def _select(self, parsed: list[tuple[MediaDownloader, dict[str, Any]]]) -> list:
+        f = self.custom_filters
+        v = f.get("video") or config_manager.config.get("DOWNLOAD", "select_video")
+        a = f.get("audio") or config_manager.config.get("DOWNLOAD", "select_audio")
+        sub = f.get("subtitle") or config_manager.config.get("DOWNLOAD", "select_subtitle")
+
         # Sources with an explicit role bypass attribute-based dedup/selection.
-        role_streams, parsed = self._apply_explicit_roles(parsed)
+        role_streams, parsed = self._apply_explicit_roles(parsed, v)
 
         # Merge + dedup (keep first occurrence in source order).
         pool: list = []
@@ -336,22 +378,22 @@ class Generic_Downloader(BaseDownloader):
             for s in md.streams:
                 s.selected = False
 
-        f = self.custom_filters
-        v = f.get("video") or config_manager.config.get("DOWNLOAD", "select_video")
-        a = f.get("audio") or config_manager.config.get("DOWNLOAD", "select_audio")
-        sub = f.get("subtitle") or config_manager.config.get("DOWNLOAD", "select_subtitle")
-
         # Check for the &dv companion tag in the video filter. If present, we run a first pass of selection on the non-DV pool with the main video filter.
-        dv_match = re.search(r"&dv(?:=([^&]*))?", v, re.IGNORECASE)
-        if dv_match:
-            dv_quality = (dv_match.group(1) or "worst").strip() or "worst"
-            v_main = (v[: dv_match.start()] + v[dv_match.end() :]).strip() or "best"
+        v_main, dv_quality = strip_dv_suffix(v)
+        if dv_quality is not None:
+            v_main = v_main or "best"
             non_dv_pool = [s for s in pool if not _is_dv(s)]
-            StreamSelector(v_main, a, sub, formatter=StreamSelectorFormatter()).apply(non_dv_pool)
+            selector = StreamSelector(v_main, a, sub, formatter=StreamSelectorFormatter())
+            selector.apply(non_dv_pool)
 
             dv_videos = [s for s in pool if _is_dv(s)]
             if dv_videos:
-                StreamSelector(v, a, sub)._mark_dv_companion(dv_videos, dv_quality)
+                primary_video = next((s for s in non_dv_pool if getattr(s, "type", "") == "video" and s.selected), None)
+                if primary_video is not None:
+                    target_res = str(_height(primary_video)) if _height(primary_video) else None
+                else:
+                    target_res = FilterSpec.parse(v_main, "video").res
+                selector._mark_dv_companion(dv_videos, dv_quality, target_res)
         else:
             StreamSelector(v, a, sub, formatter=StreamSelectorFormatter()).apply(pool)
 

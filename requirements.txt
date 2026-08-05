@@ -13,4 +13,4 @@ pywidevine
 pyplayready
 pycryptodomex
 mutagen
-textual>=0.86.0
+textual

@@ -1,6 +1,7 @@
 # 19.09.25
 
 import glob
+import json
 import logging
 import os
 import platform
@@ -11,6 +12,8 @@ from rich.console import Console
 
 console = Console()
 logger = logging.getLogger(__name__)
+
+VERSIONS_FILENAME = ".versions.json"
 
 
 class BinaryPaths:
@@ -25,6 +28,7 @@ class BinaryPaths:
         self._resolved: dict[str, str] = {}
         self._cache_lock = threading.Lock()
         self._download_lock = threading.Lock()
+        self._version_lock = threading.Lock()
 
     def _detect_system(self) -> str:
         """Detect and normalize the operating system name."""
@@ -147,6 +151,77 @@ class BinaryPaths:
         """Drop the cached resolution for *binary_name* so the next lookup re-resolves it."""
         with self._download_lock:
             self._resolved.pop(binary_name, None)
+
+    def get_remote_tool_version(self, tool: str) -> str | None:
+        """Fetch the version currently published for *tool* in AstraeLabs/Binary (main)."""
+        try:
+            from VibraVid.utils.http_client import create_client, get_headers
+
+            url = f"{self.github_repo}/binaries/{tool}.version"
+            with create_client(headers=get_headers()) as client:
+                response = client.get(url)
+            response.raise_for_status()
+            return response.text.strip() or None
+        except Exception as e:
+            logger.debug(f"Failed to fetch remote version for {tool}: {e}")
+            return None
+
+    def _versions_file(self) -> str:
+        return os.path.join(self.get_binary_directory(), VERSIONS_FILENAME)
+
+    def _legacy_tool_version_file(self, tool: str) -> str:
+        """Pre-consolidation per-tool version file (one ".<tool>.version" file each)."""
+        return os.path.join(self.get_binary_directory(), f".{tool}.version")
+
+    def _read_versions(self) -> dict:
+        try:
+            with open(self._versions_file(), encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _write_versions(self, versions: dict) -> None:
+        path = self._versions_file()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(versions, f, indent=2, sort_keys=True)
+        os.replace(tmp_path, path)
+
+    def get_local_tool_version(self, tool: str) -> str | None:
+        """Return the version we last recorded as installed for *tool*, or None if never recorded."""
+        with self._version_lock:
+            versions = self._read_versions()
+            if tool in versions:
+                return versions[tool] or None
+
+            # One-time migration from the legacy per-tool ".<tool>.version" file, if present.
+            legacy_path = self._legacy_tool_version_file(tool)
+            try:
+                with open(legacy_path, encoding="utf-8") as f:
+                    legacy_version = f.read().strip() or None
+            except OSError:
+                return None
+
+            if legacy_version:
+                versions[tool] = legacy_version
+                try:
+                    self._write_versions(versions)
+                    os.remove(legacy_path)
+                except OSError as e:
+                    logger.warning(f"Failed to migrate legacy version file for {tool}: {e}")
+            return legacy_version
+
+    def set_local_tool_version(self, tool: str, version: str) -> None:
+        """Record the version currently installed for *tool*."""
+        with self._version_lock:
+            versions = self._read_versions()
+            versions[tool] = version.strip()
+            try:
+                self._write_versions(versions)
+            except OSError as e:
+                logger.warning(f"Failed to record local version for {tool}: {e}")
 
     def download_binary(self, tool: str, binary_name: str) -> str | None:
         """

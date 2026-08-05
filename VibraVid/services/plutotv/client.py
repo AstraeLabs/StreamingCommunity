@@ -1,7 +1,9 @@
 # 26.11.2025
 
+import json
+import re
 import uuid
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 
@@ -10,6 +12,53 @@ STITCHER_HLS = "https://cfd-v4-service-channel-stitcher-use1-1.prd.pluto.tv"
 APP_NAME = "web"
 APP_VERSION = "9.4.0-9ca51ca10c3047fbafa7297708f146243146d125"
 _pluto_api = None
+
+HUB_GRAPHQL_URL = "https://pluto.tv/api/tn/hubs/graphql/"
+HUB_SEARCH_PERSISTED_HASH = "47c3a615095a089a051062d724c32c021b45ac51785371373ef88dfa59ce3a05"
+_SERIES_ID_RE = re.compile(r"/series/([a-f0-9]{24})/")
+_SHOW_SLUG_RE = re.compile(r"^/shows/([^/]+)/?$")
+
+
+def hub_search(query: str) -> list[dict]:
+    """Search Pluto TV's web hub GraphQL endpoint (same backend used by pluto.tv/search)."""
+    extensions = json.dumps({"tnPersistedDocumentHash": HUB_SEARCH_PERSISTED_HASH}, separators=(",", ":"))
+    variables = json.dumps({"query": query}, separators=(",", ":"))
+    url = f"{HUB_GRAPHQL_URL}?extensions={quote(extensions)}&variables={quote(variables)}&operationName=GetVODContent"
+
+    headers = get_headers()
+    headers["apollo-require-preflight"] = "true"
+
+    response = create_client(headers=headers).get(url)
+    response.raise_for_status()
+    data = response.json()
+
+    results = []
+    for item in data.get("data", {}).get("searchVODContent") or []:
+        content_type = item.get("contentType")
+        item_id = item.get("id")
+        slug = None
+
+        if content_type == "show":
+            for url_field in ("thumb", "thumbLandscape", "hero", "heroCompact"):
+                match = _SERIES_ID_RE.search(item.get(url_field) or "")
+                if match:
+                    item_id = match.group(1)
+                    break
+
+            slug_match = _SHOW_SLUG_RE.match(item.get("href") or "")
+            if slug_match:
+                slug = slug_match.group(1)
+
+        results.append(
+            {
+                "id": item_id,
+                "name": item.get("title"),
+                "type": "tv" if content_type == "show" else content_type,
+                "slug": slug,
+            }
+        )
+
+    return results
 
 
 class PlutoAPI:

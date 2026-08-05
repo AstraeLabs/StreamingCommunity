@@ -5,7 +5,7 @@ import math
 import re
 import time
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 
@@ -873,9 +873,9 @@ class DashParser:
         try:
             ast_dt = datetime.fromisoformat(ast.replace("Z", "+00:00"))
             if ast_dt.tzinfo is None:
-                ast_dt = ast_dt.replace(tzinfo=UTC)
+                ast_dt = ast_dt.replace(tzinfo=timezone.utc)
 
-            now_dt = datetime.now(UTC)
+            now_dt = datetime.now(timezone.utc)
             elapsed = max(0.0, (now_dt - ast_dt).total_seconds())
             segment_seconds = float(seg_duration) / float(timescale or 1)
             if segment_seconds <= 0:

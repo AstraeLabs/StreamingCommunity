@@ -29,7 +29,6 @@ from VibraVid.setup.system import (
     get_ffmpeg_path,
     get_ffprobe_path,
     get_mkvmerge_path,
-    get_mkvpropedit_path,
     get_prd_path,
     get_shaka_packager_path,
     get_velora_path,
@@ -111,7 +110,6 @@ class SystemScreen(Screen):
             ("Shaka Packager", get_shaka_packager_path()),
             ("dovi_tool", get_dovi_tool_path()),
             ("mkvmerge", get_mkvmerge_path()),
-            ("mkvpropedit", get_mkvpropedit_path()),
             ("Velora", get_velora_path()),
         ]
 

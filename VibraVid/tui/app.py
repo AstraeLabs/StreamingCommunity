@@ -127,6 +127,8 @@ class VibraVidApp(App):
 
     def action_back(self) -> None:
         """ESC goes one level back, never kills the process."""
+        if isinstance(self.screen, HomeScreen):
+            return
         if len(self.screen_stack) > 1:
             self.pop_screen()
 

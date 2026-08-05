@@ -21,7 +21,7 @@ from mock_streams import (
 from VibraVid.core.utils.selector import StreamSelector
 
 
-def test_case(name, streams, video_filter, audio_filter, subtitle_filter, expected_behavior):
+def run_case(name, streams, video_filter, audio_filter, subtitle_filter, expected_behavior):
     """Run a test case with the given configuration."""
     print(f"\n{'=' * 70}")
     print(f"TEST: {name}")
@@ -56,7 +56,7 @@ def run_audio_tests():
     print("-" * 80)
 
     streams = create_audio_streams_example1()
-    test_case(
+    run_case(
         "Audio Test 1.1: Italian available",
         streams,
         "best",
@@ -66,7 +66,7 @@ def run_audio_tests():
     )
 
     streams = create_audio_streams_example2()
-    test_case(
+    run_case(
         "Audio Test 1.2: Italian NOT available - must DROP",
         streams,
         "best",
@@ -81,7 +81,7 @@ def run_audio_tests():
     print("-" * 80)
 
     streams = create_audio_streams_example3()
-    test_case(
+    run_case(
         "Audio Test 2.1: Multiple Italian tracks",
         streams,
         "best",
@@ -91,7 +91,7 @@ def run_audio_tests():
     )
 
     streams = create_audio_streams_example2()
-    test_case(
+    run_case(
         "Audio Test 2.2: Italian NOT available - must DROP",
         streams,
         "best",
@@ -106,7 +106,7 @@ def run_audio_tests():
     print("-" * 80)
 
     streams = create_audio_streams_example3()
-    test_case(
+    run_case(
         "Audio Test 3.1: Italian MP4A available",
         streams,
         "best",
@@ -116,7 +116,7 @@ def run_audio_tests():
     )
 
     streams = create_audio_streams_example1()
-    test_case(
+    run_case(
         "Audio Test 3.2: Italian MP4A available - with other languages",
         streams,
         "best",
@@ -126,7 +126,7 @@ def run_audio_tests():
     )
 
     streams = create_audio_streams_example2()
-    test_case(
+    run_case(
         "Audio Test 3.3: Italian MP4A NOT available - must DROP",
         streams,
         "best",
@@ -141,7 +141,7 @@ def run_audio_tests():
     print("-" * 80)
 
     streams = create_audio_streams_example1()
-    test_case(
+    run_case(
         "Audio Test 4.1: Select all audio", streams, "best", "all", "false", "Should select all available audio tracks"
     )
 
@@ -158,7 +158,7 @@ def run_video_tests():
     print("-" * 80)
 
     streams = create_video_streams_example1()
-    test_case(
+    run_case(
         "Video Test 1.1: 1080p available",
         streams,
         "1080",
@@ -168,7 +168,7 @@ def run_video_tests():
     )
 
     streams = create_video_streams_example2()
-    test_case(
+    run_case(
         "Video Test 1.2: 1080p NOT available - must fallback to WORST (480p)",
         streams,
         "1080",
@@ -183,10 +183,10 @@ def run_video_tests():
     print("-" * 80)
 
     streams = create_video_streams_example1()
-    test_case("Video Test 2.1: 1080p available", streams, "1080|best", "best", "false", "Should select 1080p")
+    run_case("Video Test 2.1: 1080p available", streams, "1080|best", "best", "false", "Should select 1080p")
 
     streams = create_video_streams_example2()
-    test_case(
+    run_case(
         "Video Test 2.2: 1080p NOT available - must fallback to BEST (720p)",
         streams,
         "1080|best",
@@ -201,7 +201,7 @@ def run_video_tests():
     print("-" * 80)
 
     streams = create_video_streams_example1()
-    test_case(
+    run_case(
         "Video Test 3.1: 1080p H.265 available",
         streams,
         "1080,h265",
@@ -216,7 +216,7 @@ def run_video_tests():
     print("-" * 80)
 
     streams = create_video_streams_example2()
-    test_case(
+    run_case(
         "Video Test 4.1: 1080p H.265 NOT available - fallback to best H.265 (720p)",
         streams,
         "1080|best,h265",
@@ -238,7 +238,7 @@ def run_default_flag_tests():
     print("-" * 80)
 
     streams = create_audio_streams_with_default()
-    test_case(
+    run_case(
         "Audio Test 5.1: Select only default audio track",
         streams,
         "best",
@@ -253,7 +253,7 @@ def run_default_flag_tests():
     print("-" * 80)
 
     streams = create_audio_streams_with_default()
-    test_case(
+    run_case(
         "Audio Test 5.2: Select non-default audio tracks (best)",
         streams,
         "best",
@@ -268,7 +268,7 @@ def run_default_flag_tests():
     print("-" * 80)
 
     streams = create_subtitle_streams_with_default()
-    test_case(
+    run_case(
         "Subtitle Test 6.1: Select only default subtitle",
         streams,
         "false",
@@ -283,7 +283,7 @@ def run_default_flag_tests():
     print("-" * 80)
 
     streams = create_subtitle_streams_with_default()
-    test_case(
+    run_case(
         "Subtitle Test 6.2: Select non-default subtitles",
         streams,
         "false",

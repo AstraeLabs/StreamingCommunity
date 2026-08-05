@@ -359,6 +359,15 @@ class HLSParser:
         s.autoselect = self._attr(line, "AUTOSELECT", "NO").upper() == "YES"
         s.forced = self._attr(line, "FORCED", "NO").upper() == "YES"
 
+        if not s.bitrate:
+            m = re.search(r"audio-(?:HE2-)?stereo-(\d+)", group_id)
+            if m:
+                s.bitrate = int(m.group(1)) * 1000
+            elif "audio-ac3" in group_id:
+                s.bitrate = 384_000
+            elif "audio-atmos" in group_id:
+                s.bitrate = 2_448_000
+
         if not s.forced and stream_type == "subtitle":
             if lang_suffix == "forced":
                 s.forced = True

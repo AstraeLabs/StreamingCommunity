@@ -126,17 +126,17 @@ def check_updates(request: HttpRequest) -> JsonResponse:
 
 
 @require_http_methods(["POST"])
-def trigger_velora_update(request: HttpRequest) -> JsonResponse:
-    """Check the Velora binary against the latest GitHub version and re-download it if outdated."""
-    from VibraVid.utils.upload.update import check_velora_update
+def trigger_binaries_update(request: HttpRequest) -> JsonResponse:
+    """Check FFmpeg, Bento4, Shaka Packager, dovi_tool, MKVToolNix and Velora"""
+    from VibraVid.utils.upload.update import check_all_binaries_update
 
     try:
-        result = check_velora_update()
+        result = check_all_binaries_update()
     except Exception as exc:
-        logger.exception("Velora update failed")
+        logger.exception("Binaries update failed")
         return JsonResponse({"success": False, "message": str(exc)}, status=500)
 
-    return JsonResponse(result)
+    return JsonResponse({"success": True, "results": result})
 
 
 @require_http_methods(["POST"])
@@ -152,4 +152,4 @@ def trigger_update(request: HttpRequest) -> JsonResponse:
 
     return JsonResponse(result)
 
-__all__ = ['registry_status', 'reload_config', 'check_updates', 'trigger_velora_update', 'trigger_update']
+__all__ = ['registry_status', 'reload_config', 'check_updates', 'trigger_binaries_update', 'trigger_update']

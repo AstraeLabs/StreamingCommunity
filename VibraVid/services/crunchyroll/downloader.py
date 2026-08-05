@@ -1,7 +1,6 @@
 # 16.03.25
 
 import os
-import re
 import time
 from urllib.parse import parse_qs, urlparse
 
@@ -10,12 +9,14 @@ from rich.prompt import Prompt
 
 from VibraVid.core.downloader import DASH_Downloader
 from VibraVid.core.utils.language import resolve_locale
+from VibraVid.core.utils.selector import FilterSpec
 from VibraVid.services._base import Entries, anime_folder, movie_folder, site_constants
 from VibraVid.services._base.tv_display_manager import map_episode_path, map_movie_path
 from VibraVid.services._base.tv_download_manager import process_episode_download, process_season_selection
 from VibraVid.utils import config_manager, os_manager, start_message
 
-from .client import CrunchyrollClient, get_playback_session
+from .client import CrunchyrollClient, get_episode_chapters, get_playback_session
+from .manifest_builder import build_unified_manifest
 from .scrapper import GetSerieInfo
 
 console = Console()
@@ -66,9 +67,26 @@ def _subtitles_to_other_tracks(subtitles: list) -> list:
     return tracks
 
 
+def _merge_subtitles(base: list, extra: list) -> list:
+    """Union subtitle lists by (language, closed_caption), preferring entries already in ``base``."""
+    merged = list(base or [])
+    seen = {(s.get("language"), bool(s.get("closed_caption"))) for s in merged if isinstance(s, dict)}
+
+    for sub in extra or []:
+        if not isinstance(sub, dict):
+            continue
+        key = (sub.get("language"), bool(sub.get("closed_caption")))
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(sub)
+
+    return merged
+
+
 def parse_select_audio_filter(select_audio: str) -> list:
     """
-    Parse select_audio config format to extract language codes.
+    Parse select_audio config format (shared FilterSpec grammar, e.g. "ita|it", "l=ita", "all") to extract language codes.
 
     Returns:
         List of resolved locales (e.g., ["it-IT", "en-US"])
@@ -77,21 +95,15 @@ def parse_select_audio_filter(select_audio: str) -> list:
     if not select_audio:
         return []
 
-    select_audio = select_audio.strip()
+    spec = FilterSpec.parse(select_audio.strip(), "audio")
 
-    # "for=all" -> no filter
-    if "for=all" in select_audio.lower():
+    # "for=all" / "all" -> no filter, use every track
+    if spec.select_all or spec.drop:
         return []
 
-    lang_match = re.search(r"lang=['\"]([^'\"]+)['\"]", select_audio)
-
-    if lang_match:
-        raw_codes = [c.strip() for c in lang_match.group(1).split("|") if c.strip()]
-    else:
-        if "=" not in select_audio:
-            raw_codes = [c.strip() for c in select_audio.split("|") if c.strip()]
-        else:
-            return []
+    raw_codes = [c.strip() for c in (spec.langs or "").split("|") if c.strip()]
+    if not raw_codes:
+        return []
 
     locales = []
     seen = set()
@@ -106,7 +118,6 @@ def parse_select_audio_filter(select_audio: str) -> list:
             locales.append(locale)
             seen.add(locale)
 
-    console.print(f"[green]Requested audio locales: {locales}")
     return locales
 
 
@@ -134,6 +145,7 @@ def download_film(select_title: Entries) -> str:
 
     # Initialize Crunchyroll client
     client = CrunchyrollClient()
+    client.clear_all_sessions()  # release anything leaked by a crashed/killed previous run
 
     # Define filename and path
     path_components, filename = map_movie_path(select_title.name, select_title.year)
@@ -194,6 +206,7 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
     """
     start_message()
     client = scrape_serie.client
+    client.clear_all_sessions()  # release anything leaked by a crashed/killed previous run
     console.print(f"\n[yellow]Download: [red]{site_constants.SITE_NAME} -> [cyan]{scrape_serie.series_name} [white]\\ [magenta]{obj_episode.name} ([cyan]S{index_season_selected}E{index_episode_selected}) \n")
 
     path_components, filename = map_episode_path(
@@ -212,20 +225,25 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
 
     # Parse preferred audio locales (single metadata cache call)
     preferred_locales = parse_select_audio_filter(config_manager.config.get("DOWNLOAD", "select_audio", default=""))
-    _, urls_by_locale, _ = scrape_serie._get_episode_audio_locales(url_id) if preferred_locales else ([], {}, None)
+    _, urls_by_locale, resolved_main_guid = scrape_serie._get_episode_audio_locales(url_id) if preferred_locales else ([], {}, None)
+    main_guid = main_guid or resolved_main_guid
 
     # Determine GUID for primary language
     main_id = url_id
+    main_locale = None
     for locale in preferred_locales:
         if locale in urls_by_locale:
             main_id = urls_by_locale[locale].split("/")[-1]
+            main_locale = locale
             break
 
-    # Get playback session for main language
+    # Get playback session for main language (main_guid unlocks the complete subtitle set)
     mpd_url, mpd_headers, mpd_list_sub, token, audio_locale = get_playback_session(client, main_id, main_guid)
+    all_subtitles = _merge_subtitles(mpd_list_sub, [])
+    license_headers = _build_license_headers(mpd_headers, main_id, mpd_url, token)
 
-    # Build extra audio list (all locales after the first, using cached urls_by_locale)
-    extra_audio_tracks = []
+    # Fetch extra audio tracks for other preferred locales
+    extra_locales = []
     for locale in preferred_locales[1:]:
         if locale not in urls_by_locale:
             console.print(f"[yellow]Locale {locale} not available for this episode")
@@ -236,31 +254,47 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
             continue
 
         try:
-            extra_mpd_url, extra_mpd_headers, _, extra_token, _ = get_playback_session(client, extra_guid, None)
+            extra_mpd_url, extra_mpd_headers, extra_subs, extra_token, _ = get_playback_session(client, extra_guid, None)
             extra_license_hdrs = _build_license_headers(extra_mpd_headers, extra_guid, extra_mpd_url, extra_token)
-            extra_audio_tracks.append(
-                _make_dash_audio_track(extra_mpd_url, locale, extra_mpd_headers, extra_license_hdrs)
+            extra_locales.append(
+                {
+                    "locale": locale,
+                    "mpd_url": extra_mpd_url,
+                    "headers": extra_mpd_headers,
+                    "license_headers": extra_license_hdrs,
+                }
             )
+            all_subtitles = _merge_subtitles(all_subtitles, extra_subs)
             time.sleep(5)  # Small delay to avoid rate limiting between calls
         except Exception as e:
             console.print(f"[yellow]Errore fetch audio {locale}: {e}")
 
-    if extra_audio_tracks:
-        console.print(f"[green]Extra audio tracks found: {[v['language'] for v in extra_audio_tracks]}")
-    else:
+    if not extra_locales:
         console.print(f"[dim]No extra audio (only {audio_locale})")
 
-    # License headers
-    license_headers = _build_license_headers(mpd_headers, main_id, mpd_url, token)
-    other_tracks = _subtitles_to_other_tracks(mpd_list_sub)
-    other_tracks.extend(extra_audio_tracks)
+    manifest_json, merged_keys = build_unified_manifest(
+        main_locale=main_locale or audio_locale or main_id,
+        main_mpd_url=mpd_url,
+        main_mpd_headers=mpd_headers,
+        main_license_headers=license_headers,
+        extra_locales=extra_locales,
+        subtitles=all_subtitles,
+        license_url=CR_LICENSE_URL,
+    )
+
+    if not manifest_json:
+        console.print("[red]Could not build a unified manifest for this episode, aborting.")
+        return None, True, "Could not build unified manifest"
+
+    chapters = get_episode_chapters(client, url_id)
 
     return DASH_Downloader(
         mpd_url=mpd_url,
+        mpd_content=manifest_json,
         mpd_headers=mpd_headers,
+        key=merged_keys,
         license_url=CR_LICENSE_URL,
-        license_headers=license_headers,
-        other_tracks=other_tracks or None,
+        chapters=chapters or None,
         output_path=os.path.join(title_path, title_name),
     ).start()
 

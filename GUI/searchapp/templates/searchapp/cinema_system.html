@@ -280,14 +280,15 @@
 			</div>
 
 			<div class="cn-box">
-				<h3>Velora</h3>
+				<h3>Binaries</h3>
 				<p class="cn-sub" style="margin-bottom:15px">
-					Velora is the binary that actually downloads, and it doesn't go
-					through the app update: it's checked and re-downloaded from here.
+					FFmpeg, Bento4, Shaka Packager, dovi_tool, MKVToolNix and Velora don't go
+					through the app update: they're checked against AstraeLabs/Binary and
+					re-downloaded from here if outdated.
 				</p>
 				<div class="cn-row">
-					<p class="cn-sub" id="cn-velora-msg" style="flex:1"></p>
-					<button class="cn-cta" type="button" id="cn-velora">Update Velora</button>
+					<p class="cn-sub" id="cn-binaries-msg" style="flex:1"></p>
+					<button class="cn-cta" type="button" id="cn-binaries">Update binaries</button>
 				</div>
 			</div>
 		</div>
@@ -315,7 +316,7 @@
 	var URL_ARR      = "{% url 'arr_status' %}";
 	var URL_ARR_SYNC = "{% url 'arr_trigger_sync' %}";
 	var URL_UPLOAD   = "{% url 'upload_service_zip' %}";
-	var URL_VELORA   = "{% url 'trigger_velora_update' %}";
+	var URL_BINARIES = "{% url 'trigger_binaries_update' %}";
 	var CSRF         = "{{ csrf_token }}";
 
 	function el(id) { return document.getElementById(id); }
@@ -698,15 +699,21 @@
 			.finally(function () { btn.disabled = false; });
 	});
 
-	// ── Velora ──────────────────────────────────────────────────────────────
-	el("cn-velora").addEventListener("click", function () {
-		var btn = this, msg = el("cn-velora-msg");
+	// ── Binaries ──────────────────────────────────────────────────────────────
+	el("cn-binaries").addEventListener("click", function () {
+		var btn = this, msg = el("cn-binaries-msg");
 		btn.disabled = true;
 		say(msg, "Checking…");
-		post(URL_VELORA, null, false)
+		post(URL_BINARIES, null, false)
 			.then(function (data) {
-				say(msg, (data && data.message) || "Check failed.",
-				    data && data.success ? "good" : "bad");
+				if (!data || !data.success) {
+					say(msg, (data && data.message) || "Check failed.", "bad");
+					return;
+				}
+				var lines = Object.keys(data.results || {}).map(function (tool) {
+					return tool + ": " + data.results[tool].message;
+				});
+				say(msg, lines.join(" | "), "good");
 			})
 			.catch(function (err) { say(msg, "Failed: " + err.message, "bad"); })
 			.finally(function () { btn.disabled = false; });

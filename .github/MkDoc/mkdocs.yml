@@ -1,6 +1,7 @@
 site_name: VibraVid
 site_description: DRM HLS/DASH downloader documentation
 repo_name: VibraVid
+repo_url: https://github.com/AstraeLabs/VibraVid
 docs_dir: docs
 site_dir: ../../site
 
@@ -9,30 +10,32 @@ theme:
   features:
     - navigation.indexes
     - navigation.expand
+    - navigation.top
     - search.suggest
     - content.code.copy
   palette:
     - scheme: slate
       primary: indigo
 
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - tables
+
 plugins:
   - search
-  - gen-files:
-      scripts:
-        - docs/gen_ref_pages.py
-  - literate-nav:
-      nav_file: SUMMARY.md
-  - mkdocstrings:
-      handlers:
-        python:
-          options:
-            docstring_style: google
-            show_source: true
-            show_root_heading: true
-            show_root_full_path: false
-            merge_init_into_class: true
-            group_by_category: true
 
 nav:
   - Home: index.md
-  - API Reference: reference/
+  - Configuration: configuration.md
+  - CLI Usage: cli.md
+  - Web GUI: gui.md
+  - TUI: tui.md
+  - Telegram Bot: telegram.md
+  - ARR Integration: arr.md
+  - Hooks: hooks.md
+  - Docker: docker.md
+  - NAS Deployment: nas.md
+  - Login: login.md
+  - Adding a Service: add-service.md
