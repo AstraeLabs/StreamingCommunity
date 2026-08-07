@@ -1,13 +1,12 @@
 <div align="center">
 
-![Release](https://img.shields.io/github/v/release/AstraeLabs/VibraVid?style=flat-square&color=success)
-![License](https://img.shields.io/github/license/AstraeLabs/VibraVid?style=flat-square)
+# VibraVid
 
 [![Windows](https://img.shields.io/badge/🪟_Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white&labelColor=2d3748)](https://github.com/AstraeLabs/VibraVid/releases/latest/download/VibraVid_win_2025_x64.exe)
 [![macOS](https://img.shields.io/badge/🍎_macOS-000000?style=for-the-badge&logo=apple&logoColor=white&labelColor=2d3748)](https://github.com/AstraeLabs/VibraVid/releases/latest/download/VibraVid_mac_15_x64)
 [![Linux](https://img.shields.io/badge/🐧_Linux_latest-FCC624?style=for-the-badge&logo=linux&logoColor=black&labelColor=2d3748)](https://github.com/AstraeLabs/VibraVid/releases/latest/download/VibraVid_linux_24_04_x64)
 
-<video src="https://github.com/AstraeLabs/VibraVid/raw/main/.github/assets/showcase.mp4" controls muted width="720"></video>
+<video src="https://github.com/user-attachments/assets/f6bdd5f6-5d98-42ae-b35b-8b5220000573" controls muted width="720"></video>
 
 </div>
 

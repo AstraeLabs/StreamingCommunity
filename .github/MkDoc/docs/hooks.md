@@ -4,6 +4,7 @@ Execute custom scripts at specific points in the download lifecycle. Hooks are c
 
 **Available stages:**
 - `pre_run` — runs before the main flow starts
+- `pre_download` — runs once per individual item, right before that movie/episode starts downloading
 - `post_download` — runs after each individual download completes (in the GUI, once per item)
 - `post_run` — runs once when the overall execution ends
 
@@ -20,6 +21,17 @@ Execute custom scripts at specific points in the download lifecycle. Hooks are c
         "cwd": "~",
         "os": ["linux", "darwin"],
         "timeout": 60,
+        "enabled": true,
+        "continue_on_error": true
+      }
+    ],
+    "pre_download": [
+      {
+        "name": "pre-download-env",
+        "type": "python",
+        "path": "/app/script.py",
+        "args": ["{download_title}"],
+        "timeout": 30,
         "enabled": true,
         "continue_on_error": true
       }
@@ -71,6 +83,33 @@ Execute custom scripts at specific points in the download lifecycle. Hooks are c
 - **Bash / sh / shell:** executed via `/bin/bash -c` on macOS/Linux
 - **Bat / cmd / shell:** executed via `cmd /c` on Windows
 - **Inline commands:** use `command` instead of `path` for simple one-liners
+
+## Shared Download Cache (Vault)
+
+The `HOOKS` block also holds two keys that are **not** a script hook: `db_store` and
+`db_info`. Together they control an opt-in shared cache of already-processed (downloaded,
+decrypted, muxed) files, keyed by title/type/season/episode:
+
+```json
+{
+  "HOOKS": {
+    "db_store": false,
+    "db_info": {
+      "url": "",
+      "token": "",
+      "skip_if_cached": false
+    }
+  }
+}
+```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `db_store` | `false` | Master switch for the shared cache. Has no effect unless `db_info.url` is also set — with an empty `db_info` (the shipped default) the feature is completely inert |
+| `db_info.url` | — | Base URL of the vault service to query/upload to. Required for **any** interaction, fetch or upload |
+| `db_info.token` | — | Upload authorization token. Without it VibraVid is **fetch-only**: it can still look up and download cache hits, but never uploads what it downloads |
+| `db_info.skip_if_cached` | `false` | Stricter mode: if a vault hit exists, **skip the item entirely** instead of fetching it — no file is produced locally at all for that movie/episode this run. Off by default, since normally a cache hit should still get you the file |
+
 
 ## Context Placeholders
 

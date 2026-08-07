@@ -27,6 +27,22 @@ _useFor = "Film_Serie"  # one of: Anime, Film_Serie, Serie, Song, Tor
 A module that defines `_hide = True` is loaded but excluded from CLI/GUI/ARR listings —
 useful while a service is still being built.
 
+### Loading services from a remote repository
+
+`imp_service` (in `Conf/config.json`, `DEFAULT.imp_service`) doesn't only accept local folder
+paths — an entry can also be an **http(s) URL to a GitHub or Gitea repository** laid out the
+same way as `VibraVid/services/` (one subfolder per service, each with its own `__init__.py`
+defining `indice`/`_useFor`).
+
+```json
+"imp_service": ["default", "https://git.example.com/me/my-vibravid-sites"]
+```
+
+For a private repo, put credentials in the URL userinfo —
+`https://user:token@host/owner/repo` — and pin a branch/tag with a `#ref` suffix
+(`.../owner/repo#dev`); otherwise the repo's default branch is used.
+
+
 ## CLI options (`--url`, etc.)
 
 Expose a `register_cli_args(parser) -> list[str]` function; the CLI calls it to add

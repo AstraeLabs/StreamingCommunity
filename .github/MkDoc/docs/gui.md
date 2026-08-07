@@ -1,8 +1,8 @@
 # Web GUI
 
-A web-based interface built with Django for searching and downloading content directly from your browser.
-
 ![Home](assets/gui/home.png)
+
+A web-based interface built with Django for searching and downloading content directly from your browser.
 
 ## Quick Start
 
@@ -16,6 +16,12 @@ Then open `http://<host>:8000` in a browser. For Docker/NAS deployments see the 
 guide](docker.md) and the [NAS deployment guide](nas.md) instead of running the dev server
 directly.
 
+!!! tip
+    Poster art and TMDB metadata (search results, watchlist) require a TMDB API key — see
+    [TMDB API Key](configuration.md#tmdb-api-key) for setup. There's no in-app field for it;
+    it's read from the environment at process start, so set it before launching (or restart
+    the server/container after changing it).
+
 ---
 
 ## Features
@@ -27,6 +33,10 @@ directly.
   series) expanded to show seasons and episodes via the series-detail view.
 - **Start download** (`/download/`) — queues the selected movie or episodes. Track selection
   (video/audio/subtitle) follows the same `config.json` filters as the CLI.
+
+![Search results](assets/gui/results.png)
+
+![Series detail — seasons & episodes](assets/gui/series_detail.png)
 
 ### Downloads dashboard
 
@@ -58,6 +68,8 @@ directly.
   1 h, 6 h, 12 h, and 24 h. The interval can also be set with the
   `WATCHLIST_AUTO_INTERVAL_SECONDS` environment variable.
 
+![Watchlist](assets/gui/watchlist.png)
+
 ### Settings / configuration editor
 
 `/settings/` is an in-browser editor for `Conf/config.json` and `Conf/login.json`:
@@ -67,6 +79,8 @@ directly.
 - `ARR.max_concurrent_downloads` is applied live without a restart. Most other settings take
   effect after a **reload** (`api/reload-config/`, which reloads config and/or login through
   the config manager) or a restart of the server.
+
+![Settings overview](assets/gui/settings.png)
 
 ### Custom service upload
 
@@ -88,6 +102,8 @@ applies it in place. For Docker one-click updates (Docker socket requirement) se
 VibraVid's internal ARR processing queue (filterable by status/source/sync) and can trigger a
 sync (`api/arr/trigger-sync/`). Webhook endpoints and full configuration are documented in the
 [ARR Integration guide](arr.md).
+
+![ARR queue](assets/gui/arr_stack.png)
 
 ---
 

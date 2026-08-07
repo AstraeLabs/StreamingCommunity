@@ -13,7 +13,7 @@ from mutagen.mp4 import MP4, MP4Cover
 from rich.console import Console
 
 from VibraVid.core.ui.tracker import context_tracker
-from VibraVid.core.utils.language import resolve_ietf, resolve_iso639_2
+from VibraVid.core.utils.language import extract_lang_and_flags, resolve_ietf, resolve_iso639_1, resolve_iso639_2
 from VibraVid.setup import binary_paths, get_ffmpeg_path, get_mkvmerge_path
 from VibraVid.utils import config_manager, internet_manager
 from VibraVid.utils.image_cache import get_cached_tmdb_image
@@ -34,9 +34,23 @@ logger = logging.getLogger(__name__)
 USE_GPU = config_manager.config.get_bool("PROCESS", "use_gpu")
 FORCE_SUBTITLE = config_manager.config.get("PROCESS", "force_subtitle")
 SUBTITLE_DISPOSITION_LANGUAGE = config_manager.config.get("PROCESS", "subtitle_disposition_language")
-MUX_ENGINE = config_manager.config.get("PROCESS", "engine", default="ffmpeg").lower()
 _GPU_TYPE_CACHE = None
-_GENERIC_CHAPTER_NAME_RE = re.compile(r"^chapter\s*\d+$", re.IGNORECASE)
+MUX_ENGINE = config_manager.config.get("PROCESS", "engine", default="ffmpeg").lower()
+
+
+def _disposition_lang_matches(subtitle_lang_raw: str, config_lang_raw: str, track_info: dict | None = None) -> bool:
+    if not subtitle_lang_raw or not config_lang_raw:
+        return False
+
+    sub_base, sub_flags = extract_lang_and_flags(subtitle_lang_raw, track_info)
+    cfg_base, cfg_flags = extract_lang_and_flags(config_lang_raw)
+
+    sub_iso2 = resolve_iso639_1(sub_base) or sub_base.split("-")[0].lower()
+    cfg_iso2 = resolve_iso639_1(cfg_base) or cfg_base.split("-")[0].lower()
+    if not sub_iso2 or sub_iso2 != cfg_iso2:
+        return False
+
+    return cfg_flags.issubset(sub_flags)
 
 
 def _get_param_video() -> list:
@@ -390,6 +404,9 @@ def _strip_drm_boxes(src_path: str) -> str:
 def _sort_chapters(chapters: list) -> list:
     """Return chapters ordered by their start time."""
     return sorted(chapters, key=lambda c: c["seconds"])
+
+
+_GENERIC_CHAPTER_NAME_RE = re.compile(r"^chapter\s*\d+$", re.IGNORECASE)
 
 
 def _dedupe_chapters(sorted_chapters: list) -> list:
@@ -970,13 +987,13 @@ def _join_media_ffmpeg(
     if SUBTITLE_DISPOSITION_LANGUAGE and subtitle_tracks:
         config_lang = SUBTITLE_DISPOSITION_LANGUAGE.lower().strip()
         for idx, subtitle in enumerate(subtitle_tracks):
-            subtitle_lang = subtitle.get("language", "").lower()
-            if subtitle_lang == config_lang:
+            subtitle_lang = subtitle.get("language", "")
+            if _disposition_lang_matches(subtitle_lang, config_lang, subtitle):
                 console.print(f"[yellow]    Setting disposition: [red]{subtitle.get('language')}")
                 disp = "default"
-                if "_forced" in config_lang:
+                if "_forced" in config_lang or "-forced" in config_lang:
                     disp += "+forced"
-                if "_sdh" in config_lang or "_cc" in config_lang:
+                if "_sdh" in config_lang or "_cc" in config_lang or "-sdh" in config_lang or "-cc" in config_lang:
                     disp += "+hearing_impaired"
                 ffmpeg_cmd.extend([f"-disposition:s:{idx}", disp])
                 break
@@ -1036,12 +1053,19 @@ def _join_media_mkvmerge(
         lang_iso = resolve_ietf(lang_display)  # mkvmerge language-ietf: keep region, strip flags
         lang_lower = subtitle.get("language", "").lower()
 
-        is_forced = "_forced" in lang_lower or bool(subtitle.get("forced"))
-        is_hi = "_sdh" in lang_lower or "_cc" in lang_lower or bool(subtitle.get("sdh")) or bool(subtitle.get("cc"))
+        is_forced = "_forced" in lang_lower or "-forced" in lang_lower or bool(subtitle.get("forced"))
+        is_hi = (
+            "_sdh" in lang_lower
+            or "_cc" in lang_lower
+            or "-sdh" in lang_lower
+            or "-cc" in lang_lower
+            or bool(subtitle.get("sdh"))
+            or bool(subtitle.get("cc"))
+        )
         console.print(f"[yellow]    - [cyan]Subtitle lang [red]{lang_display}.{sub_ext}")
 
         # default track: segui SUBTITLE_DISPOSITION_LANGUAGE, altrimenti mai default
-        is_default = bool(config_lang and not default_assigned and lang_lower == config_lang)
+        is_default = bool(config_lang and not default_assigned and _disposition_lang_matches(subtitle.get("language", ""), config_lang, subtitle))
         if is_default:
             console.print(f"[yellow]    Setting disposition: [red]{lang_display}")
             default_assigned = True

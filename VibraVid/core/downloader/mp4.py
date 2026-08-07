@@ -24,10 +24,10 @@ from VibraVid.utils.hooks import execute_hooks
 from VibraVid.utils.http_client import create_client, get_userAgent
 from VibraVid.utils.vault_upload.hook import is_cached, try_fetch, upload_after
 
+from .util._claudio_tracker import ClaudioTracker
 from .util._drm_probe import PROBE_BYTES, PROBE_BYTES_FAST, DRMProbe
 from .util._interrupt import InterruptHandler
 from .util._post_decrypt import PostDownloadDecryptor
-from .util._supa_tracker import SupaTracker
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ SPEED_WINDOW_SECONDS = 1.0
 class MP4FileDownloader:
     _probe = DRMProbe()
     _decryptor = PostDownloadDecryptor()
-    _tracker = SupaTracker()
+    _tracker = ClaudioTracker()
 
     def __init__(
         self,

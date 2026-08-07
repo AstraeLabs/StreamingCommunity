@@ -13,8 +13,8 @@ from VibraVid.utils.vault._url_utils import clean_license_url
 console = Console()
 logger = logging.getLogger(__name__)
 db_config = config_manager.config.get_dict("DRM", "vault")
-VAULT_URL = db_config.get("lab_v2", {}).get("url", "")
-TOKEN = db_config.get("lab_v2", {}).get("token", "")
+VAULT_URL = db_config.get("vault_2", {}).get("url", "")
+TOKEN = db_config.get("vault_2", {}).get("token", "")
 
 
 def _extract_kid_from_pssh(pssh_b64: str) -> str | None:
@@ -36,10 +36,15 @@ def _extract_kid_from_pssh(pssh_b64: str) -> str | None:
 
 
 class LabDBVault:
-    def __init__(self):
+    def __init__(self, *, name: str):
+        self.name = name
         self.session = create_client(headers=get_headers())
         self._session_lock = threading.Lock()
         self._prewarm()
+
+    @property
+    def is_connected(self) -> bool:
+        return bool(VAULT_URL and TOKEN)
 
     def _prewarm(self) -> None:
         """Open the TLS connection in a background thread so the first real lookup doesn't pay the handshake."""
@@ -153,5 +158,4 @@ class LabDBVault:
         return self.get_keys_by_kids(license_url, [kid])
 
 
-is_lab_db_valid = bool(VAULT_URL and TOKEN)
-lab_vault = LabDBVault() if is_lab_db_valid else None
+lab_vault = LabDBVault(name="lab")

@@ -23,6 +23,7 @@ class GetSerieInfo:
         year: int = None,
         provider_language: str = "it",
         series_display_name: str = None,
+        languages: list[str] | None = None,
     ):
         """
         Initialize the GetSerieInfo class for scraping TV series information.
@@ -32,6 +33,7 @@ class GetSerieInfo:
             media_id (int): Unique identifier for the media
             series_name (str): Slug of the TV series
             series_display_name (str): Name of the TV series
+            languages (list[str]): Catalog(s) to query for season/episode info (["it"], ["en"], or ["it", "en"]). Defaults to both.
         """
         self.is_series = False
         self.headers = get_headers()
@@ -40,6 +42,7 @@ class GetSerieInfo:
         self.year = year
         self.seasons_manager = SeasonManager()
         self.provider_language = provider_language
+        self.languages = languages if languages is not None else ["it", "en"]
         self._collect_lock = threading.Lock()
         if isinstance(self.url, str) and self.url.endswith(("/it", "/en")):
             self.base_url = self.url.rsplit("/", 1)[0]
@@ -204,8 +207,8 @@ class GetSerieInfo:
                 finally:
                     client.close()
 
-            # Fetch episodes for both Italian and English catalogs in parallel
-            langs = ["it", "en"]
+            # Fetch episodes for each configured catalog (self.languages) in parallel
+            langs = self.languages
             with ThreadPoolExecutor(max_workers=len(langs)) as pool:
                 results = list(pool.map(_fetch_lang_episodes, langs))
             for lang, json_response in zip(langs, results, strict=False):

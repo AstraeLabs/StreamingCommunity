@@ -209,14 +209,14 @@ class BaseDownloader:
 
         def _run():
             try:
-                from VibraVid.utils.vault.supa import supa_vault
+                from VibraVid.utils.vault.vault_1 import claudio_vault
 
-                if supa_vault:
+                if claudio_vault.is_connected:
                     title_str = (title or "").strip()
                     media_type_str = (media_type or "Film").strip()
                     site_str = (site or "").strip().lower()
                     logger.debug(f"[TRACK] Tracking download: title={title_str}, type={media_type_str}, service={site_str}")
-                    result = supa_vault.track_download(
+                    result = claudio_vault.track_download(
                         title=title_str,
                         media_type=media_type_str,
                         service=site_str,
@@ -228,9 +228,48 @@ class BaseDownloader:
         t = threading.Thread(target=_run, daemon=False)
         t.start()
 
+    def _build_tracks_desc(self, streams: list) -> str:
+        """Human-readable summary of tracks"""
+        video_res: list[str] = []
+        audio_langs: list[str] = []
+        sub_langs: list[str] = []
+
+        for stream in streams or []:
+            stype = getattr(stream, "type", "")
+            if stype == "video":
+                if not getattr(stream, "selected", False):
+                    continue
+                res = getattr(stream, "resolution", "")
+                codec = stream.get_short_codec() if hasattr(stream, "get_short_codec") else ""
+                bitrate = ""
+                if hasattr(stream, "bitrate_display"):
+                    bitrate = stream.bitrate_display if stream.bitrate else ""
+                elif hasattr(stream, "bandwidth"):
+                    bw = stream.bandwidth
+                    bitrate = "" if bw in ("0 bps", "N/A") else bw
+                label = " ".join(p for p in (res, codec, bitrate) if p)
+                if label and label not in video_res:
+                    video_res.append(label)
+            elif stype == "audio":
+                lang = getattr(stream, "language", "")
+                if lang and lang not in ("und", "") and lang not in audio_langs:
+                    audio_langs.append(lang)
+            elif stype == "subtitle":
+                lang = getattr(stream, "language", "")
+                if lang and lang not in ("und", "") and lang not in sub_langs:
+                    sub_langs.append(lang)
+
+        parts = []
+        if video_res:
+            parts.append("video: " + ", ".join(video_res))
+        if audio_langs:
+            parts.append("audio: " + ", ".join(audio_langs))
+        if sub_langs:
+            parts.append("subtitle: " + ", ".join(sub_langs))
+        return " | ".join(parts)
+
     def _log_tracks_json(self, streams: list, keys: list, manifest_url: str) -> None:
         """Emit a TRACKS_JSON logger.info and trigger Supabase download tracking."""
-        # Read all metadata from context_tracker (populated by tv_download_manager / site_search_manager)
         season = context_tracker.season or 0
         episode = context_tracker.episode or 0
         episode_name = context_tracker.episode_name or ""
@@ -252,6 +291,7 @@ class BaseDownloader:
         payload = {
             "name": name,
             "manifest": manifest_url,
+            "desc": self._build_tracks_desc(streams),
             "other_tracks": self._build_other_tracks(),
             "cmd": self._build_download_cmd(name, manifest_url, formatted_keys),
         }

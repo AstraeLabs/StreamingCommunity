@@ -1,5 +1,6 @@
 # 12.06.26
 
+import importlib
 import logging
 import os
 import time
@@ -33,6 +34,18 @@ def _skip_if_cached() -> bool:
         return bool(config_manager.config.get_dict("HOOKS", "db_info", default={}).get("skip_if_cached", False))
     except Exception:
         return False
+
+
+def _upload_allowed() -> bool:
+    site = context_tracker.site_name
+    if not site:
+        return False
+    else:
+        try:
+            module = importlib.import_module("VibraVid.services.{site}")
+            return bool(getattr(module, "_db_upload", False))
+        except Exception:
+            return False
 
 
 def _meta() -> tuple[str | None, str, int, int]:
@@ -132,6 +145,9 @@ def upload_after(output_path: str) -> None:
     if not _can_upload():
         logger.debug("upload-store: no token configured, download-only mode (upload skipped)")
         return
+
+    if not _upload_allowed():
+        logger.debug("upload-store: site not in upload_sites allowlist, upload skipped")
 
     title, media_type, season, episode = _meta()
     if not title:

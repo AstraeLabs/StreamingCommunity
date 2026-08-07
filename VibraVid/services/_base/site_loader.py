@@ -14,6 +14,8 @@ from VibraVid.setup import get_is_binary_installation
 from VibraVid.utils import config_manager, disk_cache
 from VibraVid.utils.os import os_manager
 
+from . import git_source
+
 console = Console()
 logger = logging.getLogger(__name__)
 folder_name = "services"
@@ -184,11 +186,19 @@ def load_search_functions() -> dict[str, LazySearchModule]:
     seen_init_files = set()
 
     for source in imp_sources:
+        source_label = source
         if source.lower() == "default":
             if get_is_binary_installation():
                 base_path = os.path.join(sys._MEIPASS, "VibraVid", folder_name)
             else:
                 base_path = os.path.dirname(os.path.dirname(__file__))
+        elif git_source.is_remote_source(source):
+            source_label = git_source.redact(source)
+            base_path = git_source.resolve_remote_source(source)
+            if not base_path:
+                logger.error(f"Could not resolve imp_service git source: {source_label}")
+                console.print(f"[red]Error: Could not resolve imp_service git source: {source_label}[/red]")
+                continue
         else:
             base_path = source
 
@@ -196,7 +206,7 @@ def load_search_functions() -> dict[str, LazySearchModule]:
             logger.error(f"Import source path not found: {base_path}")
             continue
 
-        logger.info(f"Loading site modules from source '{source}': {base_path}")
+        logger.info(f"Loading site modules from source '{source_label}': {base_path}")
 
         # Escape base_path for glob to handle paths with special characters like brackets
         escaped_base_path = os_manager.get_glob_path(base_path)
@@ -214,7 +224,7 @@ def load_search_functions() -> dict[str, LazySearchModule]:
             total_service_dirs += 1
             seen_init_files.add(init_file)
             if module_name in loaded_module_names:
-                logger.info(f"Skipping duplicate module '{module_name}' from source '{source}'")
+                logger.info(f"Skipping duplicate module '{module_name}' from source '{source_label}'")
                 continue
 
             try:
@@ -264,12 +274,12 @@ def load_search_functions() -> dict[str, LazySearchModule]:
 
                 # Validate that both indice and _useFor are defined
                 if indice is None:
-                    logger.error(f"Module '{module_name}' from source '{source}': Missing or invalid 'indice' declaration")
+                    logger.error(f"Module '{module_name}' from source '{source_label}': Missing or invalid 'indice' declaration")
                     console.print(f"[red]Error: Module '{module_name}' is missing 'indice' declaration[/red]")
                     continue
 
                 if use_for is None:
-                    logger.error(f"Module '{module_name}' from source '{source}': Missing or invalid '_useFor' declaration")
+                    logger.error(f"Module '{module_name}' from source '{source_label}': Missing or invalid '_useFor' declaration")
                     console.print(f"[red]Error: Module '{module_name}' is missing '_useFor' declaration[/red]")
                     continue
 
@@ -277,9 +287,9 @@ def load_search_functions() -> dict[str, LazySearchModule]:
                     logger.warning(f"Module '{module_name}': unknown _useFor='{use_for}' (expected one of {', '.join(KNOWN_CONTENT_TYPES)})")
                     console.print(f"[yellow]Warning: Module '{module_name}' declares unknown _useFor='{use_for}' (expected: {', '.join(KNOWN_CONTENT_TYPES)})[/yellow]")
 
-                source_modules.append((module_name, indice, use_for, source, base_path, has_cli_args, hide))
+                source_modules.append((module_name, indice, use_for, source_label, base_path, has_cli_args, hide))
                 loaded_module_names.add(module_name)
-                logger.debug(f"Found module '{module_name}' from source '{source}': use_for={use_for}, indice={indice}, hide={hide}")
+                logger.debug(f"Found module '{module_name}' from source '{source_label}': use_for={use_for}, indice={indice}, hide={hide}")
 
             except Exception as e:
                 logger.error(f"Exception reading metadata from {module_name}: {str(e)}")

@@ -13,7 +13,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.cli.command.download import handle_direct_download
+from VibraVid.cli.command.download import handle_direct_download, handle_direct_download_json
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
 from VibraVid.cli.command.global_search import global_search as call_global_search
 from VibraVid.cli.command.limits import add_limit_arguments, apply_limits
@@ -201,6 +201,7 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     # ── Direct download
     dl_group = parser.add_argument_group("Direct download (--down)")
     dl_group.add_argument("--down", metavar="URL", help="Stream URL to download directly (MP4 / HLS / DASH / ISM)")
+    dl_group.add_argument("--down-json", dest="down_json", metavar="PATH", help="Path to a TRACKS_JSON file (see debug_track_json) — runs every entry's 'cmd' automatically, in sequence.")
     dl_group.add_argument("--type", dest="stream_type", choices=["auto", "mp4", "hls", "dash", "ism"], default="auto", help="Force the stream type instead of auto-detecting (default: auto)")
     dl_group.add_argument("-o", "--output", metavar="PATH", help="Output file path (extension auto-appended if omitted)")
     dl_group.add_argument("--headers", action="append", metavar="Key:Value", help="HTTP header. Repeatable.")
@@ -583,7 +584,11 @@ def main():
         site_options.update({dest: getattr(args, dest, None) for dest in site_option_dests})
         context_tracker.site_options = site_options
 
-        # ── Direct download (--down) — handled before interactive site selection ──
+        # ── Direct download (--down / --down-json) — handled before interactive site selection ──
+        down_json_handled, down_json_ok = handle_direct_download_json(args)
+        if down_json_handled:
+            sys.exit(0 if down_json_ok else 1)
+
         down_handled, down_ok = handle_direct_download(args)
         if down_handled:
             sys.exit(0 if down_ok else 1)

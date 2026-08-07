@@ -8,7 +8,7 @@ from VibraVid.core.ui.bar_manager import console
 from VibraVid.core.ui.tracker import context_tracker
 from VibraVid.setup import binary_paths
 from VibraVid.utils import config_manager
-from VibraVid.utils.vault import lab_vault, supa_vault
+from VibraVid.utils.vault import build_named_vault, claudio_vault, lab_vault
 from VibraVid.utils.vault._url_utils import clean_license_url
 
 from .playready import get_playready_keys
@@ -26,11 +26,21 @@ def _anonymize(value: str) -> str:
 
 
 class DRMManager:
-    _VAULT_REGISTRY = [
-        ("lab", lab_vault),
-        ("supa", supa_vault),
-    ]
-    _VAULT_LABELS = {"supa": "claudio", "lab": "lab"}
+    @staticmethod
+    def _build_vaults() -> list[object]:
+        """Assemble the active vault list; each vault instance carries its own `.name`."""
+        vaults: list[object] = []
+        if lab_vault.is_connected:
+            vaults.append(lab_vault)
+
+        for name, cfg in config_manager.config.get_dict("DRM", "vault", default={}).items():
+            if name == "vault_2":
+                continue  # reserved: always the JSON-RPC lab_vault singleton above, not a REST config entry
+            vdb = claudio_vault if name == "vault_1" else build_named_vault(name, cfg)
+            if vdb.is_connected:
+                vaults.append(vdb)
+
+        return vaults
 
     def __init__(
         self,
@@ -46,7 +56,7 @@ class DRMManager:
         self.widevine_remote_cdm_api = widevine_remote_cdm_api
         self.playready_remote_cdm_api = playready_remote_cdm_api
         self.prefer_remote_cdm = prefer_remote_cdm
-        self._vaults: list[tuple[str, object]] = [(name, obj) for name, obj in self._VAULT_REGISTRY if obj is not None]
+        self._vaults: list[object] = self._build_vaults()
 
     def _display_keys(
         self,
@@ -67,7 +77,7 @@ class DRMManager:
             pssh_disp = f"{pssh_val[:30]}..." if pssh_val and len(pssh_val) > 30 else (pssh_val or "...")
             console.print(f"\n[red]{drm_type} [cyan](PSSH: [yellow]{pssh_disp}[cyan])")
 
-        label = self._VAULT_LABELS.get(source, source)
+        label = source
         vault_kids = {k.split(":")[0].strip().lower() for k in vault_keys}
         plain = [k for k in resolved if k.split(":")[0].strip().lower() not in vault_kids]
         tagged = [k for k in resolved if k.split(":")[0].strip().lower() in vault_kids]
@@ -101,14 +111,15 @@ class DRMManager:
         if not all_kids or not self._vaults:
             return
 
-        for name, vdb in self._vaults:
+        for vdb in self._vaults:
+            name = vdb.name
             try:
                 keys = list(vdb.get_keys_by_kids(base_license_url or None, all_kids, pssh_val) or [])
             except Exception as e:
                 logger.debug(f"Bypass announce lookup failed for {name} vault (non-fatal): {e}")
                 continue
 
-            label = self._VAULT_LABELS.get(name, name)
+            label = name
             anonymize = getattr(context_tracker, "anonymize_keys", False)
             for k in keys:
                 kid_val, _, key_val = k.partition(":")
@@ -132,7 +143,8 @@ class DRMManager:
         if not all_kids or not base_license_url or not self._vaults:
             return found_keys, source
 
-        for name, vdb in self._vaults:
+        for vdb in self._vaults:
+            name = vdb.name
             missing = self._missing_kids(all_kids, found_keys)
             if not missing:
                 break
@@ -160,7 +172,8 @@ class DRMManager:
             logger.warning(f"_store_keys: no valid {drm_type} keys to store after validation")
             return
 
-        for name, vdb in self._vaults:
+        for vdb in self._vaults:
+            name = vdb.name
             if name == source:
                 continue  # avoid writing back to the vault we just read from
 

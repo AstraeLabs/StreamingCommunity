@@ -1,5 +1,9 @@
 # CLI Usage
 
+!!! tip
+    TMDB-based filename tokens (`%(tmdb_id)`, `%(original_title)`, etc.) and poster embedding
+    require a TMDB API key — see [TMDB API Key](configuration.md#tmdb-api-key) for setup.
+
 ## Basic Commands
 
 ```bash

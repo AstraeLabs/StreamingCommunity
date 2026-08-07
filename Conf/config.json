@@ -87,7 +87,7 @@
         "prefer_remote_cdm": false,
         "bypass_vault_cache": false,
         "vault": {
-            "supa": {
+            "vault_1": {
                 "url": "https://drm-db.server66.workers.dev",
                 "token": ""
             }

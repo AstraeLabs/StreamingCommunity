@@ -1,6 +1,10 @@
 # 10.12.25
 
+import json
 import logging
+import shlex
+import subprocess
+from pathlib import Path
 
 from rich.console import Console
 
@@ -17,6 +21,47 @@ from VibraVid.utils import config_manager
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+def handle_direct_download_json(args) -> tuple[bool, bool]:
+    """Run every 'cmd' entry from a TRACKS_JSON file (see debug_track_json) when --down-json is passed."""
+    path: str | None = getattr(args, "down_json", None)
+    if not path:
+        return False, False
+
+    json_path = Path(path.strip())
+    if not json_path.is_file():
+        console.print(f"[red]--down-json file not found: {json_path}")
+        return True, False
+
+    try:
+        entries = json.loads(json_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        console.print(f"[red]Could not parse {json_path}: {exc}")
+        return True, False
+
+    if not isinstance(entries, list):
+        console.print(f"[red]{json_path} does not contain a JSON array of track entries.")
+        return True, False
+
+    total = len(entries)
+    console.print(f"[cyan]{total} command(s) to run from {json_path}")
+
+    failures = []
+    for i, entry in enumerate(entries, 1):
+        name = (entry or {}).get("name") or f"entry {i}"
+        cmd = (entry or {}).get("cmd") if isinstance(entry, dict) else None
+        if not cmd:
+            console.print(f"[yellow][{i}/{total}] Skipping '{name}': no 'cmd' field")
+            continue
+
+        console.print(f"\n[cyan][{i}/{total}] {name}")
+        result = subprocess.run(shlex.split(cmd, posix=False))
+        if result.returncode != 0:
+            console.print(f"[yellow]  exited with code {result.returncode}")
+            failures.append(name)
+
+    return True, not failures
 
 
 def handle_direct_download(args) -> bool:

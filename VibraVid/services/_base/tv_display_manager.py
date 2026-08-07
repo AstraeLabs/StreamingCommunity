@@ -547,6 +547,7 @@ def display_episodes_list(episodes_manager) -> str:
     has_duration = _has("duration")
     has_releasedate = _has("release_date")
     has_genre = _has("genre")
+    has_language = _has("language")
 
     # Add columns to the table
     column_info = {
@@ -567,6 +568,9 @@ def display_episodes_list(episodes_manager) -> str:
     if has_genre:
         column_info["Genre"] = {"color": "green"}
 
+    if has_language:
+        column_info["Language"] = {"color": "yellow"}
+
     table_show_manager.add_column(column_info)
 
     # Populate the table with episodes information
@@ -586,6 +590,9 @@ def display_episodes_list(episodes_manager) -> str:
 
         if has_genre:
             episode_info["Genre"] = _field(media, "genre")
+
+        if has_language:
+            episode_info["Language"] = _field(media, "language")
 
         table_show_manager.add_tv_show(episode_info)
 

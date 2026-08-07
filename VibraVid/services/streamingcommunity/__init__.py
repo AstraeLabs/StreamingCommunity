@@ -6,19 +6,42 @@ from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.prompt import Prompt
 
+from VibraVid.core.utils.language import resolve_iso639_1
+from VibraVid.core.utils.selector import FilterSpec
 from VibraVid.services._base import Entries, EntriesManager, site_constants
 from VibraVid.services._base.site_search_manager import base_process_search_result, base_search
-from VibraVid.utils import TVShowManager
+from VibraVid.utils import TVShowManager, config_manager
 from VibraVid.utils.http_client import create_client, get_userAgent
 
 from .downloader import download_film, download_series
 
 indice = 0
 _useFor = "Film_Serie"
+_db_upload = True
 msg = Prompt()
 console = Console()
 entries_manager = EntriesManager()
 table_show_manager = TVShowManager()
+
+
+def _effective_languages() -> list[str]:
+    """Derive which site catalog(s) to search/list from the global DOWNLOAD.select_audio filter"""
+    select_audio = config_manager.config.get("DOWNLOAD", "select_audio", default="")
+    if not select_audio:
+        return ["it", "en"]
+
+    spec = FilterSpec.parse(select_audio.strip(), "audio")
+    if spec.select_all or spec.drop:
+        return ["it", "en"]
+
+    raw_codes = [c.strip() for c in (spec.langs or "").split("|") if c.strip()]
+    languages = []
+    for code in raw_codes:
+        iso = resolve_iso639_1(code)
+        if iso in ("it", "en") and iso not in languages:
+            languages.append(iso)
+
+    return languages or ["it", "en"]
 
 
 def title_search(query: str) -> int:
@@ -36,7 +59,7 @@ def title_search(query: str) -> int:
 
     # Dictionary to track unique IDs
     seen_ids = set()
-    languages = ["it", "en"]
+    languages = _effective_languages()
 
     for lang in languages:
         console.print(f"[cyan]Searching in language: [yellow]{lang}")

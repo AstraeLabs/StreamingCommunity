@@ -12,20 +12,26 @@ from VibraVid.utils.vault._url_utils import clean_license_url
 console = Console()
 logger = logging.getLogger(__name__)
 db_config = config_manager.config.get_dict("DRM", "vault")
-VAULT_URL = db_config.get("supa", {}).get("url", "")
-TOKEN = db_config.get("supa", {}).get("token", "")
+VAULT_URL = db_config.get("vault_1", {}).get("url", "")
+TOKEN = db_config.get("vault_1", {}).get("token", "")
 
 
 class ExternalSupaDBVault:
-    def __init__(self):
-        self.base_url = VAULT_URL
+    def __init__(self, *, name: str, base_url: str | None = None, token: str | None = None):
+        self.name = name
+        self.base_url = base_url if base_url is not None else VAULT_URL
+        token = token if token is not None else TOKEN
         self.headers = {"Content-Type": "application/json"}
-        if TOKEN:
-            self.headers["Authorization"] = f"Bearer {TOKEN}"
+        if token:
+            self.headers["Authorization"] = f"Bearer {token}"
 
         self.session = create_client(headers=self.headers, http2=True)
         self._session_lock = threading.Lock()
         self._prewarm()
+
+    @property
+    def is_connected(self) -> bool:
+        return bool(self.base_url)
 
     def _prewarm(self) -> None:
         """Open the TLS connection in a background thread so the first real lookup doesn't pay the handshake."""
@@ -189,5 +195,4 @@ class ExternalSupaDBVault:
         return self.get_keys_by_kids(license_url, [kid])
 
 
-is_supa_external_db_valid = not (VAULT_URL == "")
-supa_vault = ExternalSupaDBVault() if is_supa_external_db_valid else None
+claudio_vault = ExternalSupaDBVault(name="claudio")

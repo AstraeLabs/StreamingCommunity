@@ -299,7 +299,7 @@ def run_download_plan(
                         _stop_process_orderly(process, graceful_timeout=5.0)
                         return
 
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                 logger.debug("Stop-watcher thread exiting (process already dead)")
 
             stop_thread = threading.Thread(target=_watch_stop, daemon=True)

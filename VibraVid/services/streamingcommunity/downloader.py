@@ -151,6 +151,8 @@ def download_series(
     video_source = VideoSource(f"{site_constants.FULL_URL}/{select_season.provider_language}", True, select_season.id)
 
     if scrape_serie is None:
+        from . import _effective_languages
+
         scrape_serie = GetSerieInfo(
             f"{site_constants.FULL_URL}/{select_season.provider_language}",
             select_season.id,
@@ -158,6 +160,7 @@ def download_series(
             select_season.year,
             select_season.provider_language,
             series_display_name=select_season.name,
+            languages=_effective_languages(),
         )
         scrape_serie.getNumberSeason()
         scrape_serie.series_display_name = select_season.name

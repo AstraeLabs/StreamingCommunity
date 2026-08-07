@@ -1,6 +1,12 @@
 # TUI (Terminal User Interface)
 
+![VibraVid TUI Home Screen](assets/tui/tui_home.png)
+
 VibraVid includes a modern terminal-based user interface built with [Textual](https://github.com/Textualize/textual), providing a rich, interactive experience for managing downloads directly from the command line without requiring a web browser.
+
+!!! tip
+    TMDB-based filename tokens and poster embedding require a TMDB API key — see
+    [TMDB API Key](configuration.md#tmdb-api-key) for setup.
 
 ## Launching the TUI
 
@@ -40,7 +46,21 @@ vibravid --tui
 
 ## Screenshots
 
-![VibraVid TUI Home Screen](assets/tui/tui_home.png)
+**Global search**, deduplicated across providers, with a live metadata preview card:
+
+![VibraVid TUI Search Screen](assets/tui/tui_search.png)
+
+**Title detail** — triple-column `[Providers] → [Seasons] → [Episodes]` navigation:
+
+![VibraVid TUI Title Detail Screen](assets/tui/tui_detail.png)
+
+**System & DRM Inspector** — external binary checker and DRM device/vault status:
+
+![VibraVid TUI System Screen](assets/tui/tui_system.png)
+
+**Help Guide** — full keyboard shortcut reference:
+
+![VibraVid TUI Help Screen](assets/tui/tui_help.png)
 
 ## Keyboard Shortcuts
 

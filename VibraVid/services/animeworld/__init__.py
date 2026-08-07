@@ -13,6 +13,7 @@ from .downloader import download_film, download_series
 
 indice = 5
 _useFor = "Anime"
+_db_upload = True
 msg = Prompt()
 console = Console()
 entries_manager = EntriesManager()

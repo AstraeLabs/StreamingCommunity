@@ -15,6 +15,7 @@ from VibraVid.core.manifest.mpd import DashParser
 from VibraVid.core.manifest.stream import track_label
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
 from VibraVid.core.ui.ui import build_table
+from VibraVid.core.utils.language import resolve_iso639_1
 from VibraVid.core.utils.media_players import MediaPlayers
 from VibraVid.core.velora.downloader import MediaDownloader
 from VibraVid.core.velora.util.formatting import (
@@ -25,10 +26,11 @@ from VibraVid.core.velora.util.formatting import (
 )
 from VibraVid.setup import get_prd_path, get_wvd_path, resolve_service_cdm_paths
 from VibraVid.utils import config_manager, os_manager
-from VibraVid.utils.http_client import get_headers
+from VibraVid.utils.http_client import create_client, get_headers
 from VibraVid.utils.vault_upload.hook import is_cached, try_fetch
 
 from .base import BaseDownloader
+from .util._drm_probe import PROBE_BYTES_FAST, DRMProbe
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -61,26 +63,30 @@ def _filter_subtitles(sub_list: list, filter_str: str) -> list:
         token = token.strip()
         if not token:
             continue
-        wanted_locales.add(token.lower())
+        
+        token = token.lower()
+        wanted_locales.add(token)
+        iso2 = resolve_iso639_1(token)
+        if iso2:
+            wanted_locales.add(iso2)
 
     if not wanted_locales:
         return sub_list
 
     filtered = []
     for s in sub_list:
-        lang_resolved = (s.get("language_resolved") or "").strip().lower()
         lang = (s.get("language") or "").strip().lower()
+        if not lang:
+            continue
+        lang_iso2 = resolve_iso639_1(lang)
 
-        # Check exact match first
-        if lang_resolved in wanted_locales or lang in wanted_locales:
+        # Check exact match first (raw code, or normalized ISO 639-1, e.g. 'ita' -> 'it')
+        if lang in wanted_locales or (lang_iso2 and lang_iso2 in wanted_locales):
             filtered.append(s)
             continue
 
-        # Check prefix match (e.g., 'it' matches 'it-it', 'ita' matches 'it-any')
+        # Check prefix match (e.g., 'it' matches 'it-it')
         for token in wanted_locales:
-            if lang_resolved.startswith(token + "-") or lang_resolved == token:
-                filtered.append(s)
-                break
             if lang.startswith(token + "-") or lang == token:
                 filtered.append(s)
                 break
@@ -239,6 +245,7 @@ class DASH_Downloader(BaseDownloader):
         self.decryption_keys = []
         self.media_downloader = None
         self.custom_filters: dict | None = None
+        self._probe = DRMProbe()
 
     def _collect_drm_from_streams(self, streams: list, check_selected: bool = True) -> dict[str, list[dict]]:
         """
@@ -365,8 +372,10 @@ class DASH_Downloader(BaseDownloader):
                 parser = DashParser(self.mpd_url, headers=self.mpd_headers, content=content)
             else:
                 parser = DashParser(self.mpd_url, headers=self.mpd_headers)
-                if not parser.fetch_manifest():
-                    return result
+
+            # content= only stages raw_content/_injected - fetch_manifest() is what actually parses it into _root
+            if not parser.fetch_manifest():
+                return result
 
             streams = parser.parse_streams()
             logger.info(f"_collect_drm_from_mpd: Re-parsed MPD returned {len(streams)} streams")
@@ -380,6 +389,43 @@ class DASH_Downloader(BaseDownloader):
 
         except Exception as exc:
             logger.info(f"_collect_drm_from_mpd error: {exc}")
+
+        return result
+
+    def _collect_drm_from_init_segments(self, streams: list) -> dict[str, list[dict]]:
+        """Last resort: probe the init segments of selected streams to extract KID/PSSH."""
+        result: dict[str, list[dict]] = {DRMType.WIDEVINE: [], DRMType.PLAYREADY: []}
+
+        candidates = [s for s in streams if getattr(s, "selected", False) and s.type in ("video", "audio")]
+        if not candidates:
+            return result
+
+        with create_client(headers=self.mpd_headers) as client:
+            for s in candidates:
+                init_seg = next((seg for seg in s.segments if seg.seg_type == "init"), None)
+                if not init_seg:
+                    continue
+
+                encrypted, _scheme, _drm_names, kid, pssh_b64 = self._probe.probe(
+                    init_seg.url, self.mpd_headers, client, size=PROBE_BYTES_FAST
+                )
+                if not encrypted or not kid:
+                    continue
+
+                if not pssh_b64:
+                    try:
+                        pssh_b64 = _DRMSystems.build_widevine_pssh_from_kid(kid)
+                        logger.info(f"DASH: synthesized Widevine PSSH from init-segment KID {kid}")
+                    except Exception as exc:
+                        logger.debug(f"DASH: Widevine PSSH synthesis failed for {kid}: {exc}")
+                        continue
+
+                s.drm.set_pssh(pssh_b64, drm_type_hint=DRMType.WIDEVINE)
+                s.drm.set_kid(kid)
+
+                label = _stream_drm_label(s)
+                result[DRMType.WIDEVINE].append({"pssh": pssh_b64, "kid": kid, "type": "Widevine", "label": label})
+                logger.info(f"DASH DRM recovered from init segment: {s.id or 'unnamed'} | type={s.type} | KID={kid}")
 
         return result
 
@@ -711,6 +757,12 @@ class DASH_Downloader(BaseDownloader):
         if not is_protected and raw_mpd:
             logger.info("No PSSH in Stream objects — falling back to MPDParser")
             drm_psshs = self._collect_drm_from_mpd(raw_mpd)
+            is_protected = bool(drm_psshs.get(DRMType.WIDEVINE) or drm_psshs.get(DRMType.PLAYREADY))
+
+        # Last resort: a <ContentProtection> tag can be present with no pssh/default_KID anywhere
+        if not is_protected:
+            logger.info("Still no PSSH after Stream/MPD checks — probing init segments as last resort")
+            drm_psshs = self._collect_drm_from_init_segments(streams)
             is_protected = bool(drm_psshs.get(DRMType.WIDEVINE) or drm_psshs.get(DRMType.PLAYREADY))
 
         # Raw-key / Clear-key manifests

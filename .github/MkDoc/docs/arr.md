@@ -102,6 +102,10 @@ SONARR_WEBHOOK_SECRET=your-secret
 RADARR_WEBHOOK_SECRET=your-secret
 ```
 
+!!! tip
+    Strict TMDB/TVDB identity matching (used when resolving Sonarr/Radarr items) requires a
+    TMDB API key — see [TMDB API Key](configuration.md#tmdb-api-key) for setup.
+
 ## Webhook setup
 
 VibraVid exposes one webhook endpoint per ARR application. Add **one connection only** per app — adding multiple webhooks for the same app causes duplicate processing.

@@ -3,6 +3,61 @@
 All settings live in `config.json`. The sections below cover each configuration block.
 ARR automation settings are documented separately in the [ARR Integration](arr.md) guide.
 
+## TMDB API Key
+
+An optional [TMDB](https://www.themoviedb.org/) API key unlocks:
+
+- The `%(tmdb_*)`, `%(original_title)`, `%(original_language)` and `%(imdb_id)` filename tokens
+  (see [Movie Format](#movie-format) / [Episode Format](#episode-format) below).
+- Poster/backdrop artwork (`embed_poster` in [DOWNLOAD](#download)).
+- Strict TMDB/TVDB identity matching for the [ARR Integration](arr.md).
+
+It is **not required** — without it these features degrade gracefully (tokens are dropped from
+filenames, artwork/matching falls back to the site's own data).
+
+The key is shared by every interface (CLI, TUI, GUI, ARR) — there is a single configuration
+point, not a per-interface setting.
+
+### Setting the key (current, supported method)
+
+1. Create a key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) (free).
+2. Export it as the **`TMDB_API_KEY`** environment variable before running VibraVid:
+
+   ```bash
+   export TMDB_API_KEY=your_key_here
+   python manual.py      # CLI
+   python tui.py         # TUI
+   python GUI/manage.py runserver 0.0.0.0:8000   # GUI
+   ```
+
+   On Windows (PowerShell): `$env:TMDB_API_KEY = "your_key_here"`.
+
+- **Docker / NAS**: set `TMDB_API_KEY` in your `.env` file (see `.env.example`) — it's already
+  wired through `docker-compose.yml` under the ARR Integration section and applies to the
+  bundled GUI/ARR container.
+- **GUI**: there is no in-app field for the key; it's read from the environment at process
+  start, so after setting/changing it you need to restart the server (or recreate the
+  container). If it's missing, search results show a "TMDB covers aren't active" hint.
+- This is the **only** way to configure the key going forward — see the deprecated method below.
+
+### Deprecated method: `Conf/login.json`
+
+Older versions read the key from `Conf/login.json`, under a `Provider` section:
+
+```json
+{
+  "Provider": {
+    "tmdb": "your_key_here"
+  }
+}
+```
+
+This still works as a fallback if `TMDB_API_KEY` is not set, but it is **deprecated and will be
+removed in a future release** — a warning is logged the first time it's used. Fresh installs'
+`login.json` template does not include a `Provider` section at all, so this path only matters
+for existing configs carried over from an older version; migrate to the `TMDB_API_KEY`
+environment variable above.
+
 ## DEFAULT
 
 ```json
@@ -11,11 +66,14 @@ ARR automation settings are documented separately in the [ARR Integration](arr.m
     "debug_track_json": false,
     "log_level": "INFO",
     "close_console": true,
-    "show_message": false,
+    "show_message": true,
     "fetch_domain_online": true,
     "auto_update_check": true,
+    "disable_scraper_cache": false,
     "imp_service": ["default"],
-    "installation": "essential"
+    "installation": "essential",
+    "skip_ts_versions": false,
+    "get_me": false
   }
 }
 ```
@@ -25,16 +83,25 @@ ARR automation settings are documented separately in the [ARR Integration](arr.m
 | `close_console` | `true` | Automatically close the console after download completes |
 | `debug_track_json` | `false` | Log a `TRACKS_JSON` payload with selected tracks, keys, and manifest metadata — useful for debugging stream selection |
 | `log_level` | `"INFO"` | Logging verbosity. Accepts standard Python values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `show_message` | `false` | Show the startup banner and clear the console before printing it |
+| `show_message` | `true` | Show the startup banner and clear the console before printing it |
 | `fetch_domain_online` | `true` | Automatically fetch the latest domains from GitHub |
 | `auto_update_check` | `true` | Notify you at startup when a new VibraVid version is available |
-| `imp_service` | `["default"]` | Service source paths to load site modules from. `"default"` loads all built-in sites. Add absolute paths to directories containing custom site modules — each must have `__init__.py` defining `indice` and `_useFor`. Custom modules take precedence over built-ins with the same name. |
+| `disable_scraper_cache` | `false` | GUI only: the Django backend caches an already-instantiated site scraper per title for 15 minutes so repeat requests (e.g. opening the same series-detail page) don't re-scrape. |
+| `imp_service` | `["default"]` | Service source paths to load site modules from. `"default"` loads all built-in sites. Add absolute paths to directories containing custom site modules — each must have `__init__.py` defining `indice` and `_useFor`. A GitHub/Gitea repository URL is also accepted: its archive is downloaded and cached under `.cache/imported_service/<host>__<owner>__<repo>__<ref>/`. The cache is trusted for 15 minutes; past that, only a cheap "latest commit" check is made and the archive is only re-downloaded if that commit changed. Custom modules take precedence over built-ins with the same name. |
 | `installation` | `"essential"` | Controls which bundled binaries are auto-downloaded at setup: `none` skips all, `essential` downloads Bento4, FFmpeg, and Velora, `full` also adds Dovi Tool and MKVToolNix |
+| `skip_ts_versions` | `false` | StreamingCommunity only: skip `.ts`/CAM releases when a better version isn't otherwise detected. |
+| `get_me` | `false` | Resolve and print the account name in the login banner (e.g. `Login - Type: Account / User: name`) for services that support it.
 
-**Custom `imp_service` example:**
+**Custom `imp_service` example (local folder):**
 ```json
 "imp_service": ["default", "/home/user/my_custom_sites"]
 ```
+
+**Custom `imp_service` example (remote GitHub/Gitea repository):**
+```json
+"imp_service": ["default", "https://github.com/owner/my-vibravid-sites"]
+```
+For a private repository, embed credentials in the URL userinfo — `https://user:token@host/owner/repo` (GitHub: use a personal access token as the password; Gitea: username/password or a token). Pin a specific branch/tag with a `#ref` fragment, e.g. `https://host/owner/repo#dev`; otherwise the repository's default branch is used. Since credentials end up in `config.json`, prefer a scoped token over your account password, and keep `config.json` out of any git history you push (it's tracked in the VibraVid repo itself, so a fork/clone used for personal config should not be pushed upstream with real credentials in it).
 
 ## OUTPUT
 
@@ -45,8 +112,11 @@ ARR automation settings are documented separately in the [ARR Integration](arr.m
     "movie_folder_name": "Movie",
     "serie_folder_name": "Serie",
     "anime_folder_name": "Anime",
+    "music_folder_name": "Music",
+    "live_folder_name": "Live",
     "movie_format": "%(title_name) (%(title_year))/%(title_name) (%(title_year))",
-    "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)"
+    "episode_format": "%(series_name)/S%(season:02d)/%(episode_name) S%(season:02d)E%(episode:02d)",
+    "song_format": "%(album)/%(track_number:02d). %(title)"
   }
 }
 ```
@@ -56,7 +126,7 @@ ARR automation settings are documented separately in the [ARR Integration](arr.m
 - Linux/macOS: `Desktop/MyLibrary/Folder`
 - Docker / NAS: set the `VIBRAVID_OUTPUT_ROOT` environment variable instead of editing `config.json` — the value is applied at startup and overrides this field without touching the persisted config file. Example: `VIBRAVID_OUTPUT_ROOT=/app/Video` (container path matching the bind-mount target).
 
-**`movie_folder_name`**, **`serie_folder_name`**, **`anime_folder_name`** — Subfolder names for each content type (defaults: `"Movie"`, `"Serie"`, `"Anime"`). All support the `%{site_name}` placeholder:
+**`movie_folder_name`**, **`serie_folder_name`**, **`anime_folder_name`**, **`music_folder_name`**, **`live_folder_name`** — Subfolder names for each content type (defaults: `"Movie"`, `"Serie"`, `"Anime"`, `"Music"`, `"Live"`). All support the `%{site_name}` placeholder:
 
 ```
 "Movie/%{site_name}"  ->  "Movie/Crunchyroll"
@@ -124,7 +194,7 @@ S%(season:02d)/     ->  season folder   S01/
 | `%(tmdb_season_name)` | TMDB season name, e.g. `Season 2`, mapped the same way (requires TMDB API key) |
 | `%(imdb_id)` | IMDb ID, e.g. `tt0409591` (requires TMDB API key) |
 
-**Inline padding syntax (for `season`, `episode` and `absolute`):**
+**Inline padding syntax (for `season`, `episode`, `absolute`, and `track_number` in Song Format below):**
 
 | Token | Result (n=1) | Description |
 |-------|-------------|-------------|
@@ -133,6 +203,26 @@ S%(season:02d)/     ->  season folder   S01/
 | `%(season:d)` | `1` | No padding |
 
 > Tokens that cannot be resolved (e.g. TMDB tokens without an API key, or `%(absolute)` on non-anime services) are removed from the filename together with any surrounding `[]`/`()` wrapper, so they never leak as literal text.
+
+### Song Format
+
+**Default:** `"%(album)/%(track_number:02d). %(title)"`
+
+```
+%(album)/                        ->  folder    Discovery/
+%(track_number:02d). %(title)    ->  filename  01. One More Time.mp3
+```
+
+| Variable | Description |
+|----------|-------------|
+| `%(artist)` | Artist name |
+| `%(artist_slug)` | Artist name as slug |
+| `%(album)` | Album name |
+| `%(album_slug)` | Album name as slug |
+| `%(title)` | Track title |
+| `%(title_slug)` | Track title as slug |
+| `%(year)` | Release year (omitted if unavailable) |
+| `%(track_number:FORMAT)` | Track number with inline padding (see above) |
 
 ### Recommended configuration (with a TMDB API key)
 
@@ -146,20 +236,27 @@ S%(season:02d)/     ->  season folder   S01/
 ```json
 {
   "DOWNLOAD": {
-    "auto_select": true,
-    "delay_after_download": 1,
     "skip_download": false,
-    "thread_count": 12,
-    "decrypt_worker_count": 12,
+    "auto_select": true,
+    "use_curl_cffi_segments": false,
+    "delay_after_download": 0,
+    "thread_count": 10,
+    "segment_delay_seconds": 0,
+    "segment_delay_jitter_seconds": 0,
+    "decrypt_worker_count": 8,
+    "subtitle_resolve_workers": 4,
     "realtime_decrypt": true,
     "concurrent_download": true,
-    "select_video": "1920",
-    "select_audio": "ita|Ita",
-    "select_subtitle": "ita|eng|Ita|Eng",
+    "select_video": "best",
+    "select_audio": "it|en",
+    "select_subtitle": "it|en",
     "extract_embedded_cc": false,
-    "cleanup_tmp_folder": true,
-    "embed_poster": true,
-    "engine": "ffmpeg"
+    "live_max_empty_polls": 8,
+    "max_token_refresh_rounds": 10,
+    "token_refresh_backoff_seconds": 4.0,
+    "token_refresh_stall_rounds": 3,
+    "embed_poster": false,
+    "cleanup_tmp_folder": true
   }
 }
 ```
@@ -169,16 +266,29 @@ S%(season:02d)/     ->  season folder   S01/
 | Key | Default | Description |
 |-----|---------|-------------|
 | `auto_select` | `true` | Automatically select streams based on filters. When `false`, enables interactive track selection before download |
-| `delay_after_download` | `1` | Delay (seconds) applied after each movie or episode download |
+| `delay_after_download` | `0` | Delay (seconds) applied after each movie or episode download |
 | `skip_download` | `false` | Skip the download step and process existing files |
-| `thread_count` | `12` | Number of concurrent segment requests for a single stream |
-| `decrypt_worker_count` | `THREAD_COUNT` | Number of segments decrypted in parallel when `realtime_decrypt` is `true`. |
-| `realtime_decrypt` | `true` | Decrypt each segment as it downloads (in-flight) instead of decrypting the whole file once after merging. |
+| `thread_count` | `10` | Number of concurrent segment requests for a single stream |
+| `decrypt_worker_count` | `8` | Number of segments decrypted in parallel when `realtime_decrypt` is `true` |
+| `subtitle_resolve_workers` | `4` | Number of HLS subtitle renditions resolved/downloaded concurrently. `1` restores the original strictly-sequential behaviour |
+| `realtime_decrypt` | `true` | Decrypt each segment as it downloads (in-flight) instead of decrypting the whole file once after merging |
 | `concurrent_download` | `true` | Download video, audio, and subtitles simultaneously |
 | `extract_embedded_cc` | `false` | HLS only: extract embedded CEA-608/708 closed captions (`EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS`, no separate subtitle file) from the downloaded video into a subtitle track. Opt-in because it requires decoding the whole video, adding extra time/CPU per download |
 | `cleanup_tmp_folder` | `true` | Remove temporary files after download |
-| `embed_poster` | `true` | Embed a poster/still into the downloaded file: the matching TMDB artwork if found, otherwise the site's own poster/still as a fallback |
-| `engine` | `"ffmpeg"` | Muxing engine used to combine video, audio and subtitle tracks. `ffmpeg`, `mkvmerge` requires a **full installation** |
+| `embed_poster` | `false` | Embed a poster/still into the downloaded file: the matching TMDB artwork if found, otherwise the site's own poster/still as a fallback |
+
+### Segment Throttling, Live Streams & Token Refresh
+
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `use_curl_cffi_segments` | `false` | Download segments through `curl_cffi` (TLS/JA3 fingerprint impersonation) instead of the default Velora HTTP backend. |
+| `segment_delay_seconds` | `0` | Fixed delay inserted before each segment request — throttles download speed to stay under a CDN's rate limit |
+| `segment_delay_jitter_seconds` | `0` | Random jitter (0 to this value, seconds) added on top of `segment_delay_seconds` so requests aren't perfectly periodic |
+| `live_max_empty_polls` | `8` | Live HLS/DASH downloads only: number of consecutive polls with no new segments (or poll failures) before VibraVid concludes the live stream has ended and stops |
+| `max_token_refresh_rounds` | `10` | Maximum retry rounds when segments fail mid-download (e.g. the CDN manifest token expired -> HTTP 403, or a transient 503) — VibraVid re-requests a fresh manifest/token and retries just the failed segments |
+| `token_refresh_backoff_seconds` | `4.0` | Base backoff between token-refresh rounds; actual wait is `backoff × round number`, capped at 20s |
+| `token_refresh_stall_rounds` | `3` | Give up early if this many consecutive refresh rounds make no progress (same or more segments still failing), instead of exhausting all `max_token_refresh_rounds` |
 
 ### Stream Selection Filters
 
@@ -250,15 +360,18 @@ The DV track is muxed as an additional video track via mkvmerge.
 ```json
 {
   "PROCESS": {
+    "engine": "ffmpeg",
     "use_gpu": false,
     "param_video": ["-c:v", "libx265", "-crf", "28", "-preset", "medium"],
     "param_audio": ["-c:a", "libopus", "-b:a", "128k"],
+    "param_song_ffmpeg": [],
     "param_final": ["-c", "copy"],
-    "audio_order": ["ita", "eng"],
-    "subtitle_order": ["ita", "eng"],
+    "audio_order": [],
+    "subtitle_order": [],
+    "subtitle_disposition_language": "it-it_forced",
     "merge_audio": true,
     "merge_subtitle": true,
-    "subtitle_disposition_language": "ita_forced",
+    "force_subtitle": "auto",
     "extension": "mkv"
   }
 }
@@ -266,15 +379,17 @@ The DV track is muxed as an additional video track via mkvmerge.
 
 | Key | Default | Description |
 |-----|---------|-------------|
+| `engine` | `"ffmpeg"` | Muxing engine used to combine video, audio and subtitle tracks. `ffmpeg` or `mkvmerge` (`mkvmerge` requires a **full installation**) |
 | `use_gpu` | `false` | Enable hardware acceleration. GPU type is auto-detected at runtime: `cuda` (NVIDIA), `qsv` (Intel), `vaapi` (AMD) |
 | `param_video` | H.265/HEVC | FFmpeg video encoding parameters, e.g. `["-c:v", "libx265", "-crf", "28", "-preset", "medium"]` |
 | `param_audio` | Opus 128k | FFmpeg audio encoding parameters, e.g. `["-c:a", "libopus", "-b:a", "128k"]` |
+| `param_song_ffmpeg` | `[]` | FFmpeg re-encode parameters applied to downloaded music tracks (e.g. `lucida`/`monochrome`). |
 | `param_final` | `["-c", "copy"]` | Final FFmpeg parameters. When set, takes full precedence over `param_video` and `param_audio` |
-| `audio_order` | — | Order of audio tracks in the output, e.g. `["ita", "eng"]` |
-| `subtitle_order` | — | Order of subtitle tracks in the output, e.g. `["ita", "eng"]` |
+| `audio_order` | `[]` | Order of audio tracks in the output, e.g. `["ita", "eng"]` |
+| `subtitle_order` | `[]` | Order of subtitle tracks in the output, e.g. `["ita", "eng"]` |
 | `merge_audio` | `true` | Merge all audio tracks into a single output file |
 | `merge_subtitle` | `true` | Merge all subtitle tracks into a single output file |
-| `subtitle_disposition_language` | — | Mark a specific subtitle track as default/forced |
+| `subtitle_disposition_language` | `"it-it_forced"` | Mark a specific subtitle track as default/forced |
 | `extension` | `"mkv"` | Output container format: `"mkv"` or `"mp4"` |
 
 **`force_subtitle`** — Controls how subtitles are handled before remuxing:
@@ -292,8 +407,9 @@ See `VibraVid/core/processors/helper/ex_sub.py` in the repository for conversion
 ```json
 {
   "REQUESTS": {
-    "timeout": 30,
-    "max_retry": 10,
+    "timeout": 15,
+    "max_retry": 8,
+    "verify": true,
     "use_proxy": false,
     "proxy_scope": "scrap+down",
     "proxy": {
@@ -308,8 +424,9 @@ See `VibraVid/core/processors/helper/ex_sub.py` in the repository for conversion
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `timeout` | `30` | Request timeout in seconds |
-| `max_retry` | `10` | Maximum retry attempts for failed requests |
+| `timeout` | `15` | Request timeout in seconds |
+| `max_retry` | `8` | Maximum retry attempts for failed requests |
+| `verify` | `true` | Verify TLS/SSL certificates on outgoing requests and segment downloads. |
 | `use_proxy` | `false` | Enable proxy support for HTTP requests |
 | `proxy_scope` | `scrap+down` | Where the proxy is applied: `scrap`, `down`, or `scrap+down` (see below) |
 | `proxy.http` | — | Proxy URL for HTTP targets |
@@ -342,10 +459,11 @@ Any invalid value falls back to `scrap+down`. Override per run from the CLI with
 {
   "DRM": {
     "use_cdm": true,
-    "prefer_remote_cdm": true,
+    "prefer_remote_cdm": false,
+    "bypass_vault_cache": false,
     "vault": {
-      "supa": {
-        "url": "https://crqczuxpqjmrjvdvqvlx.supabase.co",
+      "vault_1": {
+        "url": "https://drm-db.server66.workers.dev",
         "token": ""
       }
     }
@@ -355,9 +473,40 @@ Any invalid value falls back to `scrap+down`. Override per run from the CLI with
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `use_cdm` | `true` | Enable CDM-based key extraction. When `false`, only database lookups are attempted |
-| `prefer_remote_cdm` | `true` | Prefer remote CDM services over local device files |
-| `vault` | — | Optional external DRM key store, queried before CDM extraction |
+| `use_cdm` | `true` | Enable CDM-based key extraction. When `false`, only database/vault lookups are attempted |
+| `prefer_remote_cdm` | `false` | Prefer remote CDM services (see [Remote CDM Services](#remote-cdm-services) below) over local device files |
+| `bypass_vault_cache` | `false` | Skip the DRM key vault lookup and force a fresh CDM license request every run, instead of reusing a previously-seen key. |
+| `vault` | — | Optional external DRM key store(s), queried before CDM extraction |
+
+### Multiple / self-hosted DRM vaults
+
+`vault` isn't limited to the single `vault_1` entry shown above — add as many named entries as
+you want. Each configured vault is queried in the order it's declared, stopping as soon as every
+requested KID has been resolved; when a key is found in one vault it's written back to every
+*other* configured vault (never back to the one it came from, to avoid a pointless round-trip):
+
+```json
+"vault": {
+  "vault_1": { "url": "https://drm-db.server66.workers.dev", "token": "" },
+  "myvault": { "url": "https://drm.example.com", "token": "my-secret-token" }
+}
+```
+
+Any name other than `vault_1` and the reserved `vault_2` is treated as a self-hosted vault
+speaking the same simple REST contract as `vault_1` — implement these two Bearer-token-authenticated
+JSON endpoints and VibraVid can read/write keys from it, no code changes required on the VibraVid
+side:
+
+- `POST {url}/get-keys` — body `{"kids": ["<kid_hex>", ...], "license_url": "<optional>"}` (or
+  `{"license_url": ..., "pssh": ...}` for a PSSH-scoped lookup) → `{"keys": [{"kid_key": "<kid>:<key>"}, ...]}`
+- `POST {url}/save-keys` — body `{"license_url": ..., "pssh": ..., "keys": [{"kid": ..., "key": ..., "label": "<optional>"}, ...]}` → `{"added": <int>}`
+
+**Config key vs. console label**: `vault_1` and `vault_2` are the *config keys* (`vault_2` is
+reserved for a JSON-RPC-protocol vault, distinct from the `vault_1`/custom REST protocol above);
+each vault also carries its own internal name used in log/console output (`Bypassing cached key
+... from <name>`) — the `vault_1` entry logs as `claudio`, `vault_2` logs as `lab`. A custom
+entry (`myvault` above) logs under the same name you gave it in `DRM.vault`, so there's no
+separate label to know about for those.
 
 ### Remote CDM Services
 

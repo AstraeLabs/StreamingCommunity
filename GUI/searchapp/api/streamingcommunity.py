@@ -4,6 +4,7 @@
 import importlib
 
 from VibraVid.services._base.site_loader import get_folder_name
+from VibraVid.services.streamingcommunity import _effective_languages
 from VibraVid.services.streamingcommunity.scrapper import GetSerieInfo
 from VibraVid.utils import config_manager
 
@@ -108,6 +109,7 @@ class StreamingCommunityAPI(BaseStreamingAPI):
                 year=media_item.year,
                 provider_language=media_item.provider_language,
                 series_display_name=media_item.name,
+                languages=_effective_languages(),
             )
             self.set_cached_scraper(media_item, scrape_serie)
 

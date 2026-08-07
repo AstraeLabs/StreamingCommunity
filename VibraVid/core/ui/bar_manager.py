@@ -40,7 +40,7 @@ class DownloadBarManager:
                 TransferStatsColumn(),
                 *time_columns,
                 console=console,
-                refresh_per_second=10.0,
+                refresh_per_second=5.0,
             )
         )
 
@@ -137,22 +137,23 @@ class DownloadBarManager:
             return
 
         tid = self.tasks[key]
+        fields: dict[str, Any] = {}
         if "compact_metrics" in parsed:
-            self.progress.update(tid, compact_metrics=bool(parsed["compact_metrics"]))
-
-        if "pct" in parsed:
-            try:
-                self.progress.update(tid, completed=parsed["pct"])
-            except Exception:
-                pass
+            fields["compact_metrics"] = bool(parsed["compact_metrics"])
         if "speed" in parsed and not parsed.get("compact_metrics"):
-            self.progress.update(tid, speed=parsed["speed"])
+            fields["speed"] = parsed["speed"]
         if "size" in parsed and not parsed.get("compact_metrics"):
-            self.progress.update(tid, size=parsed["size"])
+            fields["size"] = parsed["size"]
         if "segments" in parsed:
-            self.progress.update(tid, segment=parsed["segments"])
+            fields["segment"] = parsed["segments"]
         if "duration" in parsed and not parsed.get("compact_metrics"):
-            self.progress.update(tid, duration=parsed["duration"])
+            fields["duration"] = parsed["duration"]
+
+        completed = parsed["pct"] if "pct" in parsed else None
+        try:
+            self.progress.update(tid, completed=completed, **fields)
+        except Exception:
+            pass
 
         # Subtitle completion
         if "final_size" in parsed:

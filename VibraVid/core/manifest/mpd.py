@@ -56,9 +56,13 @@ _SEGMENT_TOKEN_RE = re.compile(r"\$(RepresentationID|Number|Time|Bandwidth)(?:%0
 def _norm(v: str | None) -> str:
     return (v or "").strip().lower()
 
+def _first_not_none(*elements):
+    for el in elements:
+        if el is not None:
+            return el
+    return None
 
 def _stream_dedup_key(s: Stream):
-    """Return a stable key used to drop duplicate streams across repeated MPD periods."""
     sid = _norm(getattr(s, "id", ""))
     if sid and sid != "ext" and not sid.startswith("vid:"):
         return (s.type, "id", sid)
@@ -97,18 +101,15 @@ def _stream_dedup_key(s: Stream):
 
 
 def _drm_hint_from_scheme(scheme_lower: str) -> str | None:
-    """Classify a DASH schemeIdUri into a DRMType short code (delegates to the shared helper)."""
     result = DRMType.from_scheme(scheme_lower)
     return result if result != DRMType.UNKNOWN else None
 
 
 def _video_range_from_codecs(codecs: str) -> str:
-    """Infer HDR type from codec string prefix."""
     return infer_video_range(codecs)
 
 
 def _is_ad_period(period_url: str, period_element) -> bool:
-    """Check if a period is advertisement content."""
     url_is_ad = bool(_AD_PATH_RE.search(period_url or ""))
     has_drm = period_element.find(".//mpd:ContentProtection", _NS) is not None
 
@@ -130,7 +131,6 @@ def _is_ad_period(period_url: str, period_element) -> bool:
 
 
 def _is_file_url(url: str) -> bool:
-    """Best-effort detection for URLs that point to a file instead of a directory."""
     try:
         path = (urlparse(url).path or "").rstrip("/")
         tail = path.rsplit("/", 1)[-1]
@@ -406,7 +406,7 @@ class DashParser:
         if role_el is not None:
             s.role = role_el.get("value", "main")
 
-        label_el = rep.find("mpd:Label", _NS) or adapt.find("mpd:Label", _NS)
+        label_el = _first_not_none(rep.find("mpd:Label", _NS), adapt.find("mpd:Label", _NS))
         if label_el is not None and label_el.text:
             s.label = label_el.text.strip()
 
@@ -438,9 +438,9 @@ class DashParser:
             s.drm = DRMInfo()
 
         # Segments: SegmentTemplate > SegmentList > BaseURL single-file
-        tmpl = rep.find("mpd:SegmentTemplate", _NS) or adapt.find("mpd:SegmentTemplate", _NS)
-        seg_list = rep.find("mpd:SegmentList", _NS) or adapt.find("mpd:SegmentList", _NS)
-        seg_base = rep.find("mpd:SegmentBase", _NS) or adapt.find("mpd:SegmentBase", _NS)
+        tmpl = _first_not_none(rep.find("mpd:SegmentTemplate", _NS), adapt.find("mpd:SegmentTemplate", _NS))
+        seg_list = _first_not_none(rep.find("mpd:SegmentList", _NS), adapt.find("mpd:SegmentList", _NS))
+        seg_base = _first_not_none(rep.find("mpd:SegmentBase", _NS), adapt.find("mpd:SegmentBase", _NS))
 
         if tmpl is not None:
             self._apply_segment_template(tmpl, rep_id, s, period_start, rep_base_url)
@@ -521,7 +521,7 @@ class DashParser:
             s.channels = rep.get("audioChannelConfiguration", adapt.get("audioChannelConfiguration", ""))
 
         # Sample rate: element first, then attribute (space-sep → take last/highest)
-        sr_el = rep.find("mpd:AudioSamplingRate", _NS) or adapt.find("mpd:AudioSamplingRate", _NS)
+        sr_el = _first_not_none(rep.find("mpd:AudioSamplingRate", _NS), adapt.find("mpd:AudioSamplingRate", _NS))
         if sr_el is not None and sr_el.text:
             try:
                 s.sample_rate = int(sr_el.text.strip().split()[0])
