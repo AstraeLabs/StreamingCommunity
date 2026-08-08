@@ -14,6 +14,7 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 VERSIONS_FILENAME = ".versions.json"
+LFS_TOOLS = {"ffmpeg"}
 
 
 class BinaryPaths:
@@ -24,6 +25,7 @@ class BinaryPaths:
         self.home_dir = os.path.expanduser("~")
         self.binary_dir_override = os.environ.get("VIBRAVID_BINARY_DIR") or os.environ.get("BINARY_DIR")
         self.github_repo = "https://raw.githubusercontent.com/AstraeLabs/Binary/main"
+        self.github_repo_lfs = "https://media.githubusercontent.com/media/AstraeLabs/Binary/main"
         self._paths_json_cache: dict | None = None
         self._resolved: dict[str, str] = {}
         self._cache_lock = threading.Lock()
@@ -274,7 +276,8 @@ class BinaryPaths:
                 if not rel_path.endswith(binary_name):
                     continue
 
-                url = f"{self.github_repo}/binaries/{rel_path}"
+                repo_base = self.github_repo_lfs if tool in LFS_TOOLS else self.github_repo
+                url = f"{repo_base}/binaries/{rel_path}"
                 logger.info(f"Downloading {binary_name} from {url} to {local_path}")
                 console.log(f"[cyan]Downloading from [red]{url} [cyan]to [yellow]{local_path}")
                 os.makedirs(os.path.dirname(local_path), exist_ok=True)
