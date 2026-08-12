@@ -802,10 +802,17 @@ class DASH_Downloader(BaseDownloader):
         self.media_downloader.set_key(self.decryption_keys)
         status = self.media_downloader.start_download()
 
-        if status.get("error") == "cancelled":
+        if status.get("error"):
+            err = status.get("error")
+            if err == "cancelled":
+                if self.download_id:
+                    download_tracker.complete_download(self.download_id, success=False, error="cancelled")
+                return None, True, "cancelled"
+            console.print(f"[red]Error: {err}. Skipping merge of incomplete media.")
+            logger.error(f"Download incomplete: {err}")
             if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
-            return None, True, "cancelled"
+                download_tracker.complete_download(self.download_id, success=False, error=err)
+            return None, True, err
 
         if self._no_media_downloaded(status):
             logger.error("No media downloaded")

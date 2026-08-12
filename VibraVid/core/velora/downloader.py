@@ -256,6 +256,9 @@ class MediaDownloader(
 
         self.status = self._build_status(ext_subs, ext_auds)
 
+        if self.missing_segments_count > 0:
+            self.status["error"] = f"{self.missing_segments_count} segment(s) missing"
+
         # A stop (Ctrl+C or a tracker-level request, e.g. a live source going
         # offline) can still have produced a fully merged file by the time we
         # get here — only treat it as a cancellation if nothing was produced.
