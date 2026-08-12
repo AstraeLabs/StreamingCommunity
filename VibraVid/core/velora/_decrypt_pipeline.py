@@ -20,7 +20,13 @@ from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client
 
 from ..decryptor._segment_crypto import decrypt_aes128
-from .util._stream_helpers import collect_failed_segments, describe_key_for_log, detect_seg_ext, merged_segment_ext
+from .util._stream_helpers import (
+    collect_failed_segments,
+    describe_key_for_log,
+    detect_seg_ext,
+    merged_segment_ext,
+    validate_segment_file,
+)
 from .util._subtitle_segments import merge_vtt_files
 from .util._verify import verify_decrypted_media
 from .util.formatting import (
@@ -108,6 +114,20 @@ class DecryptPipelineMixin:
         stream_dir = self._make_stream_dir(stream, protocol)
         all_headers = self._build_headers()
         protocol_lower = protocol.lower()
+
+        # Clean up leftover .tmp files from interrupted runs and validate existing segments
+        for tmp_file in stream_dir.glob("*.tmp"):
+            try:
+                tmp_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+        for seg_file in stream_dir.glob("seg_*.*"):
+            if seg_file.suffix.lower() != ".tmp" and not validate_segment_file(seg_file):
+                logger.warning(f"Found invalid/corrupt segment from previous run ({seg_file.name}), removing for re-download")
+                try:
+                    seg_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
         key_cache: dict[str, bytes] = {}
         segment_meta_by_path = {}

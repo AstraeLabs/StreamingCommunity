@@ -456,6 +456,13 @@ class BaseDownloader:
         )
         self.last_merge_result = result_json
         if not self._merge_output_ok(merged_file):
+            logger.error(f"Merge failed for {self.filename_base}. Cleaning up corrupted intermediate merged files in {self.output_dir}.")
+            try:
+                for item in Path(self.output_dir).glob("*.*"):
+                    if item.is_file() and item.suffix.lower() in (".ts", ".m4a", ".mp4", ".mkv", ".tmp", ".vtt", ".srt"):
+                        item.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"Failed to clean up intermediate files: {e}")
             return None
         # Chapters are already baked into merged_file by join_media() above — no separate _inject_chapters() pass needed.
         return self._embed_poster(merged_file)

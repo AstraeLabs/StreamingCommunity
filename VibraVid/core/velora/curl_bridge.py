@@ -50,6 +50,7 @@ def _fetch_one(task: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
 
     client = _get_thread_client(timeout=timeout, verify=verify, proxy_url=proxy_url)
 
+    tmp_path = Path(f"{path}.tmp")
     last_error: str | None = None
     for attempt in range(retry_count + 1):
         written = 0
@@ -60,7 +61,7 @@ def _fetch_one(task: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
                 try:
                     response.raise_for_status()
                     expected_length = response.headers.get("content-length")
-                    with open(path, "wb") as f:
+                    with open(tmp_path, "wb") as f:
                         for chunk in response.iter_content(chunk_size=65536):
                             if not chunk:
                                 continue
@@ -72,6 +73,7 @@ def _fetch_one(task: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
             if not written or (expected_length is not None and written != int(expected_length)):
                 raise ValueError(f"Incomplete/empty response body (got {written} bytes, expected {expected_length})")
 
+            tmp_path.replace(Path(path))
             return {
                 "event": "completed",
                 "task_key": task.get("task_key"),
@@ -84,6 +86,10 @@ def _fetch_one(task: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
             }
         except Exception as exc:
             last_error = str(exc)
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
             if attempt < retry_count:
                 delay = min(base_delay * (attempt + 1), max_delay) + random.uniform(0, jitter)
                 time.sleep(delay)

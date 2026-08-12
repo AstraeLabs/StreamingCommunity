@@ -127,14 +127,71 @@ def join_interruptible(
             t.join(timeout=poll)
 
 
+def validate_segment_file(path: Path) -> bool:
+    """
+    Validate a segment file on disk. Returns False if the file is missing,
+    empty, or corrupted/truncated (e.g. cut off mid-download during an interrupted run).
+    """
+    try:
+        p = Path(path)
+        if not p.exists():
+            return False
+        size = p.stat().st_size
+        if size <= 0:
+            return False
+
+        ext = p.suffix.lower().lstrip(".")
+
+        # MPEG-TS segments
+        if ext in ("ts", "m2ts"):
+            if size < 188:
+                return False
+            with open(p, "rb") as f:
+                head = f.read(188)
+                if head.startswith(b"\x89PNG\r\n\x1a\n"):
+                    return True  # PNG wrapper
+                if head.startswith(b"\x1f\x8b"):
+                    return True  # Gzip compressed
+                if head[0] != 0x47:
+                    return False
+                rem = size % 188
+                if 0 < rem < 188 and (size % 192) != 0:
+                    logger.warning(f"Segment file {p.name} is truncated ({size} bytes). Invalidating for re-download.")
+                    return False
+
+        # fMP4 / MP4 / M4S segments
+        elif ext in ("mp4", "m4s", "m4a", "m4v", "cmfv", "cmfa"):
+            if size < 8:
+                return False
+            with open(p, "rb") as f:
+                head = f.read(8)
+                box_type = head[4:8]
+                valid_boxes = (b"ftyp", b"styp", b"moof", b"mdat", b"sidx", b"emsg", b"free", b"skip", b"moov")
+                if box_type not in valid_boxes:
+                    return False
+
+        return True
+    except Exception as exc:
+        logger.debug(f"validate_segment_file exception for {path}: {exc}")
+        return False
+
+
 def collect_failed_segments(dl_segs: list, downloaded_paths: list, stream_dir, default_ext: str) -> list:
     """
     Return a list of (seg_number, url) tuples for segments that were not
-    successfully downloaded (missing file or zero-byte file).
+    successfully downloaded (missing file, zero-byte file, or corrupted/truncated file).
     """
-    downloaded_set = {
-        str(p.resolve()).casefold() for p in (downloaded_paths or []) if p.exists() and p.stat().st_size > 0
-    }
+    downloaded_set = set()
+    for p in downloaded_paths or []:
+        if p and p.exists():
+            if validate_segment_file(p):
+                downloaded_set.add(str(p.resolve()).casefold())
+            else:
+                logger.warning(f"Removing invalid/corrupted segment from disk: {p.name}")
+                try:
+                    p.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     failed = []
     for seg in dl_segs:
@@ -143,6 +200,13 @@ def collect_failed_segments(dl_segs: list, downloaded_paths: list, stream_dir, d
             seg_ext = "mp4"
 
         expected_path = Path(stream_dir) / f"seg_{seg['number']:05d}.{seg_ext}"
+        if expected_path.exists() and not validate_segment_file(expected_path):
+            logger.warning(f"Removing invalid/corrupted expected segment from disk: {expected_path.name}")
+            try:
+                expected_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
         key = str(expected_path.resolve()).casefold()
         if key not in downloaded_set:
             failed.append((seg["number"], seg.get("url", "N/A")))

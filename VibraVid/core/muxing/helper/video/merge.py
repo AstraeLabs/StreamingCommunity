@@ -62,55 +62,73 @@ def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: lo
         return
 
     total_written = 0
-    with open(output_path, "wb") as out_f:
-        png_wrapped = 0
-        for seg_path, _, seg_size in valid:
-            with open(seg_path, "rb") as in_f:
-                head = in_f.read(8)
+    tmp_output = output_path.with_suffix(output_path.suffix + ".tmp")
+    try:
+        with open(tmp_output, "wb") as out_f:
+            png_wrapped = 0
+            for seg_path, _, seg_size in valid:
+                with open(seg_path, "rb") as in_f:
+                    head = in_f.read(8)
 
-                # gzip-compressed segment (magic bytes 1f 8b): the whole segment must be held in memory to decompress it.
-                if head[:2] == b"\x1f\x8b":
-                    try:
-                        log.info(f"[binary_merge] detected gzip-compressed segment: {seg_path.name}, decompressing ...")
-                        data = gzip.decompress(head + in_f.read())
-                        out_f.write(data)
-                        total_written += len(data)
-                        continue
-                    except Exception as e:
-                        log.warning(f"[binary_merge] failed to decompress {seg_path.name}: {e}, using raw data")
-                        in_f.seek(0)
+                    # gzip-compressed segment (magic bytes 1f 8b): the whole segment must be held in memory to decompress it.
+                    if head[:2] == b"\x1f\x8b":
+                        try:
+                            log.info(f"[binary_merge] detected gzip-compressed segment: {seg_path.name}, decompressing ...")
+                            data = gzip.decompress(head + in_f.read())
+                            out_f.write(data)
+                            total_written += len(data)
+                            continue
+                        except Exception as e:
+                            log.warning(f"[binary_merge] failed to decompress {seg_path.name}: {e}, using raw data")
+                            in_f.seek(0)
+                            shutil.copyfileobj(in_f, out_f, _COPY_BUFSIZE)
+                            total_written += seg_size
+                            continue
+
+                    # PNG-wrapped segment: a fake image cover hides the real MPEG-TS payload.
+                    if head == _PNG_SIGNATURE:
+                        prefix = head + in_f.read(_PNG_SCAN_WINDOW - len(head))
+                        ts_off = _find_ts_start(prefix)
+                        if ts_off > 0:
+                            png_wrapped += 1
+                            out_f.write(prefix[ts_off:])
+                            shutil.copyfileobj(in_f, out_f, _COPY_BUFSIZE)
+
+                            # Written = (prefix after the wrapper) + (streamed tail past the scan window).
+                            total_written += (len(prefix) - ts_off) + (seg_size - len(prefix))
+                            continue
+
+                        log.warning(f"[binary_merge] PNG-wrapped segment {seg_path.name} has no TS sync, using raw data")
+                        out_f.write(prefix)
                         shutil.copyfileobj(in_f, out_f, _COPY_BUFSIZE)
                         total_written += seg_size
                         continue
 
-                # PNG-wrapped segment: a fake image cover hides the real MPEG-TS payload.
-                if head == _PNG_SIGNATURE:
-                    prefix = head + in_f.read(_PNG_SCAN_WINDOW - len(head))
-                    ts_off = _find_ts_start(prefix)
-                    if ts_off > 0:
-                        png_wrapped += 1
-                        out_f.write(prefix[ts_off:])
-                        shutil.copyfileobj(in_f, out_f, _COPY_BUFSIZE)
-
-                        # Written = (prefix after the wrapper) + (streamed tail past the scan window).
-                        total_written += (len(prefix) - ts_off) + (seg_size - len(prefix))
-                        continue
-
-                    log.warning(f"[binary_merge] PNG-wrapped segment {seg_path.name} has no TS sync, using raw data")
-                    out_f.write(prefix)
+                    # Raw segment: stream in fixed-size blocks instead of loading it whole.
+                    out_f.write(head)
                     shutil.copyfileobj(in_f, out_f, _COPY_BUFSIZE)
                     total_written += seg_size
-                    continue
 
-                # Raw segment: stream in fixed-size blocks instead of loading it whole.
-                out_f.write(head)
-                shutil.copyfileobj(in_f, out_f, _COPY_BUFSIZE)
-                total_written += seg_size
+        if tmp_output.exists() and tmp_output.stat().st_size > 0:
+            tmp_output.replace(output_path)
+        else:
+            try:
+                tmp_output.unlink(missing_ok=True)
+            except Exception:
+                pass
 
-    if png_wrapped:
-        log.info(f"[binary_merge] stripped PNG wrapper from {png_wrapped}/{len(valid)} segment(s)")
+        if png_wrapped:
+            log.info(f"[binary_merge] stripped PNG wrapper from {png_wrapped}/{len(valid)} segment(s)")
 
-    if output_path.exists() and output_path.stat().st_size > 0:
-        log.debug(f"[binary_merge] raw concat OK: {output_path.name} ({_merge_fmt_size(total_written)})")
-    else:
-        log.error(f"[binary_merge] output is empty or missing: {output_path}")
+        if output_path.exists() and output_path.stat().st_size > 0:
+            log.debug(f"[binary_merge] raw concat OK: {output_path.name} ({_merge_fmt_size(total_written)})")
+        else:
+            log.error(f"[binary_merge] output is empty or missing: {output_path}")
+
+    except Exception as exc:
+        log.error(f"[binary_merge] exception during merge: {exc}")
+        try:
+            tmp_output.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
