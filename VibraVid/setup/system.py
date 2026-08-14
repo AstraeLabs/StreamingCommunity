@@ -9,9 +9,9 @@ from .checker import (
     check_bento4,
     check_dovi_tool,
     check_ffmpeg,
+    check_flux,
     check_mkvmerge,
     check_shaka_packager,
-    check_flux,
     check_velora,
 )
 from .device_install import check_device_prd_path, check_device_wvd_path

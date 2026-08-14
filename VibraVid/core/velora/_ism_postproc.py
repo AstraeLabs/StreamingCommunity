@@ -16,9 +16,9 @@ from VibraVid.core.muxing.helper.video import _segment_number
 from VibraVid.core.ui.bar_manager import console
 from VibraVid.setup import get_bento4_decrypt_path
 
+from ._decrypt_pipeline import SKIP_POST_DECRYPT
 from .util._ism_boxes import ISM_TIMESCALE, build_ism_init_segment
 from .util._verify import verify_decrypted_media
-from ._decrypt_pipeline import SKIP_POST_DECRYPT
 
 logger = logging.getLogger("manual")
 

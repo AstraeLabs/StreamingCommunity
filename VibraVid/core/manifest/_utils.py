@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
-
 _BARE_AMPERSAND = re.compile(r"&(?!(?:amp|lt|gt|apos|quot|#\d+|#x[0-9a-fA-F]+);)")
 
 

@@ -22,26 +22,26 @@ from VibraVid.setup import get_bento4_decrypt_path, get_shaka_packager_path, get
 setup_logger()
 console = Console()
 
-WORK_DIR = r"C:\Users\Testing\Documents\GitHub\VibraVid_New\Video\.Custom_generic_temp"
+WORK_DIR = r"folder_path"
 CSV_PATH = os.path.join(WORK_DIR, "engine_benchmark.csv")
 
 ZERO_KID = "00000000000000000000000000000000"
 
 FILES = [
     {
-        "name": "Custom.mp4",
-        "path": os.path.join(WORK_DIR, "Custom.mp4"),
+        "name": "video_name.extension",
+        "path": os.path.join(WORK_DIR, "video_name.extension"),
         "stream": "video",
-        "kid": "b5d10e9e07534ebdb9e6d1016292db1c",
-        "key": "76677a25245d006d27a200d415283f75",
+        "kid": "00000000000000000000000000000000",
+        "key": "00000000000000000000000000000000",
         "zero_kid_quirk": False,
     },
     {
-        "name": "Custom.en-us.m4a",
-        "path": os.path.join(WORK_DIR, "Custom.en-us.m4a"),
+        "name": "audio_name.extension",
+        "path": os.path.join(WORK_DIR, "audio_name.extension"),
         "stream": "audio",
-        "kid": "762a5c88d1b14d45a33f527082ab6ba5",
-        "key": "fdc780130fcec51ed5d707b2b83a3a16",
+        "kid": "00000000000000000000000000000000",
+        "key": "00000000000000000000000000000000",
         "zero_kid_quirk": False,
     },
 ]

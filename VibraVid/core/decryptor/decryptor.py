@@ -20,7 +20,6 @@ from ._models import SCHEME_TO_MODE, detect_encryption_info
 from ._subprocess_runner import _strip_profile_lines, run_with_progress
 from .keys_manager import KeysManager
 
-
 logger = logging.getLogger(__name__)
 _TRANSIENT_OPEN_ERROR_MARKERS = (
     "cannot open input file",           # mp4decrypt (Bento4)
