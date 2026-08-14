@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 WIDEVINE_SYSTEM_ID = _DRMSystems.WIDEVINE
 PLAYREADY_SYSTEM_ID = _DRMSystems.PLAYREADY
 
-# Maps CENC protection scheme -> AES mode used by mp4decrypt / Shaka.
 SCHEME_TO_MODE: dict[str, str] = {
     "cenc": "ctr",
     "cens": "ctr",
@@ -22,8 +21,6 @@ SCHEME_TO_MODE: dict[str, str] = {
     "fps": "cbc",
     "fps ": "cbc",
 }
-
-# Short codec-box identifier -> human-readable name shown in logs/UI.
 VIDEO_CODEC_MAP: dict[str, str] = {
     "avc1": "H.264",
     "avc3": "H.264",
@@ -34,16 +31,34 @@ VIDEO_CODEC_MAP: dict[str, str] = {
     "av01": "AV1",
 }
 
+_EBML_MAGIC = b"\x1a\x45\xdf\xa3"
+_WEBM_SEGMENT = 0x18538067
+_WEBM_TRACKS = 0x1654AE6B
+_WEBM_TRACK_ENTRY = 0xAE
+_WEBM_CONTENT_ENCODINGS = 0x6D80
+_WEBM_CONTENT_ENCODING = 0x6240
+_WEBM_CONTENT_ENCRYPTION = 0x5035
+_WEBM_CONTENT_ENC_KEY_ID = 0x47E2
+_WEBM_CONTAINERS = {
+    _WEBM_SEGMENT,
+    _WEBM_TRACKS,
+    _WEBM_TRACK_ENTRY,
+    _WEBM_CONTENT_ENCODINGS,
+    _WEBM_CONTENT_ENCODING,
+    _WEBM_CONTENT_ENCRYPTION,
+}
+
+
 
 @dataclass
 class EncryptionInfo:
     encrypted: bool = False
-    scheme: str | None = None  # e.g. "cenc", "cbcs"
-    kid: str | None = None  # default KID hex string
-    pssh_b64: str | None = None  # base64 PSSH box, synthesized from KID if needed (populated by _finalize)
-    video_codec: str | None = None  # e.g. "H.264", "HEVC"
-    encryption_method: str | None = None  # e.g. "SAMPLE_AES"
-    track_ids: list[str] | None = None  # list of track IDs (if available)
+    scheme: str | None = None
+    kid: str | None = None
+    pssh_b64: str | None = None 
+    video_codec: str | None = None
+    encryption_method: str | None = None
+    track_ids: list[str] | None = None
     pssh_boxes: list[dict] = field(default_factory=list)
 
 
@@ -77,13 +92,76 @@ def _select_preferred_pssh(pssh_boxes: list[dict], kid: str | None) -> str | Non
     return pssh_boxes[0].get("system_id")
 
 
+def _ebml_read_vint(buf: bytes, pos: int, is_id: bool) -> tuple[int, int] | None:
+    if pos >= len(buf):
+        return None
+    first = buf[pos]
+    if first == 0:
+        return None
+    length, mask = 1, 0x80
+    while not (first & mask) and length <= 8:
+        mask >>= 1
+        length += 1
+    if pos + length > len(buf):
+        return None
+    if is_id:
+        value = 0
+        for i in range(length):
+            value = (value << 8) | buf[pos + i]
+    else:
+        value = first & (mask - 1)
+        for i in range(1, length):
+            value = (value << 8) | buf[pos + i]
+    return value, length
+
+
+def _detect_webm_encryption(file_path: str) -> EncryptionInfo:
+    """Detect ContentEncKeyID by walking the leading portion of a WebM/Matroska file's EBML tree."""
+    info = EncryptionInfo()
+    try:
+        with open(file_path, "rb") as fh:
+            buf = fh.read(2_000_000)
+    except OSError as exc:
+        logger.debug(f"webm read failed for {file_path}: {exc}")
+        return info
+
+    if buf[:4] != _EBML_MAGIC:
+        return info
+
+    def walk(start: int, end: int) -> None:
+        pos = start
+        while pos < end:
+            idr = _ebml_read_vint(buf, pos, True)
+            if not idr:
+                return
+            eid, idlen = idr
+            pos += idlen
+            szr = _ebml_read_vint(buf, pos, False)
+            if not szr:
+                return
+            size, szlen = szr
+            pos += szlen
+            unknown_size = size == (1 << (7 * szlen)) - 1
+            child_end = end if unknown_size else min(pos + size, end)
+            if eid in _WEBM_CONTAINERS:
+                walk(pos, child_end)
+            elif eid == _WEBM_CONTENT_ENC_KEY_ID:
+                info.kid = buf[pos:child_end].hex()
+                info.encrypted = True
+                info.scheme = "cenc"
+            pos = child_end
+
+    walk(0, len(buf))
+    return info
+
+
 def detect_encryption_info(file_path: str) -> EncryptionInfo:
-    """Detect encryption metadata by walking the MP4 box tree."""
+    """Detect encryption metadata by walking the MP4 box tree (falls back to WebM/EBML)."""
     try:
         atoms = parse_file(file_path, decode_senc_entries=False)
     except Exception as exc:
         logger.debug(f"parse_file failed for {file_path}: {exc}")
-        return EncryptionInfo()
+        return _detect_webm_encryption(file_path)
 
     info = EncryptionInfo()
     pssh_boxes = _find_all(atoms, "pssh")
@@ -95,17 +173,38 @@ def detect_encryption_info(file_path: str) -> EncryptionInfo:
     saiz_boxes = _find_all(atoms, "saiz")
     trak_boxes = _find_all(atoms, "trak")
 
+    seen_kids: set[str] = set()
     for tenc in tenc_boxes:
         kid = tenc.data.get("default_KID")
         if isinstance(kid, (bytes, bytearray)):
-            info.kid = kid.hex()
-            break
+            seen_kids.add(kid.hex())
+            if info.kid is None:
+                info.kid = kid.hex()
+    if len(seen_kids) > 1:
+        # Multiple tenc boxes with DIFFERENT default_KIDs -- e.g. a track
+        # with more than one protected stsd entry, each carrying its own
+        # tenc (the same content shape that caused a real silent-corruption
+        # bug in flux's clear-lead detection, which assumed a single
+        # protected entry). Picking the first arbitrarily could be wrong for
+        # this file; at minimum make that ambiguity visible in the logs.
+        logger.warning(
+            f"{file_path}: multiple distinct KIDs found across {len(tenc_boxes)} tenc boxes "
+            f"({sorted(seen_kids)}) -- using the first one ({info.kid}); this may be wrong if "
+            f"different stsd entries actually use different keys"
+        )
 
+    seen_schemes: set[str] = set()
     for schm in schm_boxes:
         scheme = schm.data.get("scheme_type")
         if scheme:
-            info.scheme = str(scheme).lower()
-            break
+            seen_schemes.add(str(scheme).lower())
+            if info.scheme is None:
+                info.scheme = str(scheme).lower()
+    if len(seen_schemes) > 1:
+        logger.warning(
+            f"{file_path}: multiple distinct schemes found across {len(schm_boxes)} schm boxes "
+            f"({sorted(seen_schemes)}) -- using the first one ({info.scheme})"
+        )
 
     for encv in encv_boxes:
         frma_boxes = _find_all([encv], "frma")
@@ -149,7 +248,7 @@ def detect_encryption_info(file_path: str) -> EncryptionInfo:
         info.encryption_method = "SAMPLE_AES"
 
     if not info.encrypted:
-        return EncryptionInfo()
+        return _detect_webm_encryption(file_path)
 
     info.pssh_b64 = _select_preferred_pssh(info.pssh_boxes, info.kid)
     return info

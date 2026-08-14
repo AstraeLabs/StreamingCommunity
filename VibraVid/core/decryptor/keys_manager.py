@@ -74,10 +74,15 @@ class KeysManager:
             if not s:
                 return
 
-            # Fast, robust path for standard 32-hex pairs: tolerant of any/no separator.
-            hex_pairs = cls._HEX_PAIR_RE.findall(s)
-            if hex_pairs:
-                yield from hex_pairs
+            matches = list(cls._HEX_PAIR_RE.finditer(s))
+            if matches:
+                remainder = s
+                for m in reversed(matches):
+                    remainder = remainder[: m.start()] + " " + remainder[m.end() :]
+                for token in cls._SPLIT_RE.split(remainder):
+                    if token and ":" in token:
+                        logger.warning(f"Skipping malformed key segment (expected 32 hex chars on each side of ':'): {token!r}")
+                yield from (m.groups() for m in matches)
                 return
 
             # Generic path: split on separators, then on the first ':' of each token.

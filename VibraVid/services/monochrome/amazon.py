@@ -15,6 +15,7 @@ MONOCHROME_ORIGIN = "https://monochrome.tf"
 AMAZON_API_URL = "https://amz.geeked.wtf/api/track/"
 AMAZON_TURNSTILE_EXCHANGE_URL = "https://amz.geeked.wtf/api/auth/turnstile"
 TURNSTILE_SITE_KEY = "0x4AAAAAADgxqF6QVMm0GLHH"
+TURNSTILE_ACTION = "auth"
 
 _JWT_TTL_SECONDS = 3600
 _TURNSTILE_TIMEOUT_SECONDS = 40
@@ -81,7 +82,7 @@ def _solve_via_bypasser(url: str, timeout: int) -> str:
         try:
             resp = client.post(
                 f"{endpoint}/solve",
-                json={"url": url, "sitekey": TURNSTILE_SITE_KEY, "timeout": timeout},
+                json={"url": url, "sitekey": TURNSTILE_SITE_KEY, "action": TURNSTILE_ACTION, "timeout": timeout},
             )
         except Exception as e:
             raise AmazonError(

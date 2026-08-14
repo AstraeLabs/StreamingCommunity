@@ -438,6 +438,9 @@ def build_video_stsd(codec: str, codec_private: bytes, width: int, height: int, 
     if codec in ("hvc1", "hev1"):
         config_box = make_box(b"hvcC", build_hvcc(codec_private))
         original_format = b"hvc1"
+    elif codec in ("dvhe", "dvh1"):
+        config_box = make_box(b"hvcC", build_hvcc(codec_private))
+        original_format = b"dvh1"
     elif codec in ("avc1", "avc3"):
         config_box = make_box(b"avcC", build_avcc(codec_private))
         original_format = b"avc1"

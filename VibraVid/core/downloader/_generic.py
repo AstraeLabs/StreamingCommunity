@@ -4,6 +4,7 @@ import copy
 import logging
 import os
 import threading
+from types import SimpleNamespace
 from typing import Any
 
 from rich.console import Console
@@ -703,11 +704,17 @@ class Generic_Downloader(BaseDownloader):
         if self.download_id:
             download_tracker.update_status(self.download_id, "Muxing ...")
 
+        # `_merge_files` (inherited from `BaseDownloader`) refuses to mux a track that never actually decrypted by checking `self.media_downloader.decrypt_failures`
+        self.media_downloader = SimpleNamespace(
+            decrypt_failures=[f for md, _src in self._active for f in getattr(md, "decrypt_failures", None) or []]
+        )
+
         final_file = self._merge_files(status)
         if not final_file:
+            merge_error = self.error or "Merge failed"
             if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="Merge failed")
-            return None, True, "Merge failed"
+                download_tracker.complete_download(self.download_id, success=False, error=merge_error)
+            return None, True, merge_error
 
         self._finalize(final_file=final_file)
         return self.output_path, False, None

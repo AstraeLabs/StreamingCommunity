@@ -47,6 +47,17 @@ TOKEN_REFRESH_BACKOFF_SECONDS = config_manager.config.get_float(
 )
 TOKEN_REFRESH_STALL_ROUNDS = max(1, config_manager.config.get_int("DOWNLOAD", "token_refresh_stall_rounds", default=3))
 DECRYPT_WORKER_COUNT = max(1, config_manager.config.get_int("DOWNLOAD", "decrypt_worker_count"))
+SKIP_POST_DECRYPT = config_manager.config.get_bool("DOWNLOAD", "skip_post_decrypt", default=False)
+
+
+def _reads_as_self_initializing_mp4(path: Path) -> bool:
+    """True if *path* starts with its own `ftyp` box — a complete, independently decryptable MP4 document — rather than a bare `moof`/`mdat` fragment meant to share a separate init segment."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(8)
+    except OSError:
+        return False
+    return len(head) == 8 and head[4:8] == b"ftyp"
 
 
 class DecryptPipelineMixin:
@@ -77,19 +88,22 @@ class DecryptPipelineMixin:
                 return
 
             label = self._decrypt_track_label(stream)
+            logger.info(f"Verify starting -> {out_path.name}")
+            _verify_t0 = time.monotonic()
             ok, message, still_encrypted = verify_decrypted_media(out_path)
+            _verify_elapsed = time.monotonic() - _verify_t0
             if ok:
-                logger.info(f"Track decrypt verified OK [{label}] {out_path.name}: {message}")
+                logger.info(f"Track decrypt verified OK [{label}] {out_path.name}: {message} (verify took {_verify_elapsed:.1f}s)")
                 return
 
             if still_encrypted:
-                logger.error(f"Track still ENCRYPTED after decrypt [{label}] {out_path.name}: {message}")
+                logger.error(f"Track still ENCRYPTED after decrypt [{label}] {out_path.name}: {message} (verify took {_verify_elapsed:.1f}s)")
                 short = message.split(";", 1)[0].strip()
-                console.print(escape(f"[!] Decryption FAILED for {label}: {short};"))
+                console.print(escape(f"Decryption FAILED for {label}: {short};"))
                 with self._decrypt_failures_lock:
                     self.decrypt_failures.append({"label": label, "track": out_path.name, "message": message})
             else:
-                logger.warning(f"Track decrypt verification inconclusive [{label}] {out_path.name}: {message}")
+                logger.warning(f"Track decrypt verification inconclusive [{label}] {out_path.name}: {message} (verify took {_verify_elapsed:.1f}s)")
         except Exception as exc:
             logger.warning(f"Track decrypt verification skipped for {getattr(stream, 'type', '?')}: {exc}")
 
@@ -139,10 +153,11 @@ class DecryptPipelineMixin:
             _seg_dur_cumulative.append(_acc)
 
         decrypt_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
-        decrypt_errors: list[str] = []  # per-segment decryption error messages (diagnostics)
-        seg_errors: list[str] = []  # per-segment HTTP/transport error messages (diagnostics)
+        decrypt_errors: list[str] = []      # per-segment decryption error messages (diagnostics)
+        seg_errors: list[str] = []          # per-segment HTTP/transport error messages (diagnostics)
         decrypt_threads: list[threading.Thread] = []
         probe_lock = threading.Lock()
+
         # ISM fragments are raw moof+mdat with no ftyp/moov of their own — DRM info
         # was already probed on the manifest-synthesized init (_probe_ism_init)
         # before this ran, so skip the (always-empty) per-segment probe here.
@@ -569,6 +584,7 @@ class DecryptPipelineMixin:
 
         merge_total_size = sum(p.stat().st_size for p in paths if p.exists())
         logger.info(f"Merge starting -> {out_path.name} ({len(paths)} segs, {_fmt_size(merge_total_size)})")
+        _merge_t0 = time.monotonic()
         bar_manager.handle_progress_line(
             {
                 "task_key": task_key,
@@ -613,6 +629,47 @@ class DecryptPipelineMixin:
 
         logger.info(f"[merge_detect] {out_path.name}: is_webvtt_sub={_is_webvtt_sub} ({_detect_reason}), {len(paths)} segment(s)")
 
+        stream_is_encrypted = stream.drm.method is not None
+        already_decrypted_per_segment = False
+
+        # Some HLS BYTERANGE packagings (observed on Shaka Packager's
+        # SAMPLE-AES-CTR multi-key output) make every media segment a
+        # self-initializing MP4 document (its own ftyp+moov, not a bare
+        # moof+mdat fragment sharing the EXT-X-MAP init).
+        if (
+            not is_plain_subtitle
+            and not live_decryption
+            and self.key
+            and stream_is_encrypted
+            and not SKIP_POST_DECRYPT
+        ):
+            existing = [p for p in paths if p.exists() and p.stat().st_size > 0]
+            ftyp_count = sum(1 for p in existing if _reads_as_self_initializing_mp4(p))
+            if len(existing) > 1 and ftyp_count > 1:
+                logger.info(f"{out_path.name}: {ftyp_count}/{len(existing)} segment(s) are self-initializing MP4 documents — decrypting each individually before merge instead of once after")
+                decrypted_paths: list[Path] = []
+                per_segment_ok = True
+                for p in existing:
+                    dec_p = p.with_suffix(p.suffix + ".dec")
+                    try:
+                        if Decryptor().decrypt(str(p), self.key, str(dec_p), stream_type=stream.type):
+                            decrypted_paths.append(dec_p)
+                        else:
+                            per_segment_ok = False
+                            logger.warning(f"{out_path.name}: per-segment decrypt failed for {p.name}")
+                            break
+                    except Exception as exc:
+                        per_segment_ok = False
+                        logger.warning(f"{out_path.name}: per-segment decrypt error for {p.name}: {exc}")
+                        break
+
+                if per_segment_ok:
+                    paths = decrypted_paths
+                    already_decrypted_per_segment = True
+                else:
+                    for dec_p in decrypted_paths:
+                        dec_p.unlink(missing_ok=True)
+
         if _is_webvtt_sub:
             merged = merge_vtt_files(paths, merge_logger=logger)
             n_headers = merged.count("WEBVTT")
@@ -623,8 +680,11 @@ class DecryptPipelineMixin:
         else:
             binary_merge_segments(paths, out_path, merge_logger=logger)
             logger.debug(f"Binary merge completed -> {out_path.name}")
+        logger.info(f"Merge finished -> {out_path.name} in {time.monotonic() - _merge_t0:.1f}s")
 
-        stream_is_encrypted = stream.drm.method is not None
+        if already_decrypted_per_segment:
+            for p in paths:
+                p.unlink(missing_ok=True)
 
         # Reset absolute fragment timestamps. Must run AFTER decryption
         def _normalize_out_path() -> None:
@@ -644,12 +704,17 @@ class DecryptPipelineMixin:
                 logger.error(f"[normalize] rename-back failed, keeping un-normalized file: {exc}")
                 norm_path.unlink(missing_ok=True)
 
-        if not ((not live_decryption) and self.key and stream_is_encrypted):
+        if already_decrypted_per_segment or not ((not live_decryption) and self.key and stream_is_encrypted):
             _normalize_out_path()
 
-        decrypted_ok = False
+        decrypted_ok = already_decrypted_per_segment
         decrypt_already_reported = False
-        if (
+        if already_decrypted_per_segment:
+            # Each segment was already decrypted individually before the merge above — the merged file is plaintext already.
+            logger.info(f"Decrypt already done per-segment -> {out_path.name}")
+        elif SKIP_POST_DECRYPT and stream_is_encrypted:
+            logger.info(f"skip_post_decrypt: leaving {out_path.name} encrypted (raw merged track kept for testing)")
+        elif (
             (not live_decryption)
             and self.key
             and stream_is_encrypted
@@ -675,12 +740,15 @@ class DecryptPipelineMixin:
                     }
                 )
 
+            _decrypt_t0 = time.monotonic()
+            logger.info(f"Decrypt starting -> {out_path.name}")
             try:
                 decryptor = Decryptor()
                 if decryptor.decrypt(
                     str(out_path), self.key, str(post_merge_path), stream_type=stream.type, progress_cb=_decrypt_cb
                 ):
                     decrypted_ok = True
+                    logger.info(f"Decrypt finished -> {out_path.name} in {time.monotonic() - _decrypt_t0:.1f}s")
                     try:
                         out_path.unlink(missing_ok=True)
                         post_merge_path.rename(out_path)
@@ -696,7 +764,7 @@ class DecryptPipelineMixin:
                     decrypt_already_reported = True
                     kid_hint = ", ".join(stream.drm.get_all_kids()) if stream.drm else ""
                     track_label = f"{stream.type} {stream.resolution or stream.language or ''}".strip()
-                    logger.warning(f"Post-merge decryption failed for {out_path.name} (kid={kid_hint or 'unknown'})")
+                    logger.warning(f"Decrypt failed -> {out_path.name} after {time.monotonic() - _decrypt_t0:.1f}s (kid={kid_hint or 'unknown'})")
                     bar_manager.handle_progress_line({"task_key": task_key, "speed": "Failed"})
                     with self._decrypt_failures_lock:
                         self.decrypt_failures.append(
@@ -713,7 +781,7 @@ class DecryptPipelineMixin:
                             pass
 
             except Exception as exc:
-                logger.error(f"Post-merge decryption error: {exc}")
+                logger.error(f"Decrypt error -> {out_path.name} after {time.monotonic() - _decrypt_t0:.1f}s: {exc}")
 
         if out_path.exists() and out_path.stat().st_size > 0:
             logger.debug(f"{protocol.upper()} merged {len(paths):>4} segs -> {out_path.name} ({out_path.stat().st_size // 1024} KB)")

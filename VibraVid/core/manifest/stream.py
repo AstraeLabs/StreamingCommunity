@@ -38,6 +38,7 @@ class DRMInfo:
     WIDEVINE_SYSTEM_ID = _DRMSystems.to_system_id(_DRMSystems.WIDEVINE)
     PLAYREADY_SYSTEM_ID = _DRMSystems.to_system_id(_DRMSystems.PLAYREADY)
     FAIRPLAY_SYSTEM_ID = _DRMSystems.to_system_id(_DRMSystems.FAIRPLAY)
+    CLEARKEY_SYSTEM_ID = _DRMSystems.to_system_id(_DRMSystems.CLEARKEY)
 
     def __init__(self):
         self.pssh = None
@@ -90,6 +91,7 @@ class DRMInfo:
             _WV_UUID = _UUID(hex=_DRMSystems.WIDEVINE)
             _PR_UUID = _UUID(hex=_DRMSystems.PLAYREADY)
             _FP_UUID = _UUID(hex=_DRMSystems.FAIRPLAY)
+            _CK_UUID = _UUID(hex=_DRMSystems.CLEARKEY)
 
             wv_obj = WV_PSSH(pssh_base64)
             sid = wv_obj.system_id
@@ -101,6 +103,8 @@ class DRMInfo:
                 detected = DRMType.PLAYREADY
             elif sid == _FP_UUID:
                 detected = DRMType.FAIRPLAY
+            elif sid == _CK_UUID:
+                detected = DRMType.CLEARKEY
             else:
                 detected = DRMType.UNKNOWN
 
@@ -145,6 +149,8 @@ class DRMInfo:
                         detected = DRMType.PLAYREADY
                     elif sid_lo == self.FAIRPLAY_SYSTEM_ID:
                         detected = DRMType.FAIRPLAY
+                    elif sid_lo == self.CLEARKEY_SYSTEM_ID:
+                        detected = DRMType.CLEARKEY
                     else:
                         detected = DRMType.UNKNOWN
 
@@ -165,7 +171,7 @@ class DRMInfo:
         if detected not in self._drm_types:
             self._drm_types.append(detected)
 
-        for pref in (DRMType.WIDEVINE, DRMType.PLAYREADY, DRMType.FAIRPLAY, DRMType.UNKNOWN):
+        for pref in (DRMType.WIDEVINE, DRMType.PLAYREADY, DRMType.FAIRPLAY, DRMType.CLEARKEY, DRMType.UNKNOWN):
             if pref in self._pssh_by_type:
                 self.pssh = self._pssh_by_type[pref]
                 self.drm_type = pref

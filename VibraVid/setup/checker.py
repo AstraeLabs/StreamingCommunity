@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 
 INSTALLATION_LEVELS = {
     "none": [],
-    "essential": ["bento4", "ffmpeg", "velora"],
-    "full": ["bento4", "ffmpeg", "velora", "dovi_tool", "mkvtoolnix"],
+    "essential": ["ffmpeg", "velora"],
+    "essential+drm": ["ffmpeg", "velora", "flux", "bento4", "shaka_packager"],
+    "full": ["ffmpeg", "velora", "flux", "bento4", "shaka_packager", "dovi_tool", "mkvtoolnix"],
 }
 
 
@@ -70,6 +71,30 @@ def check_bento4() -> str | None:
 
     logger.error(f"Failed to download {binary_exec}")
     console.print(f"Failed to download {binary_exec}", style="red")
+    return None
+
+
+def check_flux() -> str | None:
+    """
+    Check for a flux binary and download if not found.
+    Order: system PATH -> binary directory -> download from GitHub
+    """
+    system_platform = binary_paths.system
+    binary_exec = "flux.exe" if system_platform == "windows" else "flux"
+
+    # STEP 1: Check system PATH
+    binary_path = shutil.which(binary_exec)
+    if binary_path:
+        logger.debug(f"Found {binary_exec} in system PATH ({binary_path})")
+        return binary_path
+
+    # STEP 2: Check local binary directory (no download step for this one)
+    binary_local = binary_paths.get_binary_path("flux", binary_exec)
+    if binary_local and os.path.isfile(binary_local):
+        logger.debug(f"Found {binary_exec} in local binary directory ({binary_local})")
+        return binary_local
+
+    logger.debug(f"{binary_exec} not found (optional — no auto-download; flux fast-path disabled)")
     return None
 
 

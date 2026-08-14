@@ -13,6 +13,7 @@ from rich.console import Console
 
 from VibraVid.core.manifest._utils import (
     calc_base_url,
+    escape_bare_ampersands,
     fast_urljoin,
     fast_urljoin_auto,
     is_simple_relative_ref,
@@ -217,7 +218,7 @@ class DashParser:
         if self._injected:
             self.raw_content = self._injected
             try:
-                self._root = ET.fromstring(self.raw_content)
+                self._root = ET.fromstring(escape_bare_ampersands(self.raw_content))
                 self._resolve_base_url()
                 logger.info(f"DashParser: injected XML parsed in {time.time() - start_parsing_time:.2f}s")
                 return True
@@ -232,7 +233,7 @@ class DashParser:
                 local_path = Path(url2pathname(urlparse(self.mpd_url).path))
                 self.raw_content = local_path.read_text(encoding="utf-8")
                 self._base_url = local_path.parent.as_uri() + "/"
-                self._root = ET.fromstring(self.raw_content)
+                self._root = ET.fromstring(escape_bare_ampersands(self.raw_content))
                 self._resolve_base_url()
                 logger.info(f"DashParser: local file read and parsed successfully in {time.time() - start_parsing_time:.2f}s")
                 return True
@@ -249,7 +250,7 @@ class DashParser:
                 r = c.get(self.mpd_url)
                 r.raise_for_status()
                 self.raw_content = r.text
-            self._root = ET.fromstring(self.raw_content)
+            self._root = ET.fromstring(escape_bare_ampersands(self.raw_content))
             self._resolve_base_url()
             logger.info(f"DashParser: fetched and parsed MPD in {time.time() - start_parsing_time:.2f}s")
             return True
@@ -436,6 +437,12 @@ class DashParser:
             s.drm = adapt_drm
         else:
             s.drm = DRMInfo()
+
+        if s.drm.is_encrypted() and not s.drm.method:
+            # WebM CENC has no cbcs/cbc1/cens equivalent — only AES-CTR full/partitioned-sample
+            mime_hint = (rep.get("mimeType") or adapt.get("mimeType") or "").lower()
+            if "webm" in mime_hint:
+                s.drm.method = "cenc"
 
         # Segments: SegmentTemplate > SegmentList > BaseURL single-file
         tmpl = _first_not_none(rep.find("mpd:SegmentTemplate", _NS), adapt.find("mpd:SegmentTemplate", _NS))
@@ -969,9 +976,15 @@ class DashParser:
         if not s:
             return 0.0
         try:
-            m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?", s)
+            m = re.match(r"P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?)?", s)
             if m:
-                return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3) or 0)
+                years = int(m.group(1) or 0)
+                months = int(m.group(2) or 0)
+                days = int(m.group(3) or 0)
+                hours = int(m.group(4) or 0)
+                minutes = int(m.group(5) or 0)
+                seconds = float(m.group(6) or 0)
+                return years * 31536000 + months * 2592000 + days * 86400 + hours * 3600 + minutes * 60 + seconds
         except Exception:
             pass
         return 0.0

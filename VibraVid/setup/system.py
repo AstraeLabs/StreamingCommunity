@@ -11,6 +11,7 @@ from .checker import (
     check_ffmpeg,
     check_mkvmerge,
     check_shaka_packager,
+    check_flux,
     check_velora,
 )
 from .device_install import check_device_prd_path, check_device_wvd_path
@@ -38,6 +39,7 @@ _velora_path = None
 _shaka_packager_path = None
 _dovi_tool_path = None
 _mkvmerge_path = None
+_flux_path = None
 _initialized = False
 _init_lock = threading.Lock()
 
@@ -52,7 +54,7 @@ def _initialize_paths():
     """
     global _ffmpeg_path, _ffprobe_path, _bento4_decrypt_path
     global _wvd_path, _prd_path, _velora_path, _shaka_packager_path
-    global _dovi_tool_path, _mkvmerge_path
+    global _dovi_tool_path, _mkvmerge_path, _flux_path
     global _initialized
 
     # Fast path: already initialized, return immediately.
@@ -72,6 +74,7 @@ def _initialize_paths():
         _shaka_packager_path = check_shaka_packager()
         _dovi_tool_path = check_dovi_tool()
         _mkvmerge_path = check_mkvmerge()
+        _flux_path = check_flux()
         _initialized = True
 
 
@@ -144,6 +147,17 @@ def get_shaka_packager_path() -> str:
         _drop_cached("packager")
         _shaka_packager_path = check_shaka_packager()
     return _shaka_packager_path
+
+
+def get_flux_path() -> str | None:
+    """Return the resolved `flux` binary path, or None if it isn't available (optional tool)."""
+    global _flux_path
+    if not _initialized:
+        _initialize_paths()
+    if not _is_alive(_flux_path):
+        _drop_cached("flux")
+        _flux_path = check_flux()
+    return _flux_path
 
 
 def get_dovi_tool_path() -> str:

@@ -13,6 +13,7 @@ from .system import (
     get_mkvmerge_path,
     get_prd_path,
     get_shaka_packager_path,
+    get_flux_path,
     get_velora_path,
     get_wvd_path,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "get_ffmpeg_path",
     "get_ffprobe_path",
     "get_shaka_packager_path",
+    "get_flux_path",
     "get_dovi_tool_path",
     "get_mkvmerge_path",
     "get_velora_path",

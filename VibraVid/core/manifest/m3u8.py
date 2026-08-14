@@ -192,7 +192,7 @@ class HLSParser:
         for stream in streams:
             enc_method = (stream.encryption_method or "").lower() if stream.encryption_method else ""
 
-            if enc_method in ("sample-aes", "sample_aes", "cbcs", "cbc1", "cens"):
+            if enc_method.startswith(("sample-aes", "sample_aes")) or enc_method in ("cbcs", "cbc1", "cens"):
                 stream.supports_live_decryption = False
                 logger.debug(f"Stream {stream.id}: SAMPLE-AES detected - Using post-merge decryption")
             else:
@@ -438,9 +438,10 @@ class HLSParser:
                 if detected != DRMType.UNKNOWN:
                     info.add_advertised_type(detected)
 
-        aes_m = re.search(r'#EXT-X-(?:SESSION-)?KEY:.*?METHOD=(AES[^,"\s]+)', content, re.IGNORECASE)
-        if aes_m:
-            info.method = aes_m.group(1)
+        # Any #EXT-X-KEY METHOD, not just the AES-128/AES-256 family — this also catches SAMPLE-AES/SAMPLE-AES-CTR/SAMPLE-AES-CENC
+        method_m = re.search(r'#EXT-X-(?:SESSION-)?KEY:.*?METHOD=([^,"\s]+)', content, re.IGNORECASE)
+        if method_m and method_m.group(1).upper() != "NONE":
+            info.method = method_m.group(1)
 
         key_re = re.compile(r'#EXT-X-(?:SESSION-)?KEY:(.*?)URI="([^"]+)"', re.IGNORECASE | re.DOTALL)
 

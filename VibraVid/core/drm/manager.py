@@ -97,9 +97,12 @@ class DRMManager:
             if tag:
                 marker = "*" if required_kids and kid_val.strip().lower() in required_kids else ""
                 suffix = f" [cyan]| [#a855f7]{marker}{tag}"
+                log_suffix = f" | {marker}{tag}"
             else:
                 suffix = ""
+                log_suffix = ""
             console.print(f"    - [red]{kid_val}[white]:[green]{key_val}{suffix}")
+            logger.info(f"DRM key {drm_type}: {kid_val}:{key_val}{log_suffix}")
 
     def _bypass_cache(self) -> bool:
         """Effective bypass-vault-cache flag: per-run CLI override wins over config default."""

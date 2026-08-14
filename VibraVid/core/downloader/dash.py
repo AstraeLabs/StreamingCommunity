@@ -837,10 +837,12 @@ class DASH_Downloader(BaseDownloader):
             if self.download_id and download_tracker.is_stopped(self.download_id):
                 download_tracker.complete_download(self.download_id, success=False, error="cancelled")
                 return None, True, "cancelled"
-            logger.error("Merge failed")
+            
+            merge_error = self.error or "Merge failed"
+            logger.error(merge_error)
             if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="Merge failed")
-            return None, True, "Merge failed"
+                download_tracker.complete_download(self.download_id, success=False, error=merge_error)
+            return None, True, merge_error
 
         self._finalize(final_file=final_file)
         if DELAY_SS > 0:

@@ -18,6 +18,7 @@ from VibraVid.setup import get_bento4_decrypt_path
 
 from .util._ism_boxes import ISM_TIMESCALE, build_ism_init_segment
 from .util._verify import verify_decrypted_media
+from ._decrypt_pipeline import SKIP_POST_DECRYPT
 
 logger = logging.getLogger("manual")
 
@@ -238,8 +239,16 @@ class IsmPostprocMixin:
 
         logger.info(f"ISM file: {encrypted_temp} ({encrypted_temp.stat().st_size} bytes)")
 
-        # Continue the track's own bar for the decrypt phase (status "@ Merge" -> "@ CTR",
-        # bar restarts) instead of spawning a separate "Dec ..." bar.
+        if SKIP_POST_DECRYPT:
+            logger.info(f"skip_post_decrypt: leaving {encrypted_temp.name} encrypted (raw merged track kept for testing)")
+            try:
+                encrypted_temp.rename(out_path)
+            except OSError:
+                shutil.copy2(str(encrypted_temp), str(out_path))
+                encrypted_temp.unlink(missing_ok=True)
+            return True
+
+        # Continue the track's own bar for the decrypt phase (status "@ Merge" -> "@ CTR", bar restarts) instead of spawning a separate "Dec ..." bar.
         def _decrypt_cb(parsed: dict[str, Any] | None) -> None:
             if not parsed:
                 return
@@ -276,7 +285,7 @@ class IsmPostprocMixin:
             if still_encrypted:
                 label = self._decrypt_track_label(stream)
                 short = verify_msg.split(";", 1)[0].strip()
-                console.print(escape(f"[!] Decryption FAILED for {label}: {short};"))
+                console.print(escape(f"Decryption FAILED for {label}: {short};"))
                 with self._decrypt_failures_lock:
                     self.decrypt_failures.append({"label": label, "track": out_path.name, "message": verify_msg})
             return False

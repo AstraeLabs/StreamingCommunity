@@ -1,7 +1,11 @@
 # 09.05.26
 
+import re
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+
+
+_BARE_AMPERSAND = re.compile(r"&(?!(?:amp|lt|gt|apos|quot|#\d+|#x[0-9a-fA-F]+);)")
 
 
 def calc_base_url(url: str) -> str:
@@ -29,6 +33,11 @@ def fast_urljoin_auto(base: str, ref: str) -> str:
     """``fast_urljoin`` for call sites where *ref* isn't a per-loop constant,
     so the simple-relative check has to run per call."""
     return fast_urljoin(base, ref, is_simple_relative_ref(ref))
+
+
+def escape_bare_ampersands(xml_text: str) -> str:
+    """Escape any `&` in *xml_text* that isn't already part of a valid XML entity/character reference."""
+    return _BARE_AMPERSAND.sub("&amp;", xml_text)
 
 
 def save_raw_manifest(raw_content: str, directory, filename: str):

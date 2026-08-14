@@ -329,11 +329,28 @@ class BaseDownloader:
                 console.print(f"[yellow]Warning: Could not move file: {e}")
                 self.output_path = final_file
 
+    def _decrypt_failure_message(self) -> str | None:
+        """"Decryption failed - track(s) still encrypted: ..." from  media_downloader.decrypt_failures, or None if every track decrypted OK."""
+        md = getattr(self, "media_downloader", None)
+        failures = list(getattr(md, "decrypt_failures", []) or [])
+        if not failures:
+            return None
+        
+        labels = ", ".join(dict.fromkeys(f.get("label") or f.get("track") or "?" for f in failures))
+        return f"Decryption failed - track(s) still encrypted: {labels}"
+
     def _merge_files(self, status: dict) -> str | None:
         """
         Merge downloaded files using FFmpeg.
         Returns the resulting file path, or None on failure.
         """
+        err = self._decrypt_failure_message()
+        if err:
+            logger.warning(f"{err} — skipping mux, the merged file would be rejected anyway")
+            console.print(f"[yellow]{err} — skipping mux.")
+            self.error = err
+            return None
+
         video_track = status.get("video")
         audio_tracks: list[dict] = list(status.get("audios") or [])
         subtitle_tracks: list[dict] = list(status.get("subtitles") or [])
@@ -598,16 +615,15 @@ class BaseDownloader:
         """Authoritative decryption check."""
         global LAST_DOWNLOADER_ERROR
         try:
-            md = getattr(self, "media_downloader", None)
-            failures = list(getattr(md, "decrypt_failures", []) or [])
-            if not failures:
+            err = self._decrypt_failure_message()
+            if not err:
                 return True
 
-            labels = ", ".join(dict.fromkeys(f.get("label") or f.get("track") or "?" for f in failures))
-            detail = failures[0].get("message", "")
-            err = f"Decryption failed - track(s) still encrypted: {labels}"
+            md = getattr(self, "media_downloader", None)
+            failures = list(getattr(md, "decrypt_failures", []) or [])
+            detail = failures[0].get("message", "") if failures else ""
             logger.error(f"Decryption verification FAILED for {os.path.basename(self.output_path or '')}: {err} ({detail})")
-            
+
             LAST_DOWNLOADER_ERROR = err
             self.error = err
             return False

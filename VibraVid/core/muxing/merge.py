@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1005,7 +1006,9 @@ def _join_media_ffmpeg(
 
     total_duration = get_video_duration(video_path)
     logger.info(f"Running Join Media command: {' '.join(ffmpeg_cmd)}")
+    _join_t0 = time.monotonic()
     result_json = capture_ffmpeg_real_time(ffmpeg_cmd, "[yellow]FFMPEG [cyan]Join media", total_duration)
+    logger.info(f"Join Media finished -> {out_path} in {time.monotonic() - _join_t0:.1f}s")
     if context_tracker.should_print:
         print()
 
@@ -1081,7 +1084,9 @@ def _join_media_mkvmerge(
 
     logger.info(f"Running Join Media (mkvmerge) command: {' '.join(cmd)}")
     total_duration = get_video_duration(video_path)
+    _join_t0 = time.monotonic()
     result_json = capture_ffmpeg_real_time(cmd, "[yellow]MKVMERGE [cyan]Join media", total_duration)
+    logger.info(f"Join Media (mkvmerge) finished -> {out_path} in {time.monotonic() - _join_t0:.1f}s")
 
     if chapter_file:
         try:

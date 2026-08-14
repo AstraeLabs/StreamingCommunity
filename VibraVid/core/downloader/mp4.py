@@ -32,6 +32,7 @@ from .util._post_decrypt import PostDownloadDecryptor
 logger = logging.getLogger(__name__)
 
 SKIP_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "skip_download")
+SKIP_POST_DECRYPT = config_manager.config.get_bool("DOWNLOAD", "skip_post_decrypt")
 DELAY_SS = config_manager.config.get_int("DOWNLOAD", "delay_after_download")
 SPEED_WINDOW_SECONDS = 1.0
 
@@ -523,7 +524,9 @@ class MP4FileDownloader:
                 return None, True, self._incomplete_err
 
             # Try decryption even on partial files when keys are available
-            if self._probe_encrypted or PostDownloadDecryptor.has_keys(self.key):
+            if SKIP_POST_DECRYPT:
+                logger.info(f"skip_post_decrypt: leaving {os.path.basename(self.path)} encrypted (kept for testing)")
+            elif self._probe_encrypted or PostDownloadDecryptor.has_keys(self.key):
                 self._run_decrypt(bar_mgr)
 
             self._resolve_media_tokens()
@@ -545,7 +548,10 @@ class MP4FileDownloader:
             console.print("[yellow]Warning: download was incomplete (partial file saved).")
 
         # Post-download decryption
-        if PostDownloadDecryptor.has_keys(self.key):
+        if SKIP_POST_DECRYPT:
+            if self._probe_encrypted or PostDownloadDecryptor.has_keys(self.key):
+                logger.info(f"skip_post_decrypt: leaving {os.path.basename(self.path)} encrypted (kept for testing)")
+        elif PostDownloadDecryptor.has_keys(self.key):
             self._run_decrypt(bar_mgr)
 
         # Chapters, as the final muxing step (mirrors BaseDownloader._inject_chapters).

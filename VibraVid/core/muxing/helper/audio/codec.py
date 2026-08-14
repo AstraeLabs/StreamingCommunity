@@ -5,6 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from VibraVid.core.decryptor._models import detect_encryption_info
 from VibraVid.core.utils.codec import get_codec_extension
 from VibraVid.setup import get_ffmpeg_path, get_ffprobe_path
 
@@ -71,6 +72,10 @@ def fix_container_mismatch(path: str) -> str:
     correct_ext = get_codec_extension(codec, default="")
     current_ext = Path(path).suffix.lstrip(".").lower()
     if not correct_ext or correct_ext == current_ext:
+        return path
+
+    if detect_encryption_info(path).encrypted:
+        logger.warning(f"[audio] container mismatch fix skipped — {os.path.basename(path)} is still encrypted")
         return path
 
     ffmpeg_path = get_ffmpeg_path()

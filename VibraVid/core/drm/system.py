@@ -208,6 +208,13 @@ class DRMType:
 
         if "fairplay" in s or "com.apple" in s or "streamingkeydelivery" in s or "94ce86fb" in sd:
             return cls.FAIRPLAY
+
+        if "clearkey" in s or "org.w3.clearkey" in s or "1077efec" in sd:
+            return cls.CLEARKEY
+
+        if "e2719d58" in sd:
+            return cls.CLEARKEY
+        
         return cls.UNKNOWN
 
     @classmethod

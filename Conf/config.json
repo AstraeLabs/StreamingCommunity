@@ -44,6 +44,7 @@
         "token_refresh_backoff_seconds": 4.0,
         "token_refresh_stall_rounds": 3,
         "embed_poster": false,
+        "skip_post_decrypt": false,
         "cleanup_tmp_folder": true
     },
     "PROCESS": {

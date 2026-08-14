@@ -31,6 +31,7 @@ from VibraVid.setup.system import (
     get_mkvmerge_path,
     get_prd_path,
     get_shaka_packager_path,
+    get_flux_path,
     get_velora_path,
     get_wvd_path,
 )
@@ -452,6 +453,7 @@ def show_dependencies(search_functions):
         "FFprobe": get_ffprobe_path(),
         "Bento4 (mp4decrypt)": get_bento4_decrypt_path(),
         "Shaka Packager": get_shaka_packager_path(),
+        "flux": get_flux_path(),
         "dovi_tool": get_dovi_tool_path(),
         "mkvmerge": get_mkvmerge_path(),
         "Velora": get_velora_path(),

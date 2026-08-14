@@ -9,8 +9,34 @@ from collections.abc import Callable
 from typing import Any
 
 from VibraVid.core.ui.bar_manager import console
+from VibraVid.setup import get_ffmpeg_path
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_profile_lines(text: str) -> str:
+    """Drop `transmux`'s `TRANSMUX_PROFILE` diagnostic lines"""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("[profile]"))
+
+
+def _tail_decode_check(output_path: str, seconds: float = 2.0) -> str | None:
+    """Decode the last *seconds* of *output_path* with ffmpeg to catch a decrypt engine reporting exit-0/non-empty-file"""
+    ffmpeg = get_ffmpeg_path()
+    if not ffmpeg:
+        return None
+    try:
+        proc = subprocess.run(
+            [ffmpeg, "-v", "error", "-sseof", f"-{seconds}", "-i", output_path, "-f", "null", "-"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
+        )
+    except Exception as exc:
+        logger.debug(f"tail decode check could not run for {output_path}: {exc}")
+        return None
+    stderr_text = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+    return stderr_text or None
 
 
 def _render_bar(percent: int, length: int = 10) -> str:
@@ -158,9 +184,13 @@ def run_with_progress(
         _emit(final_percent, final_size)
 
     if process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-        return True
+        tail_error = _tail_decode_check(output_path)
+        if tail_error is None:
+            return True
+        logger.warning(f"{label}: exit 0 and output present, but tail decode check found errors — treating as failed: {tail_error}")
+        return False, f"tail decode check failed:\n{tail_error}"
 
-    stderr_text = "".join(stderr_lines).strip()
+    stderr_text = _strip_profile_lines("".join(stderr_lines)).strip()
     stdout_text = "".join(stdout_lines).strip()
     combined = (stderr_text + ("\n" + stdout_text if stdout_text else "")).strip()
     return False, combined

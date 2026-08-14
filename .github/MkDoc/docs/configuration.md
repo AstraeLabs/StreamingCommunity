@@ -88,7 +88,7 @@ environment variable above.
 | `auto_update_check` | `true` | Notify you at startup when a new VibraVid version is available |
 | `disable_scraper_cache` | `false` | GUI only: the Django backend caches an already-instantiated site scraper per title for 15 minutes so repeat requests (e.g. opening the same series-detail page) don't re-scrape. |
 | `imp_service` | `["default"]` | Service source paths to load site modules from. `"default"` loads all built-in sites. Add absolute paths to directories containing custom site modules — each must have `__init__.py` defining `indice` and `_useFor`. A GitHub/Gitea repository URL is also accepted: its archive is downloaded and cached under `.cache/imported_service/<host>__<owner>__<repo>__<ref>/`. The cache is trusted for 15 minutes; past that, only a cheap "latest commit" check is made and the archive is only re-downloaded if that commit changed. Custom modules take precedence over built-ins with the same name. |
-| `installation` | `"essential"` | Controls which bundled binaries are auto-downloaded at setup: `none` skips all, `essential` downloads Bento4, FFmpeg, and Velora, `full` also adds Dovi Tool and MKVToolNix |
+| `installation` | `"essential"` | Controls which bundled binaries are auto-downloaded at setup: `none` skips all, `essential` downloads FFmpeg and Velora, `essential+drm` also downloads Bento4 and Shaka Packager and Flux — these are the decrypt engines, see [`DRM.decrypt_engine_map`](#drm), `full` adds Dovi Tool and MKVToolNix on top of that |
 | `skip_ts_versions` | `false` | StreamingCommunity only: skip `.ts`/CAM releases when a better version isn't otherwise detected. |
 | `get_me` | `false` | Resolve and print the account name in the login banner (e.g. `Login - Type: Account / User: name`) for services that support it.
 
@@ -101,7 +101,12 @@ environment variable above.
 ```json
 "imp_service": ["default", "https://github.com/owner/my-vibravid-sites"]
 ```
-For a private repository, embed credentials in the URL userinfo — `https://user:token@host/owner/repo` (GitHub: use a personal access token as the password; Gitea: username/password or a token). Pin a specific branch/tag with a `#ref` fragment, e.g. `https://host/owner/repo#dev`; otherwise the repository's default branch is used. Since credentials end up in `config.json`, prefer a scoped token over your account password, and keep `config.json` out of any git history you push (it's tracked in the VibraVid repo itself, so a fork/clone used for personal config should not be pushed upstream with real credentials in it).
+
+**Custom `imp_service` example (private repository, with username/password or token):**
+```json
+"imp_service": ["default", "http://user:password@192.168.1.149:3000/owner/my-vibravid-sites"]
+```
+Embed the credentials directly in the URL userinfo, as `<scheme>://<username>:<password>@<host>/<owner>/<repo>` (GitHub: use a personal access token as the password; Gitea: username/password or a token both work). Pin a specific branch/tag with a `#ref` fragment, e.g. `https://host/owner/repo#dev`; otherwise the repository's default branch is used. Since credentials end up in plain text in `config.json`, prefer a scoped token over your account password, and keep `config.json` out of any git history you push (it's tracked in the VibraVid repo itself, so a fork/clone used for personal config should not be pushed upstream with real credentials in it).
 
 ## OUTPUT
 
@@ -476,6 +481,7 @@ Any invalid value falls back to `scrap+down`. Override per run from the CLI with
 | `use_cdm` | `true` | Enable CDM-based key extraction. When `false`, only database/vault lookups are attempted |
 | `prefer_remote_cdm` | `false` | Prefer remote CDM services (see [Remote CDM Services](#remote-cdm-services) below) over local device files |
 | `bypass_vault_cache` | `false` | Skip the DRM key vault lookup and force a fresh CDM license request every run, instead of reusing a previously-seen key. |
+| `decrypt_engine_map` | — | Optional per-scheme decrypt engine override, e.g. `{"cbc1": "bento4"}`. The engine is otherwise picked automatically from the detected CENC scheme: `flux` for `cenc`/`cens`/`cbcs`/`cbc1` (all validated against Bento4/Shaka Packager), `shaka` for `fps`/SAMPLE-AES (flux doesn't implement it). Values: `flux`, `bento4`, `shaka`. Requires that engine's binary to be available — see `installation` above |
 | `vault` | — | Optional external DRM key store(s), queried before CDM extraction |
 
 ### Multiple / self-hosted DRM vaults
