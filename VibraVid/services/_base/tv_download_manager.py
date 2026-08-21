@@ -15,7 +15,7 @@ from VibraVid.services._base.tv_display_manager import (
     manage_selection,
     validate_selection,
 )
-from VibraVid.utils.vault_upload.hook import is_cached
+from VibraVid.utils.storage_upload.hook import is_cached
 
 console = Console()
 logger = logging.getLogger(__name__)

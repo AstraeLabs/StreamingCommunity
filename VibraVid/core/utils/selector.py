@@ -85,7 +85,8 @@ class FilterSpec:
     "b=1000-8000:f=best"                    bitrate range in kbps, best within range (video).
     "b=-8000:f=best"                        bitrate cap (no lower bound), best within range (video).
 
-    Native `key=value` keys: r=res, l=lang, c=codec/codecs, b=bitrate, i=id, f=for.
+    Native `key=value` keys (short or long form, both accepted):
+    r/res, l/lang/langs, c/codec/codecs, b/bitrate, i/id, f/for.
     E.g. "l=ita:c=aac:f=best" combines language + codec + fallback for audio.
     """
 
@@ -218,19 +219,20 @@ class FilterSpec:
             k, v = seg.split("=", 1)
             k = k.strip()
             v = v.strip().strip("'\"")
-            if k == "r":
+            if k in ("r", "res"):
                 self.res = v
-            elif k == "l":
+            elif k in ("l", "lang", "langs"):
                 self.langs = v
-            elif k == "c":
+            elif k in ("c", "codec", "codecs"):
                 self.codec = v
-            elif k == "i":
+            elif k in ("i", "id"):
                 self.id = v
-            elif k == "b":
+            elif k in ("b", "bitrate"):
                 self._parse_bitrate_range(v)
-            elif k == "f":
+            elif k in ("f", "for"):
                 for_val = v.lower()
             else:
+                logger.warning(f"StreamSelector: unrecognized native filter key {k!r} in {r!r} -- stored under extra and NOT applied to selection")
                 self.extra[k] = v
 
         if for_val == "all":
@@ -1113,34 +1115,6 @@ class StreamSelector:
         companion.dv_companion = True
         companion.dv_companion_quality = quality
         logger.info(f"StreamSelector &dv: marked companion {_height(companion)}p/{_codecs(companion)} (quality={quality!r})")
-
-    @staticmethod
-    def parse_filter(filter_str: str) -> dict:
-        spec = FilterSpec.parse(filter_str or "", "video")
-        if spec.drop:
-            return {"for": "false"}
-        result: dict = {}
-        if spec.select_all:
-            result["for"] = "all"
-        if spec.id:
-            result["id"] = spec.id
-        if spec.res:
-            result["res"] = spec.res
-        if spec.langs:
-            result["lang"] = spec.langs
-        if spec.codec:
-            result["codecs"] = spec.codec
-        result.update(spec.extra)
-        result.setdefault("for", "all" if spec.select_all else "best")
-        return result
-
-    @staticmethod
-    def extract_order_from_filter(filter_string: str) -> list[str]:
-        spec = FilterSpec.parse(filter_string or "", "audio")
-        if spec.langs:
-            return [v.strip() for v in spec.langs.split("|") if v.strip()]
-        return []
-
 
 def _best(streams: list):
     return max(streams, key=_bitrate) if streams else None

@@ -21,6 +21,7 @@ from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.core.ui.ui import build_table
 from VibraVid.core.utils.codec import AUDIO_EXTENSIONS, SUBTITLE_CODEC_MAP, SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS
 from VibraVid.core.utils.language import LANGUAGE_MAP, language_variants, resolve_locale, subtitle_flags
+from VibraVid.core.utils.resolution import classify_resolution
 from VibraVid.core.utils.selector import FilterSpec, StreamSelector, StreamSelectorFormatter
 from VibraVid.core.utils.stream_selector_ui import InteractiveStreamSelector
 from VibraVid.core.velora.subtitle import build_ext_track_label, ext_from_url, is_valid_format, normalize_sub_filename
@@ -59,6 +60,7 @@ class BaseMediaDownloader:
         manifest_content: str | None = None,
         manifest_protocol: str | None = None,
         manifest_refresh_fn=None,
+        has_drm: bool = False,
     ) -> None:
         self.url = url
         self.output_dir = Path(output_dir)
@@ -68,6 +70,7 @@ class BaseMediaDownloader:
         self.manifest_content = manifest_content
         self.manifest_protocol = (manifest_protocol or "").lower() or None
         self.key = key
+        self.has_drm = has_drm
         self.cookies = cookies or {}
         self.download_id = download_id
         self.site_name = site_name
@@ -159,7 +162,7 @@ class BaseMediaDownloader:
         elif effective == "custom":
             parser = CustomParser(self.url, self.headers, content=content)
         else:
-            parser = HLSParser(self.url, self.headers, content=content)
+            parser = HLSParser(self.url, self.headers, content=content, has_drm=self.has_drm)
 
         if not parser.fetch_manifest():
             logger.error("BaseMediaDownloader: manifest fetch failed")
@@ -251,9 +254,6 @@ class BaseMediaDownloader:
 
     def get_metadata(self) -> tuple[str, str, str]:
         return (str(self.raw_m3u8), str(self.raw_mpd), str(self.raw_ism))
-
-    def get_status(self) -> dict:
-        return self.status or self._build_status([], [])
 
     def start_download(self) -> dict[str, Any]:
         raise NotImplementedError("Subclasses must implement start_download()")
@@ -374,7 +374,8 @@ class BaseMediaDownloader:
             if codec:
                 parts.append(f"[yellow]\\[{codec}][/yellow]")
             if res:
-                parts.append(f"[green]{res}[/green]")
+                display_res = classify_resolution(v.width, v.height) if v.width and v.height else res
+                parts.append(f"[white]{display_res}[/white]")
             if v.bitrate:
                 parts.append(f"[blue]{v.bitrate_display}[/blue]")
 
@@ -384,8 +385,10 @@ class BaseMediaDownloader:
         else:
             self._video_label = ""
             self._video_task_key = "vid_main"
+        self._video_labels_by_task_key = {self._video_task_key: self._video_label}
 
         self._audio_labels = {}
+        self._audio_labels_by_task_key = {}
         self._audio_task_keys = []
         seen_normalized: set[str] = set()
 
@@ -407,7 +410,12 @@ class BaseMediaDownloader:
             label = " ".join(parts)
             raw = (s.language or "und").lower()
             normalized = resolve_locale(raw) if raw else ""
-            task_lang = normalized.split("-")[0].lower() if normalized else raw
+            # Must match _stream_task_key's audio branch exactly (prefers resolved_language over
+            # the raw, possibly-compound s.language) or the label built here won't be found by
+            # key when the download actually runs, and the UI falls back to showing the raw
+            # task_key instead of this label.
+            key_lang = (s.resolved_language or s.language or "und").lower()
+            task_lang = key_lang.split("-")[0]
 
             if task_lang in seen_normalized:
                 logger.info(f"Audio {raw!r} already mapped as {task_lang!r} -- skip dup")
@@ -419,6 +427,7 @@ class BaseMediaDownloader:
                 self._audio_labels[variant] = label
             if s.id and ":" in s.id:
                 self._audio_labels.setdefault(s.id.split(":")[0].lower(), label)
+            self._audio_labels_by_task_key[f"aud_{task_lang}"] = label
 
             self._audio_task_keys.append((task_lang, label))
 

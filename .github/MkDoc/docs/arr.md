@@ -100,7 +100,22 @@ RADARR_API_KEY=your-key
 SEERR_WEBHOOK_SECRET=your-secret
 SONARR_WEBHOOK_SECRET=your-secret
 RADARR_WEBHOOK_SECRET=your-secret
+
+# Less commonly needed, but also read from the environment:
+ENABLE_ARR_POLLING=true               # enable_polling
+ARR_POLLING_INTERVAL=300              # polling_interval (seconds)
+ARR_FULL_RESYNC_INTERVAL=21600        # full_resync_interval (seconds)
+ENABLE_SEERR_WEBHOOK=true             # enable_seerr_webhook
+ENABLE_SONARR_WEBHOOK=true            # enable_sonarr_webhook
+ENABLE_RADARR_WEBHOOK=true            # enable_radarr_webhook
+ARR_MAX_CONCURRENT_DOWNLOADS=1        # max_concurrent_downloads
+ARR_WEBHOOK_PRIORITY_ENABLED=true     # webhook_priority_enabled
+ARR_NATIVE_WEBHOOK_PRIORITY_WINDOW_SECONDS=120  # native_webhook_priority_window_seconds
+ARR_SEERR_FALLBACK_DELAY_SECONDS=20   # seerr_fallback_delay_seconds
 ```
+
+Each of these mirrors the identically-named `ARR.*` key in `config.json` (comment shows the
+matching key) — set either the env var or the config key, not both.
 
 !!! tip
     Strict TMDB/TVDB identity matching (used when resolving Sonarr/Radarr items) requires a

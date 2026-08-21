@@ -28,7 +28,7 @@ vibravid --tui
 - **Automatic i18n Localization (IT / EN)** — Automatic OS system language detection (Italian and English) with full bilingual support across all UI screens, data tables, modals, action bars, and keyboard guides.
 - **Interactive Queue & Batch Manager** — Add, remove, reorder, and retry batch download jobs with custom CLI arguments and tags.
 - **Live Stream & Download Progress Tracking** — Real-time progress indicators, speed, segment counts, track/stream details, and completed file actions (Open Folder / Launch File).
-- **System & DRM Inspector** — Diagnostics tab inspecting external binary dependencies (`ffmpeg`, `mp4decrypt`, `aria2c`, etc.), Widevine DRM CDM device status, and application log viewer.
+- **System & DRM Inspector** — Diagnostics tab inspecting external binary dependencies (`ffmpeg`, `mp4decrypt`, `aria2c`, etc.), Widevine DRM CDM device status, an application log viewer, and an Updates tab (app version/info + check-for-update).
 - **Full Keyboard & Mouse Navigation** — Directional arrow key navigation, contextual shortcuts (`a` select all, `u` clear, `Space` toggle, `ESC` back, `?` help), and mouse click support.
 
 ## TUI Screen Map
@@ -81,4 +81,9 @@ vibravid --tui
 | `Space` | Title Detail | Toggle episode selection |
 | `a` | Title Detail | Select all episodes in current season |
 | `u` | Title Detail | Clear episode selections in current season |
+| `r` | Title Detail | Open range-selection modal |
+| `v` | Title Detail | Toggle visual range anchor |
+| `i` | Title Detail | Invert episode selection |
+| `Ctrl+S` | Settings Editor | Save the currently open section |
+| `r` | System & DRM | Refresh diagnostics/DRM status |
 | `Enter` | Global | Confirm / Open selected item |

@@ -240,7 +240,8 @@ def update():
         try:
             response_releases = fetch_github_releases()
         except Exception as e:
-            console.print(f"[#E63946]Error accessing GitHub API: {e}")
+            logger.warning(f"Error accessing GitHub API: {e}")
+            console.print("[#E63946]Failed to fetch latest version")
             return
 
         # Get latest version tag

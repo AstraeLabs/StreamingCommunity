@@ -15,10 +15,9 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 INSTALLATION_LEVELS = {
-    "none": [],
-    "essential": ["ffmpeg", "velora"],
-    "essential+drm": ["ffmpeg", "velora", "flux", "bento4", "shaka_packager"],
-    "full": ["ffmpeg", "velora", "flux", "bento4", "shaka_packager", "dovi_tool", "mkvtoolnix"],
+    "": ["ffmpeg", "velora", "flux", "shaka_packager", "bento4"],
+    "drm": ["ffmpeg", "velora", "shaka_packager", "bento4"],
+    "full": ["ffmpeg", "velora", "flux", "shaka_packager", "bento4", "dovi_tool", "mkvtoolnix"],
 }
 
 
@@ -29,8 +28,8 @@ def is_termux() -> bool:
 
 def _should_download(tool_group: str) -> bool:
     """Return True if the given tool group should be downloaded based on the installation level."""
-    level = config_manager.config.get("DEFAULT", "installation")
-    return tool_group in INSTALLATION_LEVELS.get(level, [])
+    level = config_manager.config.get("DEFAULT", "installation") or ""
+    return tool_group in INSTALLATION_LEVELS.get(level, INSTALLATION_LEVELS[""])
 
 
 def check_bento4() -> str | None:
@@ -61,7 +60,6 @@ def check_bento4() -> str | None:
 
     # STEP 3: Download (only if installation level includes bento4)
     if not _should_download("bento4"):
-        logger.info(f"Skipping download of {binary_exec}")
         return None
 
     binary_downloaded = binary_paths.download_binary("bento4", binary_exec)
@@ -88,13 +86,29 @@ def check_flux() -> str | None:
         logger.debug(f"Found {binary_exec} in system PATH ({binary_path})")
         return binary_path
 
-    # STEP 2: Check local binary directory (no download step for this one)
+    # STEP 2: Check local binary directory
     binary_local = binary_paths.get_binary_path("flux", binary_exec)
     if binary_local and os.path.isfile(binary_local):
         logger.debug(f"Found {binary_exec} in local binary directory ({binary_local})")
         return binary_local
 
-    logger.debug(f"{binary_exec} not found (optional — no auto-download; flux fast-path disabled)")
+    # Termux-specific check
+    if is_termux():
+        console.print("[red]flux is not supported natively on Termux downloaders.[/red]")
+        console.print("[cyan]If required, please compile it and place it in system PATH.[/cyan]")
+        return None
+
+    # STEP 3: Download (only if installation level includes flux)
+    if not _should_download("flux"):
+        return None
+
+    binary_downloaded = binary_paths.download_binary("flux", binary_exec)
+    if binary_downloaded:
+        logger.debug(f"Downloaded {binary_exec} to {binary_downloaded}")
+        return binary_downloaded
+
+    logger.error(f"Failed to download {binary_exec}")
+    console.print(f"Failed to download {binary_exec}", style="red")
     return None
 
 
@@ -129,7 +143,6 @@ def check_ffmpeg() -> tuple[str | None, str | None]:
 
     # STEP 3: Download (only if installation level includes ffmpeg)
     if not _should_download("ffmpeg"):
-        logger.info("Skipping download of ffmpeg/ffprobe")
         return None, None
 
     ffmpeg_downloaded = binary_paths.download_binary("ffmpeg", ffmpeg_name)
@@ -171,7 +184,6 @@ def check_shaka_packager() -> str | None:
 
     # STEP 3: Download (only if installation level includes shaka_packager)
     if not _should_download("shaka_packager"):
-        logger.info(f"Skipping download of {packager_name}")
         return None
 
     packager_downloaded = binary_paths.download_binary("shaka_packager", packager_name)
@@ -236,7 +248,6 @@ def check_dovi_tool() -> str | None:
 
     # STEP 3: Download (only if installation level includes dovi_tool)
     if not _should_download("dovi_tool"):
-        logger.info(f"Skipping download of {binary_exec}")
         return None
 
     binary_downloaded = binary_paths.download_binary("dovi_tool", binary_exec)
@@ -277,7 +288,6 @@ def check_mkvmerge() -> str | None:
 
     # STEP 3: Download (only if installation level includes mkvtoolnix)
     if not _should_download("mkvtoolnix"):
-        logger.info(f"Skipping download of {binary_exec}")
         return None
 
     binary_downloaded = binary_paths.download_binary("mkvtoolnix", binary_exec)
@@ -339,7 +349,6 @@ def check_velora() -> str | None:
 
     # STEP 3: Download (only if installation level includes velora)
     if not _should_download("velora"):
-        logger.info(f"Skipping download of {binary_exec}")
         return None
 
     binary_downloaded = binary_paths.download_binary("velora", binary_exec)

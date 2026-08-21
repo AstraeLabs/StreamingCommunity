@@ -172,8 +172,17 @@ def convert_ttml_to_format(ttml_path: str, output_path: str | None = None, targe
 
         # Extract TTML blocks from plain XML or fragmented MP4 payloads.
         # Supports both XML declaration-prefixed documents and raw <tt> blocks.
+        #
+        # Fragmented-MP4 TTML (stpp) tracks pack one <tt> element per moof/mdat
+        # sample, and "no caption right now" gaps are encoded as *self-closing*
+        # <tt .../> stubs. The old pattern only recognized "...</tt>" as an end,
+        # so a self-closing stub (which has no </tt>) made the non-greedy .*?
+        # skip straight past it and swallow everything up to the next real
+        # </tt> — including intervening moof/mdat box headers and further <tt>
+        # opens — producing one corrupted, unparseable "block" per gap.
+        # Matching the self-closing form explicitly keeps each sample isolated.
         raw_blocks = re.findall(
-            rb"(?:<\?xml[^>]*\?>\s*)?<tt\b.*?</tt>",
+            rb"(?:<\?xml[^>]*\?>\s*)?<tt\b(?:[^>]*/>|[^>]*?>.*?</tt>)",
             data,
             re.DOTALL,
         )

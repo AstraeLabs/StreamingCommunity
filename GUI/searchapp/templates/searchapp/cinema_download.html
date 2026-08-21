@@ -181,7 +181,14 @@
 		var taskNames = Object.keys(tasks);
 		var streams = taskNames.length > 1
 			? taskNames.map(function (k) {
-				return esc(k.replace(/_/g, " ")) + " " + (tasks[k].progress || 0).toFixed(0) + "%";
+				var raw = tasks[k].display_label || tasks[k].label || k.replace(/_/g, " ");
+				// Strip only known Rich style tags (color/bold), never bracketed content
+				// like "[DEFAULT]"/"[FORCED]" which is part of the label itself.
+				var name = raw
+					.replace(/\[\/?(?:bold\s+)?(?:yellow|white|blue|cyan|red|green|magenta|dim)\]/gi, "")
+					.replace(/\\\[/g, "[")
+					.trim() || k.replace(/_/g, " ");
+				return esc(name) + " " + (tasks[k].progress || 0).toFixed(0) + "%";
 			}).join(" · ")
 			: "";
 		return '<span class="cn-thumb" style="--cn-p1:' + d[0] + ';--cn-p2:' + d[1] + '">' +

@@ -1,21 +1,26 @@
 # 16.04.24
 
+import bisect
 import gzip
 import logging
 import os
+import re
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-_COPY_BUFSIZE_DEFAULT = 8 * 1024 * 1024
+_COPY_BUFSIZE_DEFAULT = 2 * 1024 * 1024
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_PNG_SCAN_WINDOW = 64 * 1024
+_TS_SYNC_RE = re.compile(rb"\x47(?:.{187}\x47){4}", re.DOTALL)
 
 
 def _copy_bufsize() -> int:
     """Return copy buffer size in bytes (env override: `VV_MERGE_COPY_BUFSIZE_MB`)."""
     try:
-        mb = int(os.getenv("VV_MERGE_COPY_BUFSIZE_MB", "8"))
+        mb = int(os.getenv("VV_MERGE_COPY_BUFSIZE_MB", "2"))
         if mb < 1:
             mb = 1
         if mb > 64:
@@ -24,6 +29,7 @@ def _copy_bufsize() -> int:
     except (TypeError, ValueError):
         return _COPY_BUFSIZE_DEFAULT
 
+_COPY_BUFSIZE = _copy_bufsize()
 
 def _parallel_workers() -> int:
     """Return the worker count for parallel merge (env override: `VV_MERGE_PARALLEL_WORKERS`)."""
@@ -38,7 +44,7 @@ def _parallel_workers() -> int:
 
 
 def _parallel_enabled() -> bool:
-    """Return True if parallel merge is enabled (env override: `VV_MERGE_PARALLEL=1`)."""
+    """Return True if parallel merge is enabled (env override: `VV_MERGE_PARALLEL=1` to force it back on)."""
     return os.getenv("VV_MERGE_PARALLEL", "0") == "1"
 
 
@@ -51,18 +57,10 @@ def _parallel_min_total_bytes() -> int:
         return 64 * 1024 * 1024
 
 
-_COPY_BUFSIZE = _copy_bufsize()
-_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-_PNG_SCAN_WINDOW = 64 * 1024
-
-
 def _find_ts_start(buf: bytes) -> int:
     """Return the offset of the first MPEG-TS packet inside a PNG-wrapped segment."""
-    limit = len(buf) - 188 * 4
-    for k in range(0, max(0, limit)):
-        if buf[k] == 0x47 and all(buf[k + n * 188] == 0x47 for n in range(1, 5)):
-            return k
-    return 0
+    m = _TS_SYNC_RE.search(buf)
+    return m.start() if m else 0
 
 
 def _merge_fmt_size(nb: int) -> str:
@@ -86,13 +84,9 @@ def _segment_number(path: Path) -> int:
 
 
 def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: logging.Logger | None = None) -> None:
-    """Merge downloaded segments using direct raw binary concatenation.
-
-    Dispatches to a parallel positional-write path when there's enough data to
-    make thread-pool overhead worth it; falls back to the strictly sequential
-    path otherwise (small merges, or `VV_MERGE_PARALLEL=0`).
-    """
+    """Merge downloaded segments using direct raw binary concatenation."""
     log = merge_logger or logger
+    t_start = time.monotonic()
 
     # Single stat() per path: reused for both the size filter and total accounting.
     valid: list[tuple[Path, int, int]] = []
@@ -110,6 +104,8 @@ def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: lo
         return
 
     raw_total = sum(size for _, _, size in valid)
+    log.debug(f"[binary_merge] {len(valid)} valid segment(s), {_merge_fmt_size(raw_total)} raw total (stat+sort in {time.monotonic() - t_start:.3f}s)")
+
     if _parallel_enabled() and raw_total >= _parallel_min_total_bytes():
         _binary_merge_segments_parallel(valid, output_path, log)
     else:
@@ -119,6 +115,7 @@ def binary_merge_segments(paths: list[Path], output_path: Path, merge_logger: lo
 def _binary_merge_segments_serial(
     valid: list[tuple[Path, int, int]], output_path: Path, log: logging.Logger
 ) -> None:
+    t0 = time.monotonic()
     total_written = 0
     with open(output_path, "wb") as out_f:
         png_wrapped = 0
@@ -129,7 +126,7 @@ def _binary_merge_segments_serial(
                 # gzip-compressed segment (magic bytes 1f 8b): the whole segment must be held in memory to decompress it.
                 if head[:2] == b"\x1f\x8b":
                     try:
-                        log.info(f"[binary_merge] detected gzip-compressed segment: {seg_path.name}, decompressing ...")
+                        log.debug(f"[binary_merge] detected gzip-compressed segment: {seg_path.name}, decompressing ...")
                         data = gzip.decompress(head + in_f.read())
                         out_f.write(data)
                         total_written += len(data)
@@ -165,11 +162,13 @@ def _binary_merge_segments_serial(
                 shutil.copyfileobj(in_f, out_f, _COPY_BUFSIZE)
                 total_written += seg_size
 
+    elapsed = time.monotonic() - t0
     if png_wrapped:
         log.info(f"[binary_merge] stripped PNG wrapper from {png_wrapped}/{len(valid)} segment(s)")
 
     if output_path.exists() and output_path.stat().st_size > 0:
-        log.debug(f"[binary_merge] raw concat OK: {output_path.name} ({_merge_fmt_size(total_written)})")
+        mb_s = (total_written / 1_048_576) / elapsed if elapsed > 0 else 0.0
+        log.debug(f"[binary_merge] serial raw concat OK: {output_path.name} ({_merge_fmt_size(total_written)}) in {elapsed:.2f}s ({mb_s:.1f} MB/s)")
     else:
         log.error(f"[binary_merge] output is empty or missing: {output_path}")
 
@@ -177,7 +176,7 @@ def _binary_merge_segments_serial(
 def _classify_segment(seg_path: Path, seg_size: int) -> tuple[str, int, int, bytes | None]:
     """Return (kind, effective_size, extra_offset, cached_bytes).
 
-    kind: 'raw' | 'gzip' | 'png'. For 'gzip', cached_bytes holds the fully decompressed payload 
+    kind: 'raw' | 'gzip' | 'png'. For 'gzip', cached_bytes holds the fully decompressed payload.
     """
     with open(seg_path, "rb") as f:
         head = f.read(8)
@@ -250,8 +249,11 @@ def _binary_merge_segments_parallel(
                 png_wrapped += 1
             elif kind == "gzip":
                 gzip_count += 1
-                log.info(f"[binary_merge] detected gzip-compressed segment: {seg_path.name}, decompressing ...")
+                log.debug(f"[binary_merge] detected gzip-compressed segment: {seg_path.name}, decompressing ...")
             classified[idx] = (seg_path, kind, effective_size, extra_off, cached_bytes)
+
+    t_classify = time.monotonic()
+    log.debug(f"[binary_merge] classify phase: {len(valid)} segment(s) in {t_classify - t0:.2f}s ({workers} workers, {png_wrapped} png-wrapped, {gzip_count} gzip)")
 
     offsets: list[int] = [0] * len(valid)
     running = 0
@@ -260,14 +262,25 @@ def _binary_merge_segments_parallel(
         running += effective_size
     total_size = running
 
+    if total_size == 0:
+        log.error(f"[binary_merge] total effective size is 0 after classification: {output_path}")
+        return
+
     # Preallocate so every worker can seek+write its own disjoint byte range
     # of the same file concurrently without ever touching another's region.
     with open(output_path, "wb") as out_f:
         out_f.truncate(total_size)
 
-    # Split into `workers` contiguous chunk
+    t_prealloc = time.monotonic()
+    log.debug(f"[binary_merge] preallocate phase: {_merge_fmt_size(total_size)} in {t_prealloc - t_classify:.3f}s")
     n_chunks = max(1, min(workers, len(classified)))
-    boundaries = [round(i * len(classified) / n_chunks) for i in range(n_chunks + 1)]
+    target_step = total_size / n_chunks
+    boundaries = [0]
+    for i in range(1, n_chunks):
+        target_byte = round(i * target_step)
+        idx = bisect.bisect_left(offsets, target_byte)
+        boundaries.append(max(boundaries[-1], min(idx, len(classified))))
+    boundaries.append(len(classified))
 
     total_written = 0
     with ThreadPoolExecutor(max_workers=n_chunks) as pool:
@@ -280,13 +293,20 @@ def _binary_merge_segments_parallel(
         for fut in as_completed(futures):
             total_written += fut.result()
 
+    t_write = time.monotonic()
+    write_elapsed = t_write - t_prealloc
+    total_elapsed = t_write - t0
+
     if png_wrapped:
         log.info(f"[binary_merge] stripped PNG wrapper from {png_wrapped}/{len(valid)} segment(s)")
 
     if output_path.exists() and output_path.stat().st_size > 0:
+        mb_s = (total_written / 1_048_576) / write_elapsed if write_elapsed > 0 else 0.0
         log.debug(
             f"[binary_merge] parallel raw concat OK ({workers} workers): {output_path.name} "
-            f"({_merge_fmt_size(total_written)}) in {time.monotonic() - t0:.1f}s"
+            f"({_merge_fmt_size(total_written)}) in {total_elapsed:.2f}s total "
+            f"(classify {t_classify - t0:.2f}s, prealloc {t_prealloc - t_classify:.3f}s, "
+            f"write {write_elapsed:.2f}s @ {mb_s:.1f} MB/s)"
         )
     else:
         log.error(f"[binary_merge] output is empty or missing: {output_path}")

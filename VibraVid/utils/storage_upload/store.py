@@ -8,7 +8,7 @@ import requests
 
 from VibraVid.utils.config import config_manager
 from VibraVid.utils.http_client import create_client
-from VibraVid.utils.vault_upload import client
+from VibraVid.utils.storage_upload import client
 
 logger = logging.getLogger(__name__)
 
@@ -135,20 +135,6 @@ class ExternalUploadVault:
         except Exception as e:
             logger.error(f"upload store download error: {e}", exc_info=True)
             return None
-
-    def fetch_if_present(
-        self,
-        dest_path: str,
-        title: str,
-        media_type: str | None = None,
-        season: int | None = None,
-        episode: int | None = None,
-        on_progress=None,
-    ) -> str | None:
-        hit = self.search(title, media_type, season, episode)
-        if not hit:
-            return None
-        return self.download(hit["xh"], dest_path, on_progress=on_progress)
 
     def report_error(self, xh: str) -> None:
         if not self.base_url or not xh:

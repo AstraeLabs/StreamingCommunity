@@ -102,7 +102,8 @@ class DRMManager:
                 suffix = ""
                 log_suffix = ""
             console.print(f"    - [red]{kid_val}[white]:[green]{key_val}{suffix}")
-            logger.info(f"DRM key {drm_type}: {kid_val}:{key_val}{log_suffix}")
+            if "*" in log_suffix:
+                logger.info(f"DRM key {drm_type}: {kid_val}:{key_val}")
 
     def _bypass_cache(self) -> bool:
         """Effective bypass-vault-cache flag: per-run CLI override wins over config default."""
@@ -250,10 +251,9 @@ class DRMManager:
                     return KeysManager(manual_keys)
 
                 if not license_url:
-                    logger.info(f"{len(missing)} manifest-declared {drm_type} KID(s) not covered by manual key(s) ({', '.join(missing)}); no license_url available to resolve the rest")
-                    return KeysManager(manual_keys)
-
-                logger.info(f"{len(missing)} manifest-declared {drm_type} KID(s) not covered by manual key(s) ({', '.join(missing)}); resolving the rest via vault/CDM")
+                    logger.info(f"{len(missing)} manifest-declared {drm_type} KID(s) not covered by manual key(s) ({', '.join(missing)}); no license_url — falling back to generic vault lookup")
+                else:
+                    logger.info(f"{len(missing)} manifest-declared {drm_type} KID(s) not covered by manual key(s) ({', '.join(missing)}); resolving the rest via vault/CDM")
                 resolve_kids = missing
 
         base_license_url = clean_license_url(license_url)
@@ -327,6 +327,7 @@ class DRMManager:
                         item for item in pssh_list if normalize_kid(item.get("kid", "")) in missing_kids
                     ] or pssh_list  # safety: if filtering gives empty, use full list
                     logger.info(f"{drm_type} CDM extraction for {len(missing_kids)} missing KID(s): {missing_kids}")
+                    cdm_kwargs = {**cdm_kwargs, "key": None} if manual_keys else cdm_kwargs
                     cdm_result = cdm_fn(missing_pssh_list, license_url, **cdm_kwargs)
 
                 else:

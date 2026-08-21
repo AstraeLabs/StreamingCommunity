@@ -354,7 +354,7 @@ def load_search_functions() -> dict[str, LazySearchModule]:
             except Exception as e:
                 console.print(f"[yellow]Warning: Could not update indice in {module_name}: {str(e)}")
 
-    logger.info(f"Successfully loaded {len(loaded_functions)} search functions from {len(imp_sources)} source(s)")
+    logger.debug(f"Successfully loaded {len(loaded_functions)} search functions from {len(imp_sources)} source(s)")
     if total_service_dirs > len(loaded_functions):
         skipped_count = total_service_dirs - len(loaded_functions)
         logger.warning(f"{skipped_count} module(s) were found but not loaded due to configuration errors")

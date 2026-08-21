@@ -5,13 +5,15 @@ import os
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.core.downloader import HLS_Downloader
+from VibraVid.core.downloader import DASH_Downloader, HLS_Downloader
+from VibraVid.core.drm.system import DRMType
+from VibraVid.core.ui.tracker import context_tracker
 from VibraVid.services._base import Entries, series_folder, site_constants
 from VibraVid.services._base.tv_display_manager import map_episode_path
 from VibraVid.services._base.tv_download_manager import process_episode_download, process_season_selection
 from VibraVid.utils import config_manager, start_message
 
-from .client import get_playback_url_episode
+from .client import get_playback_dash_episode, get_playback_url_episode, get_playready_license
 from .scrapper import GetSerieInfo, GetSerieInfoBySlug
 
 msg = Prompt()
@@ -39,9 +41,23 @@ def download_episode(obj_episode, index_season_selected, index_episode_selected,
 
     # Get playback information
     content_ids = {"episode_id": obj_episode.id, "regione": "IT"}
-    m3u8_url = get_playback_url_episode(obj_episode.id, content_ids)
+    output_path = os.path.join(episode_path, episode_name)
 
-    return HLS_Downloader(m3u8_url=m3u8_url, output_path=os.path.join(episode_path, episode_name)).start()
+    protocol = (context_tracker.site_options or {}).get("protocol") or "hls"
+    if protocol == "dash":
+        mpd_url, mpd_headers = get_playback_dash_episode(obj_episode.id, content_ids)
+        license_url, license_headers = get_playready_license(mpd_headers)
+        return DASH_Downloader(
+            mpd_url=mpd_url,
+            mpd_headers=mpd_headers,
+            license_url=license_url,
+            license_headers=license_headers,
+            output_path=output_path,
+            drm_preference=DRMType.PLAYREADY,
+        ).start()
+
+    m3u8_url = get_playback_url_episode(obj_episode.id, content_ids)
+    return HLS_Downloader(m3u8_url=m3u8_url, output_path=output_path).start()
 
 
 def download_series(

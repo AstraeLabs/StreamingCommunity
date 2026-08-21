@@ -9,6 +9,7 @@ from rich.console import Console
 from VibraVid.core.downloader import MP4_Downloader
 from VibraVid.core.muxing.helper.audio import process_song
 from VibraVid.core.ui.tracker import context_tracker
+from VibraVid.provider.musiclyric import get_lyrics
 from VibraVid.services._base import Entries, site_constants
 from VibraVid.services._base.tv_display_manager import map_song_path
 from VibraVid.utils import config_manager
@@ -107,6 +108,13 @@ def _download_via_amazon(select_title) -> str | None:
     logger.info(f"[monochrome/amazon] downloaded: {result_path}")
 
     context_tracker.report_download_success()
+
+    lyrics_result = None
+    try:
+        lyrics_result = get_lyrics(title=title, artist=artist, album=album, duration_seconds=duration)
+    except Exception:
+        logger.error(f"[monochrome/amazon] lyrics lookup crashed for {title!r}")
+
     final_path = process_song(
         file_path=result_path,
         title=title,
@@ -116,6 +124,7 @@ def _download_via_amazon(select_title) -> str | None:
         track_number=track_number,
         cover_url=cover,
         album_artist=album_artist,
+        lyrics=(lyrics_result or {}).get("lyrics"),
     )
     logger.info(f"[monochrome/amazon] done: {final_path} (exists={os.path.exists(final_path)})")
     return final_path
@@ -131,7 +140,7 @@ def download_song(select_title) -> str | None:
             if path:
                 return path
         except Exception:
-            logger.exception(f"[monochrome/amazon] path crashed for {select_title.name!r}")
+            logger.error(f"[monochrome/amazon] path crashed for {select_title.name!r}")
 
     message = f"No source found to download '{title}'."
     logger.info(f"[monochrome] {message}")

@@ -134,11 +134,6 @@ def get_velora_path() -> str:
     return _velora_path
 
 
-def reset_velora_path() -> None:
-    global _velora_path
-    _velora_path = None
-
-
 def get_shaka_packager_path() -> str:
     global _shaka_packager_path
     if not _initialized:

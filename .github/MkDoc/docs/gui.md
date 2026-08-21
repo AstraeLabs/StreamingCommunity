@@ -33,6 +33,9 @@ directly.
   series) expanded to show seasons and episodes via the series-detail view.
 - **Start download** (`/download/`) — queues the selected movie or episodes. Track selection
   (video/audio/subtitle) follows the same `config.json` filters as the CLI.
+- Set `VIBRAVID_DISABLED_SITES` (comma-separated site module names) to hide specific sites from
+  the GUI's site list entirely — useful to disable a site for the web UI without removing it
+  from the CLI/TUI.
 
 ![Search results](assets/gui/results.png)
 
@@ -79,8 +82,29 @@ directly.
 - `ARR.max_concurrent_downloads` is applied live without a restart. Most other settings take
   effect after a **reload** (`api/reload-config/`, which reloads config and/or login through
   the config manager) or a restart of the server.
+- The same page also shows a live status indicator for the optional Bypasser sidecar (driven by
+  the `BYPASSER_URL` environment variable) — see the [Docker guide](docker.md) for enabling it.
 
 ![Settings overview](assets/gui/settings.png)
+
+### Bot / remote-control API
+
+`api/bot/*` is a small JSON API meant for driving VibraVid from an external bot or automation
+script (this is what the [Telegram bot](telegram.md) uses under the hood) rather than the
+browser UI:
+
+- `POST api/bot/search/` — `{"query": "...", "site": "__all__" | "__cat__:<cat>" | "<site>"}` →
+  matching results.
+- `POST api/bot/seasons/` — list a series' seasons/episodes for a given result.
+- `POST api/bot/download/` — start a download for a chosen result/episode.
+- `POST api/bot/sites/` — list available sites/categories.
+- `POST api/bot/status/` — poll progress of an in-flight download.
+- `POST api/bot/cancel/` — stop a running download.
+- `POST api/bot/logs/` — fetch recent log lines.
+
+Set `VIBRAVID_BOT_SECRET` to require every request to carry a matching `X-VibraVid-Token`
+header; without it set, these endpoints accept unauthenticated requests, so set it before
+exposing the GUI beyond your local network.
 
 ### Custom service upload
 
@@ -95,6 +119,10 @@ When a newer release is available the UI shows an update banner. The version che
 (`api/version/check/`) is cached for one hour; the update action (`api/version/update/`)
 applies it in place. For Docker one-click updates (Docker socket requirement) see the
 [Docker guide](docker.md).
+
+Separately, `api/binaries/update/` checks FFmpeg/Bento4/Shaka Packager/dovi_tool/MKVToolNix/
+Velora against AstraeLabs/Binary and re-downloads whichever is outdated — the GUI counterpart
+to the CLI's `--binary-update` flag.
 
 ### ARR stack page
 

@@ -65,12 +65,13 @@ def _playlist_is_live(content: str) -> bool:
 
 
 class HLSParser:
-    def __init__(self, m3u8_url: str, headers: dict[str, str] = None, content: str | None = None):
+    def __init__(self, m3u8_url: str, headers: dict[str, str] = None, content: str | None = None, has_drm: bool = False):
         self.m3u8_url = m3u8_url
         self.headers = headers or {}
         self._injected = content
         self.raw_content: str | None = content
         self._base_url = calc_base_url(m3u8_url)
+        self.has_drm = has_drm
 
     def fetch_manifest(self) -> bool:
         start_parsing_time = time.time()
@@ -193,8 +194,8 @@ class HLSParser:
             enc_method = (stream.encryption_method or "").lower() if stream.encryption_method else ""
 
             if enc_method.startswith(("sample-aes", "sample_aes")) or enc_method in ("cbcs", "cbc1", "cens"):
-                stream.supports_live_decryption = False
-                logger.debug(f"Stream {stream.id}: SAMPLE-AES detected - Using post-merge decryption")
+                stream.supports_live_decryption = True
+                logger.debug(f"Stream {stream.id}: SAMPLE-AES detected - using live per-segment decryption")
             else:
                 stream.supports_live_decryption = True
 
@@ -253,6 +254,18 @@ class HLSParser:
         ]
 
         if not targets:
+            return
+
+        if not self.has_drm:
+            # No DRM expected for this stream: skip the per-key-group DRM resolution entirely
+            # and fetch only one representative child playlist to determine live/VOD status.
+            representative = next((s for s in targets if s.type == "video"), targets[0])
+            logger.info(f"HLSParser: has_drm=False, fetching single representative playlist for live/VOD detection: {representative.playlist_url}")
+            _, variant_content = self.parse_variant(representative.playlist_url or "")
+            is_live = _playlist_is_live(variant_content) if variant_content is not None else None
+            if is_live is not None:
+                for s in targets:
+                    s.is_live = is_live
             return
 
         groups: dict[str, list[Stream]] = {}

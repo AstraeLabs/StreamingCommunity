@@ -76,6 +76,39 @@ def detect_seg_ext(url: str, default: str = "ts") -> str:
     return _ext_from_url_canon(url, _SEGMENT_EXTENSIONS, default=default)
 
 
+def is_valid_frag_init(data: bytes) -> bool:
+    """True if *data* is a real ftyp+moov init segment (optionally +sidx) -- the same shape live per-fragment decrypt (`decrypt_segment_live`, `--fragments-info`) needs to work."""
+    off = 0
+    seen_ftyp = False
+    seen_moov = False
+    n = len(data)
+    
+    while off + 8 <= n:
+        size = int.from_bytes(data[off : off + 4], "big")
+        typ = data[off + 4 : off + 8]
+        hdr = 8
+        if size == 1:
+            if off + 16 > n:
+                break
+            size = int.from_bytes(data[off + 8 : off + 16], "big")
+            hdr = 16
+        elif size == 0:
+            size = n - off
+        if size < hdr:
+            break
+        if typ == b"ftyp":
+            seen_ftyp = True
+        elif typ == b"moov":
+            seen_moov = True
+        elif typ in (b"moof", b"mdat"):
+            # A real init never carries sample data itself.
+            return False
+        if seen_ftyp and seen_moov:
+            return True
+        off += size
+    return seen_ftyp and seen_moov
+
+
 def merged_segment_ext(sample_url: str, default: str = "ts") -> str:
     """Container extension for a merged (concatenated) segment file."""
     ext = detect_seg_ext(sample_url, default=default)
@@ -185,13 +218,7 @@ class SilentDownloadBarManager(DownloadBarManager):
     def add_prebuilt_tasks(self, prebuilt_tasks):
         return None
 
-    def add_external_track_tasks(self, *args, **kwargs):
-        return None
-
     def add_external_track_task(self, label, track_key):
-        return None
-
-    def get_task_id(self, task_key):
         return None
 
     def handle_progress_line(self, parsed):

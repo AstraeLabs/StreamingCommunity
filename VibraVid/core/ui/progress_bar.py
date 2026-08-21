@@ -10,6 +10,21 @@ SHOW_SIZE = True
 SHOW_DURATION = False
 
 
+class StatusLine:
+    """Single extra rich-markup line rendered above the progress bars."""
+    def __init__(self):
+        self._text = ""
+
+    def set_text(self, text: str) -> None:
+        self._text = text or ""
+
+    def __rich_console__(self, console, options):
+        # Yield nothing when there's no text, so the Live/Group above the progress bars
+        # doesn't reserve a blank line for downloads that never call set_text().
+        if self._text:
+            yield Text.from_markup(self._text)
+
+
 class CustomBarColumn(ProgressColumn):
     def __init__(
         self,
@@ -43,16 +58,6 @@ class CustomBarColumn(ProgressColumn):
         return text
 
 
-class CompactTimeColumn(ProgressColumn):
-    def render(self, task):
-        if not SHOW_ELAPSED_REMAINING:
-            return Text("")
-        elapsed = task.finished_time if task.finished else task.elapsed
-        if elapsed is None:
-            return Text.from_markup("[yellow]--:--[/yellow]")
-        return Text.from_markup(f"[yellow]{internet_manager.format_time(elapsed)}[/yellow]")
-
-
 class CompactTimeRemainingColumn(ProgressColumn):
     def render(self, task):
         if not SHOW_ELAPSED_REMAINING:
@@ -70,20 +75,6 @@ class CompactTimeRemainingColumn(ProgressColumn):
         if remaining is None:
             return Text.from_markup("[cyan]--:--[/cyan]")
         return Text.from_markup(f"[cyan]{internet_manager.format_time(remaining)}[/cyan]")
-
-
-class ColoredSegmentColumn(ProgressColumn):
-    def render(self, task):
-        segment = task.fields.get("segment") or "0/0"
-        text = Text()
-        if "/" in segment:
-            current, total = segment.split("/", 1)
-            text.append(current, style="green")
-            text.append("/", style="dim")
-            text.append(total, style="cyan")
-        else:
-            text.append(segment, style="yellow")
-        return text
 
 
 class TransferStatsColumn(ProgressColumn):

@@ -1,11 +1,8 @@
 # 01.04.25
 
 import logging
-import os
 import shutil
 import struct
-import tempfile
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +11,6 @@ from rich.markup import escape
 from VibraVid.core.decryptor import Decryptor
 from VibraVid.core.muxing.helper.video import _segment_number
 from VibraVid.core.ui.bar_manager import console
-from VibraVid.setup import get_bento4_decrypt_path
 
 from ._decrypt_pipeline import SKIP_POST_DECRYPT
 from .util._ism_boxes import ISM_TIMESCALE, build_ism_init_segment
@@ -43,19 +39,6 @@ def _iter_boxes(buf, start: int, end: int):
 
 class IsmPostprocMixin:
     @staticmethod
-    def _get_mp4fragment_path() -> str | None:
-        decrypt_path = get_bento4_decrypt_path()
-        if decrypt_path and os.path.isfile(decrypt_path):
-            base_dir = os.path.dirname(decrypt_path)
-            for name in ("mp4fragment", "mp4fragment.exe"):
-                candidate = os.path.join(base_dir, name)
-                if os.path.isfile(candidate):
-                    print(f"Found mp4fragment at {candidate} based on Bento4 decrypt path")
-                    return candidate
-        print(f"mp4fragment: {shutil.which('mp4fragment')}")
-        return shutil.which("mp4fragment")
-
-    @staticmethod
     def _read_fragment_track_id(data: bytes) -> int | None:
         """Return the ``track_ID`` declared in the first fragment's moof>traf>tfhd."""
         buf = memoryview(data)
@@ -75,8 +58,8 @@ class IsmPostprocMixin:
         return None
 
     @staticmethod
-    def _build_ism_init(stream, kid_hex: str, track_id: int | None = None) -> bytes:
-        """Build a valid ftyp + moov for the encrypted ISM stream."""
+    def _build_ism_init(stream, kid_hex: str, track_id: int | None = None, encrypted: bool = True) -> bytes:
+        """Build a valid ftyp + moov for the ISM stream (CENC-signaling by default; pass encrypted=False for an init to prepend to already-decrypted fragments)."""
         media_segs = [s for s in stream.segments if s.seg_type == "media"]
         seg_count = max(len(media_segs), 1)
         if stream.duration and stream.duration > 0:
@@ -97,6 +80,7 @@ class IsmPostprocMixin:
                 kid_hex=kid_hex,
                 width=stream.width or 0,
                 height=stream.height or 0,
+                encrypted=encrypted,
                 **extra,
             )
 
@@ -136,31 +120,11 @@ class IsmPostprocMixin:
                 sample_rate=sr_val,
                 channels=ch_val,
                 language=getattr(stream, "language", "und") or "und",
+                encrypted=encrypted,
                 **extra,
             )
 
         raise ValueError(f"Unsupported ISM stream type: {stream.type!r}")
-
-    def _probe_ism_init(self, stream) -> None:
-        """Best-effort DRM probe on the manifest-synthesized init segment,
-        run as soon as the KID is known — before any segment is downloaded."""
-        try:
-            init_data = self._build_ism_init(stream, stream.drm.kid)
-        except Exception as exc:
-            logger.debug(f"ISM early init probe skipped: {exc}")
-            return
-
-        tmp_path = Path(tempfile.gettempdir()) / f"ism_init_probe_{uuid.uuid4().hex}.mp4"
-        try:
-            tmp_path.write_bytes(init_data)
-            self._probe_media_file(tmp_path)
-        except Exception as exc:
-            logger.debug(f"ISM early init probe failed: {exc}")
-        finally:
-            try:
-                tmp_path.unlink()
-            except Exception:
-                pass
 
     @staticmethod
     def _normalize_ism_fragment_sdi(data: bytes) -> bytes:

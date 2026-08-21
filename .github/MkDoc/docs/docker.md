@@ -29,6 +29,25 @@ Key variables (full list in `.env.example`):
 | `VIBRAVID_LOGS_DIR` | named volume | Host path for application logs |
 | `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames Django accepts |
 | `CSRF_TRUSTED_ORIGINS` | `http://localhost:8000,...` | Origins for CSRF validation |
+| `PUID` / `PGID` | unset | User/group ID the container process runs as — set these to your host user's `id -u`/`id -g` so downloaded files aren't owned by root (see the [NAS guide](nas.md) for the full walkthrough) |
+| `WATCHLIST_AUTO_INTERVAL_SECONDS` | `14400` (4h) | How often the watchlist auto-download loop checks for new episodes — also settable from the GUI's Watchlist page |
+
+## Optional sidecar (Bypasser)
+
+Monochrome (Amazon Music) needs the **Bypasser** sidecar reachable to solve its Cloudflare
+Turnstile challenge — there's no in-process fallback. It ships as a separate Compose service
+gated behind a **profile**, so it's not started by default:
+
+```bash
+docker-compose --profile bypasser up -d
+```
+
+The app container talks to it via `BYPASSER_URL` (already wired to the sidecar hostname in the
+shipped `docker-compose.yml`). Its live status is shown on the GUI's Settings page.
+
+The [Telegram bot](telegram.md) is likewise an opt-in Compose service behind the `telegram`
+profile (`docker-compose --profile telegram up -d`) — see that guide for its own environment
+variables.
 
 **NAS example** — store downloads on a NAS share, expose on port 9000:
 

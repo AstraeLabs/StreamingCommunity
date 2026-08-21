@@ -434,7 +434,9 @@ def _audio_sample_entry_header(sample_rate: int, channels: int) -> bytes:
     return entry
 
 
-def build_video_stsd(codec: str, codec_private: bytes, width: int, height: int, kid_bytes: bytes) -> bytes:
+def build_video_stsd(
+    codec: str, codec_private: bytes, width: int, height: int, kid_bytes: bytes, encrypted: bool = True
+) -> bytes:
     if codec in ("hvc1", "hev1"):
         config_box = make_box(b"hvcC", build_hvcc(codec_private))
         original_format = b"hvc1"
@@ -447,13 +449,19 @@ def build_video_stsd(codec: str, codec_private: bytes, width: int, height: int, 
     else:
         raise ValueError(f"Unsupported video codec for ISM init: {codec!r}")
 
+    if not encrypted:
+        entry = _visual_sample_entry_header(width, height) + config_box
+        return make_full_box(b"stsd", 0, 0, struct.pack(">I", 1) + make_box(original_format, entry))
+
     sinf_box = make_sinf(original_format, kid_bytes)
     entry = _visual_sample_entry_header(width, height) + config_box + sinf_box
     encv = make_box(b"encv", entry)
     return make_full_box(b"stsd", 0, 0, struct.pack(">I", 1) + encv)
 
 
-def build_audio_stsd(codec: str, codec_private: bytes, sample_rate: int, channels: int, kid_bytes: bytes) -> bytes:
+def build_audio_stsd(
+    codec: str, codec_private: bytes, sample_rate: int, channels: int, kid_bytes: bytes, encrypted: bool = True
+) -> bytes:
     if codec.startswith("mp4a") or codec in ("aac", "aacl", "aach", "aacp"):
         config_box = build_esds(codec_private)
         original_format = b"mp4a"
@@ -467,6 +475,10 @@ def build_audio_stsd(codec: str, codec_private: bytes, sample_rate: int, channel
         original_format = b"ac-3"
     else:
         raise ValueError(f"Unsupported audio codec for ISM init: {codec!r}")
+
+    if not encrypted:
+        entry = _audio_sample_entry_header(sample_rate, channels) + config_box
+        return make_full_box(b"stsd", 0, 0, struct.pack(">I", 1) + make_box(original_format, entry))
 
     sinf_box = make_sinf(original_format, kid_bytes)
     entry = _audio_sample_entry_header(sample_rate, channels) + config_box + sinf_box
@@ -520,11 +532,12 @@ def build_video_trak(
     kid_bytes: bytes,
     track_id: int = TRACK_ID,
     timescale: int = ISM_TIMESCALE,
+    encrypted: bool = True,
 ) -> bytes:
     tkhd = make_tkhd_video(duration, width, height, track_id=track_id)
     mdhd = make_mdhd(duration, timescale=timescale)
     hdlr = make_hdlr(b"vide", "VideoHandler")
-    stsd = build_video_stsd(codec, codec_private, width, height, kid_bytes)
+    stsd = build_video_stsd(codec, codec_private, width, height, kid_bytes, encrypted=encrypted)
     mdia = make_box(b"mdia", mdhd + hdlr + build_video_minf(stsd))
     return make_box(b"trak", tkhd + mdia)
 
@@ -539,11 +552,12 @@ def build_audio_trak(
     language: str = "und",
     track_id: int = TRACK_ID,
     timescale: int = ISM_TIMESCALE,
+    encrypted: bool = True,
 ) -> bytes:
     tkhd = make_tkhd_audio(duration, track_id=track_id)
     mdhd = make_mdhd(duration, timescale=timescale, language=language)
     hdlr = make_hdlr(b"soun", "SoundHandler")
-    stsd = build_audio_stsd(codec, codec_private, sample_rate, channels, kid_bytes)
+    stsd = build_audio_stsd(codec, codec_private, sample_rate, channels, kid_bytes, encrypted=encrypted)
     mdia = make_box(b"mdia", mdhd + hdlr + build_audio_minf(stsd))
     return make_box(b"trak", tkhd + mdia)
 
@@ -611,13 +625,18 @@ def build_ism_init_segment(
     timescale: int = ISM_TIMESCALE,
     pro_bytes: bytes | None = None,
     track_id: int = TRACK_ID,
+    encrypted: bool = True,
 ) -> bytes:
     """
-    Assemble ``ftyp + moov`` for a single-track CENC fragmented MP4 init segment.
+    Assemble ``ftyp + moov`` for a single-track fragmented MP4 init segment.
 
     *duration* is in *timescale* ticks and may be 0 (mehd will follow). All the
     real per-sample timing lives inside the ``moof`` boxes that follow this
     init in the encrypted stream.
+
+    *encrypted* controls whether the ``stsd`` entry declares CENC protection
+    (``encv``/``enca`` + ``sinf``/``tenc``) or the plain codec fourcc with no
+    encryption signaling at all.
     """
     kid_bytes = kid_hex_to_bytes(kid_hex)
 
@@ -634,6 +653,7 @@ def build_ism_init_segment(
             kid_bytes=kid_bytes,
             track_id=track_id,
             timescale=timescale,
+            encrypted=encrypted,
         )
 
     elif stream_type == "audio":
@@ -652,6 +672,7 @@ def build_ism_init_segment(
             language=language,
             track_id=track_id,
             timescale=timescale,
+            encrypted=encrypted,
         )
     else:
         raise ValueError(f"Unsupported ISM stream type: {stream_type!r}")

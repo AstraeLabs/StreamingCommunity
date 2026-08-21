@@ -1,11 +1,13 @@
 # 01.04.26
 
+import json
 import locale
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -17,7 +19,7 @@ from VibraVid.utils import config_manager
 from VibraVid.utils._mp4dump import parse_file as _mp4dump_parse_file
 
 from ._models import SCHEME_TO_MODE, detect_encryption_info
-from ._subprocess_runner import _strip_profile_lines, run_with_progress
+from ._subprocess_runner import _ENGINE_LOG_LEVELS, _log_engine_output_enabled, _strip_profile_lines, run_with_progress
 from .keys_manager import KeysManager
 
 logger = logging.getLogger(__name__)
@@ -29,12 +31,9 @@ _OPEN_RETRY_ATTEMPTS = 6
 _OPEN_RETRY_BASE_DELAY = 0.4
 _OPEN_RETRY_MAX_DELAY = 3.0
 _AV_HANDLER_TYPES = {"vide", "soun"}
-_DEFAULT_SCHEME_ENGINE: dict[str, str] = {
-    "cenc": "flux",
-    "cens": "flux",
-    "cbcs": "flux",
-    "cbc1": "flux",
-    "fps": "shaka",
+_DEFAULT_ENGINE_PRIORITY: tuple[str, ...] = ("flux", "shaka", "bento4")
+_SCHEME_ENGINE_PRIORITY: dict[str, tuple[str, ...]] = {
+    "fps": ("shaka", "bento4"),
 }
 
 
@@ -137,6 +136,117 @@ class _AnsiSafePathGuard:
                 pass
 
 
+class _FluxDaemon:
+    def __init__(self, flux_path: str):
+        self._proc = subprocess.Popen(
+            [flux_path, "--daemon"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
+        )
+        self._lock = threading.Lock()
+        self._dead = False
+        self._stderr_lines: list[str] = []
+        self._stderr_lock = threading.Lock()
+        self._job_count = 0
+        self._last_job_lines: list[str] = []
+        self._last_job_had_fragments_info = False
+        threading.Thread(target=self._drain_stderr, daemon=True).start()
+
+    def _drain_stderr(self) -> None:
+        try:
+            for line in self._proc.stderr:
+                with self._stderr_lock:
+                    self._stderr_lines.append(line)
+        except Exception:
+            pass
+
+    def _take_job_stderr(self) -> list[str]:
+        with self._stderr_lock:
+            lines, self._stderr_lines = self._stderr_lines, []
+        return lines
+
+    def _log_job_output(self, lines: list[str], tag: str) -> None:
+        if not lines:
+            return
+        level = _ENGINE_LOG_LEVELS.get("FLUX", logging.INFO)
+        for line in lines:
+            stripped = line.rstrip()
+            if stripped:
+                logger.log(level, f"[flux daemon, {tag}] {stripped}")
+
+    def decrypt(self, input_path: str, output_path: str, keys: list[str], fragments_info: str | None) -> tuple[bool, str | None]:
+        """Run one job through the daemon. Returns (ok, error_message)."""
+        if self._dead or self._proc.poll() is not None:
+            self._dead = True
+            return False, "daemon not running"
+
+        job = json.dumps(
+            {"input": input_path, "output": output_path, "keys": keys, "fragments_info": fragments_info}
+        )
+
+        with self._lock:
+            try:
+                self._proc.stdin.write(job + "\n")
+                self._proc.stdin.flush()
+                line = self._proc.stdout.readline()
+            except (BrokenPipeError, OSError) as exc:
+                self._dead = True
+                return False, f"daemon pipe error: {exc}"
+
+        if not line:
+            self._dead = True
+            stderr_tail = ""
+            try:
+                stderr_tail = (self._proc.stderr.read() or "")[-300:]
+            except Exception:
+                pass
+            return False, f"daemon exited unexpectedly ({stderr_tail or 'no stderr'})"
+
+        self._job_count += 1
+        self._last_job_had_fragments_info = fragments_info is not None
+        if fragments_info is not None:
+            self._take_job_stderr()
+        else:
+            if self._job_count == 1:
+                time.sleep(0.05)
+            job_lines = self._take_job_stderr()
+            self._last_job_lines = job_lines  # overwritten every call -- close() logs whatever's here as "last"
+            if _log_engine_output_enabled() and self._job_count == 1:
+                self._log_job_output(job_lines, "first job")
+
+        try:
+            resp = json.loads(line)
+        except json.JSONDecodeError as exc:
+            return False, f"bad daemon response line {line.strip()!r}: {exc}"
+
+        if resp.get("ok"):
+            return True, None
+        return False, resp.get("error") or "unknown daemon error"
+
+    def close(self) -> None:
+        if _log_engine_output_enabled() and self._job_count > 1 and not self._last_job_had_fragments_info:
+            self._log_job_output(self._last_job_lines, f"last job, #{self._job_count}")
+
+        if self._dead or self._proc.poll() is not None:
+            return
+        try:
+            with self._lock:
+                self._proc.stdin.write("--quit\n")
+                self._proc.stdin.flush()
+            self._proc.wait(timeout=5)
+        except Exception:
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+
+
 class Decryptor:
     def __init__(self, license_url: str = None, drm_type: str = None, **_kwargs) -> None:
         logger.debug(f"Initializing Decryptor license_url={license_url!r} drm_type={drm_type!r}")
@@ -146,6 +256,8 @@ class Decryptor:
         self.ffmpeg_path = get_ffmpeg_path()
         self.license_url = license_url
         self.drm_type = drm_type
+        self._flux_daemon: _FluxDaemon | None = None
+        self._flux_daemon_failed = False
 
     @staticmethod
     def _redacted_cmd(cmd: list[str]) -> str:
@@ -164,23 +276,33 @@ class Decryptor:
             redacted.append(token)
         return " ".join(redacted)
 
-    @staticmethod
-    def _engine_for(mode: str | None, enc_method: str | None, scheme: str | None) -> str:
-        """Pick which decrypt engine to use for this track — always automatic, no manual toggle."""
+    def _engine_order(self, enc_method: str | None, scheme: str | None) -> list[str]:
+        """Full priority order for this track's scheme, filtered to available binaries: an
+        explicit per-scheme override wins for first place, the rest follow the scheme's
+        default priority. Used to try one engine, then fall through to the next on failure."""
         key = "fps" if (enc_method and "sample" in enc_method.lower()) else (scheme or "").lower()
+
+        priority = _SCHEME_ENGINE_PRIORITY.get(key, _DEFAULT_ENGINE_PRIORITY)
 
         engine_map = config_manager.config.get("DRM", "decrypt_engine_map", default={}) or {}
         if isinstance(engine_map, dict):
             override = str(engine_map.get(key, "")).strip().lower()
             if override in ("bento4", "shaka", "flux"):
-                return override
+                priority = (override, *[e for e in priority if e != override])
 
-        default = _DEFAULT_SCHEME_ENGINE.get(key)
-        if default:
-            return default
+        availability = {"flux": bool(self.flux_path), "shaka": bool(self.shaka_packager_path), "bento4": bool(self.mp4decrypt_path)}
+        ordered = [engine for engine in priority if availability[engine]]
+        return ordered or [priority[0]]
 
-        # Unknown/missing scheme name: fall back to the coarser cenc/cbc mode split.
-        return "shaka" if mode == "cbc" else "flux"
+    def _engine_for(self, enc_method: str | None, scheme: str | None) -> str:
+        """Pick which decrypt engine to use for this track: an explicit per-scheme override wins,
+        otherwise walk the scheme's priority order and take the first engine whose binary is available."""
+        order = self._engine_order(enc_method, scheme)
+        key = "fps" if (enc_method and "sample" in enc_method.lower()) else (scheme or "").lower()
+        preferred = _SCHEME_ENGINE_PRIORITY.get(key, _DEFAULT_ENGINE_PRIORITY)[0]
+        if order[0] != preferred:
+            logger.warning(f"scheme calls for {preferred} but it's not available — falling back to {order[0]}")
+        return order[0]
 
     def detect_encryption(self, file_path: str) -> tuple:
         """Detect the encryption scheme and related information for the given file."""
@@ -189,15 +311,15 @@ class Decryptor:
 
         if not info.encrypted:
             logger.info("No encryption indicators found")
-            return None, None, None, None, None, None
+            return None, None, None, None, None, None, False
 
         mode = SCHEME_TO_MODE.get(info.scheme or "")
         if mode is None:
             mode = "ctr"
             console.print("[dim]Encryption detected (no explicit scheme). Defaulting to CTR mode.")
 
-        logger.debug(f"Encryption finalized: scheme={info.scheme}, mode={mode}, kid={info.kid}, codec={info.video_codec}, enc_method={info.encryption_method}")
-        return mode, info.kid, info.pssh_b64, info.video_codec, info.encryption_method, info.scheme
+        logger.debug(f"Encryption finalized: scheme={info.scheme}, mode={mode}, kid={info.kid}, codec={info.video_codec}, enc_method={info.encryption_method}, piff={info.is_piff}")
+        return mode, info.kid, info.pssh_b64, info.video_codec, info.encryption_method, info.scheme, info.is_piff
 
     def _decrypt_flux_nonlive(
         self,
@@ -208,6 +330,7 @@ class Decryptor:
         is_fixed_key: bool = False,
         progress_cb: Callable[[dict[str, Any]], None] | None = None,
         status: str | None = None,
+        stream_type: str = "video",
     ) -> bool:
         """Decrypt a non-live (static) encrypted file using `flux` (`-f progressive`) — subprocess only"""
         if not self.flux_path:
@@ -246,6 +369,8 @@ class Decryptor:
                         guard.safe_output_path,
                         progress_cb=progress_cb,
                         status=status,
+                        engine_name="FLUX",
+                        stream_type=stream_type,
                     )
                     if result is True:
                         break
@@ -282,6 +407,30 @@ class Decryptor:
             logger.warning(f"flux decrypt failed, falling back: {e}")
             return False
 
+    def _get_flux_daemon(self) -> "_FluxDaemon | None":
+        """Get or start the persistent flux daemon for live decryption, if available."""
+        if self._flux_daemon_failed:
+            return None
+        if self._flux_daemon is not None:
+            return self._flux_daemon
+        if not self.flux_path:
+            self._flux_daemon_failed = True
+            return None
+        try:
+            self._flux_daemon = _FluxDaemon(self.flux_path)
+            logger.debug("flux daemon started for this track's live decrypt")
+            return self._flux_daemon
+        except Exception as exc:
+            logger.warning(f"flux daemon failed to start, falling back to one-shot spawns: {exc}")
+            self._flux_daemon_failed = True
+            return None
+
+    def close_flux_daemon(self) -> None:
+        """Stop this Decryptor's persistent flux daemon (if any) — call once a track's live decrypt is done."""
+        if self._flux_daemon is not None:
+            self._flux_daemon.close()
+            self._flux_daemon = None
+
     def _decrypt_flux_live(
         self,
         encrypted_path: str,
@@ -289,7 +438,7 @@ class Decryptor:
         normalized_keys: list[tuple[str, str]],
         init_path: str | None = None,
     ) -> tuple:
-        """Decrypt a live (streaming) encrypted segment using `flux`."""
+        """Decrypt a live (streaming) encrypted segment using `flux`"""
         logger.debug(f"decrypt_flux_live(): {os.path.basename(encrypted_path)} -> {os.path.basename(decrypted_path)}")
 
         if not self.flux_path:
@@ -301,6 +450,22 @@ class Decryptor:
 
         try:
             with _AnsiSafePathGuard(encrypted_path, decrypted_path) as guard:
+                daemon = self._get_flux_daemon()
+                if daemon is not None:
+                    keys_arg = [f"{kid.lower()}:{raw_key.lower()}" for kid, raw_key in normalized_keys]
+                    daemon_init = init_path if (init_path and os.path.exists(init_path)) else None
+                    ok, err = daemon.decrypt(guard.safe_encrypted_path, guard.safe_output_path, keys_arg, daemon_init)
+
+                    if ok:
+                        size = os.path.getsize(guard.safe_output_path) if os.path.exists(guard.safe_output_path) else 0
+                        if size <= 0:
+                            return False, "Error flux: output file missing or empty", None
+                        guard.finalize()
+                        logger.debug(f"flux live segment decrypted successfully via daemon: {size} bytes")
+                        return True, "flux live segment decrypted", None
+
+                    logger.debug(f"flux daemon job failed ({err}), falling back to one-shot spawn for this segment")
+
                 cmd = [self.flux_path]
                 if init_path and os.path.exists(init_path):
                     cmd.extend(["--fragments-info", init_path])
@@ -377,6 +542,7 @@ class Decryptor:
                     guard.safe_output_path,
                     progress_cb=progress_cb,
                     status=status,
+                    engine_name="BENTO4",
                 )
                 if result is True:
                     if not os.path.exists(guard.safe_output_path) or os.path.getsize(guard.safe_output_path) <= 0:
@@ -497,6 +663,7 @@ class Decryptor:
                     label,
                     guard.safe_encrypted_path,
                     guard.safe_output_path,
+                    engine_name="SHAKA",
                     progress_cb=progress_cb,
                     status=status,
                 )
@@ -542,7 +709,7 @@ class Decryptor:
     ) -> bool:
         """Decrypt the given encrypted file using the provided keys and output to the specified path."""
         try:
-            mode, kid, _pssh, _codec, enc_method, scheme = self.detect_encryption(encrypted_path)
+            mode, kid, _pssh, _codec, enc_method, scheme, is_piff = self.detect_encryption(encrypted_path)
             norm_keys = KeysManager.normalize(keys)
 
             if mode is None:
@@ -552,7 +719,6 @@ class Decryptor:
                     return True
                 
                 if stream_type == "subtitle":
-                    logger.info("Subtitle stream with no encryption indicators — copying (subtitles are never DRM-protected)")
                     shutil.copy(encrypted_path, output_path)
                     return True
                 
@@ -574,32 +740,40 @@ class Decryptor:
             method_display = (enc_method or mode or "unknown").upper().replace("_", "-")
             filename = os.path.basename(encrypted_path)
             is_fixed_key_shaka = KeysManager.is_zero_kid(kid)
-            engine = self._engine_for(mode, enc_method, scheme)
-            if engine == "shaka" and not self.shaka_packager_path:
-                logger.warning("scheme calls for Shaka but Shaka Packager not available — falling back to Bento4")
-                engine = "bento4"
+            if is_piff:
+                logger.debug("Legacy PIFF-brand content detected (dual PIFF+CENC)")
+            
+            # Try the preferred engine first, then fall through the rest of the priority
+            # order on failure -- flux has shown intermittent, hard-to-reproduce sample
+            # corruption under heavy real-pipeline concurrency (passes every isolated
+            # repro, exit 0, right size, but ~99% decode-error content) that its own
+            # subprocess-level checks don't always catch; shaka/bento4 decrypt the exact
+            # same input cleanly every time, so retrying with them beats surfacing a
+            # silently-corrupt track.
+            for engine in self._engine_order(enc_method, scheme):
+                if engine == "shaka":
+                    label = f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]Shaka[/yellow]"
+                    ok = self._decrypt_shaka_nonlive(
+                        encrypted_path, norm_keys, output_path, stream_type, label,
+                        is_fixed_key=is_fixed_key_shaka, progress_cb=progress_cb, status=method_display,
+                    )
+                elif engine == "bento4":
+                    label = f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]Bento4[/yellow]"
+                    ok = self._decrypt_bento4_nonlive(
+                        encrypted_path, norm_keys, output_path, label,
+                        is_fixed_key=is_fixed_key_shaka, progress_cb=progress_cb, status=method_display,
+                    )
+                else:
+                    label = f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]flux[/yellow]"
+                    ok = self._decrypt_flux_nonlive(
+                        encrypted_path, norm_keys, output_path, label,
+                        is_fixed_key=False, progress_cb=progress_cb, status=method_display, stream_type=stream_type,
+                    )
 
-            if engine == "shaka":
-                label = f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]Shaka[/yellow]"
-                ok = self._decrypt_shaka_nonlive(
-                    encrypted_path, norm_keys, output_path, stream_type, label,
-                    is_fixed_key=is_fixed_key_shaka, progress_cb=progress_cb, status=method_display,
-                )
-            elif engine == "bento4":
-                label = f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]Bento4[/yellow]"
-                ok = self._decrypt_bento4_nonlive(
-                    encrypted_path, norm_keys, output_path, label,
-                    is_fixed_key=is_fixed_key_shaka, progress_cb=progress_cb, status=method_display,
-                )
-            else:
-                label = f"[cyan]Dec[/cyan] [green]{filename}[/green] [[magenta]{method_display}[/magenta]] - [yellow]flux[/yellow]"
-                ok = self._decrypt_flux_nonlive(
-                    encrypted_path, norm_keys, output_path, label,
-                    is_fixed_key=False, progress_cb=progress_cb, status=method_display,
-                )
+                if ok:
+                    return True
 
-            if ok:
-                return True
+                logger.warning(f"{engine} failed/produced unusable output for {filename} -- trying next engine")
 
             if mode == "unknown":
                 logger.error("Forced decryption failed in unknown mode; refusing to copy encrypted content as decrypted output.")
@@ -625,16 +799,16 @@ class Decryptor:
         if not norm_keys:
             return False, "Could not parse any keys."
 
-        mode, kid, _pssh, _codec, _enc_method, scheme = self.detect_encryption(encrypted_path)
+        mode, kid, _pssh, _codec, _enc_method, scheme, is_piff = self.detect_encryption(encrypted_path)
         norm_keys = KeysManager.resolve_fixed_key(encrypted_path, kid, norm_keys)
 
         method_display = (_enc_method or mode or "unknown").upper().replace("_", "-")
         filename = os.path.basename(encrypted_path)
         is_fixed_key_shaka = KeysManager.is_zero_kid(kid)
-        engine = self._engine_for(mode, _enc_method, scheme)
-        if engine == "shaka" and not self.shaka_packager_path:
-            logger.warning("scheme calls for Shaka but Shaka Packager not available — falling back to Bento4")
-            engine = "bento4"
+        if is_piff:
+            logger.debug("Legacy PIFF-brand content detected (dual PIFF+CENC )")
+        
+        engine = self._engine_for(_enc_method, scheme)
 
         if engine == "shaka":
             engine_name = "Shaka"

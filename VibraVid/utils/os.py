@@ -2,7 +2,6 @@
 
 import logging
 import os
-import shutil
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -134,17 +133,6 @@ class OsManager:
                 except Exception:
                     pass
 
-    def remove_folder(self, folder_path: str) -> bool:
-        """Safely remove a folder."""
-        try:
-            shutil.rmtree(folder_path)
-            return True
-
-        except OSError as e:
-            logger.error(f"Folder removal error: {e}")
-            return False
-
-
 class InternetManager:
     def format_file_size(self, size_bytes) -> str:
         """Format *size_bytes* (int or float) as a human-readable size string."""
@@ -165,26 +153,6 @@ class InternetManager:
         if nb >= 1024:
             return f"{nb / 1024:.0f}K"
         return f"{nb:.0f}"
-
-    def parse_file_size(self, size_str: str) -> int | None:
-        """Parse a human-readable size string such as ``"1.5 GB"`` into bytes."""
-        if not isinstance(size_str, str):
-            return None
-        try:
-            s = size_str.upper().strip()
-            if "TB" in s:
-                return int(float(s.replace("TB", "").strip()) * 1024**4)
-            if "GB" in s:
-                return int(float(s.replace("GB", "").strip()) * 1024**3)
-            if "MB" in s:
-                return int(float(s.replace("MB", "").strip()) * 1024**2)
-            if "KB" in s:
-                return int(float(s.replace("KB", "").strip()) * 1024)
-            if "B" in s:
-                return int(float(s.replace("B", "").strip()))
-            return None
-        except Exception:
-            return None
 
     def format_transfer_speed(self, bytes_per_second) -> str:
         """

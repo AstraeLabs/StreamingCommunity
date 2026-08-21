@@ -411,7 +411,7 @@ def base_search(
     len_database = title_search_func(str(actual_search_query).strip())
 
     # Sort results by fuzzy score
-    logger.info(f"Sorting {len_database} results by fuzzy score for query: '{actual_search_query}'")
+    logger.debug(f"Sorting {len_database} results by fuzzy score for query: '{actual_search_query}'")
     media_search_manager.sort_by_fuzzy_score(actual_search_query)
 
     # Apply year filter if provided

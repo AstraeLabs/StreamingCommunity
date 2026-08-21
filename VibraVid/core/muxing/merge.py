@@ -32,9 +32,13 @@ from .helper.video import (
 
 console = Console()
 logger = logging.getLogger(__name__)
+
 USE_GPU = config_manager.config.get_bool("PROCESS", "use_gpu")
 FORCE_SUBTITLE = config_manager.config.get("PROCESS", "force_subtitle")
 SUBTITLE_DISPOSITION_LANGUAGE = config_manager.config.get("PROCESS", "subtitle_disposition_language")
+if isinstance(SUBTITLE_DISPOSITION_LANGUAGE, list):
+    SUBTITLE_DISPOSITION_LANGUAGE = SUBTITLE_DISPOSITION_LANGUAGE[0] if SUBTITLE_DISPOSITION_LANGUAGE else ""
+
 _GPU_TYPE_CACHE = None
 MUX_ENGINE = config_manager.config.get("PROCESS", "engine", default="ffmpeg").lower()
 
@@ -449,18 +453,39 @@ def _write_ogm_chapters(chapters: list) -> str:
         return f.name
 
 
+def _persist_chapters_file(chapters: list, temp_dir: str | None) -> None:
+    """Write a `chapters.txt` sidecar (OGM `CHAPTERxx=`/`CHAPTERxxNAME=` format)"""
+    if not chapters or not temp_dir:
+        return
+
+    persist_path = os.path.join(temp_dir, "chapters.txt")
+    tmp_chapter_file = _write_ogm_chapters(chapters)
+    try:
+        shutil.copyfile(tmp_chapter_file, persist_path)
+        logger.info(f"[chapters] persisted sidecar -> {persist_path}")
+    except OSError as e:
+        logger.warning(f"[chapters] failed to persist sidecar {persist_path}: {e}")
+    finally:
+        try:
+            os.unlink(tmp_chapter_file)
+        except OSError:
+            pass
+
+
 def _format_timestamp(seconds) -> str:
     """Format a seconds value as HH:MM:SS for display."""
     return internet_manager.format_time(seconds, add_hours=True)
 
 
-def inject_chapters(file_path: str, chapters: list | None = None):
+def inject_chapters(file_path: str, chapters: list | None = None, temp_dir: str | None = None):
     """
     Injects chapters into an already-muxed file.
 
     Parameters:
         file_path (str): The path to the already-muxed media file.
         chapters (list): Queued chapters, e.g. from a downloader's ``.chapters`` attribute. Each entry is ``{"name": str, "seconds": int}``.
+        temp_dir (str, optional): Downloader's temp working directory -- if given, a
+            ``chapters.txt`` sidecar (see ``_persist_chapters_file``) is written there.
 
     Returns:
         tuple: (file_path, result_json)
@@ -471,6 +496,8 @@ def inject_chapters(file_path: str, chapters: list | None = None):
     chapters = _sort_chapters(chapters)
     if chapters[0]["seconds"] > 0:
         chapters = [{"name": "Intro", "seconds": 0}] + chapters
+
+    _persist_chapters_file(chapters, temp_dir)
 
     logger.info(f"Injecting {len(chapters)} chapter(s) as final mux step")
     console.print(f"[cyan]\nInject [red]{len(chapters)} [cyan]chapter(s)...")
@@ -772,7 +799,9 @@ def _prepare_subtitle_tracks(
         # Normal subtitle: fix extension / convert format
         corrected_path = convert_subtitle(original_path, FORCE_SUBTITLE)
         if not corrected_path:
-            corrected_path = original_path
+            logger.warning(f"join_subtitles: conversion failed for '{os.path.basename(original_path)}', skipping (raw file is not mux-safe)")
+            console.print(f"[red]    Skipping subtitle (conversion failed): [yellow]{os.path.basename(original_path)}")
+            continue
         sub = dict(subtitle)
         sub["path"] = corrected_path
         processed.append(sub)
@@ -805,6 +834,7 @@ def join_media(
     out_path: str,
     limit_duration_diff: float = 3,
     chapters: list | None = None,
+    force_ts_fix: bool = False,
 ):
     """
     Mux video + audio tracks + subtitle tracks in a single ffmpeg or mkvmerge
@@ -815,8 +845,8 @@ def join_media(
         subtitle_tracks (list[dict[str, str]]): A list of dicts with 'path', 'language', and optionally 'is_wvtt_mp4' keys. May be empty.
         out_path (str): The path to save the output file.
         limit_duration_diff (float): Maximum duration difference in seconds (audio vs video, and subtitle vs video) before -shortest / trimming kicks in.
-        chapters (list, optional): Chapters to bake into this same merge command (avoids a second full-file
-            remux pass via inject_chapters()). Each entry is ``{"name": str, "seconds": int}``.
+        chapters (list, optional): Chapters to bake into this same merge command (avoids a second full-file remux pass via inject_chapters()). Each entry is ``{"name": str, "seconds": int}``.
+        force_ts_fix (bool): Force the same -avoid_negative_ts/-fflags +genpts fix detect_ts_timestamp_issues() would trigger, without needing to run that detector first.
 
     Returns:
         tuple: (out_path, result_json)
@@ -833,6 +863,7 @@ def join_media(
         chapters = _dedupe_chapters(_sort_chapters(chapters))
         if chapters[0]["seconds"] > 0:
             chapters = [{"name": "Intro", "seconds": 0}] + chapters
+        _persist_chapters_file(chapters, os.path.dirname(video_path))
 
     if MUX_ENGINE == "mkvmerge":
         base, _ = os.path.splitext(out_path)
@@ -840,7 +871,7 @@ def join_media(
         return _join_media_mkvmerge(video_path, audio_tracks, subtitle_tracks, out_path, chapters)
 
     out_path = _apply_compatible_extension(video_path, out_path)
-    return _join_media_ffmpeg(video_path, audio_tracks, subtitle_tracks, out_path, use_shortest, chapters)
+    return _join_media_ffmpeg(video_path, audio_tracks, subtitle_tracks, out_path, use_shortest, chapters, force_ts_fix)
 
 
 def _join_media_ffmpeg(
@@ -850,6 +881,7 @@ def _join_media_ffmpeg(
     out_path: str,
     use_shortest: bool,
     chapters: list | None = None,
+    force_ts_fix: bool = False,
 ):
     ffmpeg_cmd = [get_ffmpeg_path()]
 
@@ -858,9 +890,10 @@ def _join_media_ffmpeg(
         console.print(f"\n[yellow]FFMPEG [cyan]Detected GPU for join: [red]{gpu_type_hwaccel}")
         ffmpeg_cmd.extend(["-hwaccel", gpu_type_hwaccel])
 
-    has_ts_issues = detect_ts_timestamp_issues(video_path)
+    has_ts_issues = force_ts_fix or detect_ts_timestamp_issues(video_path)
     if has_ts_issues:
-        logger.info("[join_media] Detected timestamp issues, adding -fflags +genpts")
+        reason = "caller requested it (skipped its own normalize pass)" if force_ts_fix else "detected timestamp issues"
+        logger.info(f"[join_media] Adding -fflags +genpts ({reason})")
         ffmpeg_cmd.extend(["-fflags", "+genpts+igndts+discardcorrupt", "-avoid_negative_ts", "make_zero"])
 
     if is_mpegts_file(video_path):
@@ -924,6 +957,7 @@ def _join_media_ffmpeg(
     else:
         subtitle_codec = "copy"
 
+    _disposition_config_lang = (SUBTITLE_DISPOSITION_LANGUAGE or "").lower().strip()
     for idx, subtitle in enumerate(subtitle_tracks):
         sub_path = subtitle["path"]
         sub_ext = os.path.splitext(sub_path)[1].lower().lstrip(".")
@@ -934,6 +968,8 @@ def _join_media_ffmpeg(
         lang_iso = resolve_iso639_2(lang_display)
 
         console.print(f"[yellow]    - [cyan]Subtitle lang [red]{lang_display}.{sub_ext}")
+        if _disposition_config_lang and _disposition_lang_matches(subtitle.get("language", ""), _disposition_config_lang, subtitle):
+            console.print(f"[yellow]      Setting disposition: [red]{subtitle.get('language')}")
 
         if output_ext == ".mp4":
             ffmpeg_cmd += [f"-c:s:{idx}", "mov_text"]
@@ -952,7 +988,8 @@ def _join_media_ffmpeg(
         ffmpeg_cmd += [f"-metadata:s:s:{idx}", f"handler_name={lang_display}"]
 
     if chapters:
-        console.print(f"[cyan]\nAdding [red]{len(chapters)} [cyan]chapter(s) inline...")
+        logger.info(f"Adding {len(chapters)} chapter(s) inline...")
+        console.print(f"[cyan]\nMerging [red]{len(chapters)} [cyan]chapter(s)...")
         for chapter in chapters:
             console.print(f"[yellow]    - [red]{_format_timestamp(chapter['seconds'])}[cyan]: [red]{chapter.get('name', '')}")
 
@@ -962,7 +999,11 @@ def _join_media_ffmpeg(
     _maybe_tag_hevc_for_mkv(ffmpeg_cmd, video_path, out_path, _is_video_copied())
 
     if use_shortest:
-        ffmpeg_cmd.extend(["-shortest", "-strict", "experimental"])
+        video_duration = get_video_duration(video_path)
+        if video_duration and video_duration > 0:
+            ffmpeg_cmd.extend(["-t", f"{video_duration:.3f}", "-strict", "experimental"])
+        else:
+            ffmpeg_cmd.extend(["-shortest", "-strict", "experimental"])
 
     # Disposizioni subtitle
     # Passo 1: reset everything to 0
@@ -990,7 +1031,6 @@ def _join_media_ffmpeg(
         for idx, subtitle in enumerate(subtitle_tracks):
             subtitle_lang = subtitle.get("language", "")
             if _disposition_lang_matches(subtitle_lang, config_lang, subtitle):
-                console.print(f"[yellow]    Setting disposition: [red]{subtitle.get('language')}")
                 disp = "default"
                 if "_forced" in config_lang or "-forced" in config_lang:
                     disp += "+forced"
@@ -1008,7 +1048,12 @@ def _join_media_ffmpeg(
     logger.info(f"Running Join Media command: {' '.join(ffmpeg_cmd)}")
     _join_t0 = time.monotonic()
     result_json = capture_ffmpeg_real_time(ffmpeg_cmd, "[yellow]FFMPEG [cyan]Join media", total_duration)
-    logger.info(f"Join Media finished -> {out_path} in {time.monotonic() - _join_t0:.1f}s")
+    _exit_code = result_json.get("exit_code")
+    if _exit_code:
+        _tail = "\n".join(result_json.get("last_lines") or [])
+        logger.error(f"Join Media ffmpeg exited with code {_exit_code} -> {out_path} in {time.monotonic() - _join_t0:.1f}s\n{_tail}")
+    else:
+        logger.info(f"Join Media finished -> {out_path} in {time.monotonic() - _join_t0:.1f}s")
     if context_tracker.should_print:
         print()
 
@@ -1078,7 +1123,8 @@ def _join_media_mkvmerge(
         )
 
     if chapters:
-        console.print(f"[cyan]\nAdding [red]{len(chapters)} [cyan]chapter(s) inline...")
+        logger.info(f"Adding {len(chapters)} chapter(s) inline...")
+        console.print(f"[cyan]\nMerging [red]{len(chapters)} [cyan]chapter(s)...")
         for chapter in chapters:
             console.print(f"[yellow]    - [red]{_format_timestamp(chapter['seconds'])}[cyan]: [red]{chapter.get('name', '')}")
 

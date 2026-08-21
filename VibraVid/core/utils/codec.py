@@ -355,18 +355,6 @@ def get_short_codec(stream_type: str, codec_str: str) -> str:
     return codec_str
 
 
-def get_video_codec_name(codec_str: str) -> str:
-    return _lookup(VIDEO_CODEC_MAP, codec_str)
-
-
-def get_audio_codec_name(codec_str: str) -> str:
-    return _lookup(AUDIO_CODEC_MAP, codec_str)
-
-
-def get_subtitle_codec_name(codec_str: str) -> str:
-    return _lookup(SUBTITLE_CODEC_MAP, codec_str)
-
-
 def detect_stream_type(codec_str: str) -> str:
     if not codec_str:
         return ""
@@ -392,16 +380,3 @@ def get_channel_label(channels: str) -> str:
         return CHANNEL_MAP.get(str(n), ch)
     except (ValueError, TypeError):
         return ch
-
-
-def codec_matches_stream(stream, filter_str: str) -> bool:
-    """
-    Return True if the stream's codec matches the filter string.
-    Filter: comma/pipe-separated codec tokens, e.g. 'h264|avc', 'hevc'.
-    """
-    if not filter_str:
-        return True
-    raw_codec = getattr(stream, "codecs", "") or ""
-    short = get_short_codec(getattr(stream, "type", ""), raw_codec).lower()
-    tokens = [t.strip().lower() for t in filter_str.replace(",", "|").split("|") if t.strip()]
-    return any(t in raw_codec.lower() or t in short for t in tokens)

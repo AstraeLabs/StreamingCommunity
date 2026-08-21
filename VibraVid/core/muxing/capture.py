@@ -4,6 +4,7 @@ import logging
 import re
 import subprocess
 import threading
+from collections import deque
 
 from VibraVid.core.ui.bar_manager import console
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
@@ -19,6 +20,7 @@ class ProgressData:
 
     def __init__(self):
         self.last_data = None
+        self.last_lines: list[str] = []
         self.lock = threading.Lock()
 
     def update(self, data):
@@ -28,6 +30,14 @@ class ProgressData:
     def get(self):
         with self.lock:
             return self.last_data
+
+    def set_last_lines(self, lines: list[str]) -> None:
+        with self.lock:
+            self.last_lines = lines
+
+    def get_last_lines(self) -> list[str]:
+        with self.lock:
+            return list(self.last_lines)
 
 
 def _format_eta(eta_seconds: float) -> str:
@@ -66,6 +76,8 @@ def capture_output(
     if terminate_flag is None:
         terminate_flag = threading.Event()
 
+    tail_lines: deque[str] = deque(maxlen=20)
+
     try:
         max_length = 0
         last_progress_string = ""
@@ -78,6 +90,7 @@ def capture_output(
                 if not line:
                     continue
 
+                tail_lines.append(line)
                 if terminate_flag.is_set():
                     logger.info("FFmpeg process cancelled")
                     break
@@ -86,12 +99,9 @@ def capture_output(
                     try:
                         data = parse_output_line(line)
 
-                        if "q" in data:
-                            is_end = float(data.get("q", -1.0)) == -1.0
-                            size_key = "Lsize" if is_end else "size"
-                            byte_size = int(re.findall(r"\d+", data.get(size_key, "0"))[0]) * 1000
-                        else:
-                            byte_size = int(re.findall(r"\d+", data.get("size", "0"))[0]) * 1000
+                        # The final summary line uses "Lsize=" instead of "size=" --
+                        size_key = "Lsize" if "Lsize" in data else "size"
+                        byte_size = int(re.findall(r"\d+", data.get(size_key, "0"))[0]) * 1000
 
                         speed = data.get("speed", "N/A")
                         bitrate = data.get("bitrate", "N/A")
@@ -107,6 +117,7 @@ def capture_output(
 
                         json_data = {
                             "speed": speed,
+                            "size": internet_manager.format_file_size(byte_size),
                             "bitrate": bitrate,
                             "time": time_processed,
                             "eta": eta_str,
@@ -143,6 +154,7 @@ def capture_output(
         logger.error(f"Error in capture_output: {e}")
 
     finally:
+        progress_data.set_last_lines(list(tail_lines))
         try:
             terminate_process(process)
         except Exception as e:
@@ -274,4 +286,5 @@ def capture_ffmpeg_real_time(
     if process is not None:
         result.setdefault("exit_code", process.returncode)
     result.setdefault("timed_out", timed_out)
+    result.setdefault("last_lines", progress_data.get_last_lines())
     return result

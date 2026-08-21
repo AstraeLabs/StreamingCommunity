@@ -20,7 +20,7 @@ class DiscoveryPlus:
         """
         self.device_id = str(uuid.uuid1())
         self.client_id = "b6746ddc-7bc7-471f-a16c-f6aaf0c34d26"
-        accept_language = config_manager.config.get("DISCOVERYPLUS", "accept_language", default="en-US,en;q=0.9")
+        accept_language = "en-US,en;q=0.9"
 
         # Base headers for Android TV client (will be updated after auth)
         self.base_headers = {

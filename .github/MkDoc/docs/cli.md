@@ -71,6 +71,9 @@ python manual.py --site streamingcommunity --search "interstellar" -sa "eng"
 
 # Subtitles
 python manual.py --site streamingcommunity --search "interstellar" -ss "eng"
+
+# Output container (overrides PROCESS.extension from config.json for this run)
+python manual.py --site streamingcommunity --search "interstellar" --extension mp4
 ```
 
 See [Stream Selection Filters](configuration.md#stream-selection-filters) for the full
@@ -175,6 +178,36 @@ Segment modes for a track's `segments` field:
 initialization segment. Placeholders support zero-padding, e.g. `$Number%05d$`; `$$` escapes
 a literal `$`.
 
+### Batch Replay from a TRACKS_JSON file (`--down-json`)
+
+`--down-json` runs every entry's `cmd` from a `TRACKS_JSON` debug file (see
+`debug_track_json` in [Configuration](configuration.md)) in sequence, instead of a single
+`--down` invocation:
+
+```bash
+python manual.py --down-json "./debug/tracks_20260821.json"
+```
+
+### Attaching metadata to a direct download (`--meta-*`)
+
+A plain `--down` has no title/type/season/episode context, so title-dependent hooks and the
+Vault upload/lookup are skipped by default for it. Pass `--meta-*` flags to attach that context
+so those still work:
+
+```bash
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --key "<KID>:<KEY>" -o "./Video/Movie (2024)/movie.mkv" \
+  --meta-title "Movie Name" --meta-type Film --meta-site streamingcommunity
+
+# TV episode
+python manual.py --down "https://example.com/master.m3u8" --type hls \
+  --key "<KID>:<KEY>" -o "./Video/Show/Season 01/episode.mkv" \
+  --meta-title "Show Name" --meta-type TV --meta-season 1 --meta-episode 3
+```
+
+`--resolve-only` sets these automatically on the `--down` entry it produces, so this is mostly
+needed when hand-building a `--down`/`--down-json` invocation yourself.
+
 ## Advanced Options
 
 | Flag | Effect |
@@ -189,6 +222,18 @@ a literal `$`.
 | `--skip-sanitize` | Use the `-o` output path verbatim (MP4/HLS/DASH/ISM direct downloads), skipping path sanitization (transliteration of non-ASCII characters) |
 | `--no-manifest-info` | Don't print the parsed manifest/streams table |
 | `--binary-update` | Check FFmpeg/Bento4/Shaka Packager/dovi_tool/MKVToolNix/Velora against AstraeLabs/Binary and re-download whichever is outdated |
+| `--resolve-only` | Resolve and cache the manifest (keys, license, playlist) without actually downloading — pairs with `--down-json`/the queue to download later without re-resolving |
+| `--tui` | Launch the Textual terminal UI instead of the plain CLI flow |
+| `-UP`, `--update` | Auto-update to the latest release (binary builds only) |
+| `--version` | Print the installed version and exit |
+
+```bash
+# Resolve now, download later: cache the manifest/keys without downloading
+python manual.py --site streamingcommunity --search "interstellar" --item 0 --resolve-only
+
+# Launch the TUI instead of the classic prompt-driven flow
+python manual.py --tui
+```
 
 ```bash
 # Manual AES-128 override, e.g. for a manifest missing its own #EXT-X-KEY tag

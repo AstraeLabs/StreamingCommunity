@@ -15,6 +15,7 @@ from mutagen.id3 import (
     TPE1,
     TPE2,
     TRCK,
+    USLT,
     ID3NoHeaderError,
 )
 from mutagen.mp4 import MP4, MP4Cover
@@ -54,6 +55,7 @@ def _tag_flac(
     genre: str,
     cover_url: str | None,
     album_artist: str = "",
+    lyrics: str | None = None,
 ) -> None:
     """Write Vorbis comment tags + cover art to a FLAC file."""
     audio = FLAC(str(path))
@@ -69,6 +71,8 @@ def _tag_flac(
         audio["tracknumber"] = [str(track_number)]
     if genre:
         audio["genre"] = [genre]
+    if lyrics:
+        audio["lyrics"] = [lyrics]
 
     if cover_url:
         cover_data = _fetch_cover(cover_url)
@@ -97,6 +101,7 @@ def _tag_mp4(
     genre: str,
     cover_url: str | None,
     album_artist: str = "",
+    lyrics: str | None = None,
 ) -> None:
     """Write atom tags + cover art to an M4A/MP4/AAC file."""
     audio = MP4(str(path))
@@ -116,6 +121,8 @@ def _tag_mp4(
         tags["trkn"] = [(int(track_number), 0)]
     if genre:
         tags["\xa9gen"] = [genre]
+    if lyrics:
+        tags["\xa9lyr"] = [lyrics]
 
     if cover_url:
         cover_data = _fetch_cover(cover_url)
@@ -138,6 +145,7 @@ def _tag_opus(
     genre: str,
     cover_url: str | None,
     album_artist: str = "",
+    lyrics: str | None = None,
 ) -> None:
     """Write Vorbis comment tags + cover art to an Opus file."""
     audio = OggOpus(str(path))
@@ -155,6 +163,8 @@ def _tag_opus(
         audio["tracknumber"] = [str(track_number)]
     if genre:
         audio["genre"] = [genre]
+    if lyrics:
+        audio["lyrics"] = [lyrics]
 
     if cover_url:
         cover_data = _fetch_cover(cover_url)
@@ -182,6 +192,7 @@ def _tag_mp3(
     genre: str,
     cover_url: str | None,
     album_artist: str = "",
+    lyrics: str | None = None,
 ) -> None:
     """Write ID3 tags + cover art to an MP3 file."""
     try:
@@ -208,6 +219,9 @@ def _tag_mp3(
     if genre:
         tags.delall("TCON")
         tags["TCON"] = TCON(encoding=3, text=genre)
+    if lyrics:
+        tags.delall("USLT")
+        tags["USLT::eng"] = USLT(encoding=3, lang="eng", desc="", text=lyrics)
 
     if cover_url:
         cover_data = _fetch_cover(cover_url)
@@ -237,9 +251,10 @@ def tag_track(
     genre: str = "",
     cover_url: str | None = None,
     album_artist: str = "",
+    lyrics: str | None = None,
 ) -> bool:
     """
-    Write tags (+ optional cover art) to an MP3, FLAC, or M4A/AAC file.
+    Write tags (+ optional cover art + optional lyrics) to an MP3, FLAC, or M4A/AAC file.
 
     Routing:
         .flac          → mutagen.flac.FLAC  (Vorbis comments + Picture block)
@@ -249,6 +264,11 @@ def tag_track(
     `artist` may legitimately list every contributor on the track (e.g. "Drake, 21 Savage").
     `album_artist`, if not given explicitly, is reduced to the single primary artist so
     players don't group the album under a different combo per track.
+
+    `lyrics` is written as-is: pass LRC-format text (`[mm:ss.xx]line`) for
+    synced lyrics, or plain newline-joined text for unsynced -- both are valid
+    in the same native tag (©lyr / LYRICS / USLT) and most players render
+    either correctly.
 
     Returns True on success.
     """
@@ -261,17 +281,17 @@ def tag_track(
 
     try:
         if suffix == ".flac":
-            _tag_flac(path, title, artist, album, year, track_number, genre, cover_url, album_artist)
+            _tag_flac(path, title, artist, album, year, track_number, genre, cover_url, album_artist, lyrics)
 
         elif suffix == ".mp3":
-            _tag_mp3(path, title, artist, album, year, track_number, genre, cover_url, album_artist)
+            _tag_mp3(path, title, artist, album, year, track_number, genre, cover_url, album_artist, lyrics)
 
         elif suffix == ".opus":
-            _tag_opus(path, title, artist, album, year, track_number, genre, cover_url, album_artist)
+            _tag_opus(path, title, artist, album, year, track_number, genre, cover_url, album_artist, lyrics)
 
         else:
             # .m4a, .mp4, .aac, …
-            _tag_mp4(path, title, artist, album, year, track_number, genre, cover_url, album_artist)
+            _tag_mp4(path, title, artist, album, year, track_number, genre, cover_url, album_artist, lyrics)
 
         logger.info("Tags written to: %s", path.name)
         return True

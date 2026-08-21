@@ -215,16 +215,6 @@ class DownloadTracker(metaclass=SingletonMeta):
                     dl["size"] = task["size"]
                     dl["segments"] = task["segments"]
 
-    def update_info(self, download_id: str, quality: str = None, language: str = None):
-        """Update quality/language display info for a download."""
-        with self._lock:
-            if download_id in self.downloads:
-                if quality is not None:
-                    self.downloads[download_id]["quality"] = quality
-                if language is not None:
-                    self.downloads[download_id]["language"] = language
-                self.downloads[download_id]["last_update"] = time.time()
-
     def update_status(self, download_id: str, status: str):
         with self._lock:
             if download_id in self.downloads:
@@ -256,12 +246,6 @@ class DownloadTracker(metaclass=SingletonMeta):
         with self._lock:
             event = self.stop_events.get(download_id)
             return event.is_set() if event else False
-
-    def register_process(self, download_id: str, process: Any):
-        """Register a subprocess or task to be terminated if download is cancelled."""
-        with self._lock:
-            if download_id and download_id in self.active_processes:
-                self.active_processes[download_id].append(process)
 
     def shutdown(self):
         """Shutdown all active downloads and kill their processes."""
@@ -566,6 +550,14 @@ class ContextTracker:
         self.local.bypass_vault_cache = value
 
     @property
+    def log_engine_output(self):
+        return getattr(self.local, "log_engine_output", None)
+
+    @log_engine_output.setter
+    def log_engine_output(self, value):
+        self.local.log_engine_output = value
+
+    @property
     def anonymize_keys(self):
         return getattr(self.local, "anonymize_keys", False)
 
@@ -676,11 +668,3 @@ def open_context_download(title: str, path: str = None, default_type: str = "Fil
     return download_id
 
 
-def close_context_download(download_id: str | None, success: bool, path: str = None, error: str = None) -> None:
-    """Close out a tracker entry opened by open_context_download()."""
-    if not download_id:
-        return
-    try:
-        download_tracker.complete_download(download_id, success=success, path=path, error=error)
-    except Exception:
-        pass

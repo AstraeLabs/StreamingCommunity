@@ -92,6 +92,7 @@ def download_film(select_title: Entries) -> tuple[str, bool]:
             license_url=full_license_url,
             output_path=os.path.join(movie_path, movie_name),
             other_tracks=other_tracks,
+            has_drm=True,
         ).start()
 
     # MPD

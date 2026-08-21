@@ -22,12 +22,12 @@ from VibraVid.core.muxing import (
 )
 from VibraVid.core.muxing.helper.audio import audio_ext_for_codec
 from VibraVid.core.muxing.helper.video import get_media_metadata
-from VibraVid.core.muxing.helper.video_hybrid import download_other_tracks
+from VibraVid.core.muxing.helper.video.hybrid import download_other_tracks
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
 from VibraVid.setup import get_ffmpeg_path
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.hooks import execute_hooks
-from VibraVid.utils.vault_upload.hook import upload_after
+from VibraVid.utils.storage_upload.hook import upload_after
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -37,10 +37,6 @@ MERGE_SUBTITLES = config_manager.config.get_bool("PROCESS", "merge_subtitle")
 MERGE_AUDIO = config_manager.config.get_bool("PROCESS", "merge_audio")
 CLEANUP_TMP = config_manager.config.get_bool("DOWNLOAD", "cleanup_tmp_folder")
 DEBUG_TRACK_JSON = config_manager.config.get_bool("DEFAULT", "debug_track_json")
-
-
-def get_last_downloader_error() -> str | None:
-    return LAST_DOWNLOADER_ERROR
 
 
 _written_track_files: list[str] = []
@@ -268,7 +264,7 @@ class BaseDownloader:
             parts.append("subtitle: " + ", ".join(sub_langs))
         return " | ".join(parts)
 
-    def _log_tracks_json(self, streams: list, keys: list, manifest_url: str) -> None:
+    def _resolve_track_info(self) -> tuple[str, str, str, str]:
         """Emit a TRACKS_JSON logger.info and trigger Supabase download tracking."""
         season = context_tracker.season or 0
         episode = context_tracker.episode or 0
@@ -287,6 +283,13 @@ class BaseDownloader:
             if episode_name:
                 name += f" {episode_name}"
 
+        return title, media_type, site, name
+
+    def _log_tracks_json(self, streams: list, keys: list, manifest_url: str) -> None:
+        if not DEBUG_TRACK_JSON:
+            return
+
+        title, media_type, site, name = self._resolve_track_info()
         formatted_keys = self._format_keys(keys)
         payload = {
             "name": name,
@@ -295,9 +298,7 @@ class BaseDownloader:
             "other_tracks": self._build_other_tracks(),
             "cmd": self._build_download_cmd(name, manifest_url, formatted_keys),
         }
-        if DEBUG_TRACK_JSON:
-            _append_tracks_json(payload, service=site, media_type=media_type, title=title)
-        self.track_download_start(title=title, media_type=media_type, site=site)
+        _append_tracks_json(payload, service=site, media_type=media_type, title=title)
 
     def _no_media_downloaded(self, status: dict) -> bool:
         """Return True when the download produced absolutely nothing."""
@@ -353,7 +354,12 @@ class BaseDownloader:
 
         video_track = status.get("video")
         audio_tracks: list[dict] = list(status.get("audios") or [])
-        subtitle_tracks: list[dict] = list(status.get("subtitles") or [])
+        subtitle_tracks: list[dict] = [
+            t for t in (status.get("subtitles") or []) if os.path.exists(t.get("path", "")) and os.path.getsize(t["path"]) > 0
+        ]
+        _dropped_empty_subs = len(status.get("subtitles") or []) - len(subtitle_tracks)
+        if _dropped_empty_subs:
+            logger.warning(f"Dropped {_dropped_empty_subs} empty subtitle track(s) before merge (0 bytes -- ffmpeg would reject them as input)")
 
         # DASH-specific external tracks
         for ext_audio in status.get("external_audios") or []:
@@ -470,6 +476,7 @@ class BaseDownloader:
             subtitle_tracks=subtitle_tracks_to_merge,
             out_path=self.output_path,
             chapters=getattr(self, "chapters", None),
+            force_ts_fix=getattr(getattr(self, "media_downloader", None), "_needs_join_ts_fix", False),
         )
         self.last_merge_result = result_json
         if not self._merge_output_ok(merged_file):
@@ -479,7 +486,7 @@ class BaseDownloader:
 
     def _inject_chapters(self, file_path: str) -> str:
         """Add this downloader's queued chapters (self.chapters) as the final muxing step."""
-        merged_file, result_json = inject_chapters(file_path, getattr(self, "chapters", None))
+        merged_file, result_json = inject_chapters(file_path, getattr(self, "chapters", None), temp_dir=self.output_dir)
         if result_json:
             self.last_merge_result = result_json
         return merged_file
@@ -708,13 +715,22 @@ class BaseDownloader:
         self._move_copied_audios()
         verified_ok = self._verify_output()
 
-        # Never publish a file that failed decryption or is missing segments.
+        if self.output_path and os.path.exists(self.output_path):
+            title, media_type, site, _ = self._resolve_track_info()
+            self.track_download_start(title=title, media_type=media_type, site=site)
+
+        # Never publish a file that failed decryption, is missing segments, or is below 1080p.
         if verified_ok:
+            base_name = os.path.basename(self.output_path or "")
             missing = getattr(getattr(self, "media_downloader", None), "missing_segments_count", 0)
             if missing:
-                logger.warning(f"Skipping vault upload for {os.path.basename(self.output_path or '')}: {missing} segment(s) missing")
+                logger.warning(f"Skipping vault upload for {base_name}: {missing} segment(s) missing")
             else:
-                upload_after(self.output_path)
+                height = get_media_metadata(self.output_path).get("height", 0)
+                if height < 1080:
+                    logger.warning(f"Skipping vault upload for {base_name}: resolution below 1080p ({height}p)")
+                else:
+                    upload_after(self.output_path)
 
         if self.download_id:
             download_tracker.complete_download(

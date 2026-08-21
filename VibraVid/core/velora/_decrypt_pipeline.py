@@ -4,6 +4,7 @@ import gzip
 import logging
 import queue
 import re
+import shutil
 import threading
 import time
 from collections import Counter
@@ -20,6 +21,7 @@ from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client
 
 from ..decryptor._segment_crypto import decrypt_aes128
+from .util._cenc_init import strip_cenc_signaling
 from .util._stream_helpers import collect_failed_segments, describe_key_for_log, detect_seg_ext, merged_segment_ext
 from .util._subtitle_segments import merge_vtt_files
 from .util._verify import verify_decrypted_media
@@ -46,8 +48,8 @@ TOKEN_REFRESH_BACKOFF_SECONDS = config_manager.config.get_float(
     "DOWNLOAD", "token_refresh_backoff_seconds", default=2.0
 )
 TOKEN_REFRESH_STALL_ROUNDS = max(1, config_manager.config.get_int("DOWNLOAD", "token_refresh_stall_rounds", default=3))
-DECRYPT_WORKER_COUNT = max(1, config_manager.config.get_int("DOWNLOAD", "decrypt_worker_count"))
 SKIP_POST_DECRYPT = config_manager.config.get_bool("DOWNLOAD", "skip_post_decrypt", default=False)
+_LIVE_MERGE_BUFSIZE = 2 * 1024 * 1024
 
 
 def _reads_as_self_initializing_mp4(path: Path) -> bool:
@@ -58,6 +60,44 @@ def _reads_as_self_initializing_mp4(path: Path) -> bool:
     except OSError:
         return False
     return len(head) == 8 and head[4:8] == b"ftyp"
+
+
+class _LiveMerger:
+    def __init__(self, out_path: Path, expected_order: list):
+        self._expected = expected_order
+        self._cursor = 0
+        self._pending: dict[Any, Path] = {}
+        self._lock = threading.Lock()
+        self._fh = open(out_path, "wb")
+        self._failed = False
+
+    def submit(self, key: Any, path: Path) -> None:
+        with self._lock:
+            if self._failed:
+                return
+            self._pending[key] = path
+            while self._cursor < len(self._expected) and self._expected[self._cursor] in self._pending:
+                ready_key = self._expected[self._cursor]
+                ready_path = self._pending.pop(ready_key)
+                try:
+                    with open(ready_path, "rb") as src:
+                        shutil.copyfileobj(src, self._fh, _LIVE_MERGE_BUFSIZE)
+                except Exception as exc:
+                    self._failed = True
+                    logger.warning(f"[live_merge] failed appending segment {ready_key!r} ({ready_path.name}): {exc}")
+                    return
+                self._cursor += 1
+
+    @property
+    def complete(self) -> bool:
+        with self._lock:
+            return not self._failed and self._cursor == len(self._expected)
+
+    def close(self) -> None:
+        try:
+            self._fh.close()
+        except Exception:
+            pass
 
 
 class DecryptPipelineMixin:
@@ -118,6 +158,19 @@ class DecryptPipelineMixin:
         seg_url_refresh_fn=None,
     ) -> None:
         task_key = self._stream_task_key(stream)
+        if stream.type == "video":
+            _plain = self._video_labels_by_task_key.get(task_key) or self._video_label
+            _progress_label = f"[bold cyan]Vid[/bold cyan] {_plain}" if _plain else ""
+        elif stream.type == "audio":
+            _plain = self._audio_labels_by_task_key.get(task_key) or self._audio_labels.get(
+                (stream.language or "und").lower(), ""
+            )
+            _progress_label = f"[bold cyan]Aud[/bold cyan] {_plain}" if _plain else ""
+        elif stream.type == "subtitle":
+            _plain = self._sub_labels_by_task_key.get(task_key, "")
+            _progress_label = f"[bold cyan]Sub[/bold cyan] {_plain}" if _plain else ""
+        else:
+            _progress_label = ""
         total = len(dl_segs)
         stream_dir = self._make_stream_dir(stream, protocol)
         all_headers = self._build_headers()
@@ -132,17 +185,16 @@ class DecryptPipelineMixin:
             seg_path = stream_dir / f"seg_{seg['number']:05d}.{seg_ext}"
             segment_meta_by_path[normalize_path_key(str(seg_path))] = seg
 
-        # Range-split streams (DASH/HLS byte-range single file, ISM byte ranges):
-        # every media segment is a byte range of ONE remote file, so only the
-        # header chunk (seg_00000, or a dedicated 'init' segment) carries the
-        # ftyp+moov(+pssh). Detect it here so we can probe just that chunk.
-        _media_dl_segs = [s for s in dl_segs if s.get("seg_type") == "media"]
-        _first_media_number = min((s.get("number", 0) for s in _media_dl_segs), default=0)
-        is_range_split = (
-            len(_media_dl_segs) > 1
-            and len({s.get("url") for s in _media_dl_segs}) == 1
-            and all("Range" in (s.get("headers") or {}) for s in _media_dl_segs)
-        )
+        # No dedicated init segment on the wire: every segment is
+        # self-initializing (its own ftyp+moov), so there's no separate init to wait for
+        _no_dedicated_init = protocol_lower in ("dash", "hls") and not any(s.get("seg_type") == "init" for s in dl_segs)
+
+        # Full ordering key sequence for _LiveMerger. ISM's init is never a real
+        # dl_seg (it's synthesized from the first fragment, see
+        # _build_ism_init_from_fragment) so it isn't in dl_segs at all -- give
+        # it key -1, sorting before every real segment number (>=0).
+        _expected_live_order = sorted(s["number"] for s in dl_segs) + ([-1] if protocol_lower == "ism" else [])
+        _expected_live_order.sort()
 
         _total_duration: float = sum(s.get("duration", 0.0) for s in dl_segs if s.get("seg_type") != "init")
         _media_segs_only: list[dict] = [s for s in dl_segs if s.get("seg_type") != "init"]
@@ -153,37 +205,27 @@ class DecryptPipelineMixin:
             _seg_dur_cumulative.append(_acc)
 
         decrypt_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
-        decrypt_errors: list[str] = []      # per-segment decryption error messages (diagnostics)
-        seg_errors: list[str] = []          # per-segment HTTP/transport error messages (diagnostics)
-        decrypt_threads: list[threading.Thread] = []
-        probe_lock = threading.Lock()
+        decrypt_errors: list[str] = []
+        seg_errors: list[str] = []
 
-        # ISM fragments are raw moof+mdat with no ftyp/moov of their own — DRM info
-        # was already probed on the manifest-synthesized init (_probe_ism_init)
-        # before this ran, so skip the (always-empty) per-segment probe here.
-        probe_done = protocol_lower == "ism"
+        # Set once a decrypt error is recognised as permanent for this whole
+        # track (e.g. no key for its KID) rather than transient (one corrupt
+        # segment) -- checked at the top of _decrypt_worker's loop so the
+        # remaining queued segments are skipped instead of each producing an
+        # identical flux failure + log line.
+        decrypt_aborted: dict[str, str | None] = {"reason": None}
+        decrypt_threads: list[threading.Thread] = []
+        _live_merger_box: list[_LiveMerger | None] = [None]     # set once live decrypt is confirmed active, see needs_*_live below
         key_cache_lock = threading.Lock()
         dash_init_box: list[Path | None] = [None]
         dash_init_lock = threading.Lock()
 
-        def _probe_once(target_path: Path | None, reason: str) -> None:
-            nonlocal probe_done
-            if probe_done or not target_path:
-                return
-
-            if not target_path.exists() or target_path.stat().st_size <= 0:
-                return
-
-            with probe_lock:
-                if probe_done:
-                    return
-
-                if not target_path.exists() or target_path.stat().st_size <= 0:
-                    return
-                probe_done = True
-
-            logger.debug(f"{protocol.upper()} probe starting -> {target_path.name} ({reason})")
-            threading.Thread(target=self._probe_media_file, args=(target_path,), daemon=True).start()
+        # ISM has no separate init segment on the wire (unlike DASH) -- every
+        # fragment carries the same track_ID, kid, codec etc, so *any* fragment
+        # (not necessarily #1, since worker threads download concurrently) can
+        # be used to synthesize a real ftyp+moov init the moment it arrives
+        ism_init_paths: list[tuple[Path, Path] | None] = [None]  # (protected, clean) -- see _build_ism_init_from_fragment
+        ism_init_lock = threading.Lock()
 
         def _replace_segment_file(source_path: Path, target_path: Path, reason: str) -> None:
             last_exc: Exception | None = None
@@ -235,6 +277,8 @@ class DecryptPipelineMixin:
             bar_manager.handle_progress_line(
                 {
                     "task_key": task_key,
+                    "label": _progress_label or task_key,
+                    "display_label": _progress_label or task_key,
                     "pct": pct,
                     "segments": f"{done}/{total_}",
                     "size": size_display,
@@ -280,14 +324,20 @@ class DecryptPipelineMixin:
             _replace_segment_file(tmp_path, fp, "HLS AES-128")
 
             logger.debug(f"HLS AES-128 decrypted -> {fp.name}")
-            if int(seg.get("number", -1) or -1) == _first_media_number:
-                _probe_once(fp, "hls-first-decrypted-segment")
+            if _live_merger_box[0] is not None:
+                _live_merger_box[0].submit(seg.get("number"), fp)
 
         def _decrypt_dash_segment(
             fp: Path, seg: dict[str, Any], dash_decryptor: Decryptor, init_path: Path | None
         ) -> None:
+            """Shared by DASH and HLS (EXT-X-MAP CENC/SAMPLE-AES) live decrypt --
+            both share a bare moof+mdat fragment + separate real init segment
+            model, so one function covers both. init_path=None (HLS with no
+            EXT-X-MAP, every segment self-initializing) makes
+            decrypt_segment_live fall through to flux's normal (non
+            --fragments-info) decrypt, which reads the segment's own moov."""
             if seg.get("seg_type") == "init":
-                logger.info(f"DASH init segment ready -> {fp.name}")
+                logger.info(f"{protocol.upper()} init segment ready -> {fp.name}")
                 return
 
             dec_tmp = fp.with_suffix(fp.suffix + ".dec")
@@ -303,18 +353,66 @@ class DecryptPipelineMixin:
             )
 
             if not ok:
-                raise RuntimeError(f"DASH live decrypt failed for {fp.name}: {message}")
+                raise RuntimeError(f"{protocol.upper()} live decrypt failed for {fp.name}: {message}")
 
             if not dec_tmp.exists():
-                raise RuntimeError(f"DASH live decrypt produced no output for {fp.name}")
+                raise RuntimeError(f"{protocol.upper()} live decrypt produced no output for {fp.name}")
 
-            _replace_segment_file(dec_tmp, fp, "DASH live")
-            logger.debug(f"DASH live decrypted -> {fp.name}")
-            if int(seg.get("number", -1) or -1) == _first_media_number:
-                _probe_once(fp, "dash-first-decrypted-segment")
+            _replace_segment_file(dec_tmp, fp, f"{protocol.upper()} live")
+            logger.debug(f"{protocol.upper()} live decrypted -> {fp.name}")
+            if _live_merger_box[0] is not None:
+                _live_merger_box[0].submit(seg.get("number"), fp)
 
-        dash_decryptor = Decryptor() if protocol_lower == "dash" and live_decryption and self.key else None
+        dash_decryptor = Decryptor() if protocol_lower in ("dash", "hls") and live_decryption and self.key else None
         dash_pending: list[tuple] = []  # (fp, seg) media segments seen before the init segment
+        ism_decryptor = Decryptor() if protocol_lower == "ism" and live_decryption and self.key else None
+
+        def _build_ism_init_from_fragment(first_fp: Path) -> tuple[Path, Path]:
+            """Synthesize both ftyp+moov variants (correct track_ID read from *first_fp*) and return (protected_init_path, clean_init_path)."""
+            track_id = self._read_fragment_track_id(first_fp.read_bytes())
+            kid_hex = getattr(stream.drm, "kid", None) if stream.drm else None
+            kid_hex = kid_hex or "00000000000000000000000000000000"
+            protected_data = self._build_ism_init(stream, kid_hex, track_id=track_id)
+            clean_data = self._build_ism_init(stream, kid_hex, track_id=track_id, encrypted=False)
+
+            protected_path = stream_dir / "_ism_live_init_protected.mp4"
+            protected_path.write_bytes(protected_data)
+            clean_path = stream_dir / f"seg_-000001{first_fp.suffix}"
+            clean_path.write_bytes(clean_data)
+
+            logger.debug(f"ISM live init synthesized from {first_fp.name} (track_id={track_id or 1}) -> {protected_path.name} + {clean_path.name}")
+            return protected_path, clean_path
+
+        def _ism_clear_segment(fp: Path, seg: dict[str, Any]) -> None:
+            """Clear (DRM-less) ISM: nothing to decrypt, but still needs the
+            same tfhd.sample_description_index fix every fragment needs to
+            match the single-entry init we synthesize (independent of
+            encryption -- see _normalize_ism_fragment_sdi)."""
+            fp.write_bytes(self._normalize_ism_fragment_sdi(fp.read_bytes()))
+            if _live_merger_box[0] is not None:
+                _live_merger_box[0].submit(seg.get("number"), fp)
+
+        def _decrypt_ism_segment(fp: Path, seg: dict[str, Any], ism_decryptor: Decryptor, init_path: Path) -> None:
+            fp.write_bytes(self._normalize_ism_fragment_sdi(fp.read_bytes()))
+
+            dec_tmp = fp.with_suffix(fp.suffix + ".dec")
+            ok, message, _data = ism_decryptor.decrypt_segment_live(
+                encrypted_path=str(fp),
+                decrypted_path=str(dec_tmp),
+                raw_keys=self.key,
+                init_path=str(init_path),
+            )
+
+            if not ok:
+                raise RuntimeError(f"ISM live decrypt failed for {fp.name}: {message}")
+
+            if not dec_tmp.exists():
+                raise RuntimeError(f"ISM live decrypt produced no output for {fp.name}")
+
+            _replace_segment_file(dec_tmp, fp, "ISM live")
+            logger.debug(f"ISM live decrypted -> {fp.name}")
+            if _live_merger_box[0] is not None:
+                _live_merger_box[0].submit(seg.get("number"), fp)
 
         def _decrypt_worker() -> None:
             while True:
@@ -322,6 +420,8 @@ class DecryptPipelineMixin:
                 if item is None:
                     break
                 try:
+                    if decrypt_aborted["reason"] is not None:
+                        continue
                     if item.get("skipped"):
                         continue
                     path_value = item.get("path")
@@ -336,23 +436,104 @@ class DecryptPipelineMixin:
                         continue
 
                     if protocol_lower == "hls":
-                        _decrypt_hls_segment(fp, seg)
-                        continue
+                        _hls_method = str((seg.get("enc") or {}).get("method") or "NONE").upper()
+                        if _hls_method == "AES-128":
+                            _decrypt_hls_segment(fp, seg)
+                            continue
+                        if _hls_method == "NONE" and needs_hls_clear_merge:
+                            # Fully unencrypted HLS TS: no decrypt, no init
+                            # concept at all (every TS segment is a complete,
+                            # independently concatenable unit via its own
+                            # repeated PAT/PMT) -- just order+append it live.
+                            if _live_merger_box[0] is not None:
+                                _live_merger_box[0].submit(seg.get("number"), fp)
+                            continue
 
-                    if protocol_lower == "dash" and live_decryption and self.key:
-                        if seg.get("seg_type") == "init":
+                        if not needs_hls_live:
+                            # Unencrypted, or SAMPLE-AES without live support available
+                            # (e.g. no keys resolved yet) -- leave for the batch
+                            # whole-file decrypt after merge, same as before this
+                            # branch existed.
+                            continue
+
+                        if seg.get("seg_type") != "init" and not _hls_method.startswith("SAMPLE-AES"):
+                            # The dedicated init segment's own "enc" is always
+                            # hardcoded to method=NONE (it isn't itself sample
+                            # data) -- it still has to fall through below to get
+                            # cached, or no media segment would ever find an
+                            # init to decrypt against. Only filter out a genuine
+                            # non-SAMPLE-AES *media* segment here.
+                            continue
+
+                        # SAMPLE-AES with live decrypt available falls through to the
+                        # shared DASH/HLS CENC block below (EXT-X-MAP and
+                        # self-initializing segments both handled there).
+
+                    if protocol_lower == "dash" and needs_dash_clear_merge:
+                        # Unencrypted DASH (e.g. a subtitle track that has no
+                        # ContentProtection of its own even though self.key is
+                        # set for the video/audio tracks): nothing to decrypt,
+                        # but still worth ordering+appending each segment into
+                        # the final output live as it downloads instead of a
+                        # separate merge pass afterward -- same _LiveMerger,
+                        # just no decrypt step. Must be checked before the
+                        # live-decrypt branch below: flux's --fragments-info
+                        # only understands AVC/HEVC/AV1/VP9/AAC/Opus init
+                        # segments, so routing an unencrypted text/TTML track
+                        # there fails immediately with "unexpected box".
+                        if _live_merger_box[0] is not None:
+                            _live_merger_box[0].submit(seg.get("number"), fp)
+
+                    elif (protocol_lower == "dash" and needs_dash_live) or (protocol_lower == "hls" and needs_hls_live):
+                        if _no_dedicated_init:
+                            # No EXT-X-MAP (HLS) / no init seg_type at all (DASH
+                            # SegmentList etc): every segment carries its own
+                            # ftyp+moov, so there's no separate init to cache/wait for --
+                            # init_path=None makes decrypt_segment_live fall through
+                            # to flux's normal (non --fragments-info) decrypt, which
+                            # reads the segment's own moov and -- being a full normal
+                            # decrypt, not a --fragments-info one -- already produces
+                            # clean (non-CENC-signaling) output on its own, same as
+                            # the existing whole-file batch decrypt path does.
+                            _decrypt_dash_segment(fp, seg, dash_decryptor, None)
+                        
+                        elif seg.get("seg_type") == "init":
                             flush: list[tuple] = []
                             cached_now = False
                             with dash_init_lock:
                                 if dash_init_box[0] is None:
                                     dash_init_box[0] = fp
                                     cached_now = True
-                                    logger.debug(f"DASH init segment cached -> {fp.name}")
+                                    logger.debug(f"{protocol.upper()} init segment cached -> {fp.name}")
                                     flush = dash_pending[:]
                                     dash_pending.clear()
 
                             if cached_now:
-                                _probe_once(fp, "dash-init-segment")
+                                # Unlike ISM's self-built init, this is the real init
+                                # segment downloaded from the CDN -- it still carries
+                                # genuine sinf/tenc CENC signaling that flux's
+                                # --fragments-info leaves untouched (it only ever
+                                # decrypts fragment sample data). Keep a protected copy
+                                # for flux to keep reading, and rewrite fp itself (the
+                                # one that ends up in the final merge via `paths`) to a
+                                # clean, non-CENC-signaling copy -- otherwise
+                                # verify_decrypted_media flags the merged output as
+                                # "still encrypted" despite every fragment already
+                                # being plaintext.
+
+                                try:
+                                    protected_bytes = fp.read_bytes()
+                                    protected_copy = fp.with_name(f"_frag_init_protected{fp.suffix}")
+                                    protected_copy.write_bytes(protected_bytes)
+                                    with dash_init_lock:
+                                        dash_init_box[0] = protected_copy
+                                    fp.write_bytes(strip_cenc_signaling(protected_bytes))
+                                    logger.debug(f"{protocol.upper()} init CENC signaling stripped for merge -> {fp.name} (flux keeps reading {protected_copy.name})")
+                                except Exception as exc:
+                                    logger.warning(f"{protocol.upper()} init CENC-signaling strip failed, keeping original (verify may flag residual boxes): {exc}")
+
+                                if _live_merger_box[0] is not None:
+                                    _live_merger_box[0].submit(seg.get("number"), fp)
                             for pending_fp, pending_seg in flush:
                                 _decrypt_dash_segment(pending_fp, pending_seg, dash_decryptor, dash_init_box[0])
                         else:
@@ -363,9 +544,49 @@ class DecryptPipelineMixin:
                             if init_path is not None:
                                 _decrypt_dash_segment(fp, seg, dash_decryptor, init_path)
 
+                    elif protocol_lower == "ism" and needs_ism_clear_merge and not self.key:
+                        # Clear ISM: still need the synthesized init (ISM
+                        # fragments are never self-initializing, DRM or not),
+                        # but no decrypt step -- just the sdi fix + live merge.
+                        built_now = False
+                        with ism_init_lock:
+                            if ism_init_paths[0] is None:
+                                ism_init_paths[0] = _build_ism_init_from_fragment(fp)
+                                built_now = True
+                            _protected_init_path, clean_init_path = ism_init_paths[0]
+
+                        if built_now and _live_merger_box[0] is not None:
+                            _live_merger_box[0].submit(-1, clean_init_path)
+
+                        _ism_clear_segment(fp, seg)
+
+                    elif protocol_lower == "ism" and live_decryption and self.key:
+                        # No dedicated init segment exists on the wire -- the first
+                        # fragment any worker thread happens to grab doubles as
+                        # both the source of the synthesized init AND a normal
+                        # fragment to decrypt (every fragment carries the same
+                        # track_ID/kid/codec, so there's nothing to wait for).
+                        built_now = False
+                        with ism_init_lock:
+                            if ism_init_paths[0] is None:
+                                ism_init_paths[0] = _build_ism_init_from_fragment(fp)
+                                built_now = True
+                            protected_init_path, clean_init_path = ism_init_paths[0]
+
+                        if built_now and _live_merger_box[0] is not None:
+                            _live_merger_box[0].submit(-1, clean_init_path)
+
+                        _decrypt_ism_segment(fp, seg, ism_decryptor, protected_init_path)
+
                 except Exception as exc:
                     decrypt_errors.append(str(exc))
-                    logger.error(f"Segment decrypt error ({protocol_lower}/{task_key}): {exc}")
+                    exc_str = str(exc)
+                    is_permanent = "no content key for the track's default_kid" in exc_str.lower()
+                    if is_permanent and decrypt_aborted["reason"] is None:
+                        decrypt_aborted["reason"] = exc_str
+                        logger.error(f"Segment decrypt error ({protocol_lower}/{task_key}): {exc}")
+                    elif not is_permanent:
+                        logger.error(f"Segment decrypt error ({protocol_lower}/{task_key}): {exc}")
                     decrypt_queue.task_done()
 
         needs_hls_decrypt = protocol_lower == "hls" and any(
@@ -373,10 +594,79 @@ class DecryptPipelineMixin:
         )
         _stream_is_encrypted = stream.drm is not None and stream.drm.is_encrypted()
         needs_dash_live = protocol_lower == "dash" and live_decryption and bool(self.key) and _stream_is_encrypted
+        needs_ism_live = protocol_lower == "ism" and live_decryption and bool(self.key) and _stream_is_encrypted
 
-        if needs_hls_decrypt or needs_dash_live:
-            worker_count = DECRYPT_WORKER_COUNT if needs_dash_live else 1
-            logger.debug(f"{protocol.upper()} decrypt worker pool started ({worker_count}x, {'AES-128' if needs_hls_decrypt else 'live DASH'})")
+        # HLS's DRM state lives per-segment (#EXT-X-KEY METHOD), not on
+        # stream.drm the way DASH/ISM's manifest-level DRM does -- check dl_segs
+        # directly, same as needs_hls_decrypt (AES-128) already does.
+        needs_hls_live = (
+            protocol_lower == "hls"
+            and live_decryption
+            and bool(self.key)
+            and any(str((seg.get("enc") or {}).get("method") or "NONE").upper().startswith("SAMPLE-AES") for seg in dl_segs)
+        )
+
+        # Unencrypted DASH/ISM: nothing to decrypt, but still worth routing
+        # through the worker pool purely so _LiveMerger can order+append each
+        # segment live instead of a separate merge pass at the end.
+        needs_dash_clear_merge = (
+            protocol_lower == "dash"
+            and live_decryption
+            and not _stream_is_encrypted
+        )
+        needs_ism_clear_merge = (
+            protocol_lower == "ism"
+            and live_decryption
+            and not _stream_is_encrypted
+            and not self.key
+        )
+        # Fully unencrypted HLS TS: no #EXT-X-KEY at all on any segment.
+        needs_hls_clear_merge = (
+            protocol_lower == "hls"
+            and live_decryption
+            and all(str((seg.get("enc") or {}).get("method") or "NONE").upper() == "NONE" for seg in dl_segs)
+        )
+        if (
+            needs_hls_decrypt
+            or needs_dash_live
+            or needs_ism_live
+            or needs_hls_live
+            or needs_dash_clear_merge
+            or needs_ism_clear_merge
+            or needs_hls_clear_merge
+        ):
+            # Live decrypt (dash/ism/hls) all funnel through one shared
+            # Decryptor() -> one _FluxDaemon, whose .decrypt() holds a lock
+            # across the write+readline round-trip -- so only one job is
+            # ever actually in flight regardless of pool size. Extra threads
+            # here don't add decrypt throughput, just queue contention;
+            # DECRYPT_WORKER_COUNT only matters for the non-live batch path.
+            worker_count = 1
+            live_kind = (
+                "live DASH" if needs_dash_live
+                else "live ISM" if needs_ism_live
+                else "live HLS SAMPLE-AES" if needs_hls_live
+                else "live-merge-only DASH (clear)" if needs_dash_clear_merge
+                else "live-merge-only ISM (clear)" if needs_ism_clear_merge
+                else "live-merge-only HLS (clear)" if needs_hls_clear_merge
+                else "AES-128"
+            )
+            logger.debug(f"{protocol.upper()} decrypt worker pool started ({worker_count}x, {live_kind})")
+
+            # Stream each segment straight into the final output as soon as
+            # it's ready (decrypted, or just downloaded for clear content)
+            # and it's its turn, instead of a separate binary-merge pass
+            # over the whole track once every download is done -- see
+            # _LiveMerger. Falls back to the normal binary_merge_segments()
+            # path below if anything's missing by the time downloads
+            # finish (failed segment, unexpected ordering key, etc).
+            _live_sample_url = next(
+                (s["url"] for s in dl_segs if s.get("seg_type") != "init"), dl_segs[0]["url"] if dl_segs else ""
+            )
+            _live_ext = merged_segment_ext(_live_sample_url, default=default_ext)
+            _live_out_path = self.output_dir / self._out_filename(stream, _live_ext)
+            _live_merger_box[0] = _LiveMerger(_live_out_path, _expected_live_order)
+
             for _ in range(worker_count):
                 t = threading.Thread(target=_decrypt_worker, daemon=True)
                 t.start()
@@ -400,29 +690,6 @@ class DecryptPipelineMixin:
             if event.get("skipped"):
                 return
 
-            seg = segment_meta_by_path.get(normalize_path_key(str(path_value)))
-
-            if is_range_split:
-                # Only the header chunk (init segment, or first media chunk)
-                if seg and (
-                    seg.get("seg_type") == "init"
-                    or (seg.get("seg_type") == "media" and seg.get("number") == _first_media_number)
-                ):
-                    _probe_once(Path(path_value), f"{protocol.upper()}-range-split-header")
-
-            else:
-                should_probe_now = (
-                    seg
-                    and not decrypt_threads
-                    and (
-                        seg.get("seg_type") == "init"
-                        or (seg.get("seg_type") == "media" and seg.get("number") == _first_media_number)
-                    )
-                )
-
-                if should_probe_now:
-                    _probe_once(Path(path_value), f"{protocol.upper()}-first-media-segment")
-
             if decrypt_threads:
                 decrypt_queue.put(dict(event))
 
@@ -445,8 +712,6 @@ class DecryptPipelineMixin:
                 inline_path.write_bytes(data)
                 inline_paths.append(inline_path)
                 logger.debug(f"Inline segment written from manifest -> {inline_path.name} ({len(data)} B)")
-                if seg.get("seg_type") == "init":
-                    _probe_once(inline_path, "inline-init-segment")
 
             logger.info(f"{protocol.upper()}: {len(inline_paths)} inline segment(s) from manifest, {len(net_segs)} to download")
 
@@ -519,11 +784,26 @@ class DecryptPipelineMixin:
             for t in decrypt_threads:
                 t.join()
 
+        if dash_decryptor is not None:
+            dash_decryptor.close_flux_daemon()
+        if ism_decryptor is not None:
+            ism_decryptor.close_flux_daemon()
+
+        _live_merge_ok = False
+        if _live_merger_box[0] is not None:
+            _live_merge_ok = _live_merger_box[0].complete
+            _live_merger_box[0].close()
+            if _live_merge_ok:
+                logger.debug(f"{protocol.upper()} live merge complete -> binary-merge pass skipped for this track")
+            else:
+                logger.debug(f"{protocol.upper()} live merge incomplete (missing/failed segment) -> falling back to the normal merge pass")
+
         if paths is not None:
             _stream_label_rich = (
-                self._video_label
+                (self._video_labels_by_task_key.get(task_key) or self._video_label)
                 if stream.type == "video"
-                else self._audio_labels.get((stream.language or "und").lower(), stream.language or "und")
+                else self._audio_labels_by_task_key.get(task_key)
+                or self._audio_labels.get((stream.language or "und").lower(), stream.language or "und")
                 if stream.type == "audio"
                 else stream.language or "und"
             )
@@ -557,6 +837,11 @@ class DecryptPipelineMixin:
         if decrypt_errors:
             raise RuntimeError(decrypt_errors[0])
 
+        if needs_ism_live and ism_init_paths[0] is not None:
+            _protected_init_path, _clean_init_path = ism_init_paths[0]
+            if _clean_init_path.exists():
+                paths.append(_clean_init_path)
+
         if self._stop_check() or not paths:
             return
 
@@ -568,14 +853,19 @@ class DecryptPipelineMixin:
         ext = merged_segment_ext(sample_url, default=default_ext)
         out_path = self.output_dir / self._out_filename(stream, ext)
 
-        # ----- ISM POST‑PROCESSING -----
-        if protocol_lower == "ism" and self.key:
+        # ----- ISM POST‑PROCESSING (batch path) -----
+        # Skipped when needs_ism_live: segments were already normalized +
+        # decrypted individually as they downloaded (see _decrypt_ism_segment
+        # above), so ISM can fall through to the same generic binary-merge +
+        # skip-redundant-decrypt + verify path DASH/HLS already use for their
+        # own live decrypt case below (guarded by `not live_decryption`).
+        if protocol_lower == "ism" and self.key and not needs_ism_live:
             success = self._ism_postproc(paths, out_path, stream, bar_manager, task_key, total)
             if not success:
                 logger.error("ISM post‑processing failed")
             return
 
-        # Standard merge for HLS/DASH
+        # Standard merge for HLS/DASH (and ISM when live-decrypted per-segment)
         is_plain_subtitle = (
             stream is not None
             and getattr(stream, "type", "") == "subtitle"
@@ -583,17 +873,23 @@ class DecryptPipelineMixin:
         )
 
         merge_total_size = sum(p.stat().st_size for p in paths if p.exists())
-        logger.info(f"Merge starting -> {out_path.name} ({len(paths)} segs, {_fmt_size(merge_total_size)})")
         _merge_t0 = time.monotonic()
-        bar_manager.handle_progress_line(
-            {
-                "task_key": task_key,
-                "pct": 100,
-                "segments": f"{total}/{total}",
-                "size": f"{_fmt_size(merge_total_size)}/{_fmt_size(merge_total_size)}",
-                "speed": "Merge",
-            }
-        )
+        if _live_merge_ok:
+            # Live merge already wrote out_path in order as segments arrived
+            # -- there's no separate merge pass left to run below (see the
+            # `elif _live_merge_ok` branch).
+            logger.debug(f"Live merge already complete -> {out_path.name} ({len(paths)} segs, {_fmt_size(merge_total_size)})")
+        else:
+            logger.info(f"Merge starting -> {out_path.name} ({len(paths)} segs, {_fmt_size(merge_total_size)})")
+            bar_manager.handle_progress_line(
+                {
+                    "task_key": task_key,
+                    "pct": 100,
+                    "segments": f"{total}/{total}",
+                    "size": f"{_fmt_size(merge_total_size)}/{_fmt_size(merge_total_size)}",
+                    "speed": "Merge",
+                }
+            )
 
         def _sniff_vtt_content(raw: bytes) -> bool:
             """Prova a leggere i primi byte come testo; se sono gzip, decomprime prima."""
@@ -677,6 +973,8 @@ class DecryptPipelineMixin:
                 logger.warning(f"[merge_vtt] {out_path.name}: expected 1 WEBVTT header after merge, found {n_headers}")
             out_path.write_text(merged, encoding="utf-8")
             logger.debug(f"WebVTT cue-merge completed -> {out_path.name}")
+        elif _live_merge_ok:
+            logger.debug(f"Live merge already wrote {out_path.name} in order -- binary-merge pass skipped")
         else:
             binary_merge_segments(paths, out_path, merge_logger=logger)
             logger.debug(f"Binary merge completed -> {out_path.name}")
@@ -704,7 +1002,26 @@ class DecryptPipelineMixin:
                 logger.error(f"[normalize] rename-back failed, keeping un-normalized file: {exc}")
                 norm_path.unlink(missing_ok=True)
 
-        if already_decrypted_per_segment or not ((not live_decryption) and self.key and stream_is_encrypted):
+        # Live-decrypted fragments keep their original absolute tfdt 
+        _is_live_fragmented = (
+            protocol_lower in ("dash", "ism", "hls")
+            and live_decryption
+            and stream_is_encrypted
+            and not is_plain_subtitle
+            and out_path.suffix.lower() in (".mp4", ".m4s", ".m4a")
+        )
+        if _is_live_fragmented:
+            # Cheapest possible fix first: subtract the first fragment's tfdt from
+            # every fragment's tfdt in place (a handful of small seeks+writes, no
+            # resize, no ffmpeg) -- see _tfdt_rebase.py.
+            from .util._tfdt_rebase import rebase_fragment_timestamps
+
+            if not rebase_fragment_timestamps(out_path, logger=logger):
+                if config_manager.config.get("PROCESS", "engine", default="ffmpeg").lower() == "ffmpeg":
+                    self._needs_join_ts_fix = True
+                else:
+                    _normalize_out_path()
+        elif already_decrypted_per_segment or not ((not live_decryption) and self.key and stream_is_encrypted):
             _normalize_out_path()
 
         decrypted_ok = already_decrypted_per_segment
@@ -752,7 +1069,17 @@ class DecryptPipelineMixin:
                     try:
                         out_path.unlink(missing_ok=True)
                         post_merge_path.rename(out_path)
-                        _normalize_out_path()
+                        # Same fragmented-mp4 tfdt issue as the live-decrypt path above: defer the
+                        # -avoid_negative_ts/-fflags +genpts fix into the Join Media ffmpeg pass
+                        # instead of a second full-file remux here, when that pass can apply it.
+                        if (
+                            not is_plain_subtitle
+                            and out_path.suffix.lower() in (".mp4", ".m4s", ".m4a")
+                            and config_manager.config.get("PROCESS", "engine", default="ffmpeg").lower() == "ffmpeg"
+                        ):
+                            self._needs_join_ts_fix = True
+                        else:
+                            _normalize_out_path()
                     except Exception as exc:
                         logger.error(f"rename failed: {exc}")
                         if post_merge_path.exists():
@@ -793,6 +1120,12 @@ class DecryptPipelineMixin:
                 bar_manager.handle_progress_line({"task_key": task_key, "pct": 100})
             elif decrypt_already_reported:
                 _progress(total, total, out_path.stat().st_size, 0.0, speed_label="Failed")
+            elif _live_merge_ok:
+                # Live merge already wrote out_path segment-by-segment as they
+                # arrived (see the identical guard around line 925) -- no
+                # separate merge pass ran here either, so "Merge" would be
+                # mislabeling work that never happened. Just finalize pct.
+                bar_manager.handle_progress_line({"task_key": task_key, "pct": 100})
             else:
                 _progress(total, total, out_path.stat().st_size, 0.0, speed_label="Merge")
         else:

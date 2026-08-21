@@ -8,25 +8,23 @@ import threading
 import time
 import uuid
 from collections import deque
-from contextlib import nullcontext
 from functools import partial
+from pathlib import Path
 from typing import Any
-
-from rich.progress import Progress, TextColumn
 
 from VibraVid.core.muxing import embed_poster, inject_chapters
 from VibraVid.core.muxing.helper.video import get_media_metadata
 from VibraVid.core.ui.bar_manager import DownloadBarManager, console
-from VibraVid.core.ui.progress_bar import CustomBarColumn
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
 from VibraVid.utils import config_manager, internet_manager, os_manager
 from VibraVid.utils.hooks import execute_hooks
 from VibraVid.utils.http_client import create_client, get_userAgent
-from VibraVid.utils.vault_upload.hook import is_cached, try_fetch, upload_after
+from VibraVid.utils.storage_upload.hook import is_cached, try_fetch, upload_after
 
 from .util._claudio_tracker import ClaudioTracker
 from .util._drm_probe import PROBE_BYTES, PROBE_BYTES_FAST, DRMProbe
 from .util._interrupt import InterruptHandler
+from .util._live_frag_mp4 import LiveFragMp4Decryptor
 from .util._post_decrypt import PostDownloadDecryptor
 
 logger = logging.getLogger(__name__)
@@ -34,7 +32,9 @@ logger = logging.getLogger(__name__)
 SKIP_DOWNLOAD = config_manager.config.get_bool("DOWNLOAD", "skip_download")
 SKIP_POST_DECRYPT = config_manager.config.get_bool("DOWNLOAD", "skip_post_decrypt")
 DELAY_SS = config_manager.config.get_int("DOWNLOAD", "delay_after_download")
+REALTIME_DECRYPT = config_manager.config.get_bool("DOWNLOAD", "realtime_decrypt")
 SPEED_WINDOW_SECONDS = 1.0
+LIVE_DECRYPT_MIN_SIZE = 100 * 1024 * 1024
 
 
 class MP4FileDownloader:
@@ -47,7 +47,7 @@ class MP4FileDownloader:
         url: str,
         path: str,
         referer: str | None = None,
-        headers_: dict | None = None,
+        headers: dict | None = None,
         download_id: str | None = None,
         site_name: str | None = None,
         label: str = "MP4",
@@ -66,7 +66,7 @@ class MP4FileDownloader:
             url: The URL of the MP4 file to download.
             path: The local path where the file will be saved.
             referer: The referer header for the request.
-            headers_: Additional headers for the request.
+            headers: Additional headers for the request.
             download_id: A unique identifier for the download.
             site_name: The name of the site from which the file is being downloaded.
             label: A label for the download task.
@@ -84,7 +84,7 @@ class MP4FileDownloader:
         self.url = str(url).strip()
         self.path = os_manager.get_sanitize_path(path) if sanitize_path else str(path)
         self.referer = referer
-        self.headers_ = headers_
+        self.headers = headers
         self.label = label
         self.key = key
         self.check_content_type = check_content_type
@@ -106,6 +106,10 @@ class MP4FileDownloader:
         self._downloaded: int = 0
         self._incomplete_err: Any = False
         self._speed_window: deque[tuple[float, int]] = deque()
+
+        # Live fMP4 decrypt (see util._live_frag_mp4): decrypts fragment-by-fragment
+        self._live_frag: LiveFragMp4Decryptor | None = None
+        self._live_decrypt_done: bool = False
 
         # In-flight DRM probe state
         self._probe_buf: bytearray = bytearray()
@@ -201,8 +205,8 @@ class MP4FileDownloader:
         headers: dict = {}
         if self.referer:
             headers["Referer"] = self.referer
-        if self.headers_:
-            headers.update(self.headers_)
+        if self.headers:
+            headers.update(self.headers)
         else:
             headers["User-Agent"] = get_userAgent()
 
@@ -346,7 +350,11 @@ class MP4FileDownloader:
             if self._total is None:
                 logger.error("No Content-Length — streaming until connection closes.")
 
+            live_worth_it = self._total is None or self._total >= LIVE_DECRYPT_MIN_SIZE
             with open(self._temp_path, "wb") as fh:
+                if REALTIME_DECRYPT and live_worth_it and PostDownloadDecryptor.has_keys(self.key):
+                    out_dir = Path(self._temp_path).resolve().parent
+                    self._live_frag = LiveFragMp4Decryptor(fh, self.key, out_dir)
                 self._write_chunks(fh, response, bar_mgr, time.time(), bar_mgr)
         finally:
             response.close()
@@ -359,52 +367,6 @@ class MP4FileDownloader:
         except Exception:
             return None
 
-    def _build_progress_ctx(self):
-        if context_tracker.is_gui:
-            return nullcontext()
-
-        return Progress(
-            TextColumn(f"[yellow]{self.label}[/yellow] [cyan]Downloading[/cyan]: "),
-            CustomBarColumn(),
-            TextColumn(
-                "[bright_green]{task.fields[downloaded]}[/bright_green] "
-                "[bright_magenta]{task.fields[downloaded_unit]}[/bright_magenta]"
-                "[dim]/[/dim]"
-                "[bright_cyan]{task.fields[total_size]}[/bright_cyan] "
-                "[bright_magenta]{task.fields[total_unit]}[/bright_magenta]"
-            ),
-            TextColumn(
-                "[dim]\\[[/dim][bright_yellow]{task.fields[elapsed]}[/bright_yellow]"
-                "[dim] < [/dim][bright_cyan]{task.fields[eta]}[/bright_cyan][dim]][/dim]"
-            ),
-            TextColumn("[bright_magenta]@[/bright_magenta]"),
-            TextColumn("[bright_cyan]{task.fields[speed]}[/bright_cyan]"),
-            console=console,
-            refresh_per_second=10.0,
-        )
-
-    def _add_progress_task(self, progress_bars) -> Any:
-        if self._total:
-            size_val, size_unit = internet_manager.format_file_size(self._total).split(" ")
-            task_total = self._total
-        else:
-            size_val, size_unit = "--", ""
-            task_total = None
-
-        try:
-            return progress_bars.add_task(
-                "download",
-                total=task_total,
-                downloaded="0.00",
-                downloaded_unit="B",
-                total_size=size_val,
-                total_unit=size_unit,
-                elapsed="0s",
-                eta="--",
-                speed="-- B/s",
-            )
-        except Exception:
-            return None
 
     def _write_chunks(self, fh, response, progress_bars, start_time: float, bar_mgr: DownloadBarManager) -> None:
         try:
@@ -417,7 +379,16 @@ class MP4FileDownloader:
                     break
 
                 if chunk:
-                    self._downloaded += fh.write(chunk)
+                    self._downloaded += len(chunk)
+                    if self._live_frag is not None:
+                        if not self._live_frag.feed(chunk):
+                            # Ineligible/abandoned (not front-moov fragmented, not actually encrypted, or no usable key)
+                            fh.write(self._live_frag.finish())
+                            self._live_frag.cleanup()
+                            self._live_frag = None
+                    else:
+                        fh.write(chunk)
+
                     self._feed_probe(chunk)
                     self._tick_progress(progress_bars, start_time, bar_mgr)
 
@@ -425,6 +396,10 @@ class MP4FileDownloader:
                         self._incomplete_err = f"max_percentage_reached:{self.max_percentage:.2f}"
                         self._interrupt.kill_download = True
                         break
+
+            if self._live_frag is not None and self._live_frag.active:
+                fh.write(self._live_frag.finish())
+                self._live_decrypt_done = True
 
         except KeyboardInterrupt:
             if not self._interrupt.force_quit:
@@ -436,6 +411,8 @@ class MP4FileDownloader:
             console.print(f"\n[red]Download error: {exc}. Saving partial download.")
 
         finally:
+            if self._live_frag is not None:
+                self._live_frag.cleanup(remove_init=not self._incomplete_err)
             if not self._probe_done:
                 self._finish_probe()
             try:
@@ -524,6 +501,10 @@ class MP4FileDownloader:
                 return None, True, self._incomplete_err
 
             # Try decryption even on partial files when keys are available
+            # (harmless no-op if the live fMP4 path already decrypted every
+            # fragment it got through before the stop -- detect_encryption()
+            # inside _run_decrypt correctly reports "not encrypted" on that
+            # already-plaintext partial file)
             if SKIP_POST_DECRYPT:
                 logger.info(f"skip_post_decrypt: leaving {os.path.basename(self.path)} encrypted (kept for testing)")
             elif self._probe_encrypted or PostDownloadDecryptor.has_keys(self.key):
@@ -544,11 +525,20 @@ class MP4FileDownloader:
             self._complete_tracking(success=False, error="File missing or empty")
             return None, self._interrupt.kill_download, "File missing or empty"
 
-        if self._incomplete_err or (self._total and os.path.getsize(self.path) < self._total):
+        # Skip the size check when the live fMP4 path decrypted every fragment
+        # in place: stripping CENC signaling (sinf/senc/saio/saiz) legitimately
+        # shrinks the file below the still-encrypted Content-Length, which
+        # would otherwise misreport a fully successful download as partial.
+        if self._incomplete_err or (
+            not self._live_decrypt_done and self._total and os.path.getsize(self.path) < self._total
+        ):
             console.print("[yellow]Warning: download was incomplete (partial file saved).")
 
-        # Post-download decryption
-        if SKIP_POST_DECRYPT:
+        # Post-download decryption (skipped if the live fMP4 path above already
+        # decrypted every fragment as it arrived -- see _live_decrypt_done)
+        if self._live_decrypt_done:
+            logger.info(f"Live fragment decrypt already handled {os.path.basename(self.path)} -- skipping post-download decrypt pass")
+        elif SKIP_POST_DECRYPT:
             if self._probe_encrypted or PostDownloadDecryptor.has_keys(self.key):
                 logger.info(f"skip_post_decrypt: leaving {os.path.basename(self.path)} encrypted (kept for testing)")
         elif PostDownloadDecryptor.has_keys(self.key):
@@ -666,7 +656,7 @@ def MP4_Downloader(
     url: str,
     path: str,
     referer: str | None = None,
-    headers_: dict | None = None,
+    headers: dict | None = None,
     download_id: str | None = None,
     site_name: str | None = None,
     label: str = "MP4",
@@ -696,7 +686,7 @@ def MP4_Downloader(
         url=url,
         path=path,
         referer=referer,
-        headers_=headers_,
+        headers=headers,
         download_id=download_id,
         site_name=site_name,
         label=label,

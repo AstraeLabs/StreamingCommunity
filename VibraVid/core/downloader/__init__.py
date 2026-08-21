@@ -61,7 +61,7 @@ def download(
         mp4_extra = {
             k: extra[k] for k in ("referer", "label", "max_percentage", "download_id", "site_name") if k in extra
         }
-        return MP4_Downloader(url=url, path=path, headers_=headers, key=key, chapters=chapters, **mp4_extra)
+        return MP4_Downloader(url=url, path=path, headers=headers, key=key, chapters=chapters, **mp4_extra)
 
     common = dict(
         output_path=output_path,

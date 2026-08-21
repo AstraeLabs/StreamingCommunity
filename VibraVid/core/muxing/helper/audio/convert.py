@@ -64,12 +64,13 @@ def process_song(
     genre: str = "",
     cover_url: str | None = None,
     album_artist: str = "",
+    lyrics: str | None = None,
 ) -> str:
     """
     Full post-download pipeline for a music file.
 
     Steps:
-        1. Tag     → write metadata + cover art via mutagen
+        1. Tag     → write metadata + cover art + lyrics via mutagen
         2. Fix     → remux to the codec's real container if the extension doesn't match
                      what's actually inside (e.g. FLAC packaged in .m4a)
         3. Convert → re-encode with FFmpeg if ffmpeg_params is set
@@ -91,9 +92,10 @@ def process_song(
         genre=genre,
         cover_url=cover_url,
         album_artist=album_artist,
+        lyrics=lyrics,
     )
 
-    # Step 2 
+    # Step 2
     fixed_path = fix_container_mismatch(path)
     if fixed_path != path:
         path = fixed_path
@@ -107,6 +109,7 @@ def process_song(
             genre=genre,
             cover_url=cover_url,
             album_artist=album_artist,
+            lyrics=lyrics,
         )
 
     # Step 3 — convert if the user configured ffmpeg params
@@ -140,6 +143,7 @@ def process_song(
             genre=genre,
             cover_url=cover_url,
             album_artist=album_artist,
+            lyrics=lyrics,
         )
 
     print("\n")

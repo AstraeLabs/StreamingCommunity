@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from VibraVid.core.muxing.helper.video.ts import is_mpegts_file
+
 logger = logging.getLogger(__name__)
 _PATTERNS = {
     "stream": re.compile(r"  Stream #.*"),
@@ -47,11 +49,13 @@ class Mediainfo:
 
         p = cls._patterns()
         logger.debug(f"Probing media file with ffprobe: {file}")
+        args = [binary, "-hide_banner"]
+        if is_mpegts_file(file):
+            args += ["-f", "mpegts"]
+        
+        args += ["-i", file]
         proc = await asyncio.create_subprocess_exec(
-            binary,
-            "-hide_banner",
-            "-i",
-            file,
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -93,11 +97,10 @@ class Mediainfo:
                 ),
                 start_time=float(start_m.group(1)) if start_m else 0.0,
             )
-            logger.info(f"[PROBE][{Path(file).name}] Stream [{info.type} - {info.base_info}], id={info.id}, res={info.resolution}, fps={info.fps}, hdr={info.hdr}, dolby_vision={info.dolby_vision}")
             result.append(info)
 
         if not result:
             result.append(cls(type="Unknown"))
-            logger.warning("No streams detected in file, adding Unknown stream")
+            logger.debug(f"No streams detected in file: {file}, adding Unknown stream")
 
         return result

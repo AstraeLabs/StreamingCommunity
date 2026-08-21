@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from VibraVid.core.decryptor import Decryptor
-from VibraVid.core.muxing.helper.video import binary_merge_segments, normalize_timestamps
+from VibraVid.core.muxing.helper.video import binary_merge_segments
 from VibraVid.core.ui.bar_manager import DownloadBarManager
 from VibraVid.setup import get_ffmpeg_path
 from VibraVid.utils import config_manager
@@ -37,11 +37,43 @@ def _seg_number_from_path(path: Path) -> int:
     return 999_999_999
 
 
+def _run_ffmpeg_concat(list_path: Path, out_path: Path, codec_args: list[str]) -> subprocess.CompletedProcess:
+    cmd = [
+        get_ffmpeg_path(),
+        "-y",
+        "-fflags",
+        "+genpts+igndts+discardcorrupt",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(list_path),
+        *codec_args,
+        "-avoid_negative_ts",
+        "make_zero",
+    ]
+    if out_path.suffix.lower() == ".m4a":
+        cmd += ["-f", "mp4"]
+    cmd.append(str(out_path))
+
+    return subprocess.run(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=1800,
+        creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
+    )
+
+
 def _ffmpeg_concat(part_files: list[Path], out_path: Path) -> bool:
     """Join already-decrypted per-Period MP4s into ``out_path`` (stream copy)."""
     if len(part_files) == 1:
         shutil.move(str(part_files[0]), str(out_path))
         return True
+
+    logger.info(f"[multiperiod] ffmpeg concat {len(part_files)} Period file(s) -> {out_path.name}")
 
     list_path = out_path.parent / f"{out_path.stem}_concat_list.txt"
     with open(list_path, "w", encoding="utf-8") as fh:
@@ -49,33 +81,8 @@ def _ffmpeg_concat(part_files: list[Path], out_path: Path) -> bool:
             escaped = str(p.resolve()).replace("'", "'\\''")
             fh.write(f"file '{escaped}'\n")
 
-    cmd = [
-        get_ffmpeg_path(),
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        str(list_path),
-        "-c",
-        "copy",
-    ]
-    if out_path.suffix.lower() == ".m4a":
-        cmd += ["-f", "mp4"]
-
-    cmd.append(str(out_path))
-    logger.info(f"[multiperiod] ffmpeg concat {len(part_files)} Period file(s) -> {out_path.name}")
-
     try:
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=1800,
-            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
-        )
+        result = _run_ffmpeg_concat(list_path, out_path, ["-c", "copy"])
     except Exception as exc:
         logger.error(f"[multiperiod] ffmpeg concat failed to run: {exc}")
         return False
@@ -87,6 +94,14 @@ def _ffmpeg_concat(part_files: list[Path], out_path: Path) -> bool:
 
     if result.returncode != 0 or not out_path.exists() or out_path.stat().st_size <= 0:
         logger.error(f"[multiperiod] ffmpeg concat failed (rc={result.returncode}): {(result.stderr or '')[-800:]}")
+        
+        # ffmpeg can leave a truncated partial file behind even after erroring out
+        # (e.g. it wrote Period 0 fine, then hit invalid data joining Period 1) --
+        # remove it so downstream code doesn't mistake it for a complete track.
+        try:
+            out_path.unlink(missing_ok=True)
+        except Exception:
+            pass
         return False
     return True
 
@@ -171,6 +186,14 @@ class MultiPeriodMixin:
         decryptor = Decryptor() if self.key else None
         part_files: list[Path] = []
 
+        # A plain-WebVTT subtitle Period is raw text concatenated by
+        # binary_merge_segments below never real fragmented MP4
+        is_plain_subtitle = (
+            stream is not None
+            and getattr(stream, "type", "") == "subtitle"
+            and not getattr(stream, "is_wvtt_mp4", False)
+        )
+
         for order_idx, per in enumerate(ordered_periods):
             p_paths = sorted(period_paths.get(per, []), key=_seg_number_from_path)
             if not p_paths:
@@ -219,15 +242,11 @@ class MultiPeriodMixin:
                     except Exception:
                         pass
 
-            # Reset absolute fragment timestamps (runs after decryption above)
-            norm_path = normalize_timestamps(part_merged, logger)
-            if norm_path is not None:
-                try:
-                    part_merged.unlink(missing_ok=True)
-                    norm_path.rename(part_merged)
-                except OSError as exc:
-                    logger.error(f"[multiperiod] normalize rename-back failed, keeping un-normalized file: {exc}")
-                    norm_path.unlink(missing_ok=True)
+            # Absolute fragment timestamps get reset later, in the Join Media
+            # ffmpeg pass, same as the single-period pipeline does (see
+            # _decrypt_pipeline.py) -- not here.
+            if not is_plain_subtitle:
+                self._needs_join_ts_fix = True
 
             part_files.append(part_merged)
 

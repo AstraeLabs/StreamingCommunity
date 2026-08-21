@@ -125,6 +125,8 @@ def process_results(records: list, seen_titles: set, entries_manager: EntriesMan
                     status=dict_title.get("status"),
                     episodes_count=dict_title.get("episodes_count"),
                     image=dict_title.get("imageurl"),
+                    mal_id=dict_title.get("mal_id"),
+                    anilist_id=dict_title.get("anilist_id"),
                 )
             )
 

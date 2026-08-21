@@ -227,7 +227,7 @@ class Generic_Downloader(BaseDownloader):
             path, need_stop, error = MP4_Downloader(
                 url=url,
                 path=out_path,
-                headers_=source.get("headers") or {},
+                headers=source.get("headers") or {},
                 download_id=self.download_id,
                 site_name=self.site_name,
                 label=label,
@@ -648,7 +648,7 @@ class Generic_Downloader(BaseDownloader):
         os_manager.create_path(self.output_dir)
 
         if self.chapters:
-            console.print(f"[dim]Adding {len(self.chapters)} external chapter(s).")
+            logger.info(f"Adding {len(self.chapters)} external chapter(s).")
 
         # ── 1) Parse every source (manifest-based sources here; plain .mp4/.m4a/... sources are split off into self._direct_sources instead)
         parsed = self._parse_sources()

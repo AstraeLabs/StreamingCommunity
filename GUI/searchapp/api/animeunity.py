@@ -4,7 +4,7 @@ import importlib
 
 from VibraVid.services._base.site_loader import get_folder_name
 from VibraVid.services.animeunity.scrapper import ScrapeSerieAnime
-from VibraVid.utils import config_manager
+from VibraVid.utils import anime_id_map, config_manager
 
 from .base import BaseStreamingAPI, Entries, Episode, Season
 
@@ -54,6 +54,25 @@ class AnimeUnityAPI(BaseStreamingAPI):
                 results.append(media_item)
 
         return results
+
+    def resolve_tmdb_id(self, media_item: Entries) -> str | int | None:
+        """AnimeUnity never carries a TMDB id itself; resolve one via the MAL/AniList crosswalk."""
+        direct_id = super().resolve_tmdb_id(media_item)
+        if direct_id not in (None, ""):
+            return direct_id
+
+        raw_data = media_item.raw_data if isinstance(media_item.raw_data, dict) else {}
+        mal_id = raw_data.get("mal_id")
+        anilist_id = raw_data.get("anilist_id")
+        if mal_id in (None, "") and anilist_id in (None, ""):
+            return None
+
+        media_type = "movie" if str(media_item.type or "").lower() in ("film", "movie") else "tv"
+        tmdb_id = anime_id_map.resolve_tmdb_id(media_type, mal_id=mal_id, anilist_id=anilist_id)
+        if tmdb_id:
+            media_item.tmdb_id = tmdb_id
+            raw_data["tmdb_id"] = tmdb_id
+        return tmdb_id
 
     def get_series_metadata(self, media_item: Entries) -> list[Season] | None:
         """Get seasons and episodes for an AnimeUnity series."""

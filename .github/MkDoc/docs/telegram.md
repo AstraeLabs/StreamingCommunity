@@ -81,7 +81,17 @@ endpoints under `GUI/searchapp/api_bot.py` (`/api/bot/search/`,
 `/api/bot/cancel/`, `/api/bot/status/`, `/api/bot/logs/`), plus the existing
 generic endpoint `/api/get-downloads/` for `/coda`. If `VIBRAVID_BOT_SECRET`
 is set, every request includes the `X-VibraVid-Token` header with the same
-value.
+value:
+
+```bash
+curl -X POST "http://gui:8000/api/bot/search/" \
+  -H "X-VibraVid-Token: <same value as VIBRAVID_BOT_SECRET>" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "interstellar", "site": "__all__"}'
+```
+
+Without a matching (or any) `VIBRAVID_BOT_SECRET` set on the GUI, these endpoints accept
+unauthenticated requests — set it before exposing the GUI beyond your local network.
 
 ## Running it
 

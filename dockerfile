@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -26,7 +26,7 @@ RUN BENTO4_VERSION="1-6-0-641" && \
     rm -rf /tmp/bento4 /tmp/bento4.zip
 
 # Shaka Packager — official prebuilt release (x86_64 Linux)
-RUN SHAKA_VERSION="3.7.2" && \
+RUN SHAKA_VERSION="3.9.3" && \
     curl -fsSL "https://github.com/shaka-project/shaka-packager/releases/download/v${SHAKA_VERSION}/packager-linux-x64" \
          -o /home/appuser/.local/bin/binary/packager && \
     chmod 755 /home/appuser/.local/bin/binary/packager

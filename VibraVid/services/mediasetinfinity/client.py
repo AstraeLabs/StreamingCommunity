@@ -58,6 +58,19 @@ class MediasetAPI:
                 self.adminBeToken = login_token
                 self.account_id = _decode_jwt_payload(login_token).get("oid")
                 self.is_anonymous = False
+
+                try:
+                    ctx = json.loads(_decode_jwt_payload(login_token).get("ctx") or "{}")
+                    token_attributes = ctx.get("attributes") or {}
+                except (TypeError, ValueError):
+                    token_attributes = {}
+                
+                token_client_id = token_attributes.get("client_id")
+                token_internal_id = token_attributes.get("internal_id")
+                if token_client_id:
+                    self.client_id = token_client_id
+                if token_internal_id:
+                    self.sid = token_internal_id
             else:
                 console.print("[yellow]Login adminBeToken expired, falling back to anonymous token...")
                 self.adminBeToken = self.generate_betoken()
@@ -201,24 +214,53 @@ def get_playback_url(CONTENT_ID):
     try:
         with create_client(headers=headers) as client:
             response = client.post(conf["playback_url"], json=json_data, params=params)
+            try:
+                resp_json = response.json()
+            except ValueError:
+                text = response.text.lstrip()
+                if text.startswith("<"):
+                    try:
+                        root = ET.fromstring(text)
+                        code_el = root.find(".//code")
+                        message_el = root.find(".//message")
+                        if code_el is not None:
+                            code = code_el.text
+                            message = message_el.text if message_el is not None else ""
+                            if code == "PL022":
+                                raise RuntimeError("Infinity+ required for this content.")
+                            if code == "PL402":
+                                raise RuntimeError("Content available for rental: you must rent it first.")
+                            if code == "PL053":
+                                raise RuntimeError("Content has no available purchasable rights")
+                            raise RuntimeError(f"{code}: {message}")
+                    except ET.ParseError:
+                        pass
+                response.raise_for_status()
+                raise
+
+            err = resp_json.get("error") if isinstance(resp_json, dict) else None
+            if err:
+                code = err.get("code")
+                if code == "PL022":
+                    raise RuntimeError("Infinity+ required for this content.")
+                if code == "PL402":
+                    raise RuntimeError("Content available for rental: you must rent it first.")
+                if code == "PL053":
+                    raise RuntimeError("Content has no available purchasable rights")
+                raise RuntimeError(f"{code}: {err.get('message')}")
+
             response.raise_for_status()
-            resp_json = response.json()
-
-        err = resp_json.get("error") if isinstance(resp_json, dict) else None
-        if err:
-            code = err.get("code")
-            if code == "PL022":
-                raise RuntimeError("Infinity+ required for this content.")
-            if code == "PL402":
-                raise RuntimeError("Content available for rental: you must rent it first.")
-            if code == "PL053":
-                raise RuntimeError("Content has no available purchasable rights")
-            raise RuntimeError(f"{code}: {err.get('message')}")
-
-        return resp_json["response"]["mediaSelector"]
+            return resp_json["response"]["mediaSelector"]
 
     except Exception as e:
         raise RuntimeError(f"Failed to get playback URL error: {e}") from e
+
+
+def get_playback_url_direct(content_id):
+    """Get the direct playback URL for a given content ID."""
+    conf = region_conf()
+    tp_path = f"{conf['feed_public_id']}/media/guid/2702976343/{content_id}"
+    return {"url": f"https://link.theplatform.eu/s/{tp_path}"}
 
 
 def get_metadata_by_guid(guid, feed):
@@ -236,37 +278,89 @@ def get_metadata_by_guid(guid, feed):
         return None
 
 
+def _parse_concurrency_lock(root, ns):
+    """Parse the concurrency lock information from a SMIL XML root element."""
+    head = root.find("smil:head", ns)
+    if head is None:
+        return None
+    
+    meta = {m.attrib.get("name"): m.attrib.get("content") for m in head.findall("smil:meta", ns)}
+    if not meta.get("lockId"):
+        return None
+    
+    return meta
+
+
+def release_concurrency_lock(lock: dict) -> bool:
+    """Release a concurrency lock using the provided lock information."""
+    concurrency_url = lock.get("concurrencyServiceUrl")
+    if not concurrency_url:
+        return False
+
+    api = get_client()
+    url = f"{concurrency_url}/web/Concurrency/unlock"
+    params = {
+        "schema": "1.0",
+        "form": "json",
+        "_clientId": f"player_{api.client_id}",
+        "_id": lock.get("lockId"),
+        "_sequenceToken": lock.get("lockSequenceToken"),
+        "_encryptedLock": lock.get("lock"),
+    }
+    try:
+        with create_client(headers={"user-agent": get_userAgent(), "accept": "application/json"}) as client:
+            response = client.get(url, params=params)
+        return response.status_code == 200 and "unlockResponse" in response.text
+    except Exception as e:
+        logger.debug(f"Failed to release concurrency lock {lock.get('lockId')}: {e}")
+        return False
+
+
 def parse_smil_for_media_info(smil_xml):
     """Extract video streams and subtitle streams from a theplatform SMIL."""
     root = ET.fromstring(smil_xml)
     ns = {"smil": root.tag.split("}")[0].strip("{")}
 
+    lock = _parse_concurrency_lock(root, ns)
+    if lock:
+        if release_concurrency_lock(lock):
+            logger.debug(f"Released concurrency lock {lock.get('lockId')}")
+        else:
+            logger.debug(f"Could not release concurrency lock {lock.get('lockId')}")
+
     videos = []
     subtitles_raw = []
+    seen_video_urls = set()
 
-    for par in root.findall(".//smil:par", ns):
-        ref_elem = par.find(".//smil:ref", ns)
-        if ref_elem is not None:
-            url = ref_elem.attrib.get("src")
-            title = ref_elem.attrib.get("title", "")
+    for ref_elem in root.findall(".//smil:ref", ns):
+        url = ref_elem.attrib.get("src")
+        title = ref_elem.attrib.get("title", "")
 
-            tracking_data = {}
-            for param in ref_elem.findall(".//smil:param", ns):
-                if param.attrib.get("name") == "trackingData":
-                    tracking_value = param.attrib.get("value", "")
-                    tracking_data = dict(item.split("=", 1) for item in tracking_value.split("|") if "=" in item)
-                    break
+        tracking_data = {}
+        for param in ref_elem.findall(".//smil:param", ns):
+            if param.attrib.get("name") == "trackingData":
+                tracking_value = param.attrib.get("value", "")
+                tracking_data = dict(item.split("=", 1) for item in tracking_value.split("|") if "=" in item)
+                break
 
-            if url and url.endswith(".mpd"):
-                videos.append({"url": url, "title": title, "tracking_data": tracking_data})
+        if url and url.endswith(".mpd") and url not in seen_video_urls:
+            seen_video_urls.add(url)
+            videos.append({"url": url, "title": title, "tracking_data": tracking_data})
+            continue
 
-        for textstream in par.findall(".//smil:textstream", ns):
-            sub_url = textstream.attrib.get("src")
-            lang = textstream.attrib.get("lang", "unknown")
-            sub_type = textstream.attrib.get("type", "unknown")
-            sub_format = "srt" if sub_type == "text/srt" else "vtt"
-            if sub_url:
-                subtitles_raw.append({"url": sub_url, "language": lang, "format": sub_format})
+        params_by_name = {p.attrib.get("name"): p.attrib.get("value") for p in ref_elem.findall(".//smil:param", ns)}
+        if params_by_name.get("isException") == "true":
+            exception = params_by_name.get("exception", "")
+            abstract = ref_elem.attrib.get("abstract", "")
+            raise RuntimeError(f"{exception}: {abstract}" if exception else abstract or "SMIL exception")
+
+    for textstream in root.findall(".//smil:textstream", ns):
+        sub_url = textstream.attrib.get("src")
+        lang = textstream.attrib.get("lang", "unknown")
+        sub_type = textstream.attrib.get("type", "unknown")
+        sub_format = "srt" if sub_type == "text/srt" else "vtt"
+        if sub_url:
+            subtitles_raw.append({"url": sub_url, "language": lang, "format": sub_format})
 
     subtitles_by_lang = {}
     for sub in subtitles_raw:

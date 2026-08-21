@@ -7,38 +7,15 @@ import subprocess
 from VibraVid.core.muxing.helper._ffprobe_cache import ffprobe_cached
 from VibraVid.core.utils.codec import get_short_codec
 from VibraVid.core.utils.language import language_variants
+from VibraVid.core.utils.resolution import classify_resolution as _classify_resolution
 from VibraVid.setup import get_ffprobe_path
 
 logger = logging.getLogger(__name__)
 
-_RESOLUTION_TIERS = [
-    (4320, 7680, "4320p"),
-    (2880, 5120, "2880p"),
-    (2160, 3840, "2160p"),
-    (1440, 2560, "1440p"),
-    (1080, 1920, "1080p"),
-    (900, 1600, "900p"),
-    (768, 1366, "768p"),
-    (720, 1280, "720p"),
-    (540, 960, "540p"),
-    (480, 854, "480p"),
-    (360, 640, "360p"),
-    (240, 426, "240p"),
-    (144, 256, "144p"),
-]
-
-
-def _classify_resolution(width, height) -> str:
-    for min_h, min_w, label in _RESOLUTION_TIERS:
-        if (height and height >= min_h) or (width and width >= min_w):
-            return label
-    if height:
-        return f"{height}p"
-    return ""
-
 
 _EMPTY_METADATA = {
     "quality": "",
+    "height": 0,
     "language": "",
     "video_codec": "",
     "audio_codec": "",
@@ -71,11 +48,13 @@ def get_media_metadata(file_path: str) -> dict:
         info = json.loads(result.stdout)
         streams = info.get("streams", [])
         quality_val = ""
+        height_val = 0
         vcodec_val = ""
 
         for s in streams:
             if s.get("codec_type") == "video":
-                quality_val = _classify_resolution(s.get("width"), s.get("height"))
+                height_val = s.get("height") or 0
+                quality_val = _classify_resolution(s.get("width"), height_val)
 
                 raw_vcodec = s.get("codec_name", "")
                 vcodec_val = get_short_codec("video", raw_vcodec)
@@ -142,6 +121,7 @@ def get_media_metadata(file_path: str) -> dict:
 
         return {
             "quality": quality_val,
+            "height": height_val,
             "language": "-".join(languages_found) if languages_found else "",
             "video_codec": vcodec_val,
             "audio_codec": "-".join(acodecs_found) if acodecs_found else "",

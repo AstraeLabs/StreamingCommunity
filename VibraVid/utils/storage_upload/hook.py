@@ -9,7 +9,7 @@ from VibraVid.core.ui.bar_manager import DownloadBarManager
 from VibraVid.core.ui.tracker import context_tracker
 from VibraVid.utils import internet_manager
 from VibraVid.utils.config import config_manager
-from VibraVid.utils.vault_upload.store import upload_vault
+from VibraVid.utils.storage_upload.store import upload_vault
 
 logger = logging.getLogger(__name__)
 

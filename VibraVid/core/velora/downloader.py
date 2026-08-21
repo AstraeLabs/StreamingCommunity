@@ -8,12 +8,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 from VibraVid.core.decryptor import KeysManager
-from VibraVid.core.decryptor._models import detect_encryption_info
 from VibraVid.core.ui.bar_manager import DownloadBarManager, console
 from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.core.velora.bridge import run_download_plan
 from VibraVid.core.velora.curl_bridge import run_download_plan_curl_cffi
 from VibraVid.core.velora.subtitle import download_external_tracks_with_progress
+from VibraVid.setup import get_flux_path
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import get_proxy_url
 
@@ -60,6 +60,7 @@ class MediaDownloader(
         manifest_content: str | None = None,
         manifest_protocol: str | None = None,
         manifest_refresh_fn=None,
+        has_drm: bool = False,
     ) -> None:
         super().__init__(
             url=url,
@@ -73,6 +74,7 @@ class MediaDownloader(
             manifest_content=manifest_content,
             manifest_protocol=manifest_protocol,
             manifest_refresh_fn=manifest_refresh_fn,
+            has_drm=has_drm,
         )
         self.max_segments = max_segments
         self.max_time = max_time
@@ -105,8 +107,9 @@ class MediaDownloader(
             s for s in self.streams if s.selected and not s.is_external and s.type in ("video", "audio", "subtitle")
         ]
         all_support_live = all(s.supports_live_decryption for s in selected_media) if selected_media else False
+        flux_available = bool(get_flux_path())
 
-        if all_support_live and selected_media and REALTIME_DECRYPT:
+        if all_support_live and selected_media and REALTIME_DECRYPT and flux_available:
             self._session_live_decrypt = True
             logger.info("All selected streams support live decryption — using in-flight decryption.")
         else:
@@ -124,6 +127,8 @@ class MediaDownloader(
                     console.print("[red]Warning:[/red] SAMPLE-AES/CBCS streams detected but no keys provided.")
                     logger.error("No keys provided for post-download decryption — merged file will remain encrypted.")
 
+            elif selected_media and all_support_live and not flux_available:
+                logger.info("flux not available — using post-merge decryption with Shaka/Bento4.")
             else:
                 logger.info("Using post-download decryption.")
 
@@ -302,10 +307,12 @@ class MediaDownloader(
         try:
             plan_task_key = self._stream_task_key(stream) if stream else "download"
             if stream and stream.type == "video":
-                plan_label = self._video_label
+                plan_label = self._video_labels_by_task_key.get(plan_task_key) or self._video_label
 
             elif stream and stream.type == "audio":
-                plan_label = self._audio_labels.get((stream.language or "und").lower(), "")
+                plan_label = self._audio_labels_by_task_key.get(plan_task_key) or self._audio_labels.get(
+                    (stream.language or "und").lower(), ""
+                )
 
             elif stream and stream.type == "subtitle":
                 plan_label = self._sub_labels_by_task_key.get(plan_task_key, "")
@@ -362,48 +369,6 @@ class MediaDownloader(
         except Exception as exc:
             logger.error(f"_run_dl failed: {exc}", exc_info=True)
             return []
-
-    def _probe_media_file(self, target_path: Path) -> None:
-        try:
-            if not target_path.exists() or target_path.stat().st_size <= 0:
-                logger.warning(f"[PROBE] Probe target not found or empty: {target_path}")
-                return
-
-            from VibraVid.core.muxing.helper.info import Mediainfo
-            from VibraVid.setup import get_ffprobe_path
-
-            ffprobe_path = get_ffprobe_path()
-
-            async def _run_probes() -> None:
-                await asyncio.gather(
-                    Mediainfo.from_file_async(ffprobe_path, str(target_path)),
-                    self._report_drm_info_async(target_path),
-                )
-
-            asyncio.run(_run_probes())
-        except Exception as exc:
-            logger.warning(f"[PROBE] Could not probe media file: {exc}")
-
-    async def _report_drm_info_async(self, target_path: Path) -> None:
-        """Async wrapper: off-load the (blocking) DRM inspection to a thread."""
-        try:
-            await asyncio.to_thread(self._report_drm_info, target_path)
-        except Exception as exc:
-            logger.debug(f"[PROBE][DRM] info detection failed: {exc}")
-
-    def _report_drm_info(self, target_path: Path) -> None:
-        """For DRM media only: log the Widevine KID, PlayReady KID and CENC scheme type."""
-        info = detect_encryption_info(str(target_path))
-        if not info.encrypted:
-            logger.info(f"[PROBE][{target_path.name}] No DRM (clear)")
-            return
-
-        # A track has exactly one content key (tenc.default_KID), shared by
-        # every DRM system (Widevine/PlayReady/FairPlay) protecting it.
-        kid = info.kid or "N/A"
-        scheme = info.scheme or "unknown"
-        track_ids = info.track_ids or []
-        logger.info(f"[PROBE][{target_path.name}] Scheme: {scheme}, KID: {kid}, Track IDs: {track_ids}")
 
     def _build_headers(self) -> dict:
         h = dict(self.headers)

@@ -100,9 +100,6 @@ class FuzzyList(Widget):
         self.query_one("#fuzzy-input", Input).value = ""
         self.call_after_refresh(self._refresh_list, self._items)
 
-    def focus_input(self) -> None:
-        self.query_one("#fuzzy-input", Input).focus()
-
     def action_focus_list(self) -> None:
         self.query_one("#fuzzy-list", ListView).focus()
 

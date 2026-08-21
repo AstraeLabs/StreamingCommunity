@@ -3,6 +3,7 @@
 
 import os
 import sys
+import time
 
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.append(src_path)
@@ -22,9 +23,12 @@ SOURCES = [
     {"url": "<url>", "key": "<key>", "language": "en", "type": "audio"},
 ]
 
-
-generic_process = Generic_Downloader(sources=SOURCES, output_path=rf".\Video\Custom.{conf_extension}")
+t0 = time.monotonic()
+generic_process = Generic_Downloader(
+    sources=SOURCES, 
+    output_path=rf".\Video\Custom.{conf_extension}"
+)
 
 
 out_path, need_stop, error = generic_process.start()
-print(f"Output path: {out_path}, Need stop: {need_stop}, error: {error}")
+print(f"out={out_path} need_stop={need_stop} error={error} elapsed={time.monotonic() - t0:.2f}s")

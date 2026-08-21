@@ -20,6 +20,13 @@ entries_manager = EntriesManager()
 table_show_manager = TVShowManager()
 
 
+def register_cli_args(parser) -> list:
+    """Register CLI options."""
+    group = parser.add_argument_group("Pluto TV options")
+    group.add_argument("--protocol", dest="protocol", default="hls", choices=["hls", "dash"], help="Streaming protocol to use (default: hls). DASH resolves DRM keys automatically via the Pluto PlayReady license server.")
+    return ["protocol"]
+
+
 def title_search(query: str) -> int:
     """
     Search for titles on Pluto TV

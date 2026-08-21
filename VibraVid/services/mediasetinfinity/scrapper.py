@@ -155,9 +155,11 @@ class GetSerieInfo:
         """Build season page URLs"""
         parsed_url = urlparse(self.url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-        series_slug = parsed_url.path.strip("/").split("/")[-1].split("_")[0]
+        path_parts = parsed_url.path.strip("/").split("/")
+        section = path_parts[0] if len(path_parts) > 1 else "fiction"
+        series_slug = path_parts[-1].split("_")[0]
         for season in stagioni_disponibili:
-            page_url = f"{base_url}/fiction/{series_slug}/{series_slug}{season['tvSeasonNumber']}_{self.serie_id},{season['guid']}"
+            page_url = f"{base_url}/{section}/{series_slug}{season['tvSeasonNumber']}_{self.serie_id},{season['guid']}"
             season["page_url"] = page_url
 
     def _fetch_season_categories(self, season):
@@ -199,11 +201,6 @@ class GetSerieInfo:
 
         total_categories = sum(len(s.get("categories", [])) for s in seasons_with_url)
         print(f"Found {total_categories} categories across {len(seasons_with_url)} seasons")
-
-    def _build_browse_url(self, sb_id, category_name):
-        """Build the Mediaset Infinity browse URL for a category."""
-        href = f"/browse/{category_name.lower().replace(' ', '-')}_{sb_id}"
-        return f"{self.conf['site_base']}{href}"
 
     @staticmethod
     def _is_full_episode_category(category_name: str) -> bool:
@@ -631,6 +628,25 @@ class GetSerieInfo:
                             if ep.id not in existing_ids:
                                 season["episodes"].append(ep)
                                 existing_ids.add(ep.id)
+
+            seasons_missing_full_episodes = [
+                season
+                for season in self.stagioni_disponibili
+                if not any(self._is_full_episode_category(c["name"]) for c in season.get("categories", []))
+            ]
+            if seasons_missing_full_episodes:
+                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+                    fallback_results = pool.map(
+                        lambda season: self._get_all_season_episodes(season, category_name="Puntate intere"),
+                        seasons_missing_full_episodes,
+                    )
+                
+                for season, fallback_episodes in zip(seasons_missing_full_episodes, fallback_results, strict=True):
+                    existing_ids = {ep.id for ep in season["episodes"]}
+                    for ep in fallback_episodes:
+                        if ep.id not in existing_ids:
+                            season["episodes"].append(ep)
+                            existing_ids.add(ep.id)
 
             total_episodes = sum(len(s["episodes"]) for s in self.stagioni_disponibili)
             print(f"Collected {total_episodes} episodes across {len(self.stagioni_disponibili)} seasons")

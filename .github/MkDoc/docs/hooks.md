@@ -54,7 +54,8 @@ Execute custom scripts at specific points in the download lifecycle. Hooks are c
       {
         "name": "notify",
         "type": "bash",
-        "command": "echo 'Download completed'"
+        "command": "echo 'Download finished: {download_title}'",
+        "allow_inline_template": true
       }
     ]
   }
@@ -69,6 +70,7 @@ Execute custom scripts at specific points in the download lifecycle. Hooks are c
 | `type` | Script type: `python`, `bash`, `sh`, `shell`, `bat`, `cmd` |
 | `path` | Path to script file (alternative to `command`) |
 | `command` | Inline command to execute (alternative to `path`). Note: `args` are ignored when using `command` |
+| `allow_inline_template` | If `true`, expand `{download_title}`-style placeholders inside `command` itself (off by default — `command` is otherwise run verbatim, unlike `path`/`args`/`cwd` which always expand placeholders) |
 | `args` | List of arguments passed to the script |
 | `env` | Additional environment variables as key-value pairs |
 | `cwd` | Working directory for execution (supports `~` and env vars) |
@@ -109,6 +111,12 @@ decrypted, muxed) files, keyed by title/type/season/episode:
 | `db_info.url` | — | Base URL of the vault service to query/upload to. Required for **any** interaction, fetch or upload |
 | `db_info.token` | — | Upload authorization token. Without it VibraVid is **fetch-only**: it can still look up and download cache hits, but never uploads what it downloads |
 | `db_info.skip_if_cached` | `false` | Stricter mode: if a vault hit exists, **skip the item entirely** instead of fetching it — no file is produced locally at all for that movie/episode this run. Off by default, since normally a cache hit should still get you the file |
+
+Even with `db_store: true` and a valid `db_info.token`, **uploads only happen for services that
+opt in**: the site module's `__init__.py` must set `_db_upload = True`. This is separate from
+`db_info.token` being set — the token controls *authorization*, `_db_upload` controls whether
+that particular service is even allowed to try. A handful of services ship with this set; most
+don't, so they stay fetch-only regardless of `db_info` configuration.
 
 
 ## Context Placeholders

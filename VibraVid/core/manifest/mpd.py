@@ -52,6 +52,8 @@ _CP_HDR_HINT = {"9"}  # BT.2020 ColourPrimaries
 _FILE_EXT_WHITELIST = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | SUBTITLE_EXTENSIONS | {".mpd", ".m4s", ".cmfv", ".cmfa"}
 _AD_PATH_RE = re.compile(r"(?:^|/)(?:ad|ads|advert|impression|preroll|midroll|postroll)(?:/|$)", re.IGNORECASE)
 _SEGMENT_TOKEN_RE = re.compile(r"\$(RepresentationID|Number|Time|Bandwidth)(?:%0?(\d+)d)?\$")
+DISABLE_AD_PERIOD_DETECTION = False
+_AD_MAX_DURATION_SECONDS = 31.0
 
 
 def _norm(v: str | None) -> str:
@@ -101,6 +103,23 @@ def _stream_dedup_key(s: Stream):
     )
 
 
+def _is_compatible_stream(existing: Stream, new: Stream) -> bool:
+    """Guard against a provider reusing a Representation @id across Periods for a
+    genuinely different rendition. Only treat two id-matching Periods as the same logical
+    track when they actually look like the same rendition; otherwise a naive
+    id-only merge silently splices mismatched video resolutions or audio codecs
+    into one "track", corrupting playback partway through."""
+    if existing.type != new.type:
+        return False
+    if existing.type == "video":
+        return (int(existing.width or 0), int(existing.height or 0)) == (int(new.width or 0), int(new.height or 0)) and _norm(
+            existing.codecs
+        ).split(".")[0] == _norm(new.codecs).split(".")[0]
+    if existing.type == "audio":
+        return _norm(existing.language) == _norm(new.language) and _norm(existing.codecs).split(".")[0] == _norm(new.codecs).split(".")[0]
+    return True
+
+
 def _drm_hint_from_scheme(scheme_lower: str) -> str | None:
     result = DRMType.from_scheme(scheme_lower)
     return result if result != DRMType.UNKNOWN else None
@@ -110,7 +129,13 @@ def _video_range_from_codecs(codecs: str) -> str:
     return infer_video_range(codecs)
 
 
-def _is_ad_period(period_url: str, period_element) -> bool:
+def _is_ad_period(
+    period_url: str,
+    period_element,
+    has_thumbnail: bool = False,
+    thumbnail_convention_active: bool = False,
+    period_duration: float = 0.0,
+) -> bool:
     url_is_ad = bool(_AD_PATH_RE.search(period_url or ""))
     has_drm = period_element.find(".//mpd:ContentProtection", _NS) is not None
 
@@ -124,11 +149,17 @@ def _is_ad_period(period_url: str, period_element) -> bool:
     asset_text = (asset_identifier.text or "").strip().lower() if asset_identifier is not None else ""
     asset_is_ad = any(token in asset_text for token in ("ad", "advert", "impression", "preroll", "midroll", "postroll"))
     xlink_is_ad = xlink_actuate == "onload"
-    logger.debug(f"_is_ad_period | url={period_url} | url_ad={url_is_ad} | xlink_onload={xlink_is_ad} | asset_ad={asset_is_ad} | has_drm={has_drm}")
+    thumbnail_is_ad = thumbnail_convention_active and not has_thumbnail and period_duration <= _AD_MAX_DURATION_SECONDS
+
+    logger.debug(
+        f"_is_ad_period | url={period_url} | url_ad={url_is_ad} | xlink_onload={xlink_is_ad} | asset_ad={asset_is_ad} "
+        f"| has_drm={has_drm} | thumbnail_convention={thumbnail_convention_active} | has_thumbnail={has_thumbnail} "
+        f"| duration={period_duration:.1f}s | thumbnail_ad={thumbnail_is_ad}"
+    )
 
     if (url_is_ad or xlink_is_ad or asset_is_ad) and not has_drm:
         return True
-    return False
+    return thumbnail_is_ad
 
 
 def _is_file_url(url: str) -> bool:
@@ -293,18 +324,35 @@ class DashParser:
 
         all_periods = self._root.findall("mpd:Period", _NS)
         global_seen_keys: set = set()
+        period_durations: dict[int, float] = {}
+        duplicate_source_periods: set = set()
 
         # Reset range-split tracking
         self._uses_range_split = False
 
+        def _period_has_thumbnail(period_element) -> bool:
+            return any(
+                "image" in (a.get("contentType") or a.get("mimeType") or "").lower()
+                for a in period_element.findall("mpd:AdaptationSet", _NS)
+            )
+
+        thumbnail_convention_active = any(_period_has_thumbnail(p) for p in all_periods)
+
         for period_idx, period in enumerate(all_periods):
             period_base_url = self._resolve_element_base_url(period, self._base_url)
-            if _is_ad_period(period_base_url, period):
+            period_duration = self._parse_iso_duration(period.get("duration", dur_str))
+            if not DISABLE_AD_PERIOD_DETECTION and _is_ad_period(
+                period_base_url,
+                period,
+                has_thumbnail=_period_has_thumbnail(period),
+                thumbnail_convention_active=thumbnail_convention_active,
+                period_duration=period_duration,
+            ):
                 logger.info(f"DASH period skipped (advertisement) | period={period_idx} url={period_base_url}")
                 continue
 
+            period_durations[period_idx] = period_duration
             period_start = self._parse_iso_duration(period.get("start", ""))
-            period_duration = self._parse_iso_duration(period.get("duration", dur_str))
             period_seen_keys: set = set()
 
             for _adapt_idx, adapt in enumerate(period.findall("mpd:AdaptationSet", _NS)):
@@ -361,25 +409,96 @@ class DashParser:
 
                     period_seen_keys.add(dedup_key)
 
+                    matched_stream = None
                     if dedup_key in global_seen_keys:
-                        logger.debug(f"DASH stream extended (multi-period) | id={rep_id!r} period={period_idx} lang={s.language} bw={s.bitrate}")
                         for existing_stream in streams:
-                            if _stream_dedup_key(existing_stream) == dedup_key:
-                                existing_stream.segments.extend(s.segments)
-
-                                # A later Period may be encrypted while the first (e.g. a
-                                # clear intro) was not: adopt the encrypted DRM so keys are
-                                # fetched and the encrypted Period actually gets decrypted.
-                                if period_encrypted and not existing_stream.drm.is_encrypted():
-                                    existing_stream.drm = s.drm
+                            if _stream_dedup_key(existing_stream) == dedup_key and _is_compatible_stream(existing_stream, s):
+                                matched_stream = existing_stream
                                 break
 
+                    if matched_stream is not None:
+                        # Some SSAI/CDN manifests hand a distinct URL per Period to what
+                        # is, on the wire, the exact same media segment (a provider-side
+                        # bug -- seen e.g. with SegmentBase byte-range representations
+                        # reused verbatim across several Period entries). Downloading and
+                        # decrypting that content again per Period would just duplicate
+                        # it N times and desync the track. Only drop a Period whole: if
+                        # every one of its media segments already showed up in an earlier
+                        # Period it's a full duplicate; dropping individual segments would
+                        # leave the survivors with gaps and produce a broken merged file.
+                        new_media = [sg for sg in s.segments if sg.seg_type == "media"]
+                        existing_media_urls = {sg.url for sg in matched_stream.segments if sg.seg_type == "media"}
+                        is_full_duplicate = bool(new_media) and all(sg.url in existing_media_urls for sg in new_media)
+
+                        if is_full_duplicate:
+                            new_urls = {sg.url for sg in new_media}
+                            source_period_idx = next(
+                                (
+                                    sg.period_idx
+                                    for sg in matched_stream.segments
+                                    if sg.seg_type == "media" and sg.url in new_urls
+                                ),
+                                None,
+                            )
+                            if source_period_idx is not None:
+                                duplicate_source_periods.add(source_period_idx)
+
+                            logger.debug(
+                                f"DASH stream Period {period_idx} is a full duplicate of an earlier Period "
+                                f"(same {len(new_media)} media URL(s)) -- skipped | id={rep_id!r}"
+                            )
+                        else:
+                            logger.debug(f"DASH stream extended (multi-period) | id={rep_id!r} period={period_idx} lang={s.language} bw={s.bitrate}")
+                            matched_stream.segments.extend(s.segments)
+
+                        # A later Period may be encrypted while the first (e.g. a
+                        # clear intro) was not: adopt the encrypted DRM so keys are
+                        # fetched and the encrypted Period actually gets decrypted.
+                        if period_encrypted and not matched_stream.drm.is_encrypted():
+                            matched_stream.drm = s.drm
                         continue
+
+                    if dedup_key in global_seen_keys:
+                        # id collides with an already-seen stream's dedup key, but the
+                        # actual rendition (resolution/codec for video, codec for audio)
+                        # doesn't match -- the provider reused the Representation @id for
+                        # a genuinely different rendition in this Period (seen with SSAI ad
+                        # Periods reusing the content ladder's ids for unrelated
+                        # resolutions/codecs). Register it as its own track instead of
+                        # corrupting the existing one.
+                        logger.debug(
+                            f"DASH stream id={rep_id!r} period={period_idx} reuses an id already seen for a "
+                            f"different rendition (res/codec mismatch) -- treating as a separate stream"
+                        )
 
                     global_seen_keys.add(dedup_key)
                     streams.append(s)
                     if not self.quiet:
                         logger.info(f"DASH add | {s}")
+
+        # A Period that turns out to be the source of a byte-identical duplicate
+        # elsewhere in the manifest (already detected above) is itself almost
+        # always an SSAI ad -- the same creative just gets stitched in more than
+        # once. _is_ad_period() can't catch these when the manifest carries none
+        # of its usual signals (no "ad" in the URL, no xlink, no AssetIdentifier),
+        # so drop the surviving first instance too when it's short enough to be a
+        # spot rather than legitimate repeated content.
+        ad_period_idxs = {
+            p for p in duplicate_source_periods if 0 < period_durations.get(p, 0.0) <= _AD_MAX_DURATION_SECONDS
+        }
+        if ad_period_idxs:
+            logger.info(f"DASH periods identified as advertisement (source of a duplicated Period elsewhere in the manifest): {sorted(ad_period_idxs)}")
+            kept_streams: list[Stream] = []
+            for st in streams:
+                before = len(st.segments)
+                st.segments = [sg for sg in st.segments if sg.period_idx not in ad_period_idxs]
+                if len(st.segments) != before:
+                    logger.debug(f"DASH stream {st.id!r}: dropped {before - len(st.segments)} segment(s) from ad period(s)")
+                if st.segments:
+                    kept_streams.append(st)
+                else:
+                    logger.debug(f"DASH stream dropped entirely (only had ad-period segments) | id={st.id!r} type={st.type}")
+            streams = kept_streams
 
         if manifest_is_live:
             for s in streams:

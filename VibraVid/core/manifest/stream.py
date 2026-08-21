@@ -300,12 +300,6 @@ class DRMInfo:
 
         return "-"
 
-    def get_key_pair(self) -> str | None:
-        kid = self.kid or self.default_kid or (self.default_kids[0] if self.default_kids else None)
-        if kid and self.key:
-            return f"{kid}:{self.key}"
-        return None
-
     def __repr__(self) -> str:
         if not self.is_encrypted():
             return "DRMInfo(plain)"
@@ -329,10 +323,6 @@ class Segment:
     period_idx: int = 0  # DASH Period this segment belongs to (multi-period manifests)
     encrypted: bool = False  # True when this segment's Period is DRM-protected
     inline_data: bytes | None = None  # segment bytes carried by the manifest itself
-
-    def get_effective_size(self) -> int:
-        """Return real size if downloaded/known, otherwise the estimate."""
-        return self.size if self.size else self.estimated_size
 
     def __repr__(self) -> str:
         dur_s = f", {self.duration:.3f}s" if self.duration else ""
@@ -442,20 +432,6 @@ class Stream:
         self.estimated_size = 0
         return 0
 
-    @property
-    def estimated_size_display(self) -> str:
-        """Human-readable estimated size, e.g. '1.2 GB', '450 MB', '820 KB'."""
-        b = self.estimated_size
-        if not b:
-            return "N/A"
-        if b >= 1_073_741_824:
-            return f"~{b / 1_073_741_824:.2f} GB"
-        if b >= 1_048_576:
-            return f"~{b / 1_048_576:.1f} MB"
-        if b >= 1_024:
-            return f"~{b / 1_024:.0f} KB"
-        return f"~{b} B"
-
     # ─── Display helpers ───────────────────────────────────────────────────────
     @property
     def bitrate_display(self) -> str:
@@ -493,14 +469,6 @@ class Stream:
         )
         return f"{base} *EXT" if self.is_external else base
 
-    def get_duration_display(self) -> str:
-        if self.duration <= 0:
-            return "N/A"
-        h = int(self.duration // 3600)
-        m = int((self.duration % 3600) // 60)
-        s = int(self.duration % 60)
-        return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
-
     def get_short_codec(self) -> str:
         from VibraVid.core.utils.codec import get_short_codec as _gsc
 
@@ -519,12 +487,6 @@ class Stream:
     def encryption_method(self) -> str | None:
         """Encryption mode (cenc/cbcs/SAMPLE-AES…), derived from the attached DRMInfo."""
         return self.drm.method if self.drm else None
-
-    @encryption_method.setter
-    def encryption_method(self, value: str | None) -> None:
-        # Backward-compatible no-op: the value is owned by DRMInfo.method.
-        if value and self.drm and not self.drm.method:
-            self.drm.method = value
 
     def get_flags_display(self) -> str:
         flags = []

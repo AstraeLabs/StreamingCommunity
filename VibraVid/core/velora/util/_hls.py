@@ -28,6 +28,9 @@ def parse_hls_variant_playlist(
     blocks: list[dict] = []
     current_block: dict | None = None
     current_enc: dict = {"method": "NONE", "key_url": None, "iv": None}
+    pending_byterange: tuple[int, int] | None = None
+    byterange_next_offset = 0
+    byterange_prev_url: str | None = None
 
     def _ensure_block(init: str | None) -> dict:
         block = {"init": init, "segments": []}
@@ -39,7 +42,15 @@ def parse_hls_variant_playlist(
     while i < len(lines):
         line = lines[i].strip()
 
-        if line.startswith("#EXT-X-KEY:"):
+        if line.startswith("#EXT-X-BYTERANGE:"):
+            m = re.match(r"#EXT-X-BYTERANGE:(\d+)(?:@(\d+))?", line)
+            if m:
+                length = int(m.group(1))
+                offset = int(m.group(2)) if m.group(2) is not None else byterange_next_offset
+                pending_byterange = (offset, offset + length - 1)
+                byterange_next_offset = offset + length
+
+        elif line.startswith("#EXT-X-KEY:"):
             method_m = re.search(r"METHOD=([^,\s\"]+)", line)
             uri_m = re.search(r'URI="([^"]+)"', line)
             iv_m = re.search(r"IV=0x([0-9a-fA-F]+)", line, re.I)
@@ -59,6 +70,14 @@ def parse_hls_variant_playlist(
             seg_duration = float(dur_m.group(1)) if dur_m else 0.0
             i += 1
             while i < len(lines) and (not lines[i].strip() or lines[i].strip().startswith("#")):
+                skipped = lines[i].strip()
+                if skipped.startswith("#EXT-X-BYTERANGE:"):
+                    m = re.match(r"#EXT-X-BYTERANGE:(\d+)(?:@(\d+))?", skipped)
+                    if m:
+                        length = int(m.group(1))
+                        offset = int(m.group(2)) if m.group(2) is not None else byterange_next_offset
+                        pending_byterange = (offset, offset + length - 1)
+                        byterange_next_offset = offset + length
                 i += 1
 
             if i < len(lines):
@@ -67,18 +86,31 @@ def parse_hls_variant_playlist(
                     if current_block is None:
                         current_block = _ensure_block(None)
 
+                    resolved_url = urljoin(base_url, seg_url)
+
+                    # BYTERANGE offsets with no explicit @offset continue from the end
+                    # of the previous range *within the same URI*; a URI change (even
+                    # back to a previously-seen file) resets the implicit cursor per spec.
+                    if resolved_url != byterange_prev_url:
+                        byterange_next_offset = 0
+                    byterange_prev_url = resolved_url
+
                     # Apply any encryption override to the segment's encryption info.
                     seg_enc = dict(current_enc)
                     if enc_override:
                         seg_enc.update(enc_override)
 
-                    current_block["segments"].append(
-                        {
-                            "url": urljoin(base_url, seg_url),
-                            "enc": seg_enc,
-                            "duration": seg_duration,
-                        }
-                    )
+                    seg_dict = {
+                        "url": resolved_url,
+                        "enc": seg_enc,
+                        "duration": seg_duration,
+                    }
+                    if pending_byterange is not None:
+                        start, end = pending_byterange
+                        seg_dict["headers"] = {"Range": f"bytes={start}-{end}"}
+                        pending_byterange = None
+
+                    current_block["segments"].append(seg_dict)
             i += 1
             continue
 

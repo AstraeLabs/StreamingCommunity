@@ -3,6 +3,7 @@
 
 import os
 import sys
+import time
 
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.append(src_path)
@@ -25,16 +26,17 @@ license_headers = {}
 license_key = None
 
 
+t0 = time.monotonic()
 dash_process = DASH_Downloader(
     mpd_url=mpd_url,
     mpd_headers=mpd_headers,
     license_url=license_url,
     license_headers=license_headers,
-    output_path=rf".\Video\DASH.{conf_extension}",
+    output_path=rf".\Video\DASH_2.{conf_extension}",
     key=license_key,
-    drm_preference=DRMType.WIDEVINE
+    drm_preference=DRMType.PLAYREADY
 )
 
 
 out_path, need_stop, error = dash_process.start()
-print(f"Output path: {out_path}, Need stop: {need_stop}, error: {error}")
+print(f"out={out_path} need_stop={need_stop} error={error} elapsed={time.monotonic() - t0:.2f}s")

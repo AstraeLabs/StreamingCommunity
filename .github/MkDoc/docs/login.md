@@ -66,6 +66,25 @@
 
 ---
 
+## Tubi TV: Plain Credentials
+
+Unlike the cookie-based services above, Tubi TV authenticates with a plain email/password pair
+— no browser extension needed.
+
+### Steps
+
+1. Add your Tubi TV account credentials to `Conf/login.json`:
+   ```json
+   "tubi": {
+     "email": "your@email.com",
+     "password": "your-password"
+   }
+   ```
+
+Without these set, search returns no results for this site.
+
+---
+
 ## Apple TV+: Get Cookies via Extension
 
 ### Prerequisites

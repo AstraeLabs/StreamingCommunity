@@ -10,7 +10,7 @@ from rich.console import Console
 from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.drm.system import DRMType
 from VibraVid.core.manifest.ism import ISMParser
-from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
+from VibraVid.core.muxing.helper.video.hybrid import split_other_tracks
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
 from VibraVid.core.utils.media_players import MediaPlayers
 from VibraVid.core.velora.downloader import MediaDownloader
@@ -23,7 +23,7 @@ from VibraVid.core.velora.util.formatting import (
 from VibraVid.setup import get_prd_path, get_wvd_path, resolve_service_cdm_paths
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.http_client import get_headers
-from VibraVid.utils.vault_upload.hook import is_cached, try_fetch
+from VibraVid.utils.storage_upload.hook import is_cached, try_fetch
 
 from .base import BaseDownloader
 
@@ -287,7 +287,7 @@ class ISM_Downloader(BaseDownloader):
             self.media_downloader.external_subtitles = other_subtitles
 
         if self.chapters:
-            console.print(f"[dim]Adding {len(self.chapters)} external chapter(s).")
+            logger.info(f"Adding {len(self.chapters)} external chapter(s).")
 
         # ── Parse ─────────────────────────────────────────────────────────────
         if self.download_id:

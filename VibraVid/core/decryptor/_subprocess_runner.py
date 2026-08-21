@@ -9,9 +9,21 @@ from collections.abc import Callable
 from typing import Any
 
 from VibraVid.core.ui.bar_manager import console
+from VibraVid.core.ui.tracker import context_tracker
 from VibraVid.setup import get_ffmpeg_path
+from VibraVid.utils import config_manager
 
 logger = logging.getLogger(__name__)
+_ENGINE_LOG_LEVELS = {"BENTO4": 21, "SHAKA": 22, "FLUX": 23}
+for _engine_name, _level in _ENGINE_LOG_LEVELS.items():
+    logging.addLevelName(_level, _engine_name)
+
+
+def _log_engine_output_enabled() -> bool:
+    override = getattr(context_tracker, "log_engine_output", None)
+    if override is not None:
+        return bool(override)
+    return config_manager.config.get_bool("DRM", "log_engine_output")
 
 
 def _strip_profile_lines(text: str) -> str:
@@ -19,21 +31,30 @@ def _strip_profile_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("[profile]"))
 
 
-def _tail_decode_check(output_path: str, seconds: float = 2.0) -> str | None:
-    """Decode the last *seconds* of *output_path* with ffmpeg to catch a decrypt engine reporting exit-0/non-empty-file"""
+def _tail_decode_check(output_path: str, seconds: float = 2.0, full: bool = False) -> str | None:
+    """Decode *output_path* with ffmpeg to catch a decrypt engine reporting exit-0/non-empty-file
+    on genuinely corrupt content. ``full`` decodes start-to-end instead of just the tail --
+    audio files are cheap enough to fully verify (a 60MB track takes ~1-2s), and the tail-only
+    check has been observed to pass files whose corruption is spread through the body rather
+    than concentrated at the end (flux, under heavy real-pipeline concurrency, has produced
+    exit-0/right-size output with a ~99% frame decode-error rate that only a full decode caught)."""
     ffmpeg = get_ffmpeg_path()
     if not ffmpeg:
         return None
+    cmd = [ffmpeg, "-v", "error"]
+    if not full:
+        cmd += ["-sseof", f"-{seconds}"]
+    cmd += ["-i", output_path, "-f", "null", "-"]
     try:
         proc = subprocess.run(
-            [ffmpeg, "-v", "error", "-sseof", f"-{seconds}", "-i", output_path, "-f", "null", "-"],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            timeout=30,
+            timeout=120 if full else 30,
             creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
         )
     except Exception as exc:
-        logger.debug(f"tail decode check could not run for {output_path}: {exc}")
+        logger.debug(f"{'full' if full else 'tail'} decode check could not run for {output_path}: {exc}")
         return None
     stderr_text = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
     return stderr_text or None
@@ -54,6 +75,8 @@ def run_with_progress(
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
     timeout_seconds: int | None = 1800,
     status: str | None = None,
+    engine_name: str | None = None,
+    stream_type: str = "video",
 ) -> tuple:
     """
     Launch *cmd* as a subprocess and monitor its progress by watching how
@@ -121,6 +144,13 @@ def run_with_progress(
 
             time.sleep(0.05)
 
+    engine_level = _ENGINE_LOG_LEVELS.get((engine_name or "").upper(), logging.INFO)
+    log_engine_output = (engine_name or "").upper() in _ENGINE_LOG_LEVELS and _log_engine_output_enabled()
+    def _log_engine_line(line: str) -> None:
+        stripped = line.rstrip()
+        if stripped:
+            logger.log(engine_level, stripped)
+
     stderr_lines: list[str] = []
     stdout_lines: list[str] = []
     try:
@@ -135,10 +165,14 @@ def run_with_progress(
         def _read_stderr() -> None:
             for line in process.stderr:
                 stderr_lines.append(line)
+                if log_engine_output:
+                    _log_engine_line(line)
 
         def _read_stdout() -> None:
             for line in process.stdout:
                 stdout_lines.append(line)
+                if log_engine_output:
+                    _log_engine_line(line)
 
         stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
         stderr_thread.start()
@@ -184,11 +218,13 @@ def run_with_progress(
         _emit(final_percent, final_size)
 
     if process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-        tail_error = _tail_decode_check(output_path)
-        if tail_error is None:
+        full_check = stream_type == "audio"
+        decode_error = _tail_decode_check(output_path, full=full_check)
+        if decode_error is None:
             return True
-        logger.warning(f"{label}: exit 0 and output present, but tail decode check found errors — treating as failed: {tail_error}")
-        return False, f"tail decode check failed:\n{tail_error}"
+        check_label = "full" if full_check else "tail"
+        logger.warning(f"{label}: exit 0 and output present, but {check_label} decode check found errors — treating as failed: {decode_error}")
+        return False, f"{check_label} decode check failed:\n{decode_error}"
 
     stderr_text = _strip_profile_lines("".join(stderr_lines)).strip()
     stdout_text = "".join(stdout_lines).strip()

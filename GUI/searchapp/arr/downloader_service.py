@@ -10,6 +10,8 @@ import re
 import time
 from typing import Any
 
+from VibraVid.utils import anime_id_map
+
 from .clients.radarr_client import RadarrClient
 from .clients.sonarr_client import SonarrClient
 
@@ -107,11 +109,20 @@ class ArrDownloaderService:
                     tmdb_id=tmdb_id,
                     media_type="tv",
                     season_number=season_num,
+                    episode_number=ep_num,
                 )
                 if not item_payload:
                     logger.error(f"✖️ Could not find '{title}' using candidates: {titles}")
                     self.last_error = "search_no_results"
                     continue
+
+                # Anime seasons split across several provider entries ("Part 1",
+                # "Part 2", ...) need the absolute Sonarr episode number translated
+                # into that entry's own local numbering (see _disambiguate_split_cour).
+                provider_episode = item_payload.pop("_provider_local_episode", None)
+                download_episode = provider_episode if provider_episode is not None else ep_num
+                if provider_episode is not None:
+                    logger.info(f"[S{season_num}E{ep_num}] split-cour: downloading as local episode {provider_episode}")
 
                 # Use Sonarr's path for the series, fallback to OUTPUT config root
                 series_root = serie.get("path", "")
@@ -137,7 +148,7 @@ class ArrDownloaderService:
                     site=provider,
                     item_payload=item_payload,
                     season=str(season_num),
-                    episodes=str(ep_num),
+                    episodes=str(download_episode),
                     media_type="Serie",
                     output_path=download_folder,
                 )
@@ -706,6 +717,31 @@ class ArrDownloaderService:
         fallback_provider = primary_provider or (providers[0] if providers else "")
         return None, fallback_provider, candidates[0] if candidates else ""
 
+    def _disambiguate_split_cour(
+        self, provider: str, candidates: list, season_int: int, episode_number: int | None
+    ) -> tuple[list, int | None]:
+        """Narrow `candidates` to the one provider entry that actually contains
+        `episode_number` of TMDB season `season_int`, for anime seasons split
+        across several provider entries ("Part 1", "Part 2", ...) that all share
+        the same TMDB season number."""
+        if provider != "animeunity" or episode_number is None or len(candidates) <= 1:
+            return candidates, None
+
+        lookup_candidates = [
+            {
+                "mal_id": (r.raw_data or {}).get("mal_id") if isinstance(r.raw_data, dict) else None,
+                "anilist_id": (r.raw_data or {}).get("anilist_id") if isinstance(r.raw_data, dict) else None,
+                "episodes_count": (r.raw_data or {}).get("episodes_count") if isinstance(r.raw_data, dict) else None,
+            }
+            for r in candidates
+        ]
+        resolved = anime_id_map.resolve_split_cour_episode(lookup_candidates, season_int, episode_number)
+        if not resolved:
+            return candidates, None
+
+        matched = candidates[resolved["candidate_index"]]
+        return [matched], resolved["local_episode"]
+
     def _search_and_build_payload(
         self,
         title: str,
@@ -716,6 +752,7 @@ class ArrDownloaderService:
         tmdb_id: int | None = None,
         media_type: str = "tv",
         season_number: int | None = None,
+        episode_number: int | None = None,
     ) -> dict[str, Any] | None:
         """Search VibraVid's streaming API for a title and return an item_payload dict.
 
@@ -779,6 +816,7 @@ class ArrDownloaderService:
                 _prefer_ita = True
 
             best = None
+            split_cour_local_episode = None
             if strict_tmdb:
                 if not expected_tmdb_str:
                     logger.error(
@@ -788,6 +826,7 @@ class ArrDownloaderService:
                     return None
 
                 strict_candidates = list(results)
+                season_int = 0
                 if media_type == "tv" and provider in {"animeunity", "animeworld"} and season_number:
                     try:
                         season_int = int(season_number)
@@ -809,9 +848,19 @@ class ArrDownloaderService:
                             return None
 
                 # Preference only changes the order. Every candidate, including
-                # an ITA variant, still has to pass the exact identity check.
+                # an ITA variant, still has to pass the exact identity check. This
+                # must run before split-cour disambiguation below: an ITA and a
+                # non-ITA entry for the same "Part" share the same mal_id, so
+                # whichever comes first here is the one the crosswalk will pick.
                 if _prefer_ita:
                     strict_candidates.sort(key=lambda r: "(ITA)" not in (r.name or "").upper())
+
+                if season_int > 1:
+                    strict_candidates, split_cour_local_episode = self._disambiguate_split_cour(
+                        provider, strict_candidates, season_int, episode_number
+                    )
+                    if split_cour_local_episode is not None:
+                        logger.info(f"[split_cour] absolute episode {episode_number} of S{season_int} -> '{strict_candidates[0].name}' local episode {split_cour_local_episode}")
 
                 for r in strict_candidates:
                     r_name = r.name or ""
@@ -1003,6 +1052,12 @@ class ArrDownloaderService:
                 # verified, preserve that canonical type in the payload too.
                 "is_movie": media_type == "movie" if strict_tmdb else best.is_movie,
             }
+            if split_cour_local_episode is not None:
+                # `best` here is the provider's split "Part" entry, not the
+                # combined TMDB season; the caller must download this local
+                # episode number, not the absolute one it requested.
+                payload["_provider_local_episode"] = split_cour_local_episode
+            
             if strict_tmdb:
                 canonical_type = "movie" if media_type == "movie" else "tv"
                 payload["type"] = canonical_type
@@ -1013,6 +1068,7 @@ class ArrDownloaderService:
                     # dispatcher, so it must carry the same verified identity.
                     raw_data["type"] = canonical_type
                     raw_data["tmdb_id"] = expected_tmdb_str
+            
             logger.debug(f"[search] Payload: {json.dumps(payload, default=str, ensure_ascii=False)}")
             return payload
 

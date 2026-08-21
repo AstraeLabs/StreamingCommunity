@@ -80,7 +80,7 @@ class ExternalSupaDBVault:
             "type": media_type.strip().lower(),
             "title": title.strip(),
         }
-        logger.info(f"Tracking download with payload: {payload}")
+        logger.debug(f"Tracking download with payload: {payload}")
 
         url = f"{self.base_url}/track-downloads"
         try:
@@ -102,7 +102,6 @@ class ExternalSupaDBVault:
         Returns:
             int: Number of keys successfully added
         """
-        logger.info(f"Adding {len(keys_list)} keys to vault for license URL '{license_url}'")
         if not keys_list:
             return 0
 

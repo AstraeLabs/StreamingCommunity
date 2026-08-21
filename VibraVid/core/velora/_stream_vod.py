@@ -11,10 +11,30 @@ from VibraVid.utils.http_client import create_client
 
 from .util._dash import build_dash_ranged_segments
 from .util._hls import hls_base_url, parse_hls_variant_playlist
-from .util._stream_helpers import safe_name
+from .util._stream_helpers import is_valid_frag_init, safe_name
 
 logger = logging.getLogger("manual")
 REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
+
+
+def _frag_init_probe(dl_segs: list[dict], headers: dict) -> bool:
+    """Fetch the stream's first init (or, failing that, first media) segment
+    and check it's a real ftyp+moov fragmented-MP4 init rather than an
+    opaque byte-range slice of one unsegmented file -- see `is_valid_frag_init`."""
+    candidate = next((s for s in dl_segs if s.get("seg_type") == "init"), None) or (dl_segs[0] if dl_segs else None)
+    if not candidate:
+        return False
+    try:
+        req_headers = dict(headers)
+        req_headers.update(candidate.get("headers") or {})
+        with create_client(headers=req_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
+            r = c.get(candidate["url"])
+            r.raise_for_status()
+            data = r.content
+    except Exception as exc:
+        logger.debug(f"live-decrypt init probe failed, assuming not live-safe: {exc}")
+        return False
+    return is_valid_frag_init(data)
 
 
 class VodStreamMixin:
@@ -169,7 +189,7 @@ class VodStreamMixin:
                 self._download_dash_stream(stream, bar_manager, effective_live)
 
         if self.manifest_type == "ISM":
-            self._download_ism_stream(stream, bar_manager)
+            self._download_ism_stream(stream, bar_manager, effective_live)
 
     def _download_hls_stream(self, stream, bar_manager: DownloadBarManager, live_decryption: bool = False) -> None:
         playlist_url = stream.playlist_url
@@ -209,6 +229,7 @@ class VodStreamMixin:
                     "seg_type": "media",
                     "enc": seg["enc"],
                     "duration": seg.get("duration", 0.0),
+                    "headers": seg.get("headers", {}),
                 }
             )
 
@@ -260,9 +281,62 @@ class VodStreamMixin:
         # concatenated into one file: each Period has its own init/moov and DRM.
         media_periods = {s.period_idx for s in stream.segments if s.seg_type == "media"}
         if len(media_periods) > 1:
-            logger.info(f"DASH multi-period stream detected ({len(media_periods)} periods) — using per-period pipeline | {stream.type} {stream.resolution or stream.language}")
-            self._download_dash_multiperiod(stream, bar_manager, live_decryption)
-            return
+
+            # SSAI-style manifests can signal several logical ad-break Periods
+            # that all reference the exact same SegmentBase resource
+            media_segs = [s for s in stream.segments if s.seg_type == "media"]
+            unique_media = {(s.url, s.byte_range) for s in media_segs}
+            
+            if len(unique_media) <= 1:
+                logger.info(f"DASH multi-period stream ({len(media_periods)} periods) but every Period shares the same media segment -- treating as single-period | {stream.type} {stream.resolution or stream.language}")
+                deduped_segments: list = []
+                seen_media_key = None
+                for s in stream.segments:
+                    if s.seg_type != "media":
+                        deduped_segments.append(s)
+                        continue
+
+                    key = (s.url, s.byte_range)
+                    if key == seen_media_key:
+                        continue
+
+                    seen_media_key = key
+                    deduped_segments.append(s)
+                stream.segments = deduped_segments
+            else:
+                # Periods can also differ in media content but still share the exact
+                # same init segment (same URL/byte-range) -- e.g. chapter/programming
+                # boundaries within one continuously-encrypted Representation, as
+                # opposed to true SSAI ad-insertion where each Period is its own
+                # source with its own init/DRM. When every Period has its own init
+                # entry and they're all byte-identical, it's safe to treat the whole
+                # thing as one continuous track instead of paying for a separate
+                # merge+decrypt+ffmpeg-concat pass per Period.
+                init_segs = [s for s in stream.segments if s.seg_type == "init"]
+                init_key_by_period = {}
+                for s in init_segs:
+                    init_key_by_period.setdefault(s.period_idx, (s.url, s.byte_range))
+
+                shares_one_init = (
+                    len(init_key_by_period) == len(media_periods)
+                    and len(set(init_key_by_period.values())) == 1
+                )
+
+                if shares_one_init:
+                    logger.info(f"DASH multi-period stream ({len(media_periods)} periods) but every Period shares the same init segment -- flattening into one continuous track | {stream.type} {stream.resolution or stream.language}")
+                    flattened_segments: list = []
+                    seen_init = False
+                    for s in stream.segments:
+                        if s.seg_type == "init":
+                            if seen_init:
+                                continue
+                            seen_init = True
+                        flattened_segments.append(s)
+                    stream.segments = flattened_segments
+                else:
+                    logger.info(f"DASH multi-period stream detected ({len(media_periods)} periods) — using per-period pipeline | {stream.type} {stream.resolution or stream.language}")
+                    self._download_dash_multiperiod(stream, bar_manager, live_decryption)
+                    return
 
         all_headers = self._build_headers()
         chunk_size = max(8 * 1024 * 1024, 1 * 1024 * 1024)
@@ -347,9 +421,13 @@ class VodStreamMixin:
 
         # Single-file byte-range DASH: every media segment is a byte range of ONE file.
         byte_range_single_file = bool(media_segments) and all(s.byte_range for s in media_segments)
-        effective_live = live_decryption and not byte_range_single_file
+        effective_live = live_decryption
         if byte_range_single_file and live_decryption:
-            logger.info("DASH byte-range single-file stream: decrypting after merge (not per-segment)")
+            if _frag_init_probe(dl_segs, all_headers):
+                logger.info("DASH byte-range stream, but the init is a real ftyp+moov fragment -- live per-segment decrypt enabled")
+            else:
+                effective_live = False
+                logger.info("DASH byte-range single-file stream: decrypting after merge (not per-segment)")
 
         self._download_stream_generic(
             dl_segs,
@@ -361,7 +439,7 @@ class VodStreamMixin:
             seg_url_refresh_fn=_refresh_dash_seg_urls,
         )
 
-    def _download_ism_stream(self, stream, bar_manager: DownloadBarManager) -> None:
+    def _download_ism_stream(self, stream, bar_manager: DownloadBarManager, live_decryption: bool = False) -> None:
         if not stream.segments:
             logger.error(f"ISM stream has no segments: {stream}")
             return
@@ -371,6 +449,7 @@ class VodStreamMixin:
         media_segments = [s for s in stream.segments if s.seg_type == "media"]
         unique_media_urls = {s.url for s in media_segments}
         is_single_file = len(unique_media_urls) == 1 and not any(s.byte_range for s in media_segments)
+        byte_range_single_file = bool(media_segments) and all(s.byte_range for s in media_segments)
 
         dl_segs: list[dict] = []
         next_num = 0
@@ -381,7 +460,6 @@ class VodStreamMixin:
             ism_enc_dict = {"method": "playready-piff"}
             if hasattr(stream.drm, "kid") and stream.drm.kid != "N/A":
                 ism_enc_dict["kid"] = stream.drm.kid
-                self._probe_ism_init(stream)
 
         for seg in stream.segments:
             if seg.byte_range:
@@ -446,7 +524,19 @@ class VodStreamMixin:
                 if s["number"] in failed_set
             }
 
-        # Force live_decryption=False -> no per-segment decrypt worker
+        # A byte-range-split single file has no per-fragment boundary to decrypt
+        # independently -- unless the first segment turns out to be a real
+        # ftyp+moov init (see `_frag_init_probe`), same check as DASH.
+        effective_live = live_decryption
+        if is_single_file:
+            effective_live = False
+        elif byte_range_single_file and live_decryption:
+            if _frag_init_probe(dl_segs, all_headers):
+                logger.info("ISM byte-range stream, but the init is a real ftyp+moov fragment -- live per-segment decrypt enabled")
+            else:
+                effective_live = False
+                logger.info("ISM byte-range single-file stream: decrypting after merge (not per-segment)")
+
         self._download_stream_generic(
-            dl_segs, stream, "ism", "mp4", bar_manager, live_decryption=False, seg_url_refresh_fn=_refresh_ism_seg_urls
+            dl_segs, stream, "ism", "mp4", bar_manager, live_decryption=effective_live, seg_url_refresh_fn=_refresh_ism_seg_urls
         )

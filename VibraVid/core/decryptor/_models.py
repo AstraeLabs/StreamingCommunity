@@ -55,11 +55,12 @@ class EncryptionInfo:
     encrypted: bool = False
     scheme: str | None = None
     kid: str | None = None
-    pssh_b64: str | None = None 
+    pssh_b64: str | None = None
     video_codec: str | None = None
     encryption_method: str | None = None
     track_ids: list[str] | None = None
     pssh_boxes: list[dict] = field(default_factory=list)
+    is_piff: bool = False
 
 
 def _walk(atoms):
@@ -164,6 +165,15 @@ def detect_encryption_info(file_path: str) -> EncryptionInfo:
         return _detect_webm_encryption(file_path)
 
     info = EncryptionInfo()
+
+    # Legacy Microsoft PIFF (pre-CMAF Smooth Streaming) content signals
+    ftyp_boxes = _find_all(atoms, "ftyp")
+    for ftyp in ftyp_boxes:
+        brands = ftyp.data.get("compatible_brands") or []
+        if any(str(b).lower() == "piff" for b in brands):
+            info.is_piff = True
+            break
+
     pssh_boxes = _find_all(atoms, "pssh")
     tenc_boxes = _find_all(atoms, "tenc")
     schm_boxes = _find_all(atoms, "schm")
@@ -182,29 +192,34 @@ def detect_encryption_info(file_path: str) -> EncryptionInfo:
                 info.kid = kid.hex()
     if len(seen_kids) > 1:
         # Multiple tenc boxes with DIFFERENT default_KIDs -- e.g. a track
-        # with more than one protected stsd entry, each carrying its own
-        # tenc (the same content shape that caused a real silent-corruption
-        # bug in flux's clear-lead detection, which assumed a single
-        # protected entry). Picking the first arbitrarily could be wrong for
-        # this file; at minimum make that ambiguity visible in the logs.
+        # with more than one protected stsd entry, each carrying its own tenc
         logger.warning(
             f"{file_path}: multiple distinct KIDs found across {len(tenc_boxes)} tenc boxes "
             f"({sorted(seen_kids)}) -- using the first one ({info.kid}); this may be wrong if "
             f"different stsd entries actually use different keys"
         )
 
+    # Real-world dual-signaled content (legacy Smooth Streaming/PlayReady
     seen_schemes: set[str] = set()
+    first_scheme: str | None = None
     for schm in schm_boxes:
         scheme = schm.data.get("scheme_type")
-        if scheme:
-            seen_schemes.add(str(scheme).lower())
-            if info.scheme is None:
-                info.scheme = str(scheme).lower()
+        if not scheme:
+            continue
+
+        scheme = str(scheme).lower()
+        seen_schemes.add(scheme)
+        if first_scheme is None:
+            first_scheme = scheme
+        
+        if info.scheme is None and scheme in SCHEME_TO_MODE:
+            info.scheme = scheme
+    
+    if info.scheme is None:
+        info.scheme = first_scheme
+    
     if len(seen_schemes) > 1:
-        logger.warning(
-            f"{file_path}: multiple distinct schemes found across {len(schm_boxes)} schm boxes "
-            f"({sorted(seen_schemes)}) -- using the first one ({info.scheme})"
-        )
+        logger.warning(f"{file_path}: multiple distinct schemes found across {len(schm_boxes)} schm boxes ({sorted(seen_schemes)}) -- using {info.scheme!r}")
 
     for encv in encv_boxes:
         frma_boxes = _find_all([encv], "frma")

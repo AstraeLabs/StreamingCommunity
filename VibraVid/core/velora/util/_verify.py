@@ -83,11 +83,20 @@ def _mp4dump_clean(file_path: str) -> tuple[bool, str]:
     if not text:
         return True, "mp4dump produced no output (skipped)"
 
-    flagged = [
-        marker for marker in ("[encv]", "[enca]", "[sinf]", "[saiz]", "[saio]", "[senc]") if marker in text.lower()
-    ]
+    # [sinf]/[encv]/[enca]/[encs]/[enct] are the definitive "this track is still
+    # declared CENC-protected" markers (the stsd sample entry itself). [senc]/
+    # [saiz]/[saio] (per-sample auxiliary encryption info, living in each
+    # fragment's moof/traf, not the init) only matter to a demuxer that already
+    # saw sinf/schm say the track is protected
+    _definitive = ("[encv]", "[enca]", "[encs]", "[enct]", "[sinf]")
+    text_lower = text.lower()
+    flagged = [marker for marker in _definitive if marker in text_lower]
     if flagged:
         return False, f"residual encryption boxes: {','.join(flagged)}"
+
+    _informational = [marker for marker in ("[senc]", "[saiz]", "[saio]") if marker in text_lower]
+    if _informational:
+        return True, f"no residual encryption boxes (harmless leftover: {','.join(_informational)})"
     return True, "no residual encryption boxes"
 
 

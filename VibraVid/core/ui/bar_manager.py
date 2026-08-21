@@ -1,21 +1,40 @@
 # 13.03.26
 
+import logging
 import platform
+import threading
 from contextlib import nullcontext
 from typing import Any
 
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
 from rich.progress import Progress, TextColumn
+from rich.text import Text
 
 from VibraVid.core.ui.progress_bar import (
     SHOW_ELAPSED_REMAINING,
     CompactTimeRemainingColumn,
     CustomBarColumn,
+    StatusLine,
     TransferStatsColumn,
 )
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
 
+logger = logging.getLogger(__name__)
+
 console = Console(force_terminal=True if platform.system().lower() != "windows" else None)
+
+# Registry so any thread (e.g. a service's background status poller) can reach the
+# DownloadBarManager for a given download_id and call set_status_text on it
+_registry: dict[str, "DownloadBarManager"] = {}
+_registry_lock = threading.Lock()
+
+
+def get_bar_manager(download_id: str | None) -> "DownloadBarManager | None":
+    if not download_id:
+        return None
+    with _registry_lock:
+        return _registry.get(download_id)
 
 
 class DownloadBarManager:
@@ -23,6 +42,7 @@ class DownloadBarManager:
         self.download_id = download_id
         self.tasks: dict[str, Any] = {}
         self.subtitle_sizes: dict[str, str] = {}
+        self.status_line = StatusLine()
         time_columns = []
         if SHOW_ELAPSED_REMAINING:
             time_columns = [
@@ -30,10 +50,11 @@ class DownloadBarManager:
                 CompactTimeRemainingColumn(),
             ]
 
-        self.progress_ctx = (
-            nullcontext()
-            if context_tracker.is_gui
-            else Progress(
+        self.progress = None
+        self._live: Live | None = None
+        self.progress_ctx = nullcontext()
+        if not context_tracker.is_gui:
+            self.progress = Progress(
                 TextColumn("[purple]{task.description}", justify="left"),
                 CustomBarColumn(),
                 TextColumn("[dim]|[/dim]"),
@@ -42,15 +63,33 @@ class DownloadBarManager:
                 console=console,
                 refresh_per_second=5.0,
             )
-        )
+            self._live = Live(Group(self.status_line, self.progress), console=console, refresh_per_second=5.0)
 
     def __enter__(self):
-        self.progress = self.progress_ctx.__enter__()
+        if self._live:
+            self._live.__enter__()
+        else:
+            self.progress_ctx.__enter__()
+        if self.download_id:
+            with _registry_lock:
+                _registry[self.download_id] = self
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.progress_ctx:
+        if self.download_id:
+            with _registry_lock:
+                _registry.pop(self.download_id, None)
+        if self._live:
+            self._live.__exit__(exc_type, exc_val, exc_tb)
+        else:
             self.progress_ctx.__exit__(exc_type, exc_val, exc_tb)
+
+    def set_status_text(self, text: str) -> None:
+        """Set/update the single status line rendered above the progress bars."""
+        self.status_line.set_text(text)
+        plain_text = Text.from_markup(text).plain
+        if plain_text:
+            logger.info(f"[msg_room] {plain_text}")
 
     @staticmethod
     def _wrap_label(label: str) -> str:
@@ -87,9 +126,6 @@ class DownloadBarManager:
                     size="0B/0B",
                     compact_metrics=False,
                 )
-
-    def get_task_id(self, task_key: str):
-        return self.tasks.get(task_key)
 
     def handle_progress_line(self, parsed: dict[str, Any] | None):
         if not parsed:

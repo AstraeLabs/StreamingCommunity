@@ -27,7 +27,7 @@ from VibraVid.core.velora.util.formatting import (
 from VibraVid.setup import get_prd_path, get_wvd_path, resolve_service_cdm_paths
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.http_client import create_client, get_headers
-from VibraVid.utils.vault_upload.hook import is_cached, try_fetch
+from VibraVid.utils.storage_upload.hook import is_cached, try_fetch
 
 from .base import BaseDownloader
 from .util._drm_probe import PROBE_BYTES_FAST, DRMProbe
@@ -707,16 +707,16 @@ class DASH_Downloader(BaseDownloader):
             normalized_subs = [_to_external_subtitle_track(track) for track in self._subtitle_tracks]
             filtered_subs = _filter_subtitles(normalized_subs, eff_sub_filter)
             if filtered_subs:
-                console.print(f"[dim]Adding {len(filtered_subs)} external subtitle(s) (filtered from {len(self._subtitle_tracks)}).")
+                logger.info(f"Adding {len(filtered_subs)} external subtitle(s) (filtered from {len(self._subtitle_tracks)}).")
                 self.media_downloader.external_subtitles.extend(filtered_subs)
             else:
                 console.print(f"[dim]No subtitles matched filter '{eff_sub_filter}' in {len(self._subtitle_tracks)}.")
 
         if self._dash_audio_tracks and AUDIO_FILTER != "false":
-            console.print(f"[dim]Adding {len(self._dash_audio_tracks)} external audio(s) (filtered from {len(self._dash_audio_tracks)}).")
+            logger.info(f"Adding {len(self._dash_audio_tracks)} external audio(s) (filtered from {len(self._dash_audio_tracks)}).")
 
         if self.chapters:
-            console.print(f"[dim]Adding {len(self.chapters)} external chapter(s).")
+            logger.info(f"Adding {len(self.chapters)} external chapter(s).")
 
         # ── Parse
         if self.download_id:

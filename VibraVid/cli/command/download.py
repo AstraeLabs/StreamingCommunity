@@ -134,7 +134,7 @@ def handle_direct_download(args) -> bool:
             path, cancelled, error = MP4_Downloader(
                 url=url,
                 path=output,
-                headers_=headers or None,
+                headers=headers or None,
                 key=key_arg,
                 check_content_type=not skip_content_check,
                 sanitize_path=not skip_sanitize,

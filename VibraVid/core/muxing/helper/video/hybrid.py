@@ -123,11 +123,7 @@ def download_other_tracks(
     max_time: float | None = None,
     show_progress: bool = True,
 ) -> list[dict[str, Any]]:
-    """Download extra video/audio/subtitle tracks with the manual backend.
-
-    The track list uses the same compact form expected by the hybrid workflow,
-    e.g. ``video:dv``, ``audio:en-US`` and ``sub:es-419``.
-    """
+    """Download extra video/audio/subtitle tracks with the manual backend."""
     results: list[dict[str, Any]] = []
     if not other_tracks:
         return results

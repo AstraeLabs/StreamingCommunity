@@ -7,10 +7,12 @@ from urllib.parse import quote, urlencode
 
 from VibraVid.utils.http_client import create_client, get_headers, get_userAgent
 
-BOOT_URL = "https://boot.pluto.tv/v4/start"
-STITCHER_HLS = "https://cfd-v4-service-channel-stitcher-use1-1.prd.pluto.tv"
 APP_NAME = "web"
 APP_VERSION = "9.4.0-9ca51ca10c3047fbafa7297708f146243146d125"
+BOOT_URL = "https://boot.pluto.tv/v4/start"
+STITCHER_HLS = "https://cfd-v4-service-channel-stitcher-use1-1.prd.pluto.tv"
+STITCHER_DASH = "https://ipv4.pluto.tv/api/tn/video/playout/v2/stitch"
+LICENSE_BASE = "https://service-concierge.clusters.pluto.tv/v1"
 _pluto_api = None
 
 HUB_GRAPHQL_URL = "https://pluto.tv/api/tn/hubs/graphql/"
@@ -185,9 +187,6 @@ class PlutoAPI:
             headers["authorization"] = f"Bearer {self.session_data['jwt']}"
         return headers
 
-    def get_cookies(self):
-        return {}
-
 
 def get_api():
     """Get or create Pluto API instance"""
@@ -236,3 +235,33 @@ def get_playback_url_episode(episode_id: str, content_ids: dict = None):
 
     qs = urlencode(params)
     return f"{STITCHER_HLS}/v2/stitch/hls/episode/{episode_id}/master.m3u8?{qs}"
+
+
+def get_playback_dash_episode(episode_id: str, content_ids: dict = None):
+    """Get the playback DASH MPD URL and auth headers for a given episode ID."""
+    api = get_api()
+    session = api.get_session_for_content(content_ids or {"episode_id": episode_id, "regione": "IT"})
+
+    params = {"includeExtendedEvents": "true"}
+    mpd_url = f"{STITCHER_DASH}/dash/episode/{episode_id}/main.mpd?{urlencode(params)}"
+
+    mpd_headers = {
+        "authorization": f"Bearer {session['jwt']}",
+        "User-Agent": api.user_agent,
+        "Accept": "*/*",
+        "Origin": "https://pluto.tv",
+        "Referer": "https://pluto.tv/",
+    }
+    return mpd_url, mpd_headers
+
+
+def get_playready_license(mpd_headers: dict):
+    """PlayReady license server URL + headers, reusing the session bearer token from the MPD request."""
+    license_url = f"{LICENSE_BASE}/pr"
+    license_headers = {
+        "authorization": mpd_headers["authorization"],
+        "origin": "https://pluto.tv",
+        "referer": "https://pluto.tv/",
+        "soapaction": '"http://schemas.microsoft.com/DRM/2007/03/protocols/AcquireLicense"',
+    }
+    return license_url, license_headers

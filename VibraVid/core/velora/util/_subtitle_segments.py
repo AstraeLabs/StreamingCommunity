@@ -96,29 +96,6 @@ def resolve_subtitle_segments_sync(url: str, headers: dict) -> tuple[list[tuple[
     return segments, resolved_ext
 
 
-async def resolve_subtitle_segments_async(client: Any, url: str) -> tuple[list[tuple[str, float]], str]:
-    """Async counterpart of ``resolve_subtitle_segments_sync``, used at download time."""
-    try:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        text = resp.text.strip()
-    except Exception as exc:
-        logger.error(f"resolve_subtitle_segments_async: probe failed for {url!r}: {exc}")
-        return [(url, 0.0)], _ext_from_url(url, "UNK")
-
-    if not text.startswith("#EXTM3U"):
-        return [(url, 0.0)], _ext_from_url(url, "UNK")
-
-    segments = parse_subtitle_playlist_segments(text, url)
-    if not segments:
-        logger.error(f"resolve_subtitle_segments_async: manifest parsed but no segment found in {url!r}")
-        return [(url, 0.0)], _ext_from_url(url, "UNK")
-
-    fmt = _ext_from_url(segments[0][0], "UNK")
-    logger.info(f"Resolved HLS subtitle manifest -> {len(segments)} segment(s) (fmt={fmt})")
-    return segments, fmt
-
-
 async def download_and_merge_subtitle_segments(client: Any, segments: list[tuple[str, float]]) -> str:
     """Fetch every subtitle segment concurrently and merge them (in order) into a single WebVTT track, using each segment's nominal (EXTINF) duration to shift segments that restart their clock."""
     import asyncio

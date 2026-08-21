@@ -5,6 +5,8 @@ import logging
 import os
 import re
 import sys
+import threading
+import time
 from typing import Any
 
 from curl_cffi import requests
@@ -23,6 +25,7 @@ GITHUB_DOMAINS_PATH = ".github/script/domains.json"
 CONFIG_DOWNLOAD_URL = "https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/config.json"
 CONFIG_LOGIN_DOWNLOAD_URL = "https://raw.githubusercontent.com/AstraeLabs/VibraVid/refs/heads/main/Conf/login.json"
 DOMAINS_DOWNLOAD_URL = "https://domains-tracker.server66.workers.dev"
+DOMAIN_REFRESH_INTERVAL_SECONDS = 1800
 
 
 _MISSING = object()
@@ -260,9 +263,9 @@ class ConfigManager:
         self.login_file_path = os.path.join(self.conf_path, LOGIN_FILENAME)
         self.domains_path = os.path.join(self.conf_path, DOMAINS_FILENAME)
         self.github_domains_path = os.path.join(self.base_path, GITHUB_DOMAINS_PATH)
-        logger.info(f"Config file path: {self.config_file_path}")
-        logger.info(f"Login file path: {self.login_file_path}")
-        logger.info(f"Domains file path: {self.domains_path}")
+        logger.debug(f"Config file path: {self.config_file_path}")
+        logger.debug(f"Login file path: {self.login_file_path}")
+        logger.debug(f"Domains file path: {self.domains_path}")
 
         # Initialize data structures
         self._config_data = {}
@@ -294,6 +297,7 @@ class ConfigManager:
         self._load_login()
         self._update_settings_from_config()
         self._load_site_data()
+        self._start_domain_refresh_loop()
 
     def _load_config(self) -> None:
         """Load the main configuration file."""
@@ -486,11 +490,39 @@ class ConfigManager:
         else:
             self._load_site_data_from_file()
 
+    def _start_domain_refresh_loop(self) -> None:
+        """Start a background thread that re-fetches domains.json every DOMAIN_REFRESH_INTERVAL_SECONDS."""
+        if not self.fetch_domain_online:
+            return
+
+        thread = threading.Thread(
+            target=self._domain_refresh_worker,
+            name="domain-refresh",
+            daemon=True,
+        )
+        thread.start()
+
+    def _domain_refresh_worker(self) -> None:
+        while True:
+            time.sleep(DOMAIN_REFRESH_INTERVAL_SECONDS)
+            try:
+                data = _startup_prefetch._fetch_domains()
+                self._domains_data.clear()
+                self._domains_data.update(data)
+                self._save_domains_to_appropriate_location()
+
+                stale = [key for key in self.cache if key.startswith("domain.")]
+                for key in stale:
+                    del self.cache[key]
+                logger.info("Domains refreshed in background (%d entries).", len(self._domains_data))
+            except Exception as e:
+                logger.warning(f"Background domain refresh failed: {e}")
+
     def _load_site_data_online(self) -> None:
         """Load site data from GitHub and update local domains.json file."""
         try:
             _startup_prefetch.start()
-            logger.info(f"Fetching site data from GitHub: {DOMAINS_DOWNLOAD_URL}")
+            logger.debug(f"Fetching site data from: {DOMAINS_DOWNLOAD_URL}")
             data = _startup_prefetch.collect("domains", timeout=5)
 
             if data is not None:
@@ -499,11 +531,11 @@ class ConfigManager:
                 self._save_domains_to_appropriate_location()
 
             else:
-                console.print("[red]GitHub request failed")
+                console.print("[yellow]Cloudflare request failed, using local domains.json fallback")
                 self._handle_site_data_fallback()
 
         except Exception as e:
-            console.print(f"[red]GitHub connection error: {str(e)}")
+            console.print(f"[yellow]Cloudflare request failed ({str(e)}), using local domains.json fallback")
             self._handle_site_data_fallback()
 
     def _save_domains_to_appropriate_location(self) -> None:
@@ -551,25 +583,24 @@ class ConfigManager:
     def _handle_site_data_fallback(self) -> None:
         """Handle site data fallback in case of error."""
         if os.path.exists(self.domains_path):
-            console.print("[yellow]Attempting fallback to conf domains.json file...")
             logger.info(f"Attempting fallback to local domains file: {self.domains_path}")
 
             try:
                 with open(self.domains_path, encoding="utf-8") as f:
                     self._domains_data.clear()
                     self._domains_data.update(json.load(f))
-                console.print("[green]Fallback to conf domains successful")
+                logger.info("Fallback to conf domains.json successful")
                 return
             except Exception as fallback_error:
                 console.print(f"[red]Conf domains fallback failed: {str(fallback_error)}")
 
         if os.path.exists(self.github_domains_path):
-            console.print("[yellow]Attempting fallback to GitHub structure domains.json file...")
+            logger.info(f"Attempting fallback to GitHub structure domains file: {self.github_domains_path}")
             try:
                 with open(self.github_domains_path, encoding="utf-8") as f:
                     self._domains_data.clear()
                     self._domains_data.update(json.load(f))
-                console.print("[green]Fallback to GitHub structure successful")
+                logger.info("Fallback to GitHub structure domains.json successful")
                 return
             except Exception as fallback_error:
                 console.print(f"[red]GitHub structure fallback failed: {str(fallback_error)}")
@@ -614,16 +645,6 @@ class ConfigManager:
                 del self.cache[key]
         except Exception as e:
             console.print(f"[red]Error saving login configuration: {e}")
-
-    def save_domains(self) -> None:
-        """Save the domains configuration to file."""
-        logger.info("Saving domains configuration to file")
-        try:
-            with open(self.domains_path, "w", encoding="utf-8") as f:
-                json.dump(self._domains_data, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            console.print(f"[red]Error saving domains configuration: {e}")
-
 
 # Initialize the ConfigManager when the module is imported
 config_manager = ConfigManager()

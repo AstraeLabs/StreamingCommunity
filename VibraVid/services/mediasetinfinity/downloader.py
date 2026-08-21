@@ -14,7 +14,7 @@ from VibraVid.services._base.tv_download_manager import process_episode_download
 from VibraVid.utils import config_manager, os_manager, start_message
 from VibraVid.utils.http_client import create_client
 
-from .client import generate_license_url, get_playback_url, get_tracking_info
+from .client import generate_license_url, get_playback_url, get_playback_url_direct, get_tracking_info
 from .regions import get_region
 from .scrapper import GetSerieInfo
 
@@ -96,10 +96,18 @@ def resolve_manifest(base):
 
 def _resolve_and_download(content_id: str, output_path: str) -> tuple[str, bool]:
     """Shared pipeline: content id -> playback -> SMIL -> MPD -> DASH download"""
-    playback_json = get_playback_url(content_id)
+    try:
+        playback_json = get_playback_url(content_id)
+    except RuntimeError as e:
+        if not any(code in str(e) for code in ("PL043", "AG006")):
+            raise
+        console.print("[yellow]Playback gateway blocked this content, falling back to direct stream...")
+        playback_json = get_playback_url_direct(content_id)
+
     tracking = get_tracking_info(playback_json)
     if not tracking or not tracking.get("videos"):
-        console.print("[red]No playable video stream returned (geo/DRM/anonymous-proxy block?)")
+        if tracking is not None:
+            console.print("[red]No playable video stream returned (geo/DRM/anonymous-proxy block?)")
         return output_path, False
 
     video = tracking["videos"][0]

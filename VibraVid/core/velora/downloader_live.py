@@ -2,7 +2,6 @@
 
 import logging
 import subprocess
-import threading
 import time
 from pathlib import Path
 
@@ -158,9 +157,6 @@ class LiveDownloadMixin:
         total_seg_seen: int = 0
         total_time_seen: float = 0.0
 
-        probe_done: bool = False
-        probe_lock = threading.Lock()
-
         init_downloaded: bool = False
         last_fresh_segs: list[dict] = []
 
@@ -211,23 +207,9 @@ class LiveDownloadMixin:
                     time.sleep(0.05 * attempt)
             logger.debug(f"AES-128 live-decrypted -> {fp.name}")
 
-        def _probe_first(fp: Path) -> None:
-            nonlocal probe_done
-            if probe_done:
-                return
-
-            with probe_lock:
-                if probe_done:
-                    return
-
-                if fp.exists() and fp.stat().st_size > 0:
-                    logger.info(f"Live HLS probe -> {fp.name}")
-                    self._probe_media_file(fp)
-                    probe_done = True
-
         def _process_batch(dl_batch: list[dict], batch_paths: list[Path]) -> int:
             """
-            Decrypt, probe, and accumulate segments into all_paths.
+            Decrypt and accumulate segments into all_paths.
             Returns total bytes successfully processed in this batch.
             """
             nonlocal seg_done, total_bytes, elapsed_dur
@@ -246,7 +228,6 @@ class LiveDownloadMixin:
                 except Exception as exc:
                     logger.error(f"Live HLS decrypt error for {fp.name}: {exc}")
 
-                _probe_first(fp)
                 sz = fp.stat().st_size if fp.exists() else 0
                 batch_bytes += sz
                 total_bytes += sz
@@ -523,8 +504,6 @@ class LiveDownloadMixin:
         total_seg_seen: int = 0
         total_time_seen: float = 0.0
         init_path: Path | None = None
-        probe_done: bool = False
-        probe_lock = threading.Lock()
         min_update_period: float = 4.0
 
         _decryptor = None
@@ -534,18 +513,6 @@ class LiveDownloadMixin:
                 logger.info(f"Live DASH: CENC live-decrypt enabled for {stream.type}")
             except Exception as exc:
                 logger.warning(f"Live DASH: Decryptor unavailable — segments will remain encrypted: {exc}")
-
-        def _probe_first(fp: Path) -> None:
-            nonlocal probe_done
-            if probe_done:
-                return
-            with probe_lock:
-                if probe_done:
-                    return
-                if fp.exists() and fp.stat().st_size > 0:
-                    logger.info(f"Live DASH probe -> {fp.name}")
-                    self._probe_media_file(fp)
-                    probe_done = True
 
         def _decrypt_seg(fp: Path, is_init: bool = False) -> bool:
             """Returns True if segment is usable (decrypted or no-decrypt-needed), False if failed."""
@@ -806,7 +773,6 @@ class LiveDownloadMixin:
                         decrypt_fails += 1
                         continue
 
-                    _probe_first(fp)
                     sz = fp.stat().st_size if fp.exists() else 0
                     batch_bytes += sz
                     total_bytes += sz
@@ -860,11 +826,15 @@ class LiveDownloadMixin:
 
         if not all_paths:
             logger.error("Live DASH: no segments were downloaded — nothing to merge")
+            if _decryptor is not None:
+                _decryptor.close_flux_daemon()
             return
 
         if seg_done == 0:
             logger.error("Live DASH: every media segment failed — no usable media, skipping merge. The CDN likely served stub/error responses (live event ended, DVR window expired, or geo/token rejected). Re-run while the event is actually live.")
             console.print("[red]Live DASH: no usable media — the stream's segments were rejected by the CDN (event ended / token expired). Re-run while the event is live.")
+            if _decryptor is not None:
+                _decryptor.close_flux_daemon()
             return
 
         ext = detect_seg_ext(last_media_url, default="mp4")
@@ -886,3 +856,6 @@ class LiveDownloadMixin:
 
         if not (out_path.exists() and out_path.stat().st_size > 0):
             logger.error(f"Live DASH binary merge produced an empty file: {out_path}")
+
+        if _decryptor is not None:
+            _decryptor.close_flux_daemon()

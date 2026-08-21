@@ -10,6 +10,11 @@ from .client import CrunchyrollClient
 
 logger = logging.getLogger(__name__)
 _EP_NUM_RE = re.compile(r"^\d+(\.\d+)?$")
+_SPECIAL_SEASON_LABELS = {
+    "ova", "ovas", "oad", "oads", "special", "specials", "bonus", "extra", "extras",
+    "omake", "recap", "recaps",
+}
+_SPECIAL_SEASON_WORD_RE = re.compile(r"[\w']+")
 
 
 def _fetch_api_seasons(series_id: str, client: CrunchyrollClient, params: dict):
@@ -98,6 +103,12 @@ def _extract_episode_number(episode_data: dict) -> str:
     return ""
 
 
+def _is_special_season_title(title: str) -> bool:
+    """True if a Crunchyroll season *title* (e.g. "OVA", "Specials", "Attack on Titan OADs") marks a specials/OVA block rather than a numbered season."""
+    words = set(_SPECIAL_SEASON_WORD_RE.findall((title or "").lower()))
+    return bool(words & _SPECIAL_SEASON_LABELS)
+
+
 def _is_special_episode(episode_number: str) -> bool:
     """Check if episode is a special."""
     if not episode_number:
@@ -181,16 +192,24 @@ class GetSerieInfo:
 
         # Sort by number then title
         season_rows.sort(key=lambda r: (r["raw_number"], r["title"] or ""))
-
-        # Add to manager
-        for idx, row in enumerate(season_rows):
+        _SPECIALS_BASE = 900
+        real_idx = 0
+        special_idx = 0
+        for row in season_rows:
             display_name = row["title"]
             if display_name == self.series_name:
                 display_name = f"Season {row['raw_number']}"
 
+            if _is_special_season_title(row["title"]):
+                number = _SPECIALS_BASE + special_idx
+                special_idx += 1
+            else:
+                real_idx += 1
+                number = real_idx
+
             self.seasons_manager.add(
                 Season(
-                    number=idx + 1,
+                    number=number,
                     name=display_name,
                     id=row["id"],
                     slug=row["slug"],

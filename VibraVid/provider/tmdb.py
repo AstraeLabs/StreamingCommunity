@@ -527,17 +527,6 @@ class TMDBClient:
         logger.info(f"No original language found for {media_type} TMDB ID {tmdb_id}")
         return None
 
-    def search_movie(self, query: str):
-        """Search for a movie and return the TMDB ID of the first result."""
-        results = self._make_request("search/movie", {"query": query, "language": "it", "include_adult": True}).get(
-            "results", []
-        )
-        logger.info(f"Found {len(results)} movie results for query '{query}'")
-
-        if results:
-            return results[0]["id"]
-        return None
-
     def search_movies(self, query: str, language_preference: str = "it"):
         """Search for movies and return a list of results with details."""
         results = self._search_movie_with_fallback(query, language_preference)

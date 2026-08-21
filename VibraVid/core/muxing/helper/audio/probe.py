@@ -8,6 +8,7 @@ import subprocess
 from rich.console import Console
 
 from VibraVid.core.muxing.helper._ffprobe_cache import ffprobe_cached
+from VibraVid.core.muxing.helper.video.ts import is_mpegts_file
 from VibraVid.setup import get_ffprobe_path
 
 console = Console()
@@ -18,7 +19,11 @@ logger = logging.getLogger(__name__)
 def has_audio(file_path: str) -> bool:
     """Check if a media file has an audio stream using FFprobe."""
     try:
-        ffprobe_cmd = [get_ffprobe_path(), "-v", "error", "-show_streams", "-print_format", "json", file_path]
+        ffprobe_cmd = [get_ffprobe_path(), "-v", "error"]
+        if is_mpegts_file(file_path):
+            ffprobe_cmd += ["-f", "mpegts"]
+        
+        ffprobe_cmd += ["-show_streams", "-print_format", "json", file_path]
         with subprocess.Popen(
             ffprobe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace"
         ) as proc:
@@ -53,10 +58,11 @@ def get_video_duration(file_path: str, file_type: str = "file") -> float:
         logger.error(f"[get_video_duration] File is empty: {file_path}")
         return None
 
-    ffprobe_cmd = [
-        get_ffprobe_path(),
-        "-v",
-        "error",
+    ffprobe_cmd = [get_ffprobe_path(), "-v", "error"]
+    if is_mpegts_file(file_path):
+        ffprobe_cmd += ["-f", "mpegts"]
+    
+    ffprobe_cmd += [
         "-probesize",
         "200M",
         "-analyzeduration",
@@ -90,30 +96,65 @@ def get_video_duration(file_path: str, file_type: str = "file") -> float:
             return 1
 
         size = os.path.getsize(file_path)
+        corrupt = False
         if dur > 0 and size > 0:
             bitrate = (size * 8) / dur
             if bitrate < 1000:
                 logger.warning(f"[get_video_duration] duration {dur:.1f}s implausible for {size} byte file (bitrate {bitrate:.0f} bit/s) — treating as corrupt")
-                return None
+                corrupt = True
 
-        if dur > 0:
+        if dur > 0 and not corrupt:
             return dur
 
-        # No usable container duration -- fall back to a frame-count-based estimate.
-        streams = probe_result.get("streams", [])
-        est = _estimate_duration_from_frames(streams)
+        # No usable container duration (missing or corrupt) -- fall back to a packet-count-based estimate.
+        est = _estimate_duration_via_packet_count(file_path, is_mpegts_file(file_path))
         if est is not None and est > 0:
-            logger.warning(f"[get_video_duration] no usable container duration -- using frame estimate {est:.1f}s")
+            logger.warning(f"[get_video_duration] {'corrupt' if corrupt else 'no usable'} container duration -- using packet-count estimate {est:.1f}s")
             return est
 
+        if corrupt:
+            return None
+
         return dur
+
+
+def _estimate_duration_via_packet_count(file_path: str, is_ts: bool) -> float | None:
+    """Re-probe with -count_packets to get a real frame/sample count when the container's own duration field is missing or corrupt"""
+    ffprobe_cmd = [get_ffprobe_path(), "-v", "error"]
+    if is_ts:
+        ffprobe_cmd += ["-f", "mpegts"]
+    
+    ffprobe_cmd += [
+        "-count_packets",
+        "-show_entries",
+        "stream=codec_type,codec_name,avg_frame_rate,sample_rate,nb_read_packets",
+        "-print_format",
+        "json",
+        file_path,
+    ]
+    
+    with subprocess.Popen(
+        ffprobe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace"
+    ) as proc:
+        stdout, stderr = proc.communicate()
+
+        if proc.returncode != 0 or not stdout:
+            logger.error(f"Error estimating duration via packet count: {stderr}")
+            return None
+
+        try:
+            streams = json.loads(stdout).get("streams", [])
+        except Exception:
+            return None
+
+        return _estimate_duration_from_frames(streams)
 
 
 def _estimate_duration_from_frames(streams: list) -> float | None:
     """Estimate media duration from stream frame metadata, independent of the (possibly corrupt) container duration field."""
     for stream in streams:
         ctype = stream.get("codec_type")
-        nb = stream.get("nb_frames")
+        nb = stream.get("nb_read_packets") or stream.get("nb_frames")
         if not nb:
             continue
         try:

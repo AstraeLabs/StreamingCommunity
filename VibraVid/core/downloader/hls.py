@@ -11,7 +11,7 @@ from VibraVid.core.drm.manager import DRMManager
 from VibraVid.core.drm.system import DRMType, _DRMSystems
 from VibraVid.core.manifest.stream import track_label
 from VibraVid.core.muxing.helper.sub import extract_embedded_cc
-from VibraVid.core.muxing.helper.video_hybrid import split_other_tracks
+from VibraVid.core.muxing.helper.video.hybrid import split_other_tracks
 from VibraVid.core.ui.tracker import context_tracker, download_tracker
 from VibraVid.core.utils.media_players import MediaPlayers
 from VibraVid.core.velora.downloader import MediaDownloader
@@ -24,7 +24,7 @@ from VibraVid.core.velora.util.formatting import (
 from VibraVid.setup import get_prd_path, get_wvd_path, resolve_service_cdm_paths
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.http_client import get_headers
-from VibraVid.utils.vault_upload.hook import is_cached, try_fetch
+from VibraVid.utils.storage_upload.hook import is_cached, try_fetch
 
 from .base import BaseDownloader
 
@@ -62,6 +62,7 @@ class HLS_Downloader(BaseDownloader):
         hls_method: str | None = None,
         hls_key: bytes | None = None,
         hls_iv: bytes | None = None,
+        has_drm: bool = False,
     ):
         """
         Parameters:
@@ -81,6 +82,9 @@ class HLS_Downloader(BaseDownloader):
             - max_time: Maximum content duration to download, e.g. "01:00:00" or 3600 seconds. Default: None (all).
             - chapters: Chapter markers to inject into the muxed output, e.g. [{"name": str, "seconds": int}]. Default: context_tracker.chapters.
             - poster_url: Poster/still image URL to embed in the muxed output. Default: context_tracker.poster_url.
+            - has_drm: Whether this stream is DRM-protected. Default False (skip the expensive per-track child-playlist
+              DRM resolution, only fetching one representative playlist for live/VOD detection). Automatically forced
+              to True regardless of this value if license_url/license_data/license_request_fn/key are provided.
         """
         self.m3u8_url = self._resolve_url(str(m3u8_url).strip()) if m3u8_url else None
         self.m3u8_content = m3u8_content
@@ -94,6 +98,10 @@ class HLS_Downloader(BaseDownloader):
         self.license_request_fn = license_request_fn
         self.drm_preference = drm_preference
         self.key = key
+        # Auto-override: real DRM args always imply DRM, regardless of the caller-supplied flag.
+        self.has_drm = has_drm or bool(license_url or license_data or license_request_fn or key)
+        if self.has_drm and not has_drm:
+            logger.info("HLS_Downloader: has_drm auto-forced to True (DRM args were provided)")
 
         self.cookies = cookies or {}
         self.max_segments = _parse_max_segments(
@@ -151,12 +159,13 @@ class HLS_Downloader(BaseDownloader):
             drm = getattr(s, "drm", None)
             label = track_label(s)
 
-            # Sub-parse variant if no DRM found yet and variant URL exists
-            if not (drm and drm.is_encrypted()) and s.playlist_url:
+            # Sub-parse variant if no DRM found yet and variant URL exists. Skipped entirely
+            # when the stream is known to be DRM-free (self.has_drm=False) to avoid a useless fetch.
+            if self.has_drm and not (drm and drm.is_encrypted()) and s.playlist_url:
                 try:
                     from VibraVid.core.manifest.m3u8 import HLSParser
 
-                    parser = HLSParser(self.m3u8_url, self.headers)
+                    parser = HLSParser(self.m3u8_url, self.headers, has_drm=self.has_drm)
                     variant_drm, _ = parser.parse_variant(s.playlist_url)
                     if variant_drm and variant_drm.is_encrypted():
                         s.drm = variant_drm
@@ -411,6 +420,7 @@ class HLS_Downloader(BaseDownloader):
             max_time=self.max_time,
             manifest_content=self.m3u8_content,
             manifest_protocol="hls",
+            has_drm=self.has_drm,
         )
         self.media_downloader.other_tracks = self.other_tracks
         self.media_downloader.hls_enc_override = self.hls_enc_override
@@ -423,7 +433,7 @@ class HLS_Downloader(BaseDownloader):
             self.media_downloader.external_other_tracks = other_videos + other_audios
 
         if self.chapters:
-            console.print(f"[dim]Adding {len(self.chapters)} external chapter(s).")
+            logger.info(f"Adding {len(self.chapters)} external chapter(s).")
 
         if self.download_id:
             download_tracker.update_status(self.download_id, "Parsing HLS ...")

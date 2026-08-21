@@ -135,20 +135,6 @@ class _DRMSystems(dict):
         return None
 
     @staticmethod
-    def kid_from_pssh_b64(pssh_b64: str, drm_type: str) -> "str | None":
-        """Decode the KID out of a base64 Widevine PSSH box or PlayReady PRO/WRM header."""
-        if drm_type == DRMType.PLAYREADY:
-            return _DRMSystems.extract_kid_from_playready_pro(pssh_b64)
-
-        try:
-            from pywidevine.pssh import PSSH as WV_PSSH
-
-            pssh = WV_PSSH(pssh_b64)
-            return normalize_kid(pssh.key_ids[0].hex) if pssh.key_ids else None
-        except Exception:
-            return None
-
-    @staticmethod
     def build_widevine_pssh_from_kid(kid_hex: str) -> str:
         """Synthesize minimal Widevine v0 PSSH box from KID hex."""
         kid = normalize_kid(kid_hex)
@@ -186,11 +172,6 @@ class DRMType:
 
     DISPLAY = {data[2]: data[1] for data in _SYSTEMS_DATA.values()}
     DISPLAY["UNK"] = "Unknown"
-
-    @classmethod
-    def from_hex(cls, hex_id: str) -> str:
-        """Return short code for bare hex system ID, or UNKNOWN."""
-        return cls.HEX_TO_CODE.get(normalize_kid(hex_id), cls.UNKNOWN)
 
     @classmethod
     def from_scheme(cls, scheme) -> str:

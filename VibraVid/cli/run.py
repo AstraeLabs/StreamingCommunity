@@ -196,6 +196,7 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     dl_opts.add_argument("--skip-ts", dest="skip_ts", action="store_const", const=True, default=None, help="Skip TS/CAM releases (StreamingCommunity)")
     dl_opts.add_argument("--close-console", dest="close_console", type=str, choices=["true", "false"],metavar="true|false", help="Exit after last download (overrides config)")
     dl_opts.add_argument("--no-vault-cache", dest="bypass_vault_cache", action="store_const", const=True, default=None, help="Bypass DRM key vault cache; force a fresh CDM license request every run (for dynamic/time-sensitive tokens)")
+    dl_opts.add_argument("--log-decryptor-output", dest="log_decryptor_output", action="store_const", const=True, default=None, help="Write Bento4/Shaka/flux's own stdout+stderr lines to the log file as they run, tagged with the engine name (e.g. [BENTO4]/[SHAKA]/[FLUX]) instead of [INFO]")
     dl_opts.add_argument("--abc", dest="abc", action="store_true", help="Anonymize printed kid/key pairs, masking alternating characters with '?'")
     dl_opts.add_argument("--resolve-only", dest="resolve_only", action="store_true",help="Only resolve & cache the master playlist without downloading.",)
 
@@ -580,6 +581,7 @@ def main():
         # Propagate CLI download limits to the service flow
         apply_limits(args)
         context_tracker.bypass_vault_cache = getattr(args, "bypass_vault_cache", None)
+        context_tracker.log_engine_output = getattr(args, "log_decryptor_output", None)
         context_tracker.anonymize_keys = bool(getattr(args, "abc", False))
         context_tracker.resolve_only = bool(getattr(args, "resolve_only", False))
         site_options = {"drm": getattr(args, "drm", None)}

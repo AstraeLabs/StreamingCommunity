@@ -148,12 +148,6 @@ def preload_registry() -> None:
             logger.exception("GUI adapter registry failed to load")
 
 
-def adapter_available(site: str) -> bool:
-    """Whether a GUI adapter exists for the site (else: queue-only fallback)."""
-    from GUI.searchapp import api
-    return api.is_site_available(site)
-
-
 def available_adapters() -> list[str]:
     from GUI.searchapp import api
     return api.get_available_sites()

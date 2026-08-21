@@ -99,11 +99,22 @@ def test_short_key_bitrate_and_id():
     assert spec_id.id == "audio_128k_en"
 
 
-def test_long_native_keys_are_no_longer_recognized():
+def test_long_native_keys_are_also_recognized():
     spec = FilterSpec.parse("res=1080:codecs=hvc1:for=best", "video")
-    assert spec.res is None
-    assert spec.codec is None
-    assert spec.extra == {"res": "1080", "codecs": "hvc1", "for": "best"}
+    assert spec.res == "1080"
+    assert spec.codec == "hvc1"
+    assert spec.extra == {}
+
+
+def test_lang_alias_for_l_native_key():
+    spec = FilterSpec.parse("lang='ita|eng|Ita|Eng|it|en'", "subtitle")
+    assert spec.langs == "ita|eng|Ita|Eng|it|en"
+    assert spec.extra == {}
+
+
+def test_unrecognized_native_key_still_falls_back_to_extra():
+    spec = FilterSpec.parse("bogus=1080", "video")
+    assert spec.extra == {"bogus": "1080"}
 
 
 def test_two_letter_code_matches_three_letter_tagged_stream():
