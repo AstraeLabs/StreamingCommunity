@@ -74,20 +74,17 @@
 
 					{% if not item.is_movie %}
 						<form action="{% url 'update_watchlist_auto' item.id %}" method="post"
-						      class="cn-row js-auto-watchlist" style="gap:8px;flex:0 0 auto">
+						      class="js-auto-watchlist" style="flex:0 0 auto">
 							{% csrf_token %}
-							<label class="cn-check" style="font-size:12px" title="Download new episodes of the selected season automatically">
-								<input type="checkbox" name="auto_enabled"
-								       {% if item.auto %}checked{% endif %}
-								       {% if not item.season_numbers %}disabled{% endif %}>
-								<span>Auto</span>
-							</label>
-							<select name="auto_season" class="cn-mini" style="padding:6px 10px;flex:0 0 auto"
+							<input type="hidden" name="auto_enabled" value="on" class="js-auto-flag"
+							       {% if not item.auto %}disabled{% endif %}>
+							<select name="auto_season" class="cn-mini js-auto-season"
+							        style="padding:6px 10px;flex:0 0 auto" title="Auto-download this season's new episodes"
 							        {% if not item.season_numbers %}disabled{% endif %}>
-								<option value="">Season…</option>
+								<option value="">Not automatic</option>
 								{% for season in item.season_numbers %}
 									<option value="{{ season }}" {% if item.auto_season == season %}selected{% endif %}>
-										S{{ season }}
+										Auto · S{{ season }}
 									</option>
 								{% endfor %}
 							</select>
@@ -112,13 +109,14 @@
 
 {% block scripts %}
 <script>
-	// Auto-submit the per-item auto-download form as soon as the toggle or the season changes,
-	// so enabling auto-download never needs a separate "save" step.
+	// Single control: picking a season enables auto-download for it in one step;
+	// picking "Not automatic" disables it. No separate toggle to fight with the select.
 	document.querySelectorAll('.js-auto-watchlist').forEach(function (form) {
-		form.querySelectorAll('input, select').forEach(function (el) {
-			el.addEventListener('change', function () {
-				if (form.requestSubmit) form.requestSubmit(); else form.submit();
-			});
+		var select = form.querySelector('.js-auto-season');
+		var flag = form.querySelector('.js-auto-flag');
+		select.addEventListener('change', function () {
+			flag.disabled = !select.value;
+			if (form.requestSubmit) form.requestSubmit(); else form.submit();
 		});
 	});
 </script>
