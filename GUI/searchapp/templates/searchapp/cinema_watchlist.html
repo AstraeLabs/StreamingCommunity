@@ -72,6 +72,28 @@
 						<span class="cn-st is-wait">Up to date</span>
 					{% endif %}
 
+					{% if not item.is_movie %}
+						<form action="{% url 'update_watchlist_auto' item.id %}" method="post"
+						      class="cn-row js-auto-watchlist" style="gap:8px;flex:0 0 auto">
+							{% csrf_token %}
+							<label class="cn-check" style="font-size:12px" title="Download new episodes of the selected season automatically">
+								<input type="checkbox" name="auto_enabled"
+								       {% if item.auto %}checked{% endif %}
+								       {% if not item.season_numbers %}disabled{% endif %}>
+								<span>Auto</span>
+							</label>
+							<select name="auto_season" class="cn-mini" style="padding:6px 10px;flex:0 0 auto"
+							        {% if not item.season_numbers %}disabled{% endif %}>
+								<option value="">Season…</option>
+								{% for season in item.season_numbers %}
+									<option value="{{ season }}" {% if item.auto_season == season %}selected{% endif %}>
+										S{{ season }}
+									</option>
+								{% endfor %}
+							</select>
+						</form>
+					{% endif %}
+
 					<form action="{% url 'remove_from_watchlist' item.id %}" method="post" style="display:inline">
 						{% csrf_token %}
 						<button class="cn-cta is-ghost" type="submit"
@@ -86,4 +108,18 @@
 		</p>
 	{% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+	// Auto-submit the per-item auto-download form as soon as the toggle or the season changes,
+	// so enabling auto-download never needs a separate "save" step.
+	document.querySelectorAll('.js-auto-watchlist').forEach(function (form) {
+		form.querySelectorAll('input, select').forEach(function (el) {
+			el.addEventListener('change', function () {
+				if (form.requestSubmit) form.requestSubmit(); else form.submit();
+			});
+		});
+	});
+</script>
 {% endblock %}

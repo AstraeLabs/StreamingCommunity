@@ -43,7 +43,9 @@ def _watchlist_tiles(limit: int | None = None) -> list[dict]:
                 "is_new": item.has_new_episodes or item.has_new_seasons,
                 "is_movie": item.is_movie,
                 "seasons": item.num_seasons,
+                "season_numbers": list(range(1, item.num_seasons + 1)),
                 "auto": item.auto_enabled,
+                "auto_season": item.auto_season,
                 "last_checked": item.auto_last_checked_at or item.last_checked_at,
                 "p1": p1, "p2": p2,
             })
