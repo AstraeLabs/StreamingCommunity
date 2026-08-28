@@ -21,11 +21,10 @@ from VibraVid.core.velora.util.formatting import (
     parse_max_time as _parse_max_time,
 )
 from VibraVid.setup import get_prd_path, get_wvd_path, resolve_service_cdm_paths
-from VibraVid.utils import config_manager, os_manager
+from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import get_headers
-from VibraVid.utils.storage_upload.hook import is_cached, try_fetch
 
-from .base import BaseDownloader
+from .base import BaseDownloader, DownloadResult
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -244,26 +243,11 @@ class ISM_Downloader(BaseDownloader):
 
         return keys or []
 
-    def start(self) -> tuple[str | None, bool, str | None]:
+    def start(self) -> DownloadResult:
         """Execute the full ISM download pipeline."""
-        if self.file_already_exists:
-            console.print("[yellow]File already exists.")
-            return self.output_path, False, None
-
-        if context_tracker.resolve_only:
-            from VibraVid.cli.command.queue import enqueue_down_from_context
-
-            enqueue_down_from_context(self.ism_url, self.output_path)
-            return self.output_path, False, None
-
-        if is_cached():
-            console.print("[dim]Skipping — already in cache.")
-            return self.output_path, False, None
-
-        if try_fetch(self.output_path):
-            return self.output_path, False, None
-
-        os_manager.create_path(self.output_dir)
+        precheck = self._precheck(self.ism_url)
+        if precheck is not None:
+            return precheck
 
         self.media_downloader = MediaDownloader(
             url=self.ism_url,
@@ -327,7 +311,7 @@ class ISM_Downloader(BaseDownloader):
             if DELAY_SS > 0:
                 console.print(f"\n[yellow]Skipping download as per configuration and sleeping {DELAY_SS} seconds...")
                 time.sleep(DELAY_SS)
-            return self.output_path, False, None
+            return DownloadResult(self.output_path, False, None)
 
         try:
             self.media_players = MediaPlayers(self.output_dir)
@@ -341,37 +325,5 @@ class ISM_Downloader(BaseDownloader):
 
         status = self.media_downloader.start_download()
 
-        if status.get("error") == "cancelled":
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
-            return None, True, "cancelled"
-
-        if self._no_media_downloaded(status):
-            logger.error("No media downloaded")
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="No media downloaded")
-            return None, True, "No media downloaded"
-
-        # ── Merge ─────────────────────────────────────────────────────────────
-        if self.download_id:
-            download_tracker.update_status(self.download_id, "Muxing ...")
-
-        final_file = self._merge_files(status)
-        if not final_file:
-            if self.download_id and download_tracker.is_stopped(self.download_id):
-                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
-                return None, True, "cancelled"
-            
-            merge_error = self.error or "Merge failed"
-            logger.error(merge_error)
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error=merge_error)
-            return None, True, merge_error
-
-        self._finalize(final_file=final_file)
-
-        if DELAY_SS > 0:
-            console.print(f"\n[green]Sleeping {DELAY_SS} seconds before finishing...")
-            time.sleep(DELAY_SS)
-
-        return self.output_path, False, None
+        # ── Guards → merge → finalize (shared tail)
+        return self._finish_from_status(status)

@@ -30,8 +30,6 @@ auto_update_check = config_manager.config.get_bool("DEFAULT", "auto_update_check
 timeout = config_manager.config.get_int("REQUESTS", "timeout")
 _GENERIC_UPDATABLE_TOOLS = {
     "ffmpeg": ["ffmpeg", "ffprobe"],
-    "bento4": ["mp4decrypt", "mp4dump"],
-    "shaka_packager": ["packager"],
     "dovi_tool": ["dovi_tool"],
     "mkvtoolnix": ["mkvmerge", "mkvinfo"],
     "velora": ["velora"],
@@ -223,7 +221,7 @@ def check_binary_update(tool: str, exec_names: list[str]) -> dict:
 
 
 def check_all_binaries_update() -> dict:
-    """Refresh every managed third-party binary (FFmpeg, Bento4, Shaka Packager, dovi_tool, MKVToolNix) that is behind the version published in AstraeLabs/Binary."""
+    """Refresh every managed third-party binary (FFmpeg, Flux, dovi_tool, MKVToolNix) that is behind the version published in AstraeLabs/Binary."""
     results = {}
     for tool, exec_names in _GENERIC_UPDATABLE_TOOLS.items():
         try:

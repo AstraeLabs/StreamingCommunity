@@ -77,14 +77,32 @@ class ISMParser:
             path += "/"
         return f"{p.scheme}://{p.netloc}{path}"
 
+    @staticmethod
+    def _parse_xml(raw: bytes | str) -> "tuple[ET.Element, str]":
+        """Parse Smooth Streaming XML, honouring the ``<?xml encoding=...?>`` declaration / BOM."""
+        if isinstance(raw, str):
+            data = raw.encode("utf-8")
+        else:
+            data = raw
+        
+        root = ET.fromstring(data)  # bytes -> encoding taken from the XML decl / BOM
+        for enc in ("utf-8-sig", "utf-16", "latin-1"):
+            try:
+                text = data.decode(enc)
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        else:
+            text = data.decode("utf-8", errors="replace")
+        return root, text
+
     def fetch_manifest(self) -> bool:
         """Fetch (or use injected) manifest XML and parse it into ``self._root``."""
         start_parsing_time = time.time()
 
         if self._injected:
-            self.raw_content = self._injected
             try:
-                self._root = ET.fromstring(self.raw_content)
+                self._root, self.raw_content = self._parse_xml(self._injected)
                 logger.info(f"ISMParser: injected XML parsed in {time.time() - start_parsing_time:.2f}s")
                 return True
             except ET.ParseError as exc:
@@ -96,9 +114,8 @@ class ISMParser:
                 from urllib.request import url2pathname
 
                 local_path = Path(url2pathname(urlparse(self.ism_url).path))
-                self.raw_content = local_path.read_text(encoding="utf-8")
                 self._base_url = local_path.parent.as_uri() + "/"
-                self._root = ET.fromstring(self.raw_content)
+                self._root, self.raw_content = self._parse_xml(local_path.read_bytes())
                 logger.info(f"ISMParser: local ISM manifest in {time.time() - start_parsing_time:.2f}s")
                 return True
             except Exception as exc:
@@ -113,8 +130,9 @@ class ISMParser:
             with create_client(headers=hdrs, timeout=timeout, follow_redirects=True) as c:
                 r = c.get(self.ism_url)
                 r.raise_for_status()
-                self.raw_content = r.text
-            self._root = ET.fromstring(self.raw_content)
+                content = r.content
+            
+            self._root, self.raw_content = self._parse_xml(content)
             logger.info(f"ISMParser: fetched and parsed ISM in {time.time() - start_parsing_time:.2f}s")
             return True
         except Exception as exc:
@@ -184,7 +202,7 @@ class ISMParser:
                 )
                 if s is not None:
                     streams.append(s)
-                    logger.info(f"ISM add | {s}")
+                    logger.info(f"{s}")
 
         if self._manifest_is_live:
             for s in streams:

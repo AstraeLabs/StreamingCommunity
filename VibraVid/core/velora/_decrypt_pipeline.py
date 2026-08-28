@@ -11,20 +11,27 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from rich.markup import escape
-
 from VibraVid.core.decryptor import Decryptor
 from VibraVid.core.manifest.stream import track_label
 from VibraVid.core.muxing.helper.video import binary_merge_segments
-from VibraVid.core.ui.bar_manager import DownloadBarManager, console
+from VibraVid.core.ui.bar_manager import DownloadBarManager
 from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import create_client
 
-from ..decryptor._segment_crypto import decrypt_aes128
+from ..decryptor._segment_crypto import decrypt_aes128_file
 from .util._cenc_init import strip_cenc_signaling
-from .util._stream_helpers import collect_failed_segments, describe_key_for_log, detect_seg_ext, merged_segment_ext
+from .util._stream_helpers import (
+    collect_failed_segments,
+    describe_key_for_log,
+    detect_seg_ext,
+    extract_redirect_url,
+    is_valid_frag_init,
+    looks_like_bare_fragment,
+    merged_segment_ext,
+    parse_range_header,
+    repair_init_segment,
+)
 from .util._subtitle_segments import merge_vtt_files
-from .util._verify import verify_decrypted_media
 from .util.formatting import (
     estimate_total_size as _estimate_total_size,
 )
@@ -113,39 +120,6 @@ class DecryptPipelineMixin:
             if self._stop_check():
                 return
             time.sleep(min(0.5, deadline - time.monotonic()))
-
-    def _verify_track_decrypted(self, out_path: "Path", stream) -> None:
-        """Verify a per-track merged+decrypted MP4/M4A carries no residual CENC boxes."""
-        try:
-            drm = getattr(stream, "drm", None)
-            if not (self.key and drm is not None and drm.is_encrypted()):
-                return
-
-            if getattr(stream, "type", "") == "subtitle":
-                return
-
-            if not out_path.exists() or out_path.stat().st_size <= 0:
-                return
-
-            label = self._decrypt_track_label(stream)
-            logger.info(f"Verify starting -> {out_path.name}")
-            _verify_t0 = time.monotonic()
-            ok, message, still_encrypted = verify_decrypted_media(out_path)
-            _verify_elapsed = time.monotonic() - _verify_t0
-            if ok:
-                logger.info(f"Track decrypt verified OK [{label}] {out_path.name}: {message} (verify took {_verify_elapsed:.1f}s)")
-                return
-
-            if still_encrypted:
-                logger.error(f"Track still ENCRYPTED after decrypt [{label}] {out_path.name}: {message} (verify took {_verify_elapsed:.1f}s)")
-                short = message.split(";", 1)[0].strip()
-                console.print(escape(f"Decryption FAILED for {label}: {short};"))
-                with self._decrypt_failures_lock:
-                    self.decrypt_failures.append({"label": label, "track": out_path.name, "message": message})
-            else:
-                logger.warning(f"Track decrypt verification inconclusive [{label}] {out_path.name}: {message} (verify took {_verify_elapsed:.1f}s)")
-        except Exception as exc:
-            logger.warning(f"Track decrypt verification skipped for {getattr(stream, 'type', '?')}: {exc}")
 
     def _download_stream_generic(
         self,
@@ -315,17 +289,74 @@ class DecryptPipelineMixin:
                                 logger.warning(f"HLS AES-128 key length is {len(key_data)} bytes for {key_url}")
 
                             key_cache[key_url] = key_data
-                            logger.info(f"HLS AES-128 key fetched: iv={enc.get('iv')} key={key_data.hex()}")
+                            logger.info(f"HLS AES-128 key fetched {enc.get('iv')}:{key_data.hex()}")
 
             logger.debug(f"AES-128 LIVE decrypt path={fp} with key={describe_key_for_log(key_data)}")
-            decrypted = decrypt_aes128(fp.read_bytes(), key_data, enc.get("iv"), int(seg.get("number", 0) or 0))
             tmp_path = fp.with_suffix(fp.suffix + ".dec")
-            tmp_path.write_bytes(decrypted)
+            decrypt_aes128_file(fp, tmp_path, key_data, enc.get("iv"), int(seg.get("number", 0) or 0))
             _replace_segment_file(tmp_path, fp, "HLS AES-128")
 
             logger.debug(f"HLS AES-128 decrypted -> {fp.name}")
             if _live_merger_box[0] is not None:
                 _live_merger_box[0].submit(seg.get("number"), fp)
+
+        def _fetch_exact_range(url: str, seg_headers: dict, byte_range: tuple[int, int]) -> bytes:
+            """GET *url* with a Range header for the inclusive *byte_range*
+            (reusing this segment's own headers on top of the stream's base
+            headers), and return exactly that many bytes -- slicing
+            client-side if the server, or an intermediate redirect hop,
+            ignores the Range header and sends the whole resource back
+            instead of honoring it with a 206."""
+            start, end = byte_range
+            req_headers = dict(all_headers)
+            req_headers.update(seg_headers)
+            req_headers["Range"] = f"bytes={start}-{end}"
+            with create_client(headers=req_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
+                resp = c.get(url)
+                resp.raise_for_status()
+                body = resp.content
+            expected_len = end - start + 1
+            if resp.status_code != 206 and len(body) > expected_len:
+                body = body[start : end + 1]
+            return body
+
+        def _repair_media_segment(fp: Path, seg: dict[str, Any]) -> None:
+            """If *fp*'s downloaded bytes don't look like the bare fragment
+            --fragments-info expects for a byte-range DASH/HLS media segment,
+            try to recover the correct byte range before handing it to flux."""
+            seg_headers = seg.get("headers") or {}
+            byte_range = parse_range_header(seg_headers.get("Range"))
+            if byte_range is None:
+                return
+
+            start, end = byte_range
+            expected_len = end - start + 1
+            try:
+                data = fp.read_bytes()
+            except OSError:
+                return
+            if len(data) == expected_len and looks_like_bare_fragment(data):
+                return
+
+            logger.debug(f"{protocol.upper()} media segment {fp.name} looks wrong (got {len(data)} bytes, expected {expected_len}) -- attempting repair")
+            repaired: bytes | None = None
+            try:
+                redirect_url = extract_redirect_url(data)
+                if redirect_url:
+                    logger.debug(f"{protocol.upper()} media segment {fp.name}: retrying via extracted URL: {redirect_url}")
+                    repaired = _fetch_exact_range(redirect_url, seg_headers, byte_range)
+
+                if repaired is None or len(repaired) != expected_len or not looks_like_bare_fragment(repaired):
+                    logger.debug(f"{protocol.upper()} media segment {fp.name}: retrying original URL with explicit Range")
+                    repaired = _fetch_exact_range(seg["url"], seg_headers, byte_range)
+            except Exception as exc:
+                raise RuntimeError(f"{protocol.upper()} media segment {fp.name} repair failed: {exc}") from exc
+
+            if len(repaired) != expected_len or not looks_like_bare_fragment(repaired):
+                raise RuntimeError(f"{protocol.upper()} media segment {fp.name} still wrong after repair (got {len(repaired)} bytes, expected {expected_len})")
+
+            fp.write_bytes(repaired)
+            logger.info(f"{protocol.upper()} media segment repaired -> {fp.name}")
 
         def _decrypt_dash_segment(
             fp: Path, seg: dict[str, Any], dash_decryptor: Decryptor, init_path: Path | None
@@ -339,6 +370,8 @@ class DecryptPipelineMixin:
             if seg.get("seg_type") == "init":
                 logger.info(f"{protocol.upper()} init segment ready -> {fp.name}")
                 return
+
+            _repair_media_segment(fp, seg)
 
             dec_tmp = fp.with_suffix(fp.suffix + ".dec")
             init_path_str = str(init_path) if init_path and init_path.exists() else None
@@ -516,13 +549,44 @@ class DecryptPipelineMixin:
                                 # decrypts fragment sample data). Keep a protected copy
                                 # for flux to keep reading, and rewrite fp itself (the
                                 # one that ends up in the final merge via `paths`) to a
-                                # clean, non-CENC-signaling copy -- otherwise
-                                # verify_decrypted_media flags the merged output as
-                                # "still encrypted" despite every fragment already
-                                # being plaintext.
+                                # clean, non-CENC-signaling copy -- otherwise players/probes
+                                # would flag the merged output as "still encrypted" despite
+                                # every fragment already being plaintext.
 
                                 try:
                                     protected_bytes = fp.read_bytes()
+
+                                    # Some CDNs answer the init-segment request with
+                                    # 200 OK + a small JS/JSON body embedding the real
+                                    # signed URL instead of an HTTP redirect.
+                                    redirect_url = repair_init_segment(protected_bytes)
+                                    if redirect_url:
+                                        logger.debug(f"{protocol.upper()} init segment wasn't a real MP4, retrying via extracted URL: {redirect_url}")
+                                        seg_headers = seg.get("headers") or {}
+                                        byte_range = parse_range_header(seg_headers.get("Range"))
+                                        
+                                        if byte_range is not None:
+                                            # Reuse the same byte range as the original
+                                            # request -- and slice client-side if the
+                                            # extracted URL's host ignores the Range
+                                            # header, instead of silently accepting a
+                                            # whole (possibly multi-GB) file as "the
+                                            # init segment" just because it happens to
+                                            # start with a valid ftyp+moov too.
+                                            protected_bytes = _fetch_exact_range(redirect_url, seg_headers, byte_range)
+                                        else:
+                                            req_headers = dict(all_headers)
+                                            req_headers.update(seg_headers)
+                                            with create_client(headers=req_headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as c:
+                                                resp = c.get(redirect_url)
+                                                resp.raise_for_status()
+                                                protected_bytes = resp.content
+
+                                        if not is_valid_frag_init(protected_bytes):
+                                            raise RuntimeError(f"{protocol.upper()} init segment still not a valid ftyp+moov after following extracted redirect URL")
+                                        fp.write_bytes(protected_bytes)
+                                        logger.info(f"{protocol.upper()} init segment repaired via extracted redirect URL -> {fp.name}")
+
                                     protected_copy = fp.with_name(f"_frag_init_protected{fp.suffix}")
                                     protected_copy.write_bytes(protected_bytes)
                                     with dash_init_lock:
@@ -530,7 +594,7 @@ class DecryptPipelineMixin:
                                     fp.write_bytes(strip_cenc_signaling(protected_bytes))
                                     logger.debug(f"{protocol.upper()} init CENC signaling stripped for merge -> {fp.name} (flux keeps reading {protected_copy.name})")
                                 except Exception as exc:
-                                    logger.warning(f"{protocol.upper()} init CENC-signaling strip failed, keeping original (verify may flag residual boxes): {exc}")
+                                    logger.warning(f"{protocol.upper()} init CENC-signaling strip failed, keeping original (players may flag residual boxes): {exc}")
 
                                 if _live_merger_box[0] is not None:
                                     _live_merger_box[0].submit(seg.get("number"), fp)
@@ -831,6 +895,13 @@ class DecryptPipelineMixin:
                 else:
                     logger.warning(f"{_plain_label}: {len(failed)}/{total} segment(s) failed to download{aes_note}")
 
+                if _media_segs_only and min(s["number"] for s in _media_segs_only) in failed_numbers:
+                    logger.warning(
+                        f"{_plain_label}: the FIRST media segment (right after init) is missing — the merged file is "
+                        "likely unparsable (fMP4 trun/tfhd continuity breaks), not just a small A/V gap. "
+                        "Expect the duration probe to fail and this track to be dropped from the mux."
+                    )
+
                 with self._failed_segments_lock:
                     self._failed_segments.append((_plain_label, failed))
 
@@ -1112,8 +1183,6 @@ class DecryptPipelineMixin:
 
         if out_path.exists() and out_path.stat().st_size > 0:
             logger.debug(f"{protocol.upper()} merged {len(paths):>4} segs -> {out_path.name} ({out_path.stat().st_size // 1024} KB)")
-            if not decrypt_already_reported:
-                self._verify_track_decrypted(out_path, stream)
 
             if decrypted_ok:
                 # Finalize the bar at 100%, keeping segment/size/status as-is.

@@ -1,6 +1,6 @@
 # 16.12.25
 
-from typing import Any, Optional
+from typing import Any
 
 from ._generic import Generic_Downloader
 from .dash import DASH_Downloader

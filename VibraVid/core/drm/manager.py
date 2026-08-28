@@ -101,9 +101,10 @@ class DRMManager:
             else:
                 suffix = ""
                 log_suffix = ""
+
             console.print(f"    - [red]{kid_val}[white]:[green]{key_val}{suffix}")
             if "*" in log_suffix:
-                logger.info(f"DRM key {drm_type}: {kid_val}:{key_val}")
+                logger.info(f"Using {kid_val}:{key_val}")
 
     def _bypass_cache(self) -> bool:
         """Effective bypass-vault-cache flag: per-run CLI override wins over config default."""
@@ -155,6 +156,13 @@ class DRMManager:
 
             logger.info(f"Querying {name} DB for {len(missing)} {drm_type} KID(s) | PSSH={pssh_val}" if pssh_val else f"Querying {name} DB for {len(missing)} {drm_type} KID(s)")
             keys = list(vdb.get_keys_by_kids(base_license_url, missing, pssh_val) or [])
+
+            # Dropped keys that are all-zero (unusable)
+            bad = [k for k in keys if set(k.split(":", 1)[1] if ":" in k else "") <= {"0"}]
+            if bad:
+                logger.warning(f"{name} DB returned {len(bad)} all-zero (unusable) {drm_type} key(s) — ignoring, will re-resolve via CDM")
+                keys = [k for k in keys if k not in bad]
+            
             if keys:
                 found_keys.extend(keys)
                 source = name
@@ -181,13 +189,25 @@ class DRMManager:
             if name == source:
                 continue  # avoid writing back to the vault we just read from
 
-            logger.info(f"Storing {len(keys_list)} {drm_type} key(s) to {name} database")
+            # Idempotent: skip keys already present in this vault so re-resolving
+            # the same key (e.g. preflight probe then post-download decrypt) does
+            # not produce a duplicate store or a redundant "Storing …" log line.
+            kids = [k.split(":", 1)[0] for k in keys_list]
+            try:
+                already = set(vdb.get_keys_by_kids(base_license_url, kids, pssh_val) or [])
+            except Exception:
+                already = set()
+            to_store = [k for k in keys_list if k not in already]
+            if not to_store:
+                continue
+
+            logger.info(f"Storing {len(to_store)} {drm_type} key(s) to {name} database")
             try:
                 # local vault does not accept kid_to_label — call with base signature
                 if name == "local":
-                    vdb.set_keys(keys_list, base_license_url, pssh_val)
+                    vdb.set_keys(to_store, base_license_url, pssh_val)
                 else:
-                    vdb.set_keys(keys_list, base_license_url, pssh_val, kid_to_label)
+                    vdb.set_keys(to_store, base_license_url, pssh_val, kid_to_label)
             except Exception as e:
                 logger.error(f"Failed to sync to {name} (will continue): {e}")
                 console.print(f"[yellow]Warning: Could not sync to {name}: {e}")

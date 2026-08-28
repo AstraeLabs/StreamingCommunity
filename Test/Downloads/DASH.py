@@ -32,7 +32,7 @@ dash_process = DASH_Downloader(
     mpd_headers=mpd_headers,
     license_url=license_url,
     license_headers=license_headers,
-    output_path=rf".\Video\DASH_2.{conf_extension}",
+    output_path=rf".\Video\DASH.{conf_extension}",
     key=license_key,
     drm_preference=DRMType.PLAYREADY
 )

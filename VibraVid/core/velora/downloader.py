@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from VibraVid.core.decryptor import KeysManager
 from VibraVid.core.ui.bar_manager import DownloadBarManager, console
 from VibraVid.core.ui.tracker import download_tracker
 from VibraVid.core.velora.bridge import run_download_plan
@@ -37,7 +36,7 @@ THREAD_COUNT = config_manager.config.get_int("DOWNLOAD", "thread_count")
 RETRY_COUNT = config_manager.config.get_int("REQUESTS", "max_retry")
 REQUEST_TIMEOUT = config_manager.config.get_int("REQUESTS", "timeout")
 VERIFY_TLS = config_manager.config.get_bool("REQUESTS", "verify")
-REALTIME_DECRYPT = config_manager.config.get_bool("DOWNLOAD", "realtime_decrypt")
+SKIP_POST_DECRYPT = config_manager.config.get_bool("DOWNLOAD", "skip_post_decrypt", default=False)
 SEGMENT_DELAY_SECONDS = max(0.0, config_manager.config.get_float("DOWNLOAD", "segment_delay_seconds"))
 SEGMENT_DELAY_JITTER_SECONDS = max(0.0, config_manager.config.get_float("DOWNLOAD", "segment_delay_jitter_seconds"))
 
@@ -109,28 +108,14 @@ class MediaDownloader(
         all_support_live = all(s.supports_live_decryption for s in selected_media) if selected_media else False
         flux_available = bool(get_flux_path())
 
-        if all_support_live and selected_media and REALTIME_DECRYPT and flux_available:
+        # Live (in-flight) decryption is automatic: it engages whenever every
+        # selected stream is truly segmented (a real init/moov per the manifest).
+        # The per-stream `_frag_init_probe()` in `_stream_vod.py` downgrades to the
+        # post-download decrypt pass if the first init turns out not to be a valid
+        # ftyp+moov, so there is no config knob to get wrong.
+        if all_support_live and selected_media and flux_available and not SKIP_POST_DECRYPT:
             self._session_live_decrypt = True
             logger.info("All selected streams support live decryption — using in-flight decryption.")
-        else:
-            self._session_live_decrypt = False
-            if selected_media and not all_support_live:
-                logger.info("SAMPLE-AES/CBCS detected — using post-merge decryption with Shaka Packager.")
-                no_keys = (
-                    self.key is None
-                    or (isinstance(self.key, KeysManager) and not self.key.get_keys_list())
-                    or (isinstance(self.key, str) and not self.key.strip())
-                    or (isinstance(self.key, (list, tuple)) and not self.key)
-                )
-
-                if no_keys:
-                    console.print("[red]Warning:[/red] SAMPLE-AES/CBCS streams detected but no keys provided.")
-                    logger.error("No keys provided for post-download decryption — merged file will remain encrypted.")
-
-            elif selected_media and all_support_live and not flux_available:
-                logger.info("flux not available — using post-merge decryption with Shaka/Bento4.")
-            else:
-                logger.info("Using post-download decryption.")
 
         ext_result: dict[str, Any] = {"ext_subs": [], "ext_auds": []}
         spawned_threads: list[threading.Thread] = []

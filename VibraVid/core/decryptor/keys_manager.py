@@ -3,8 +3,6 @@
 import logging
 import re
 
-from ._models import extract_widevine_kid
-
 logger = logging.getLogger(__name__)
 
 
@@ -122,21 +120,14 @@ class KeysManager:
     def resolve_fixed_key(
         cls, encrypted_path: str, detected_kid: str | None, normalized_keys: list[tuple[str, str]]
     ) -> list[tuple[str, str]]:
-        """For fixed-key streams (all-zero KID) with multiple candidates, narrow to the correct key by extracting the real KID from the Widevine PSSH."""
+        """For fixed-key streams (all-zero KID) with multiple candidates, refuse to guess.
+
+        `detected_kid` already comes from `flux -d -j`'s `default_kid`.
+        """
         if not cls.is_zero_kid(detected_kid) or len(normalized_keys) <= 1:
             return normalized_keys
 
-        pssh_kid = extract_widevine_kid(encrypted_path)
-        if not pssh_kid:
-            logger.error("Fixed-key stream with multiple keys but no PSSH KID extracted; refusing to guess a key")
-            return []
-
-        for pair in normalized_keys:
-            if pair[0].lower() == pssh_kid:
-                logger.info(f"Fixed-key stream: selected key by PSSH KID match ({pssh_kid})")
-                return [pair]
-
-        logger.error(f"No key matched PSSH KID {pssh_kid} (have: {', '.join(p[0][:8] for p in normalized_keys)}); refusing to guess a key")
+        logger.error(f"Fixed-key stream ({encrypted_path}) with multiple candidate keys but no resolvable KID (flux found no matching PSSH either); refusing to guess a key")
         return []
 
     def __len__(self) -> int:

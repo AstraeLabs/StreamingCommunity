@@ -1,10 +1,17 @@
 # 11.07.26
 
+import logging
 from typing import Any
 
 from VibraVid.services._base.site_loader import load_search_functions
 
 from .base import BaseStreamingAPI, Entries, Episode, Season
+
+logger = logging.getLogger(__name__)
+
+
+def _looks_like_url(text: str) -> bool:
+    return text.strip().lower().startswith(("http://", "https://"))
 
 
 class GenericStreamingAPI(BaseStreamingAPI):
@@ -55,8 +62,29 @@ class GenericStreamingAPI(BaseStreamingAPI):
             desc=item_dict.get("desc"),
         )
 
+    def _resolve_url(self, search_fn, query: str) -> list[Entries] | None:
+        """If the site module exposes a URL resolver, try it. Returns None to fall back to a normal search."""
+        module = search_fn.get_module() if hasattr(search_fn, "get_module") else None
+        resolver = getattr(module, "_resolve_url_to_item", None) if module else None
+        if not callable(resolver):
+            return None
+
+        try:
+            item_dict = resolver(query.strip())
+        except Exception:
+            logger.exception("URL resolution failed for '%s' on site '%s'", query, self.site_name)
+            return None
+
+        return [self._build_entry(item_dict)] if item_dict else None
+
     def search(self, query: str) -> list[Entries]:
         search_fn = self._get_search_fn()
+
+        if _looks_like_url(query):
+            resolved = self._resolve_url(search_fn, query)
+            if resolved is not None:
+                return resolved
+
         database = search_fn(query, get_onlyDatabase=True)
 
         results: list[Entries] = []
@@ -109,7 +137,7 @@ class GenericStreamingAPI(BaseStreamingAPI):
         for s in scrape_serie.seasons_manager.seasons:
             episodes_raw = scrape_serie.getEpisodeSeasons(s.number)
             episodes = [self._map_episode(ep, i) for i, ep in enumerate(episodes_raw or [], 1)]
-            season = Season(number=s.number, episodes=episodes, name=getattr(s, "name", None))
+            season = Season(number=s.number, episodes=episodes, name=getattr(s, "name", None), image=getattr(s, "image", None))
             seasons.append(season)
             print(f"[{self.log_label or self.site_name}] Season {season.number} ({season.name or f'Season {season.number}'}): {len(episodes)} episodes")
 

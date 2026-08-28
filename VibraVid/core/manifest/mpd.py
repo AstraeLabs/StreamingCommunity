@@ -120,6 +120,22 @@ def _is_compatible_stream(existing: Stream, new: Stream) -> bool:
     return True
 
 
+def _rendition_key(s: Stream):
+    """Identify a video/audio Representation by its rendition characteristics alone, ignoring @id."""
+    if s.type == "video":
+        return (s.type, _norm(s.codecs).split(".")[0], int(s.width or 0), int(s.height or 0), int(s.bitrate or 0))
+    if s.type == "audio":
+        return (
+            s.type,
+            _norm(s.language),
+            _norm(s.codecs).split(".")[0],
+            _norm(s.channels),
+            int(s.sample_rate or 0),
+            int(s.bitrate or 0),
+        )
+    return None
+
+
 def _drm_hint_from_scheme(scheme_lower: str) -> str | None:
     result = DRMType.from_scheme(scheme_lower)
     return result if result != DRMType.UNKNOWN else None
@@ -387,7 +403,14 @@ class DashParser:
                         continue
 
                     s = self._parse_representation(
-                        rep, adapt, stype, adapt_drm, global_duration or period_duration, period_start, adapt_base_url
+                        rep, 
+                        adapt, 
+                        stype, 
+                        adapt_drm, 
+                        global_duration or period_duration, 
+                        period_start, 
+                        adapt_base_url,
+                        period_duration=period_duration,
                     )
                     if s is None:
                         continue
@@ -415,6 +438,26 @@ class DashParser:
                             if _stream_dedup_key(existing_stream) == dedup_key and _is_compatible_stream(existing_stream, s):
                                 matched_stream = existing_stream
                                 break
+
+                    if matched_stream is None and stype in ("video", "audio"):
+                        rendition_key = _rendition_key(s)
+                        if rendition_key is not None:
+                            for existing_stream in streams:
+                                if existing_stream is s or existing_stream.type != stype:
+                                    continue
+
+                                if _rendition_key(existing_stream) != rendition_key:
+                                    continue
+                                
+                                # Only bridge a Period boundary this way, not two
+                                # different Representations that happen to share a
+                                # rendition within the same Period.
+                                existing_max_period = max(
+                                    (sg.period_idx for sg in existing_stream.segments), default=-1
+                                )
+                                if existing_max_period < period_idx:
+                                    matched_stream = existing_stream
+                                    break
 
                     if matched_stream is not None:
                         # Some SSAI/CDN manifests hand a distinct URL per Period to what
@@ -454,8 +497,23 @@ class DashParser:
                         # A later Period may be encrypted while the first (e.g. a
                         # clear intro) was not: adopt the encrypted DRM so keys are
                         # fetched and the encrypted Period actually gets decrypted.
-                        if period_encrypted and not matched_stream.drm.is_encrypted():
-                            matched_stream.drm = s.drm
+                        # Also handle key rotation: merge KIDs/PSSHs when both
+                        # Periods carry DRM but with different keys.
+                        if period_encrypted:
+                            if not matched_stream.drm.is_encrypted():
+                                matched_stream.drm = s.drm
+                            else:
+                                for kid in s.drm.get_all_kids():
+                                    matched_stream.drm.set_kid(kid)
+
+                                for dtype in s.drm.get_all_drm_types():
+                                    pssh = s.drm.get_pssh_for(dtype)
+                                    if pssh:
+                                        matched_stream.drm.set_pssh(pssh, drm_type_hint=dtype)
+
+                                if s.drm.method and not matched_stream.drm.method:
+                                    matched_stream.drm.method = s.drm.method
+
                         continue
 
                     if dedup_key in global_seen_keys:
@@ -474,7 +532,7 @@ class DashParser:
                     global_seen_keys.add(dedup_key)
                     streams.append(s)
                     if not self.quiet:
-                        logger.info(f"DASH add | {s}")
+                        logger.info(f"{s}")
 
         # A Period that turns out to be the source of a byte-identical duplicate
         # elsewhere in the manifest (already detected above) is itself almost
@@ -511,7 +569,7 @@ class DashParser:
 
         return streams
 
-    def _parse_representation(self, rep, adapt, stype, adapt_drm, global_dur, period_start, base_url):
+    def _parse_representation(self, rep, adapt, stype, adapt_drm, global_dur, period_start, base_url, period_duration=0.0):
         rep_id = rep.get("id", "")
         bandwidth = int(rep.get("bandwidth", 0))
         avg_bw = int(rep.get("averageBandwidth", 0)) or int(adapt.get("averageBandwidth", 0))
@@ -569,7 +627,7 @@ class DashParser:
         seg_base = _first_not_none(rep.find("mpd:SegmentBase", _NS), adapt.find("mpd:SegmentBase", _NS))
 
         if tmpl is not None:
-            self._apply_segment_template(tmpl, rep_id, s, period_start, rep_base_url)
+            self._apply_segment_template(tmpl, rep_id, s, period_start, rep_base_url, period_duration=period_duration)
             s.supports_live_decryption = True  # True segments available
         elif seg_list is not None:
             self._apply_segment_list(seg_list, s, rep_base_url)
@@ -892,7 +950,7 @@ class DashParser:
         expanded = _SEGMENT_TOKEN_RE.sub(_repl, escaped)
         return expanded.replace("__DASH_DOLLAR__", "$")
 
-    def _apply_segment_template(self, tmpl, rep_id, stream, period_start, base_url):
+    def _apply_segment_template(self, tmpl, rep_id, stream, period_start, base_url, period_duration=0.0):
         if "/ad/" in base_url.lower():
             logger.info(f"DashParser: segment skipped (ad path) | url={base_url}")
             return
@@ -966,7 +1024,13 @@ class DashParser:
                 first_num, last_num = live_window
                 number_iter = range(first_num, last_num + 1)
             else:
-                total_segments = math.ceil(stream.duration * timescale / seg_duration)
+                # Use this Period's own duration for the segment count, not the
+                # Stream's (which may hold the full multi-period presentation
+                # duration) -- each Period's SegmentTemplate starts numbering
+                # from startNumber again, so sizing off the total duration
+                # requests segments past what that Period actually has on the CDN.
+                effective_duration = period_duration or stream.duration
+                total_segments = math.ceil(effective_duration * timescale / seg_duration)
                 number_iter = range(start_num, start_num + total_segments)
 
             seg_dur_s = seg_duration / timescale if timescale > 0 else 0.0
@@ -1070,25 +1134,33 @@ class DashParser:
 
         for idx, seg_el in enumerate(seg_urls, start=1):
             media_url = seg_el.get("media", "")
+            media_range = seg_el.get("mediaRange", "")
             if media_url:
+                # A SegmentURL can legally carry both attributes at once: the
+                # same "media" URL repeated across many SegmentURL entries
+                # (often with the same query string on every one), each
+                # naming its own byte-range slice via mediaRange. Dropping
+                # mediaRange here just because "media" is also present loses
+                # the per-segment range entirely, which downstream treats as
+                # one giant single-file resource -- the whole thing gets
+                # fetched instead of each small ranged slice.
                 stream.add_segment(
                     Segment(
                         self._inherit_query(fast_urljoin_auto(base_url, media_url), self._mpd_query_suffix),
                         idx,
                         "media",
+                        byte_range=media_range,
                     )
                 )
-            else:
-                media_range = seg_el.get("mediaRange", "")
-                if media_range:
-                    stream.add_segment(
-                        Segment(
-                            self._inherit_query(base_url.rstrip("/"), self._mpd_query_suffix),
-                            idx,
-                            "media",
-                            byte_range=media_range,
-                        )
+            elif media_range:
+                stream.add_segment(
+                    Segment(
+                        self._inherit_query(base_url.rstrip("/"), self._mpd_query_suffix),
+                        idx,
+                        "media",
+                        byte_range=media_range,
                     )
+                )
 
     @staticmethod
     def _parse_iso_duration(s: str) -> float:

@@ -821,7 +821,6 @@ def _prepare_subtitle_tracks(
             diff = sub_duration - video_duration
             if diff > limit_duration_diff:
                 logger.warning(f"Subtitle '{subtitle.get('language', 'unknown')}' duration ({sub_duration:.2f}s) exceeds video ({video_duration:.2f}s) by {diff:.2f}s > {limit_duration_diff}s limit — trimming to match.")
-                console.print(f"[yellow]    - [cyan]Subtitle [red]{subtitle.get('language', 'unknown')} [cyan]trimming to [red]~{round(video_duration)}s [cyan]to keep container duration accurate")
                 subtitle["path"] = trim_subtitle_to_duration(sub_path, video_duration)
 
     return processed
@@ -874,6 +873,36 @@ def join_media(
     return _join_media_ffmpeg(video_path, audio_tracks, subtitle_tracks, out_path, use_shortest, chapters, force_ts_fix)
 
 
+def _select_embedded_cc_streams(video_codecs: list[dict]) -> list[dict]:
+    """
+    Pick which embedded CEA-608/708 caption streams (SEI data inside the video
+    elementary stream) to extract, keyed by their relative position among the
+    video's subtitle-type streams (what ffmpeg's "0:s:N" map syntax addresses).
+
+    CEA-708 is a superset / modern re-encode of CEA-608 for the same language --
+    when a source carries both for the same language, keep only the 708 one so
+    we don't extract the same captions twice.
+    """
+    cc_codecs = ("eia_608", "eia_708")
+    subtitle_streams = [s for s in video_codecs if s.get("codec_type") == "subtitle"]
+
+    by_lang: dict[str, dict] = {}
+    lang_order: list[str] = []
+    for sub_index, s in enumerate(subtitle_streams):
+        if s.get("codec_name") not in cc_codecs:
+            continue
+        lang = s.get("language") or "und"
+        candidate = {"sub_index": sub_index, "codec_name": s["codec_name"], "language": lang}
+        existing = by_lang.get(lang)
+        if existing is None:
+            by_lang[lang] = candidate
+            lang_order.append(lang)
+        elif existing["codec_name"] == "eia_608" and candidate["codec_name"] == "eia_708":
+            by_lang[lang] = candidate
+
+    return [by_lang[lang] for lang in lang_order]
+
+
 def _join_media_ffmpeg(
     video_path: str,
     audio_tracks: list[dict[str, str]],
@@ -884,19 +913,42 @@ def _join_media_ffmpeg(
     force_ts_fix: bool = False,
 ):
     ffmpeg_cmd = [get_ffmpeg_path()]
+    output_ext = os.path.splitext(out_path)[1].lower()
 
     if USE_GPU:
         gpu_type_hwaccel = detect_gpu_device_type()
         console.print(f"\n[yellow]FFMPEG [cyan]Detected GPU for join: [red]{gpu_type_hwaccel}")
         ffmpeg_cmd.extend(["-hwaccel", gpu_type_hwaccel])
 
-    has_ts_issues = force_ts_fix or detect_ts_timestamp_issues(video_path)
+    video_is_mpegts = is_mpegts_file(video_path)
+
+    # A raw MPEG-TS built from concatenated segments (e.g. AES-128 HLS) often has
+    # discontinuous PCR/CC that make ffprobe fail to read timestamps — in which
+    # case detect_ts_timestamp_issues() can't even see the problem. Always apply
+    # the genpts fix-ups and a generous probe window for a TS video input.
+    has_ts_issues = force_ts_fix or video_is_mpegts or detect_ts_timestamp_issues(video_path)
     if has_ts_issues:
-        reason = "caller requested it (skipped its own normalize pass)" if force_ts_fix else "detected timestamp issues"
+        if force_ts_fix:
+            reason = "caller requested it (skipped its own normalize pass)"
+        elif video_is_mpegts:
+            reason = "raw MPEG-TS video input"
+        else:
+            reason = "detected timestamp issues"
         logger.info(f"[join_media] Adding -fflags +genpts ({reason})")
         ffmpeg_cmd.extend(["-fflags", "+genpts+igndts+discardcorrupt", "-avoid_negative_ts", "make_zero"])
+    if video_is_mpegts:
+        ffmpeg_cmd.extend(["-analyzeduration", "100M", "-probesize", "100M"])
 
-    if is_mpegts_file(video_path):
+    # Embedded CEA-608/708 closed captions ride inside the video elementary stream
+    embedded_cc_streams: list[dict] = []
+    if output_ext == ".mp4":
+        video_codecs = get_stream_codecs(video_path)
+        embedded_cc_streams = _select_embedded_cc_streams(video_codecs)
+        if embedded_cc_streams:
+            logger.info(f"[join_media] {len(embedded_cc_streams)} embedded CEA-608/708 caption track(s) detected in video source — extracting as mov_text")
+            ffmpeg_cmd.extend(["-fix_sub_duration"])
+
+    if video_is_mpegts:
         ffmpeg_cmd.extend(["-f", "mpegts"])
     ffmpeg_cmd.extend(["-i", video_path])
 
@@ -928,14 +980,20 @@ def _join_media_ffmpeg(
         chapter_input_idx = 1 + len(audio_tracks) + len(subtitle_tracks)
         ffmpeg_cmd += ["-f", "ffmetadata", "-i", chapter_file]
 
-    ffmpeg_cmd.extend(["-map", "0:v"])
+    # `?` makes the map optional so a hard-to-probe TS input (no readable stream info) doesn't abort option parsing with "Invalid argument".
+    ffmpeg_cmd.extend(["-map", "0:v:0?"])
     if not audio_tracks and has_audio(video_path):
-        ffmpeg_cmd.extend(["-map", "0:a"])
+        ffmpeg_cmd.extend(["-map", "0:a?"])
+
     for i in range(1, len(audio_tracks) + 1):
         ffmpeg_cmd.extend(["-map", f"{i}:a"])
+
     sub_input_base = len(audio_tracks) + 1
     for j in range(len(subtitle_tracks)):
         ffmpeg_cmd.extend(["-map", f"{sub_input_base + j}:s"])
+
+    for cc in embedded_cc_streams:
+        ffmpeg_cmd.extend(["-map", f"0:s:{cc['sub_index']}"])
 
     for i, audio_track in enumerate(audio_tracks):
         lang_source = audio_track.get("language") or audio_track.get("name", "unknown")
@@ -949,7 +1007,6 @@ def _join_media_ffmpeg(
         # First (highest-priority) audio track is default; others reset to 0
         ffmpeg_cmd.extend([f"-disposition:a:{i}", "default" if i == 0 else "0"])
 
-    output_ext = os.path.splitext(out_path)[1].lower()
     if output_ext == ".mp4":
         subtitle_codec = "mov_text"
     elif output_ext == ".mkv":
@@ -987,6 +1044,21 @@ def _join_media_ffmpeg(
         ffmpeg_cmd += [f"-metadata:s:s:{idx}", f"language={lang_iso}"]
         ffmpeg_cmd += [f"-metadata:s:s:{idx}", f"handler_name={lang_display}"]
 
+    if embedded_cc_streams:
+
+        # Fallback base when the source doesn't tag the CC stream's own language (e.g. "und").
+        audio_base = (audio_tracks[0].get("language") or audio_tracks[0].get("name") if audio_tracks else None) or "und"
+        for n, cc in enumerate(embedded_cc_streams):
+            cc_idx = len(subtitle_tracks) + n
+            cc_base = cc["language"] if cc["language"] and cc["language"] != "und" else audio_base
+            cc_lang_iso = resolve_iso639_2(cc_base)
+            cc_title = f"{cc_base}_cc"
+            console.print(f"[yellow]    - [cyan]Subtitle lang [red]{cc_title} [cyan](embedded {cc['codec_name']})")
+            ffmpeg_cmd += [f"-c:s:{cc_idx}", "mov_text"]
+            ffmpeg_cmd += [f"-metadata:s:s:{cc_idx}", f"title={cc_title}"]
+            ffmpeg_cmd += [f"-metadata:s:s:{cc_idx}", f"language={cc_lang_iso}"]
+            ffmpeg_cmd += [f"-metadata:s:s:{cc_idx}", f"handler_name={cc_title}"]
+
     if chapters:
         logger.info(f"Adding {len(chapters)} chapter(s) inline...")
         console.print(f"[cyan]\nMerging [red]{len(chapters)} [cyan]chapter(s)...")
@@ -1009,6 +1081,9 @@ def _join_media_ffmpeg(
     # Passo 1: reset everything to 0
     for idx in range(len(subtitle_tracks)):
         ffmpeg_cmd.extend([f"-disposition:s:{idx}", "0"])
+    
+    for n in range(len(embedded_cc_streams)):
+        ffmpeg_cmd.extend([f"-disposition:s:{len(subtitle_tracks) + n}", "hearing_impaired"])
 
     # Passo 2: auto-flags (forced / hearing_impaired) da suffissi nel nome lingua
     # "_forced" -> forced,  "_cc" o "_sdh" -> hearing_impaired

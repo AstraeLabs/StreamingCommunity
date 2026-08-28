@@ -221,7 +221,7 @@ needed when hand-building a `--down`/`--down-json` invocation yourself.
 | `--skip-content-check` | Skip the preflight HEAD content-type check for MP4 direct downloads (`--type mp4`) — needed for single-use download URLs where a HEAD request consumes the link |
 | `--skip-sanitize` | Use the `-o` output path verbatim (MP4/HLS/DASH/ISM direct downloads), skipping path sanitization (transliteration of non-ASCII characters) |
 | `--no-manifest-info` | Don't print the parsed manifest/streams table |
-| `--binary-update` | Check FFmpeg/Bento4/Shaka Packager/dovi_tool/MKVToolNix/Velora against AstraeLabs/Binary and re-download whichever is outdated |
+| `--binary-update` | Check FFmpeg/Flux/Packager/dovi_tool/MKVToolNix/Velora against AstraeLabs/Binary and re-download whichever is outdated |
 | `--resolve-only` | Resolve and cache the manifest (keys, license, playlist) without actually downloading — pairs with `--down-json`/the queue to download later without re-resolving |
 | `--tui` | Launch the Textual terminal UI instead of the plain CLI flow |
 | `-UP`, `--update` | Auto-update to the latest release (binary builds only) |

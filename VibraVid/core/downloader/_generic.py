@@ -24,7 +24,7 @@ from VibraVid.core.utils.selector import (
     _matches_res,
     strip_dv_suffix,
 )
-from VibraVid.core.velora.downloader import MediaDownloader
+from VibraVid.core.velora.downloader import SKIP_POST_DECRYPT, MediaDownloader
 from VibraVid.core.velora.util._stream_helpers import join_interruptible
 from VibraVid.core.velora.util.formatting import (
     parse_max_segments as _parse_max_segments,
@@ -35,7 +35,7 @@ from VibraVid.core.velora.util.formatting import (
 from VibraVid.utils import config_manager, os_manager
 from VibraVid.utils.http_client import create_client, get_headers
 
-from .base import BaseDownloader
+from .base import BaseDownloader, DownloadResult
 from .mp4 import MP4_Downloader
 
 console = Console()
@@ -495,7 +495,11 @@ class Generic_Downloader(BaseDownloader):
                         console.print(f"[bold red][!] WARNING[/bold red] Source '[yellow]{label}[/yellow]': track [yellow]{track_label}[/yellow] needs KID(s) [magenta]{', '.join(track_kids)}[/magenta] ")
                         logger.error(f"Generic source '{label}': track {track_label} KID(s) {track_kids} not covered by provided keys")
 
-            md._session_live_decrypt = bool(sel) and all(getattr(s, "supports_live_decryption", False) for s in sel)
+            md._session_live_decrypt = (
+                bool(sel)
+                and not SKIP_POST_DECRYPT
+                and all(getattr(s, "supports_live_decryption", False) for s in sel)
+            )
             md._prepare_labels()
 
         def _safe_download(md, stream, bm) -> None:
@@ -628,22 +632,19 @@ class Generic_Downloader(BaseDownloader):
 
         return status
 
-    def start(self) -> tuple[str | None, bool, str | None]:
+    def start(self) -> DownloadResult:
         try:
             return self._start()
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupt received — stopping all sources...")
             logger.warning("KeyboardInterrupt during hybrid pipeline")
             self._stop_all()
+            return self._fail("cancelled")
 
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
-            return None, True, "cancelled"
-
-    def _start(self) -> tuple[str | None, bool, str | None]:
+    def _start(self) -> DownloadResult:
         if self.file_already_exists:
             console.print("[yellow]File already exists.")
-            return self.output_path, False, None
+            return DownloadResult(self.output_path, False, None)
 
         os_manager.create_path(self.output_dir)
 
@@ -653,7 +654,7 @@ class Generic_Downloader(BaseDownloader):
         # ── 1) Parse every source (manifest-based sources here; plain .mp4/.m4a/... sources are split off into self._direct_sources instead)
         parsed = self._parse_sources()
         if not parsed and not self._direct_sources:
-            return None, True, "no sources parsed"
+            return DownloadResult(None, True, "no sources parsed")
 
         # ── 2-3) Merge + dedup + single selection (only meaningful for manifest sources)
         selected = self._select(parsed) if parsed else []
@@ -664,7 +665,7 @@ class Generic_Downloader(BaseDownloader):
 
         if not selected and not self._direct_sources:
             console.print("[yellow][HYBRID] No track selected.")
-            return None, True, "no tracks selected"
+            return DownloadResult(None, True, "no tracks selected")
 
         self._active = [
             (md, src)
@@ -682,24 +683,17 @@ class Generic_Downloader(BaseDownloader):
         if self.download_id:
             download_tracker.update_status(self.download_id, "Downloading ...")
 
-        if self._direct_sources:
-            if not self._download_direct_sources():
-                if self.download_id:
-                    download_tracker.complete_download(self.download_id, success=False, error="cancelled")
-                return None, True, "cancelled"
+        if self._direct_sources and not self._download_direct_sources():
+            return self._fail("cancelled")
 
         if not self._run_downloads():
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
-            return None, True, "cancelled"
+            return self._fail("cancelled")
 
         # ── 5) Mux
         status = self._collect_status()
         if self._no_media_downloaded(status):
             logger.error("No media downloaded")
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="No media downloaded")
-            return None, True, "No media downloaded"
+            return self._fail("No media downloaded")
 
         if self.download_id:
             download_tracker.update_status(self.download_id, "Muxing ...")
@@ -711,10 +705,7 @@ class Generic_Downloader(BaseDownloader):
 
         final_file = self._merge_files(status)
         if not final_file:
-            merge_error = self.error or "Merge failed"
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error=merge_error)
-            return None, True, merge_error
+            return self._fail(self.error or "Merge failed")
 
         self._finalize(final_file=final_file)
-        return self.output_path, False, None
+        return DownloadResult(self.output_path, False, self.error or None)

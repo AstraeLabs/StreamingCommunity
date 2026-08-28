@@ -670,7 +670,7 @@ class BaseMediaDownloader:
                 )
                 continue
 
-            # ── plain-text DASH subtitles (vtt, ttml, srt, …) ───────────────
+            # ── plain-text DASH subtitles (vtt, ttml, srt) ───────────────
             # Naming: {filename}.{lang}.{ext}  e.g. "show.cs-cz.vtt"
             if ext in SUBTITLE_EXTENSIONS and stem_lower.startswith(fname_l + "."):
                 lang_part = stem_lower[len(fname_l) + 1 :]  # e.g. "cs-cz"

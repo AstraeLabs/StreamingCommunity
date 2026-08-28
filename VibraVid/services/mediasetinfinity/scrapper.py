@@ -21,6 +21,7 @@ MIN_DURATION = 10
 MAX_WORKERS = 6
 FULL_EPISODE_MIN_DURATION = 50
 FEED_FETCH_TIMEOUT = 20
+IMAGE_BASE_URL = "https://img-prod-api2.mediasetplay.mediaset.it/api/images"
 
 
 class GetSerieInfo:
@@ -328,6 +329,7 @@ class GetSerieInfo:
                             category=category_name,
                             description=item.get("cardText") or item.get("description", ""),
                             season_number=season_number,
+                            image=self._episode_image(item.get("guid")),
                         )
                     )
                     seen_ids.add(item_id)
@@ -411,6 +413,7 @@ class GetSerieInfo:
                         description=entry.get("description", ""),
                         season_number=season.get("tvSeasonNumber"),
                         release_date=self._feed_release_date(entry),
+                        image=self._episode_image(entry.get("guid")),
                     )
                 )
             return episodes
@@ -424,6 +427,18 @@ class GetSerieInfo:
         publish_info = entry.get("mediasetprogram$publishInfo") or {}
         last_published = publish_info.get("last_published")
         return last_published.split("T")[0] if last_published else last_published
+
+    def _episode_image(self, guid):
+        """Episode keyframe thumbnail URL, built directly from the episode's own guid."""
+        if not guid:
+            return None
+        return f"{IMAGE_BASE_URL}/mp/v5/{self.conf['image_region']}/{guid}/image_keyframe_poster/292/165@2"
+
+    def _season_hero_image(self, guid):
+        """Season hero/backdrop image URL, built directly from the season's own guid."""
+        if not guid:
+            return None
+        return f"{IMAGE_BASE_URL}/mst/v5/{self.conf['image_region']}/{guid}/image_header_poster/768/630@2"
 
     @staticmethod
     def _rsc_unescape(s):
@@ -573,6 +588,7 @@ class GetSerieInfo:
                         description=entry.get("description", ""),
                         season_number=season_number,
                         release_date=self._feed_release_date(entry),
+                        image=self._episode_image(entry.get("guid")),
                     )
                 )
 
@@ -665,6 +681,7 @@ class GetSerieInfo:
                         number=season_data["tvSeasonNumber"],
                         name=f"Season {season_data['tvSeasonNumber']}",
                         id=season_data.get("title") or season_data.get("id"),
+                        image=self._season_hero_image(season_data.get("guid")),
                     )
                 )
 

@@ -68,6 +68,7 @@ def convert_subtitle(subtitle_path: str, target_format: str) -> str | None:
 
     try:
         cmd = [get_ffmpeg_path(), "-v", "error", "-i", subtitle_path, output_path, "-y"]
+        logger.info(f"Running convert_subtitle for {os.path.basename(subtitle_path)} with cmd: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode == 0:
             console.print(f"[yellow]    Converted subtitle to [cyan]{target_format}: [green]{os.path.basename(output_path)}")
@@ -96,6 +97,7 @@ def extract_vtt_from_wvtt_mp4(wvtt_path: str, output_vtt_path: str | None = None
 
         if mp4box:
             cmd = [mp4box, "-raw", "1", wvtt_path, "-out", output_vtt_path]
+            logger.info(f"Running extract_vtt_from_wvtt_mp4 [MP4Box] for {os.path.basename(wvtt_path)} with cmd: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
             if result.returncode == 0 and os.path.exists(output_vtt_path) and os.path.getsize(output_vtt_path) > 0:
                 logger.info(f"extract_vtt_from_wvtt_mp4 [MP4Box] OK -> {os.path.basename(output_vtt_path)}")

@@ -68,13 +68,13 @@ class LiveFragMp4Decryptor:
         try:
             protected_init_path.write_bytes(init_bytes)
             decryptor = Decryptor()
-            mode, kid, pssh, *_rest = decryptor.detect_encryption(str(protected_init_path))
+            encrypted, kid, pssh, scheme = decryptor.detect_encryption(str(protected_init_path))
         except Exception as exc:
             self.failed_reason = f"init probe failed: {exc}"
             self._decided = "abandon"
             return
 
-        if mode is None:
+        if not encrypted:
             # Not encrypted -- MP4 direct download has no separate merge pass
             # to skip by going live, so there's nothing to gain here.
             self._decided = "abandon"
@@ -84,7 +84,7 @@ class LiveFragMp4Decryptor:
         if kid and not KeysManager.is_zero_kid(kid):
             from VibraVid.core.drm.manager import DRMManager
 
-            resolved = DRMManager().resolve_flat_key(kid, pssh, self._key, drm_type=mode or "mp4")
+            resolved = DRMManager().resolve_flat_key(kid, pssh, self._key, drm_type=scheme or "mp4")
             if resolved:
                 resolved_key = resolved[0]
 
@@ -107,7 +107,7 @@ class LiveFragMp4Decryptor:
         self._decryptor = decryptor
         self._resolved_key = resolved_key
         self._decided = "decrypt"
-        logger.debug(f"Live fMP4 decrypt engaged (kid={kid}, mode={mode})")
+        logger.debug(f"Live fMP4 decrypt engaged (kid={kid}, scheme={scheme})")
 
     def _flush_pending(self) -> None:
         if not self._pending:

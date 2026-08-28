@@ -22,11 +22,10 @@ from VibraVid.core.velora.util.formatting import (
     parse_max_time as _parse_max_time,
 )
 from VibraVid.setup import get_prd_path, get_wvd_path, resolve_service_cdm_paths
-from VibraVid.utils import config_manager, os_manager
+from VibraVid.utils import config_manager
 from VibraVid.utils.http_client import get_headers
-from VibraVid.utils.storage_upload.hook import is_cached, try_fetch
 
-from .base import BaseDownloader
+from .base import BaseDownloader, DownloadResult
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -195,11 +194,15 @@ class HLS_Downloader(BaseDownloader):
                         except Exception as exc:
                             logger.debug(f"HLS: Widevine PSSH synthesis failed: {exc}")
 
-                if not pssh or pssh in seen[dt]:
-                    continue
-
-                seen[dt].add(pssh)
                 kid = getattr(drm, "kid", None) or getattr(drm, "default_kid", None) or "N/A"
+
+                # Dedup on (pssh, kid): audio and video often share one PSSH box
+                # but carry different per-track KIDs — collapsing on PSSH alone
+                # drops one track's KID and the license fetch never asks for it.
+                dedup_key = (pssh, (kid or "").replace("-", "").strip().lower())
+                if not pssh or dedup_key in seen[dt]:
+                    continue
+                seen[dt].add(dedup_key)
 
                 if kid and kid != "N/A" and label:
                     kid_norm = kid.replace("-", "").strip().lower()
@@ -225,11 +228,6 @@ class HLS_Downloader(BaseDownloader):
                 stream_kids.add(kid)
                 if dt not in stream_dts:
                     stream_dts.append(dt)
-
-            if stream_kids:
-                kid_str = ", ".join(sorted(stream_kids))
-                dt_str = "+".join("Widevine" if dt == DRMType.WIDEVINE else ("PlayReady" if dt == DRMType.PLAYREADY else "FairPlay") for dt in stream_dts)
-                logger.info(f"HLS DRM collected from stream: {s.id or 'unnamed'} | type={s.type} | KID={kid_str} | {dt_str}")
 
         # Merge every selected track's label onto each surviving entry so a key
         # shared across tracks is stored with the full quality it unlocks
@@ -384,29 +382,15 @@ class HLS_Downloader(BaseDownloader):
 
         return subtitle_tracks
 
-    def start(self) -> tuple[str | None, bool, str | None]:
+    def start(self) -> DownloadResult:
         """
         Execute the full HLS download pipeline.
         Returns ``(output_path, cancelled)`` — cancelled=True means abort.
         """
-        if self.file_already_exists:
-            console.print("[yellow]File already exists.")
-            return self.output_path, False, None
+        precheck = self._precheck(self.m3u8_url)
+        if precheck is not None:
+            return precheck
 
-        if context_tracker.resolve_only:
-            from VibraVid.cli.command.queue import enqueue_down_from_context
-
-            enqueue_down_from_context(self.m3u8_url, self.output_path)
-            return self.output_path, False, None
-
-        if is_cached():
-            console.print("[dim]Skipping — already in cache.")
-            return self.output_path, False, None
-
-        if try_fetch(self.output_path):
-            return self.output_path, False, None
-
-        os_manager.create_path(self.output_dir)
         self.media_downloader = MediaDownloader(
             url=self.m3u8_url,
             output_dir=self.output_dir,
@@ -471,7 +455,7 @@ class HLS_Downloader(BaseDownloader):
             if DELAY_SS > 0:
                 console.print(f"\n[yellow]Skipping download as per configuration and sleeping {DELAY_SS} seconds...")
                 time.sleep(DELAY_SS)
-            return self.output_path, False, None
+            return DownloadResult(self.output_path, False, None)
 
         try:
             self.media_players = MediaPlayers(self.output_dir)
@@ -485,35 +469,5 @@ class HLS_Downloader(BaseDownloader):
 
         status = self.media_downloader.start_download()
 
-        if status.get("error") == "cancelled":
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
-            return None, True, "cancelled"
-
-        if self._no_media_downloaded(status):
-            logger.error("No media downloaded")
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error="No media downloaded")
-            return None, True, "No media downloaded"
-
-        # ── Merge ─────────────────────────────────────────────────────────────
-        if self.download_id:
-            download_tracker.update_status(self.download_id, "Muxing ...")
-
-        final_file = self._merge_files(status)
-        if not final_file:
-            if self.download_id and download_tracker.is_stopped(self.download_id):
-                download_tracker.complete_download(self.download_id, success=False, error="cancelled")
-                return None, True, "cancelled"
-            
-            merge_error = self.error or "Merge failed"
-            logger.error(merge_error)
-            if self.download_id:
-                download_tracker.complete_download(self.download_id, success=False, error=merge_error)
-            return None, True, merge_error
-
-        self._finalize(final_file=final_file)
-        if DELAY_SS > 0:
-            console.print(f"\n[green]Sleeping {DELAY_SS} seconds before finishing...")
-            time.sleep(DELAY_SS)
-        return self.output_path, False, None
+        # ── Guards → merge → finalize (shared tail)
+        return self._finish_from_status(status)
