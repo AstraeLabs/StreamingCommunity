@@ -15,14 +15,15 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 INSTALLATION_LEVELS = {
-    "": ["ffmpeg", "velora", "flux"],
-    "full": ["ffmpeg", "velora", "flux", "dovi_tool", "mkvtoolnix"],
+    "": ["ffmpeg", "velora", "flux", "shaka_packager", "bento4", "yt_dlp", "deno"],
+    "drm": ["ffmpeg", "velora", "shaka_packager", "bento4", "yt_dlp", "deno"],
+    "full": ["ffmpeg", "velora", "flux", "shaka_packager", "bento4", "dovi_tool", "mkvtoolnix", "yt_dlp", "deno"],
 }
 
 
 def is_termux() -> bool:
     """Check if the application is running inside Termux on Android."""
-    return binary_paths.is_termux
+    return "TERMUX_VERSION" in os.environ or os.path.exists("/data/data/com.termux/files/usr/bin")
 
 
 def _should_download(tool_group: str) -> bool:
@@ -30,7 +31,48 @@ def _should_download(tool_group: str) -> bool:
     level = config_manager.config.get("DEFAULT", "installation") or ""
     return tool_group in INSTALLATION_LEVELS.get(level, INSTALLATION_LEVELS[""])
 
-def check_flux(download: bool = True) -> str | None:
+
+def check_bento4() -> str | None:
+    """
+    Check for a Bento4 binary and download if not found.
+    Order: system PATH -> binary directory -> download from GitHub
+    """
+    system_platform = binary_paths.system
+    binary_exec = "mp4decrypt.exe" if system_platform == "windows" else "mp4decrypt"
+
+    # STEP 1: Check system PATH
+    binary_path = shutil.which(binary_exec)
+    if binary_path:
+        logger.debug(f"Found {binary_exec} in system PATH ({binary_path})")
+        return binary_path
+
+    # STEP 2: Check local binary directory
+    binary_local = binary_paths.get_binary_path("bento4", binary_exec)
+    if binary_local and os.path.isfile(binary_local):
+        logger.debug(f"Found {binary_exec} in local binary directory ({binary_local})")
+        return binary_local
+
+    # Termux-specific check
+    if is_termux():
+        console.print("[red]Bento4 (mp4decrypt) is required on Termux.[/red]")
+        console.print("[cyan]Please install it using: [yellow]pkg install bento4[/cyan]")
+        return None
+
+    # STEP 3: Download (only if installation level includes bento4)
+    if not _should_download("bento4"):
+        return None
+
+    binary_downloaded = binary_paths.download_binary("bento4", binary_exec)
+    if binary_downloaded:
+        logger.debug(f"Downloaded {binary_exec} to {binary_downloaded}")
+        return binary_downloaded
+
+    logger.error(f"Failed to download {binary_exec}")
+    console.print(f"Failed to download {binary_exec}", style="red")
+    return None
+
+
+def check_flux() -> str | None:
     """
     Check for a flux binary and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -50,18 +92,9 @@ def check_flux(download: bool = True) -> str | None:
         logger.debug(f"Found {binary_exec} in local binary directory ({binary_local})")
         return binary_local
 
-    if not download:
-        return None
-
-    # Termux-specific check: try the prebuilt android-target binary first
+    # Termux-specific check
     if is_termux():
-        if _should_download("flux"):
-            binary_downloaded = binary_paths.download_binary("flux", binary_exec)
-            if binary_downloaded:
-                logger.debug(f"Downloaded {binary_exec} to {binary_downloaded}")
-                return binary_downloaded
-        
-        console.print("[red]No prebuilt flux binary available for this Termux device.[/red]")
+        console.print("[red]flux is not supported natively on Termux downloaders.[/red]")
         console.print("[cyan]If required, please compile it and place it in system PATH.[/cyan]")
         return None
 
@@ -79,7 +112,65 @@ def check_flux(download: bool = True) -> str | None:
     return None
 
 
-def check_ffmpeg(download: bool = True) -> tuple[str | None, str | None]:
+def check_yt_dlp() -> str | None:
+    """Check for yt-dlp and install it in the shared binary folder if needed."""
+    system_platform = binary_paths.system
+    binary_exec = "yt-dlp.exe" if system_platform == "windows" else "yt-dlp"
+
+    binary_path = shutil.which(binary_exec) or shutil.which("yt_dlp")
+    if binary_path:
+        logger.debug(f"Found yt-dlp in system PATH ({binary_path})")
+        return binary_path
+
+    binary_local = binary_paths.get_binary_path("yt_dlp", binary_exec)
+    if binary_local and os.path.isfile(binary_local):
+        logger.debug(f"Found yt-dlp in local binary directory ({binary_local})")
+        return binary_local
+
+    if not _should_download("yt_dlp"):
+        logger.info(f"Skipping download of {binary_exec}")
+        return None
+
+    downloaded = binary_paths.download_binary("yt_dlp", binary_exec)
+    if downloaded:
+        logger.debug(f"Downloaded yt-dlp to {downloaded}")
+        return downloaded
+
+    logger.error(f"Failed to download {binary_exec}")
+    console.print(f"Failed to download {binary_exec}", style="red")
+    return None
+
+
+def check_deno() -> str | None:
+    """Check for Deno and install it in the shared binary folder if needed."""
+    system_platform = binary_paths.system
+    binary_exec = "deno.exe" if system_platform == "windows" else "deno"
+
+    binary_path = shutil.which(binary_exec)
+    if binary_path:
+        logger.debug(f"Found Deno in system PATH ({binary_path})")
+        return binary_path
+
+    binary_local = binary_paths.get_binary_path("deno", binary_exec)
+    if binary_local and os.path.isfile(binary_local):
+        logger.debug(f"Found Deno in local binary directory ({binary_local})")
+        return binary_local
+
+    if not _should_download("deno"):
+        logger.info(f"Skipping download of {binary_exec}")
+        return None
+
+    downloaded = binary_paths.download_binary("deno", binary_exec)
+    if downloaded:
+        logger.debug(f"Downloaded Deno to {downloaded}")
+        return downloaded
+
+    logger.error(f"Failed to download {binary_exec}")
+    console.print(f"Failed to download {binary_exec}", style="red")
+    return None
+
+
+def check_ffmpeg() -> tuple[str | None, str | None]:
     """
     Check for FFmpeg executables and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -102,9 +193,6 @@ def check_ffmpeg(download: bool = True) -> tuple[str | None, str | None]:
         logger.debug(f"Found ffmpeg ({ffmpeg_local}) and ffprobe ({ffprobe_local}) in local binary directory")
         return ffmpeg_local, ffprobe_local
 
-    if not download:
-        return None, None
-
     # Termux-specific check
     if is_termux():
         console.print("[red]FFmpeg/FFprobe is required on Termux.[/red]")
@@ -126,7 +214,47 @@ def check_ffmpeg(download: bool = True) -> tuple[str | None, str | None]:
     return None, None
 
 
-def check_dovi_tool(download: bool = True) -> str | None:
+def check_shaka_packager() -> str | None:
+    """
+    Check for Shaka Packager executable and download if not found.
+    Order: system PATH -> binary directory -> download from GitHub
+    """
+    system_platform = binary_paths.system
+    packager_name = "packager.exe" if system_platform == "windows" else "packager"
+
+    # STEP 1: Check system PATH
+    packager_path = shutil.which(packager_name)
+    if packager_path:
+        logger.debug(f"Found Shaka Packager in system PATH ({packager_path})")
+        return packager_path
+
+    # STEP 2: Check binary directory
+    packager_local = binary_paths.get_binary_path("shaka_packager", packager_name)
+    if packager_local and os.path.isfile(packager_local):
+        logger.debug(f"Found Shaka Packager in local binary directory ({packager_local})")
+        return packager_local
+
+    # Termux-specific check
+    if is_termux():
+        console.print("[red]Shaka Packager is not supported natively on Termux downloaders.[/red]")
+        console.print("[cyan]If required, please compile it and place it in system PATH.[/cyan]")
+        return None
+
+    # STEP 3: Download (only if installation level includes shaka_packager)
+    if not _should_download("shaka_packager"):
+        return None
+
+    packager_downloaded = binary_paths.download_binary("shaka_packager", packager_name)
+    if packager_downloaded:
+        logger.debug(f"Downloaded Shaka Packager to {packager_downloaded}")
+        return packager_downloaded
+
+    logger.error("Failed to download Shaka Packager")
+    console.print("Failed to download Shaka Packager", style="red")
+    return None
+
+
+def check_dovi_tool() -> str | None:
     """
     Check for dovi_tool binary and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -145,9 +273,6 @@ def check_dovi_tool(download: bool = True) -> str | None:
     if binary_local and os.path.isfile(binary_local):
         logger.debug(f"Found {binary_exec} in local binary directory ({binary_local})")
         return binary_local
-
-    if not download:
-        return None
 
     # Termux-specific check
     if is_termux():
@@ -193,7 +318,7 @@ def check_dovi_tool(download: bool = True) -> str | None:
     return None
 
 
-def check_mkvmerge(download: bool = True) -> str | None:
+def check_mkvmerge() -> str | None:
     """
     Check for mkvmerge binary and download if not found.
     Order: system PATH -> binary directory -> download from GitHub
@@ -212,9 +337,6 @@ def check_mkvmerge(download: bool = True) -> str | None:
     if binary_local and os.path.isfile(binary_local):
         logger.debug(f"Found {binary_exec} in local binary directory ({binary_local})")
         return binary_local
-
-    if not download:
-        return None
 
     # Termux-specific check
     if is_termux():
@@ -236,11 +358,7 @@ def check_mkvmerge(download: bool = True) -> str | None:
     return None
 
 
-def check_velora(download: bool = True) -> str | None:
-    """
-    Check for velora binary and download if not found.
-    Order: system PATH -> binary directory -> download from GitHub
-    """
+def check_velora() -> str | None:
     system_platform = binary_paths.system
     binary_exec = "velora.exe" if system_platform == "windows" else "velora"
 
@@ -256,16 +374,36 @@ def check_velora(download: bool = True) -> str | None:
         logger.debug(f"Found {binary_exec} in local binary directory ({binary_local})")
         return binary_local
 
-    if not download:
-        return None
-
-    # Termux-specific check: try the prebuilt android-target binary first
+    # Termux-specific check
     if is_termux():
-        if _should_download("velora"):
-            binary_downloaded = binary_paths.download_binary("velora", binary_exec)
-            if binary_downloaded:
-                logger.debug(f"Downloaded {binary_exec} to {binary_downloaded}")
-                return binary_downloaded
+        console.print("[yellow]Velora binary not found in Termux environment.[/yellow]")
+        cargo_path = shutil.which("cargo")
+        if cargo_path:
+            console.print("[cyan]Cargo detected. Attempting to build Velora from source...[/cyan]")
+            binary_dir = binary_paths.ensure_binary_directory()
+            try:
+                cmd = [
+                    "cargo",
+                    "install",
+                    "--quiet",
+                    "--git",
+                    "https://github.com/AstraeLabs/Velora",
+                    "--root",
+                    os.path.dirname(binary_dir),
+                ]
+                subprocess.run(cmd, check=True)
+                cargo_bin = os.path.join(os.path.dirname(binary_dir), "bin", "Velora")
+                dest_bin = os.path.join(binary_dir, "velora")
+                if os.path.isfile(cargo_bin):
+                    shutil.move(cargo_bin, dest_bin)
+                    os.chmod(dest_bin, 0o755)
+                    console.print("[green]Velora compiled and installed successfully![/green]")
+                    return dest_bin
+            except Exception as e:
+                console.print(f"[red]Failed to compile Velora from source: {e}[/red]")
+        console.print("[red]Please install rust/clang and compile manually:[/red]")
+        console.print("[white]pkg install rust clang -y && cargo install --git https://github.com/AstraeLabs/Velora[/white]")
+        return None
 
     # STEP 3: Download (only if installation level includes velora)
     if not _should_download("velora"):

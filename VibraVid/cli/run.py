@@ -13,7 +13,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.prompt import Prompt
 
-from VibraVid.cli.command.download import handle_direct_download, handle_direct_download_json
+from VibraVid.cli.command.download import handle_direct_download, handle_direct_download_json, prompt_direct_download
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
 from VibraVid.cli.command.global_search import global_search as call_global_search
 from VibraVid.cli.command.limits import add_limit_arguments, apply_limits
@@ -24,8 +24,16 @@ from VibraVid.services._base import load_search_functions
 from VibraVid.setup.binary_paths import binary_paths
 from VibraVid.setup.system import (
     _initialize_paths,
+    get_bento4_decrypt_path,
+    get_dovi_tool_path,
     get_ffmpeg_path,
     get_ffprobe_path,
+    get_flux_path,
+    get_mkvmerge_path,
+    get_prd_path,
+    get_shaka_packager_path,
+    get_velora_path,
+    get_wvd_path,
 )
 from VibraVid.utils import config_manager, get_log_file_path, setup_logger, start_message
 from VibraVid.utils.hooks import execute_hooks, get_last_hook_context
@@ -44,8 +52,10 @@ PERSISTENT_ARGS = {"use_proxy", "proxy_scope", "extension", "close_console"}
 _VERSION_FLAGS = {
     "FFmpeg": ["-version"],
     "FFprobe": ["-version"],
+    "Shaka Packager": ["--version"],
     "dovi_tool": ["--version"],
     "mkvmerge": ["--version"],
+    "Bento4 (mp4decrypt)": [],
 }
 
 _EQUIVALENT_CMD_EXCLUDED_DESTS = {
@@ -183,9 +193,10 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     dl_opts.add_argument("--use_proxy", action="store_const", const=True, default=None, help="Route requests through configured proxy")
     dl_opts.add_argument("--use-curl-cffi", dest="use_curl_cffi", action="store_const", const=True, default=None, help="Download segments via curl_cffi (browser TLS impersonation) instead of Velora — for sites where individual segments are Cloudflare-protected")
     dl_opts.add_argument( "--proxy-scope", dest="proxy_scope", type=str, choices=["scrap", "down", "scrap+down"], metavar="scrap|down|scrap+down", help="Where to apply the proxy: scraping only, downloads only, or both")
+    dl_opts.add_argument("--skip-ts", dest="skip_ts", action="store_const", const=True, default=None, help="Skip TS/CAM releases (StreamingCommunity)")
     dl_opts.add_argument("--close-console", dest="close_console", type=str, choices=["true", "false"],metavar="true|false", help="Exit after last download (overrides config)")
     dl_opts.add_argument("--no-vault-cache", dest="bypass_vault_cache", action="store_const", const=True, default=None, help="Bypass DRM key vault cache; force a fresh CDM license request every run (for dynamic/time-sensitive tokens)")
-    dl_opts.add_argument("--log-decryptor-output", dest="log_decryptor_output", action="store_const", const=True, default=None, help="Write flux's own stdout+stderr lines to the log file as they run, tagged with the engine name (e.g. [FLUX]) instead of [INFO]")
+    dl_opts.add_argument("--log-decryptor-output", dest="log_decryptor_output", action="store_const", const=True, default=None, help="Write Bento4/Shaka/flux's own stdout+stderr lines to the log file as they run, tagged with the engine name (e.g. [BENTO4]/[SHAKA]/[FLUX]) instead of [INFO]")
     dl_opts.add_argument("--abc", dest="abc", action="store_true", help="Anonymize printed kid/key pairs, masking alternating characters with '?'")
     dl_opts.add_argument("--resolve-only", dest="resolve_only", action="store_true",help="Only resolve & cache the master playlist without downloading.",)
 
@@ -218,7 +229,7 @@ def setup_argument_parser(search_functions, site_module=None, extra_site_modules
     util_group.add_argument("--no-log", action="store_true", help="Disable log file for this run")
     util_group.add_argument("--no-manifest-info", action="store_true", help="Don't print the parsed manifest/streams table")
     util_group.add_argument("-UP", "--update", action="store_true", help="Auto-update to latest version (binary only)")
-    util_group.add_argument("--binary-update", dest="binary_update", action="store_true", help="Check FFmpeg/flux/MKVToolNix/Velora against AstraeLabs/Binary and re-download whichever is outdated")
+    util_group.add_argument("--binary-update", dest="binary_update", action="store_true", help="Check FFmpeg/Bento4/Shaka Packager/dovi_tool/MKVToolNix/Velora against AstraeLabs/Binary and re-download whichever is outdated")
     util_group.add_argument("--dep", action="store_true", help="Show dependency paths (config, services, binaries)")
     util_group.add_argument("--version", action="version", version=f"{__title__} {__version__}")
 
@@ -269,6 +280,7 @@ def apply_config_updates(args):
         "proxy_scope": "REQUESTS.proxy_scope",
         "extension": "PROCESS.extension",
         "close_console": "DEFAULT.close_console",
+        "skip_ts": "DEFAULT.skip_ts_versions",
     }
 
     persistent_updates = {}
@@ -366,11 +378,11 @@ def get_user_site_selection(args, choice_labels):
     legend_text = " | ".join([f"[{color}]{cat.capitalize()}[/{color}]" for cat, color in COLOR_MAP.items()])
     console.print(f"\n[cyan]Category: {legend_text}")
 
-    choice_keys = list(choice_labels.keys()) + ["global"]
+    choice_keys = list(choice_labels.keys()) + ["global", "d"]
     site_entries = [
         f"{key}: [{COLOR_MAP.get(label[1], 'white')}]{label[0]}[/{COLOR_MAP.get(label[1], 'white')}]"
         for key, label in choice_labels.items()
-    ] + ["[magenta](global) Global[/magenta]"]
+    ] + ["[magenta](global) Global[/magenta]", "[cyan](d) Direct download[/cyan]"]
 
     site_rows = [" | ".join(site_entries[i : i + 6]) for i in range(0, len(site_entries), 6)]
     for row in site_rows:
@@ -390,6 +402,12 @@ def get_logs_directory() -> str:
 def _extract_version(text: str) -> str:
     """Pull a version-like token (e.g. 6.1.1, v80.0, 1.6.0.0) out of CLI output."""
     lines = text.splitlines()
+    for line in lines:
+        if "bento4" in line.lower():
+            m = re.search(r"v?(\d+(?:\.\d+){1,3})", line)
+            if m:
+                return m.group(1)
+
     for line in lines:
         if "version" in line.lower():
             m = re.search(r"v?(\d+(?:\.\d+){1,3})", line)
@@ -430,18 +448,16 @@ def show_dependencies(search_functions):
     console.print(f"  [yellow]Binary:[/] [white]{binary_paths.get_binary_directory()}[/]")
     console.print()
 
-    from VibraVid.setup.checker import check_dovi_tool, check_ffmpeg, check_flux, check_mkvmerge, check_velora
-    from VibraVid.setup.device_install import check_device_prd_path, check_device_wvd_path
-    ffmpeg_path, ffprobe_path = check_ffmpeg(download=False)
-
     console.print("[bold cyan]External Dependencies:")
     deps = {
-        "FFmpeg": ffmpeg_path,
-        "FFprobe": ffprobe_path,
-        "flux": check_flux(download=False),
-        "dovi_tool": check_dovi_tool(download=False),
-        "mkvmerge": check_mkvmerge(download=False),
-        "Velora": check_velora(download=False),
+        "FFmpeg": get_ffmpeg_path(),
+        "FFprobe": get_ffprobe_path(),
+        "Bento4 (mp4decrypt)": get_bento4_decrypt_path(),
+        "Shaka Packager": get_shaka_packager_path(),
+        "flux": get_flux_path(),
+        "dovi_tool": get_dovi_tool_path(),
+        "mkvmerge": get_mkvmerge_path(),
+        "Velora": get_velora_path(),
     }
 
     for dep_name, dep_path in deps.items():
@@ -454,8 +470,8 @@ def show_dependencies(search_functions):
 
     console.print("[bold cyan]DRM Device Files:[/]")
     drm_devices = {
-        "Widevine": check_device_wvd_path(),
-        "PlayReady": check_device_prd_path(),
+        "Widevine": get_wvd_path(),
+        "PlayReady": get_prd_path(),
     }
     for device_name, device_path in drm_devices.items():
         status = "[green]OK[/]" if device_path else "[red]NO[/]"
@@ -548,9 +564,12 @@ def main():
                 console.print("\n[yellow]Update was not performed")
             return
 
-        # Handle third-party binaries update (FFmpeg, flux, MKVToolNix, Velora)
+        # Handle third-party binaries update (FFmpeg, Bento4, Shaka Packager, dovi_tool, MKVToolNix, Velora)
         if args.binary_update:
             from VibraVid.utils.upload.update import check_all_binaries_update
+
+            console.print("\n[cyan]  BINARY UPDATE MODE")
+            logger.info("User initiated binary update via command line.")
             results = check_all_binaries_update()
             for tool, result in results.items():
                 style = "green" if result.get("success") else "red"
@@ -614,7 +633,11 @@ def main():
                     logger.info("User selected global search from interactive menu.")
                     call_global_search(args.search)
 
-                if category in input_to_function:
+                elif category == "d":
+                    logger.info("User selected direct download from interactive menu.")
+                    prompt_direct_download()
+
+                elif category in input_to_function:
                     logger.info(f"User selected site '{category}' from interactive menu.")
                     context_tracker.cli_site = category
                     run_function(input_to_function[category], search_terms=args.search, selections=selections)
@@ -632,7 +655,11 @@ def main():
             if category == "global":
                 call_global_search(args.search)
 
-            if category in input_to_function:
+            elif category == "d":
+                logger.info("User selected direct download from interactive menu.")
+                prompt_direct_download()
+
+            elif category in input_to_function:
                 context_tracker.cli_site = category
                 run_function(input_to_function[category], search_terms=args.search, selections=selections)
                 equivalent_command_builder.log_equivalent_command(args, parser, context_tracker, site_option_dests)

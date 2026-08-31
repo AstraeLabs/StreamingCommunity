@@ -2,11 +2,14 @@
 
 import json
 import logging
+import os
 import shlex
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 from rich.console import Console
+from rich.prompt import Prompt
 
 from VibraVid.core.downloader.util._detect import (
     derive_output_path,
@@ -17,10 +20,98 @@ from VibraVid.core.downloader.util._detect import (
 )
 from VibraVid.core.drm.system import DRMType
 from VibraVid.core.ui.tracker import context_tracker
+from VibraVid.setup import binary_paths, get_ffmpeg_path, get_yt_dlp_path
 from VibraVid.utils import config_manager
 
 logger = logging.getLogger(__name__)
 console = Console()
+msg = Prompt()
+
+
+def _handle_yt_dlp_download(args, url: str) -> tuple[bool, bool]:
+    """Download a supported web video through the managed yt-dlp binary."""
+    yt_dlp_path = get_yt_dlp_path()
+    if not yt_dlp_path:
+        console.print("[red]yt-dlp is not available. Run the binary setup/update first.")
+        return True, False
+
+    extension = config_manager.config.get("PROCESS", "extension") or "mkv"
+    output = (getattr(args, "output", None) or "").strip()
+    if output:
+        output_template = output
+    else:
+        output_root = config_manager.config.get("OUTPUT", "root_path") or "Video"
+        output_directory = Path(output_root)
+        output_directory.mkdir(parents=True, exist_ok=True)
+        output_template = str(output_directory / "%(title)s.%(ext)s")
+    command = [yt_dlp_path, "--no-playlist", "-o", output_template, "--merge-output-format", extension]
+
+    ffmpeg_path = get_ffmpeg_path()
+    if ffmpeg_path:
+        command.extend(["--ffmpeg-location", str(Path(ffmpeg_path).parent)])
+
+    headers = parse_headers(getattr(args, "headers", None))
+    for name, value in headers.items():
+        command.extend(["--add-header", f"{name}: {value}"])
+    command.append(url)
+
+    env = os.environ.copy()
+    binary_dir = binary_paths.get_binary_directory()
+    env["PATH"] = binary_dir + os.pathsep + env.get("PATH", "")
+
+    console.print("[cyan]Starting yt-dlp download...")
+    try:
+        result = subprocess.run(command, env=env, check=False)
+    except OSError as exc:
+        logger.exception("Could not start yt-dlp: %s", exc)
+        console.print(f"[red]Could not start yt-dlp: {exc}")
+        return True, False
+
+    if result.returncode != 0:
+        logger.error("yt-dlp exited with code %s", result.returncode)
+        console.print(f"[red]yt-dlp failed with exit code {result.returncode}.")
+        return True, False
+
+    console.print("[green]yt-dlp download completed.")
+    return True, True
+
+
+def prompt_direct_download() -> tuple[bool, bool]:
+    """Prompt the user for a direct URL and run the existing direct-download flow."""
+    try:
+        url = msg.ask("[cyan]Insert direct download URL[/cyan]", default="", show_default=False)
+    except (KeyboardInterrupt, EOFError):
+        console.print("[yellow]Direct download cancelled.")
+        return True, False
+
+    url = (url or "").strip()
+    if not url or url.lower() in {"q", "quit", "exit"}:
+        console.print("[yellow]Direct download cancelled.")
+        return True, False
+
+    args = SimpleNamespace(
+        down=url,
+        headers=None,
+        key=None,
+        output=None,
+        license_url=None,
+        license_headers=None,
+        drm="auto",
+        max_segments=None,
+        max_time=None,
+        skip_content_check=False,
+        skip_sanitize=False,
+        hls_method=None,
+        hls_key=None,
+        hls_iv=None,
+        stream_type=None,
+        meta_title=None,
+        meta_type=None,
+        meta_season=None,
+        meta_episode=None,
+        meta_site=None,
+    )
+    return handle_direct_download(args)
 
 
 def handle_direct_download_json(args) -> tuple[bool, bool]:
@@ -125,6 +216,8 @@ def handle_direct_download(args) -> bool:
     # Allow forcing the stream type (e.g. --type mp4)
     forced_type = (getattr(args, "stream_type", None) or "auto").lower()
     url_type = forced_type if forced_type != "auto" else detect_stream_type(url)
+    if forced_type == "auto" and url_type == "unsupported":
+        return _handle_yt_dlp_download(args, url)
 
     # Lazy import to avoid circular dependency
     from VibraVid.core.downloader import DASH_Downloader, HLS_Downloader, ISM_Downloader, MP4_Downloader
