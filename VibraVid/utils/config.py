@@ -316,6 +316,8 @@ class ConfigManager:
                 self._config_data.setdefault("OUTPUT", {})["root_path"] = env_root
                 logger.info(f"OUTPUT.root_path overridden via VIBRAVID_OUTPUT_ROOT={env_root}")
 
+            self._ensure_missing_download_defaults()
+
             # Termux/Android: default output path to shared storage if not already absolute
             self._apply_termux_defaults()
 
@@ -329,6 +331,33 @@ class ConfigManager:
         except Exception as e:
             console.print(f"[red]Error loading configuration: {str(e)}")
             self._handle_config_error()
+
+    def _ensure_missing_download_defaults(self) -> bool:
+        """Backfill yt-dlp/direct-download defaults when the generated config is missing them."""
+        download_section = self._config_data.setdefault("DOWNLOAD", {})
+        changed = False
+
+        for key, value in {
+            "use_ytdlp": True,
+            "ytdlp_path": "",
+            "decrypt_worker_count": 8,
+            "direct_download_quality": "bestvideo+bestaudio/best",
+            "direct_download_quality_help": (
+                "Presets: best, 720p=bestvideo[height<=720]+bestaudio/best[height<=720], "
+                "1080p=bestvideo[height<=1080]+bestaudio/best[height<=1080], "
+                "1440p=bestvideo[height<=1440]+bestaudio/best[height<=1440], "
+                "2160p=bestvideo[height<=2160]+bestaudio/best[height<=2160], "
+                "4320p=bestvideo[height<=4320]+bestaudio/best[height<=4320]"
+            ),
+        }.items():
+            if key not in download_section:
+                download_section[key] = value
+                changed = True
+
+        if changed:
+            self.save_config()
+
+        return changed
 
     def _apply_termux_defaults(self) -> None:
         """Apply Termux/Android-specific configuration defaults when running on Termux."""
@@ -444,6 +473,7 @@ class ConfigManager:
                             logger.info(f"Added missing key: {section}.{key} = {value}")
 
             if changed:
+                self._ensure_missing_download_defaults()
                 self.save_config()
 
                 # Invalidate only config-prefixed entries so login/domain cache is untouched
@@ -452,6 +482,8 @@ class ConfigManager:
                     del self.cache[k]
                 console.print("[green]Missing keys added and config.json saved.")
             else:
+                self._ensure_missing_download_defaults()
+                self.save_config()
                 console.print("[yellow]No new keys found in reference config.")
 
             return changed

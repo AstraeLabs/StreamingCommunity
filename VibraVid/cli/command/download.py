@@ -126,6 +126,40 @@ def handle_direct_download(args) -> bool:
     forced_type = (getattr(args, "stream_type", None) or "auto").lower()
     url_type = forced_type if forced_type != "auto" else detect_stream_type(url)
 
+    # yt-dlp can handle many valid media URLs that do not match the built-in stream-type
+    # heuristics. Fall back to the generic yt-dlp path instead of rejecting them early.
+    if url_type == "unsupported":
+        try:
+            from VibraVid.core.direct_download.adapter import _resolve_direct_download_root, try_download_with_ytdlp_direct
+
+            fallback_name = "" if output is None else str(Path(output).stem)
+            result = try_download_with_ytdlp_direct(
+                url=url,
+                out_dir=str(_resolve_direct_download_root()),
+                filename_base=fallback_name,
+                source={
+                    "headers": headers or None,
+                    "cookies": None,
+                    "no_playlist": False,
+                },
+                download_id=None,
+                site_name=getattr(args, "meta_site", None),
+                timeout=300,
+                stream_output=True,
+            )
+            if result.get("path"):
+                logger.info(f"yt-dlp generic fallback completed: {result['path']}")
+                console.print(f"[green]Download completed: {result['path']}[/green]")
+                return True, True
+            if result.get("error"):
+                logger.warning(f"yt-dlp generic fallback failed: {result['error']}")
+                console.print(f"[yellow]yt-dlp fallback: {result['error']}[/yellow]")
+                return True, False
+        except Exception as exc:
+            logger.warning(f"yt-dlp generic fallback raised an exception: {exc}", exc_info=True)
+            console.print(f"[yellow]yt-dlp fallback failed: {exc}[/yellow]")
+            return True, False
+
     # Lazy import to avoid circular dependency
     from VibraVid.core.downloader import DASH_Downloader, HLS_Downloader, ISM_Downloader, MP4_Downloader
 
