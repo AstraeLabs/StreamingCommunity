@@ -6,11 +6,13 @@ import threading
 
 from .binary_paths import binary_paths
 from .checker import (
+    check_deno,
     check_dovi_tool,
     check_ffmpeg,
     check_flux,
     check_mkvmerge,
     check_velora,
+    check_yt_dlp,
 )
 from .device_install import check_device_prd_path, check_device_wvd_path
 
@@ -36,6 +38,8 @@ _velora_path = None
 _dovi_tool_path = None
 _mkvmerge_path = None
 _flux_path = None
+_yt_dlp_path = None
+_deno_path = None
 _initialized = False
 _init_lock = threading.Lock()
 
@@ -50,7 +54,7 @@ def _initialize_paths():
     """
     global _ffmpeg_path, _ffprobe_path
     global _wvd_path, _prd_path, _velora_path
-    global _dovi_tool_path, _mkvmerge_path, _flux_path
+    global _dovi_tool_path, _mkvmerge_path, _flux_path, _yt_dlp_path, _deno_path
     global _initialized
 
     # Fast path: already initialized, return immediately.
@@ -69,6 +73,8 @@ def _initialize_paths():
         _dovi_tool_path = check_dovi_tool()
         _mkvmerge_path = check_mkvmerge()
         _flux_path = check_flux()
+        _yt_dlp_path = check_yt_dlp()
+        _deno_path = check_deno()
         _initialized = True
 
 
@@ -147,6 +153,26 @@ def get_mkvmerge_path() -> str:
         _drop_cached("mkvmerge")
         _mkvmerge_path = check_mkvmerge()
     return _mkvmerge_path
+
+
+def get_yt_dlp_path() -> str | None:
+    global _yt_dlp_path
+    if not _initialized:
+        _initialize_paths()
+    if not _is_alive(_yt_dlp_path):
+        _drop_cached("yt-dlp", "yt_dlp")
+        _yt_dlp_path = check_yt_dlp()
+    return _yt_dlp_path
+
+
+def get_deno_path() -> str | None:
+    global _deno_path
+    if not _initialized:
+        _initialize_paths()
+    if not _is_alive(_deno_path):
+        _drop_cached("deno")
+        _deno_path = check_deno()
+    return _deno_path
 
 
 def get_info_wvd(cdm_device_path):
