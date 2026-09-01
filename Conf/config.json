@@ -8,7 +8,8 @@
         "auto_update_check": true,
         "disable_scraper_cache": false,
         "imp_service": ["default"],
-        "installation": "",
+        "installation": "drm",
+        "skip_ts_versions": false,
         "get_me": false
     },
     "OUTPUT": {
@@ -31,6 +32,7 @@
         "segment_delay_seconds": 0,
         "segment_delay_jitter_seconds": 0,
         "subtitle_resolve_workers": 4,
+        "realtime_decrypt": true,
         "concurrent_download": true,
         "select_video": "best",
         "select_audio": "it",
@@ -42,7 +44,12 @@
         "token_refresh_stall_rounds": 3,
         "embed_poster": false,
         "skip_post_decrypt": false,
-        "cleanup_tmp_folder": true
+        "cleanup_tmp_folder": true,
+        "use_ytdlp": true,
+        "ytdlp_path": "",
+        "decrypt_worker_count": 8,
+        "direct_download_quality": "bestvideo+bestaudio/best",
+        "direct_download_quality_help": "Presets: best, 720p=bestvideo[height<=720]+bestaudio/best[height<=720], 1080p=bestvideo[height<=1080]+bestaudio/best[height<=1080], 1440p=bestvideo[height<=1440]+bestaudio/best[height<=1440], 2160p=bestvideo[height<=2160]+bestaudio/best[height<=2160], 4320p=bestvideo[height<=4320]+bestaudio/best[height<=4320]"
     },
     "PROCESS": {
         "engine": "ffmpeg",
@@ -69,13 +76,14 @@
             "http": "http://localhost:8888",
             "https": "http://localhost:8888"
         },
+        "flaresolverr_url": "http://localhost:8191",
         "bypasser_url": "http://localhost:8192"
     },
     "DRM": {
         "use_cdm": true,
         "prefer_remote_cdm": false,
         "bypass_vault_cache": false,
-        "log_engine_output": true,
+        "log_engine_output": false,
         "vault": {
             "vault_1": {
                 "url": "https://drm-db.server66.workers.dev",

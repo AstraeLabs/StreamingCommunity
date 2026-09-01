@@ -4,9 +4,12 @@ import logging
 import os
 import shutil
 import subprocess
+import urllib.request
+import zipfile
 
 from rich.console import Console
 
+from VibraVid.tui.i18n import t
 from VibraVid.utils import config_manager
 
 from .binary_paths import binary_paths
@@ -15,8 +18,11 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 INSTALLATION_LEVELS = {
-    "": ["ffmpeg", "velora", "flux"],
-    "full": ["ffmpeg", "velora", "flux", "dovi_tool", "mkvtoolnix"],
+    "": ["ffmpeg", "velora", "yt_dlp", "deno"],
+    "essential": ["ffmpeg", "velora", "yt_dlp", "deno"],
+    "essential+drm": ["ffmpeg", "velora", "flux", "bento4", "shaka_packager", "yt_dlp", "deno"],
+    "drm": ["ffmpeg", "velora", "flux", "bento4", "shaka_packager", "yt_dlp", "deno"],
+    "full": ["ffmpeg", "velora", "flux", "dovi_tool", "mkvtoolnix", "yt_dlp", "deno"],
 }
 
 
@@ -27,8 +33,16 @@ def is_termux() -> bool:
 
 def _should_download(tool_group: str) -> bool:
     """Return True if the given tool group should be downloaded based on the installation level."""
-    level = config_manager.config.get("DEFAULT", "installation") or ""
-    return tool_group in INSTALLATION_LEVELS.get(level, INSTALLATION_LEVELS[""])
+    level = str(config_manager.config.get("DEFAULT", "installation", default="essential")).strip().lower()
+    if not level:
+        level = "essential"
+    level_aliases = {
+        "drm": "essential+drm",
+        "essential+drm": "essential+drm",
+        "": "essential",
+    }
+    normalized_level = level_aliases.get(level, level)
+    return tool_group in INSTALLATION_LEVELS.get(normalized_level, INSTALLATION_LEVELS["essential"])
 
 def check_flux(download: bool = True) -> str | None:
     """
@@ -76,6 +90,100 @@ def check_flux(download: bool = True) -> str | None:
 
     logger.error(f"Failed to download {binary_exec}")
     console.print(f"Failed to download {binary_exec}", style="red")
+    return None
+
+
+def check_yt_dlp() -> str | None:
+    """Check for yt-dlp and install it through the shared binary manager used by the rest of the app."""
+    system_platform = binary_paths.system
+    binary_exec = "yt-dlp.exe" if system_platform == "windows" else "yt-dlp"
+
+    binary_path = shutil.which(binary_exec) or shutil.which("yt_dlp")
+    if binary_path:
+        logger.debug(f"Found yt-dlp in system PATH ({binary_path})")
+        return binary_path
+
+    binary_local = binary_paths.get_binary_path("yt_dlp", binary_exec)
+    if binary_local and os.path.isfile(binary_local):
+        logger.debug(f"Found yt-dlp in local binary directory ({binary_local})")
+        return binary_local
+
+    binary_dir = binary_paths.ensure_binary_directory()
+    target_path = os.path.join(binary_dir, binary_exec)
+    legacy_path = os.path.join(binary_dir, "tools", binary_exec)
+    if os.path.isfile(legacy_path) and not os.path.exists(target_path):
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        shutil.move(legacy_path, target_path)
+        logger.debug(f"Migrated legacy yt-dlp from {legacy_path} to {target_path}")
+
+    if os.path.isfile(target_path):
+        logger.debug(f"Found yt-dlp in the canonical binary directory ({target_path})")
+        return target_path
+
+    if not _should_download("yt_dlp"):
+        logger.info(f"Skipping download of {binary_exec}")
+        return None
+
+    try:
+        downloaded = binary_paths.download_binary("yt_dlp", binary_exec)
+        if downloaded:
+            if system_platform != "windows":
+                os.chmod(downloaded, 0o755)
+            logger.debug(f"Downloaded yt-dlp to {downloaded}")
+            return downloaded
+    except Exception as exc:
+        logger.error(f"Failed to download yt-dlp: {exc}")
+        console.print(
+            f"{t('setup_binary_download_failed_error', default='Download fallito di yt-dlp: {error}').format(error=exc)}",
+            style="red",
+        )
+    return None
+
+
+def check_deno() -> str | None:
+    """Check for Deno and install it through the shared binary manager used by the rest of the app."""
+    system_platform = binary_paths.system
+    binary_exec = "deno.exe" if system_platform == "windows" else "deno"
+
+    binary_path = shutil.which(binary_exec)
+    if binary_path:
+        logger.debug(f"Found Deno in system PATH ({binary_path})")
+        return binary_path
+
+    binary_local = binary_paths.get_binary_path("deno", binary_exec)
+    if binary_local and os.path.isfile(binary_local):
+        logger.debug(f"Found Deno in local binary directory ({binary_local})")
+        return binary_local
+
+    binary_dir = binary_paths.ensure_binary_directory()
+    deno_exe_path = os.path.join(binary_dir, binary_exec)
+    legacy_path = os.path.join(binary_dir, "tools", binary_exec)
+    if os.path.isfile(legacy_path) and not os.path.exists(deno_exe_path):
+        os.makedirs(os.path.dirname(deno_exe_path), exist_ok=True)
+        shutil.move(legacy_path, deno_exe_path)
+        logger.debug(f"Migrated legacy Deno from {legacy_path} to {deno_exe_path}")
+
+    if os.path.isfile(deno_exe_path):
+        logger.debug(f"Found Deno in the canonical binary directory ({deno_exe_path})")
+        return deno_exe_path
+
+    if not _should_download("deno"):
+        logger.info(f"Skipping download of {binary_exec}")
+        return None
+
+    try:
+        downloaded = binary_paths.download_binary("deno", binary_exec)
+        if downloaded:
+            if system_platform != "windows":
+                os.chmod(downloaded, 0o755)
+            logger.debug(f"Downloaded Deno to {downloaded}")
+            return downloaded
+    except Exception as exc:
+        logger.error(f"Failed to download Deno: {exc}")
+        console.print(
+            f"{t('setup_binary_download_failed_error', default='Download fallito di Deno: {error}').format(error=exc)}",
+            style="red",
+        )
     return None
 
 

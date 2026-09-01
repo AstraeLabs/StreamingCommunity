@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -14,6 +15,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from VibraVid.cli.command.download import handle_direct_download, handle_direct_download_json
+from VibraVid.tui.i18n import t
 from VibraVid.cli.command.equivalent_command import EquivalentCommandBuilder
 from VibraVid.cli.command.global_search import global_search as call_global_search
 from VibraVid.cli.command.limits import add_limit_arguments, apply_limits
@@ -91,6 +93,54 @@ def force_exit():
     """Force script termination in any context."""
     logger.info("Forcing script termination.")
     sys.exit(0)
+
+
+def get_yt_dlp_command() -> list[str]:
+    """Return a working yt-dlp invocation using the canonical binary directory."""
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable) or os.getcwd()
+    else:
+        exe_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+    binary_dir = binary_paths.ensure_binary_directory()
+    yt_candidates = [
+        os.path.join(binary_dir, "tools", "yt-dlp.exe" if os.name == "nt" else "yt-dlp"),
+        os.path.join(binary_dir, "tools", "yt_dlp.exe" if os.name == "nt" else "yt_dlp"),
+        os.path.join(binary_dir, "yt-dlp.exe" if os.name == "nt" else "yt-dlp"),
+        os.path.join(binary_dir, "yt_dlp.exe" if os.name == "nt" else "yt_dlp"),
+        os.path.join(exe_dir, "yt-dlp.exe" if os.name == "nt" else "yt-dlp"),
+        os.path.join(exe_dir, "yt_dlp.exe" if os.name == "nt" else "yt_dlp"),
+    ]
+
+    base_cmd = ["yt-dlp"]
+    for candidate in yt_candidates:
+        if os.path.exists(candidate):
+            base_cmd = [candidate]
+            break
+    if not any(os.path.exists(candidate) for candidate in yt_candidates):
+        path_cmd = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe") or shutil.which("yt_dlp")
+        if path_cmd:
+            base_cmd = [path_cmd]
+        elif getattr(sys, "frozen", False):
+            base_cmd = ["yt-dlp"]
+        else:
+            try:
+                subprocess.run([sys.executable, "-m", "yt_dlp", "--version"], capture_output=True, text=True, check=True)
+                base_cmd = [sys.executable, "-m", "yt_dlp"]
+            except Exception:
+                base_cmd = ["yt-dlp"]
+
+    js_runtime_candidates = [
+        os.path.join(binary_dir, "tools", "deno.exe") if os.name == "nt" else os.path.join(binary_dir, "tools", "deno"),
+        os.path.join(binary_dir, "deno.exe") if os.name == "nt" else os.path.join(binary_dir, "deno"),
+        shutil.which("deno") or "",
+    ]
+    for js_runtime_candidate in dict.fromkeys(js_runtime_candidates):
+        if js_runtime_candidate and os.path.exists(js_runtime_candidate):
+            base_cmd.extend(["--js-runtimes", "deno"])
+            break
+
+    return base_cmd
 
 
 def _prescan_site_arg(argv):
@@ -361,23 +411,134 @@ def handle_direct_site_selection(args, input_to_function, module_name_to_functio
     return True
 
 
+def normalize_command_alias(raw_value):
+    """Normalize interactive aliases and command shorthands to the canonical values used in the main loop."""
+    if raw_value is None:
+        return None
+    text = str(raw_value).strip().lower()
+    alias_map = {
+        "global": "global",
+        "g": "global",
+        "globale": "global",
+        "ricerca globale": "global",
+        "direct": "direct",
+        "d": "direct",
+        "url": "direct",
+        "link": "direct",
+        "download diretto": "direct",
+        "download diretto url": "direct",
+        "u": "update",
+        "update": "update",
+        "aggiornamento": "update",
+        "q": "exit",
+        "quit": "exit",
+        "e": "exit",
+        "exit": "exit",
+        "uscita": "exit",
+        "esci": "exit",
+        "lang": "lang",
+        "l": "lang",
+        "lingua": "lang",
+        "cambia lingua": "lang",
+        "it": "lang",
+        "ita": "lang",
+        "italiano": "lang",
+    }
+    return alias_map.get(text, text)
+
+
+def _parse_direct_url_input(raw: str) -> tuple[str, str | None]:
+    """Return the first raw URL-like token and ignore any legacy selector flags."""
+    text = (raw or "").strip()
+    if not text:
+        return "", None
+    try:
+        import shlex
+
+        tokens = shlex.split(text, posix=False)
+    except ValueError:
+        tokens = text.split()
+    filtered_tokens = [token for token in tokens if not token.startswith("--")]
+    return (filtered_tokens[0], None) if filtered_tokens else ("", None)
+
+
+def handle_direct_url_download() -> None:
+    """Prompt for a direct media URL and delegate to the direct-download backend."""
+    console.print("\n" + t("direct_download_header", default="[green]=== Direct Download ===[/green]") + "\n")
+    try:
+        raw_input = console.input(t("direct_url_prompt", default="Insert the direct media URL (MP4 / HLS / DASH / ISM)") + ": ")
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]Input interrotto. Ritorno al menu principale.[/yellow]")
+        return
+    if not raw_input:
+        return
+
+    url, _ = _parse_direct_url_input(str(raw_input))
+    if not url:
+        console.print(f"[bold red]{t('direct_download_unsupported', default='URL not supported or invalid')}[/bold red]")
+        return
+
+    try:
+        import urllib.parse
+
+        parsed = urllib.parse.urlsplit(url)
+    except Exception:
+        parsed = None
+    # yt-dlp accepts many valid media URLs that do not match the strict built-in stream heuristics.
+    # Reject only clearly empty or malformed input; otherwise let yt-dlp decide.
+    if parsed is None or not parsed.scheme or (not parsed.netloc and not parsed.path):
+        console.print(f"[bold red]{t('direct_download_unsupported', default='URL not supported or invalid')}[/bold red]")
+        return
+
+    class _DirectArgs:
+        down = str(url).strip()
+        down_json = None
+        stream_type = "auto"
+        headers = None
+        key = None
+        output = None
+        license_url = None
+        license_headers = None
+        drm = "auto"
+        max_segments = None
+        max_time = None
+        skip_content_check = False
+        skip_sanitize = False
+        hls_method = None
+        hls_key = None
+        hls_iv = None
+        meta_title = None
+        meta_type = None
+        meta_season = None
+        meta_episode = None
+        meta_site = None
+
+    handle_direct_download(_DirectArgs())
+
+
 def get_user_site_selection(args, choice_labels):
     """Get site selection from user (interactive or category-based)."""
     legend_text = " | ".join([f"[{color}]{cat.capitalize()}[/{color}]" for cat, color in COLOR_MAP.items()])
     console.print(f"\n[cyan]Category: {legend_text}")
 
-    choice_keys = list(choice_labels.keys()) + ["global"]
+    choice_keys = list(choice_labels.keys()) + ["global", "direct", "d", "url", "link", "update", "u", "exit", "e", "lang"]
     site_entries = [
         f"{key}: [{COLOR_MAP.get(label[1], 'white')}]{label[0]}[/{COLOR_MAP.get(label[1], 'white')}]"
         for key, label in choice_labels.items()
-    ] + ["[magenta](global) Global[/magenta]"]
+    ] + [
+        "[magenta](global) Global[/magenta]",
+        "[cyan](d) Direct download[/cyan]",
+        "[yellow](u) Update binaries[/yellow]",
+        "[red](e) Exit[/red]",
+    ]
 
     site_rows = [" | ".join(site_entries[i : i + 6]) for i in range(0, len(site_entries), 6)]
     for row in site_rows:
         console.print(row)
 
     console.print()
-    return msg.ask("[cyan]Insert site index[/cyan]", choices=choice_keys, default="0", show_choices=False, show_default=True)
+    user_choice = msg.ask("[cyan]Insert site index[/cyan]", choices=choice_keys, default="0", show_choices=False, show_default=True)
+    return normalize_command_alias(user_choice)
 
 
 def get_logs_directory() -> str:
@@ -613,8 +774,19 @@ def main():
                 if category == "global":
                     logger.info("User selected global search from interactive menu.")
                     call_global_search(args.search)
-
-                if category in input_to_function:
+                elif category == "direct":
+                    logger.info("User selected direct download from interactive menu.")
+                    handle_direct_url_download()
+                elif category == "update":
+                    logger.info("User selected binary update from interactive menu.")
+                    from VibraVid.utils.upload.update import check_all_binaries_update
+                    results = check_all_binaries_update()
+                    for tool, result in results.items():
+                        style = "green" if result.get("success") else "red"
+                        console.print(f"[{style}]{tool}: {result.get('message')}")
+                elif category == "exit":
+                    force_exit()
+                elif category in input_to_function:
                     logger.info(f"User selected site '{category}' from interactive menu.")
                     context_tracker.cli_site = category
                     run_function(input_to_function[category], search_terms=args.search, selections=selections)
@@ -631,8 +803,15 @@ def main():
 
             if category == "global":
                 call_global_search(args.search)
-
-            if category in input_to_function:
+            elif category == "direct":
+                handle_direct_url_download()
+            elif category == "update":
+                from VibraVid.utils.upload.update import check_all_binaries_update
+                results = check_all_binaries_update()
+                for tool, result in results.items():
+                    style = "green" if result.get("success") else "red"
+                    console.print(f"[{style}]{tool}: {result.get('message')}")
+            elif category in input_to_function:
                 context_tracker.cli_site = category
                 run_function(input_to_function[category], search_terms=args.search, selections=selections)
                 equivalent_command_builder.log_equivalent_command(args, parser, context_tracker, site_option_dests)

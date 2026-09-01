@@ -17,10 +17,36 @@ from VibraVid.core.downloader.util._detect import (
 )
 from VibraVid.core.drm.system import DRMType
 from VibraVid.core.ui.tracker import context_tracker
+from VibraVid.tui.i18n import t
 from VibraVid.utils import config_manager
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+def _is_invalid_direct_url(url: str | None) -> bool:
+    """Return True when the URL is clearly malformed and should be rejected early."""
+    if not url:
+        return True
+
+    raw = str(url).strip()
+    if not raw or any(ch.isspace() for ch in raw):
+        return True
+
+    try:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(raw)
+    except Exception:
+        return True
+
+    scheme = (parsed.scheme or "").lower()
+    netloc = (parsed.netloc or "").strip()
+    if scheme not in {"http", "https"}:
+        return True
+    if not netloc:
+        return True
+    return False
 
 
 def handle_direct_download_json(args) -> tuple[bool, bool]:
@@ -71,6 +97,10 @@ def handle_direct_download(args) -> bool:
         return False, False
 
     url = url.strip()
+    if _is_invalid_direct_url(url):
+        console.print(f"[bold red]{t('direct_download_unsupported', default='URL not supported or invalid')}[/bold red]")
+        return True, False
+
     if getattr(args, "meta_title", None):
         context_tracker.title = args.meta_title
     if getattr(args, "meta_type", None):
@@ -125,6 +155,40 @@ def handle_direct_download(args) -> bool:
     # Allow forcing the stream type (e.g. --type mp4)
     forced_type = (getattr(args, "stream_type", None) or "auto").lower()
     url_type = forced_type if forced_type != "auto" else detect_stream_type(url)
+
+    # yt-dlp can handle many valid media URLs that do not match the built-in stream-type
+    # heuristics. Fall back to the generic yt-dlp path instead of rejecting them early.
+    if url_type == "unsupported":
+        try:
+            from VibraVid.core.direct_download.adapter import _resolve_direct_download_root, try_download_with_ytdlp_direct
+
+            fallback_name = "" if output is None else str(Path(output).stem)
+            result = try_download_with_ytdlp_direct(
+                url=url,
+                out_dir=str(_resolve_direct_download_root()),
+                filename_base=fallback_name,
+                source={
+                    "headers": headers or None,
+                    "cookies": None,
+                    "no_playlist": False,
+                },
+                download_id=None,
+                site_name=getattr(args, "meta_site", None),
+                timeout=300,
+                stream_output=True,
+            )
+            if result.get("path"):
+                logger.info(f"yt-dlp generic fallback completed: {result['path']}")
+                console.print(f"[green]Download completed: {result['path']}[/green]")
+                return True, True
+            if result.get("error"):
+                logger.warning(f"yt-dlp generic fallback failed: {result['error']}")
+                console.print(f"[yellow]yt-dlp fallback: {result['error']}[/yellow]")
+                return True, False
+        except Exception as exc:
+            logger.warning(f"yt-dlp generic fallback raised an exception: {exc}", exc_info=True)
+            console.print(f"[yellow]yt-dlp fallback failed: {exc}[/yellow]")
+            return True, False
 
     # Lazy import to avoid circular dependency
     from VibraVid.core.downloader import DASH_Downloader, HLS_Downloader, ISM_Downloader, MP4_Downloader

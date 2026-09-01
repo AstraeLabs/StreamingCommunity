@@ -33,6 +33,8 @@ _GENERIC_UPDATABLE_TOOLS = {
     "dovi_tool": ["dovi_tool"],
     "mkvtoolnix": ["mkvmerge", "mkvinfo"],
     "velora": ["velora"],
+    "yt_dlp": ["yt-dlp", "yt_dlp"],
+    "deno": ["deno"],
 }
 
 def fetch_github_releases():
@@ -150,6 +152,15 @@ def auto_update():
         return False
 
 
+def _normalize_version(value: str | None) -> str:
+    """Normalize semantic-version strings so 'v2.9.6' and '2.9.6' compare as equal."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+    text = text.lstrip("vV")
+    return text.strip().lower()
+
+
 def check_binary_update(tool: str, exec_names: list[str]) -> dict:
     """Re-download *tool*'s binaries when AstraeLabs/Binary has published a newer version."""
     remote = binary_paths.get_remote_tool_version(tool)
@@ -157,8 +168,23 @@ def check_binary_update(tool: str, exec_names: list[str]) -> dict:
         return {"success": False, "message": f"Could not fetch the latest {tool} version."}
 
     local = binary_paths.get_local_tool_version(tool)
+    managed_dir = os.path.abspath(binary_paths.get_binary_directory())
+    ext = ".exe" if binary_paths.system == "windows" else ""
+    local_binary_present = any(
+        os.path.dirname(os.path.abspath(binary_paths.get_binary_path(tool, f"{name}{ext}") or "")) == managed_dir
+        for name in exec_names
+    )
+
     if local is None:
         binary_paths.set_local_tool_version(tool, remote)
+        if not local_binary_present:
+            return {
+                "success": True,
+                "updated": False,
+                "local": None,
+                "latest": remote,
+                "message": f"{tool}: nothing installed locally to update.",
+            }
         return {
             "success": True,
             "updated": False,
@@ -167,7 +193,7 @@ def check_binary_update(tool: str, exec_names: list[str]) -> dict:
             "message": f"{tool} version baseline recorded ({remote}).",
         }
 
-    if local == remote:
+    if _normalize_version(local) == _normalize_version(remote):
         logger.debug(f"{tool} is up to date (local: {local}, latest: {remote})")
         return {
             "success": True,
@@ -177,19 +203,25 @@ def check_binary_update(tool: str, exec_names: list[str]) -> dict:
             "message": f"{tool} is up to date ({local}).",
         }
 
+    if not local_binary_present:
+        return {
+            "success": True,
+            "updated": False,
+            "local": local,
+            "latest": remote,
+            "message": f"{tool}: nothing installed locally to update.",
+        }
+
     console.print(f"[#FFD60A]{tool} outdated (local: {local} -> latest: {remote}), updating...")
 
-    managed_dir = os.path.abspath(binary_paths.get_binary_directory())
-    ext = ".exe" if binary_paths.system == "windows" else ""
     updated_any = False
 
     for name in exec_names:
         binary_name = f"{name}{ext}"
         path = binary_paths.get_binary_path(tool, binary_name)
         if not path:
-            continue  # not installed locally; nothing to refresh
+            continue
 
-        # Only manage the binary we downloaded ourselves; never touch a system-PATH install.
         if os.path.dirname(os.path.abspath(path)) != managed_dir:
             logger.info(f"{binary_name} resolved outside the managed binary directory; skipping")
             continue

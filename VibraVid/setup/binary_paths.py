@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import platform
+import shutil
 import subprocess
 import threading
 
@@ -228,7 +229,31 @@ class BinaryPaths:
             self._resolved.pop(binary_name, None)
 
     def get_remote_tool_version(self, tool: str) -> str | None:
-        """Fetch the version currently published for *tool* in AstraeLabs/Binary (main)."""
+        """Fetch the version currently published for *tool*.
+
+        Most managed binaries live in AstraeLabs/Binary, but yt-dlp and Deno ship from their
+        own official repositories and need custom release URLs.
+        """
+        custom_version_urls = {
+            "yt_dlp": "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
+            "deno": "https://api.github.com/repos/denoland/deno/releases/latest",
+        }
+
+        custom_url = custom_version_urls.get(tool)
+        if custom_url:
+            try:
+                from VibraVid.utils.http_client import create_client, get_headers
+
+                with create_client(headers=get_headers(), browser=None) as client:
+                    response = client.get(custom_url)
+                response.raise_for_status()
+                payload = response.json()
+                tag_name = str(payload.get("tag_name") or payload.get("name") or "").strip()
+                return tag_name or None
+            except Exception as e:
+                logger.debug(f"Failed to fetch remote version for {tool} from official GitHub release: {e}")
+                return None
+
         try:
             from VibraVid.utils.http_client import create_client, get_headers
 
@@ -359,23 +384,106 @@ class BinaryPaths:
         local_path = os.path.join(self.get_binary_directory(), binary_name)
 
         with self._download_lock:
-            # Double-checked locking: another thread may have completed the download while we were waiting to acquire the lock.
             if binary_name in self._resolved:
                 return self._resolved[binary_name]
 
-            # The file may also be present on disk even if not in the cache (e.g. left over from a previous application session).
             if os.path.isfile(local_path) and os.path.getsize(local_path) > 0:
                 logger.info(f"Binary {binary_name} already on disk, skipping download")
                 self._resolved[binary_name] = local_path
                 return local_path
+
+            official_urls = {
+                "yt_dlp": {
+                    "windows": "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+                    "linux": "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
+                    "darwin": "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
+                },
+                "deno": {
+                    "windows": "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip",
+                    "linux": "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip",
+                    "darwin": "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-apple-darwin.zip",
+                },
+            }
+            if tool in official_urls:
+                custom_url = official_urls[tool].get(self.system)
+                if not custom_url:
+                    return None
+                logger.info(f"Downloading {tool} from official repository: {custom_url}")
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                tmp_path = local_path + ".tmp"
+                try:
+                    from VibraVid.utils.http_client import create_client, get_headers
+                    with create_client(headers=get_headers(), browser=None) as client:
+                        if tool == "yt_dlp":
+                            self._download_with_progress(client, custom_url, tmp_path, tool, binary_name)
+                        else:
+                            response = client.get(custom_url, stream=True)
+                            response.raise_for_status()
+                            with open(tmp_path, "wb") as f:
+                                for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                                    if chunk:
+                                        f.write(chunk)
+
+                    if tool == "deno":
+                        import zipfile
+
+                        extract_dir = tmp_path + "_extract"
+                        os.makedirs(extract_dir, exist_ok=True)
+                        try:
+                            with zipfile.ZipFile(tmp_path, "r") as archive:
+                                extracted = None
+                                for member in archive.namelist():
+                                    candidate = os.path.basename(member)
+                                    if candidate.lower() in {"deno.exe", "deno"}:
+                                        extracted = member
+                                        break
+                                if extracted is None:
+                                    raise FileNotFoundError("deno binary not found in archive")
+                                archive.extract(extracted, extract_dir)
+
+                                extracted_path = os.path.join(extract_dir, extracted)
+                                if not os.path.isfile(extracted_path):
+                                    for root, _, files in os.walk(extract_dir):
+                                        for name in files:
+                                            if name.lower() in {"deno.exe", "deno"}:
+                                                extracted_path = os.path.join(root, name)
+                                                break
+                                        if os.path.isfile(extracted_path):
+                                            break
+                                if not os.path.isfile(extracted_path):
+                                    raise FileNotFoundError(f"deno binary not found after extraction: {extracted}")
+                                if os.path.exists(local_path):
+                                    os.remove(local_path)
+                                os.replace(extracted_path, local_path)
+                        finally:
+                            if os.path.exists(tmp_path):
+                                os.remove(tmp_path)
+                            if os.path.exists(extract_dir):
+                                shutil.rmtree(extract_dir, ignore_errors=True)
+                        if os.path.exists(local_path):
+                            os.chmod(local_path, 0o755)
+                    else:
+                        if self.system != "windows":
+                            os.chmod(tmp_path, 0o755)
+                        os.replace(tmp_path, local_path)
+
+                    logger.info(f"Downloaded {binary_name} to {local_path}")
+                    self._resolved[binary_name] = local_path
+                    return local_path
+                except Exception as e:
+                    logger.error(f"Failed to download {binary_name} from official URL: {e}", exc_info=True)
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
+                    except OSError:
+                        pass
+                    return None
 
             paths_json = self._load_paths_json()
             base_key = f"{self.system}_{self.arch}_{tool}"
             termux_key = f"{base_key}_termux"
             musl_key = f"{base_key}_musl"
             if self.is_termux:
-                # A glibc/musl linux build will not execute under Termux's Bionic
-                # libc, so never silently fall back to base_key/musl_key here.
                 if termux_key not in paths_json:
                     logger.error(f"No Termux build available for key {termux_key}")
                     return None
@@ -391,8 +499,6 @@ class BinaryPaths:
             if key not in paths_json:
                 logger.error(f"No binary paths found for key {key} in binary paths JSON")
 
-                # Fallback: the file may have been installed manually or by a previous session
-                # even though the remote manifest is unavailable (e.g. HTTP 404 / network error).
                 if os.path.isfile(local_path) and os.path.getsize(local_path) > 0:
                     logger.info(f"Manifest unavailable but binary {binary_name} found on disk, using it")
                     self._resolved[binary_name] = local_path
@@ -408,7 +514,6 @@ class BinaryPaths:
                 logger.info(f"Downloading {binary_name} from {url} to {local_path}")
                 os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
-                # Write to a temporary file first, then rename atomically.
                 tmp_path = local_path + ".tmp"
                 try:
                     from VibraVid.utils.http_client import create_client, get_headers
@@ -419,7 +524,6 @@ class BinaryPaths:
                     if self.system != "windows":
                         os.chmod(tmp_path, 0o755)
 
-                    # Atomic rename: the binary becomes visible to other processes only after the write is fully complete.
                     os.replace(tmp_path, local_path)
 
                     logger.info(f"Downloaded {binary_name} to {local_path}")
