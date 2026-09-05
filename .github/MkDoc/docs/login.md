@@ -47,6 +47,23 @@
 
 ---
 
+## HBO Max
+
+### Steps
+
+1. **Open** [Hbomax](https://play.hbomax.com/) and **log in**.
+2. **Open Developer Tools** (<kbd>F12</kbd>).
+3. Navigate to the **Application** tab → **Cookies**.
+4. **Search for** `st` cookie.
+5. **Copy the value** of the `st` token into `Conf/login.json`:
+   ```json
+   "hbomax": {
+     "st": "your-token"
+   }
+   ```
+
+---
+
 ## Amazon Prime Video [EU]: Get Cookies via Extension
 
 ### Prerequisites

@@ -263,7 +263,14 @@ class BaseMediaDownloader:
         v_cfg = f.get("video") or config_manager.config.get("DOWNLOAD", "select_video")
         a_cfg = f.get("audio") or config_manager.config.get("DOWNLOAD", "select_audio")
         s_cfg = f.get("subtitle") or config_manager.config.get("DOWNLOAD", "select_subtitle")
-        selector = StreamSelector(v_cfg, a_cfg, s_cfg, formatter=StreamSelectorFormatter())
+        selector = StreamSelector(
+            v_cfg,
+            a_cfg,
+            s_cfg,
+            formatter=StreamSelectorFormatter(),
+            prefer_h265=bool((self.custom_filters or {}).get("prefer_h265")),
+            prefer_hdr10=bool((self.custom_filters or {}).get("prefer_hdr10")),
+        )
         self._sv, self._sa, self._ss = selector.apply(self.streams)
 
     def _effective_filter(self, track_type: str) -> str:

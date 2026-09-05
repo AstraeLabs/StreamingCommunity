@@ -172,6 +172,7 @@ class DASH_Downloader(BaseDownloader):
         chapters: list | None = None,
         poster_url: str | None = None,
         sanitize_path: bool = True,
+        display_min_video_height: int | None = None,
     ):
         """
         Parameters:
@@ -244,6 +245,8 @@ class DASH_Downloader(BaseDownloader):
         self.decryption_keys = []
         self.media_downloader = None
         self.custom_filters: dict | None = None
+        self.display_min_video_height = display_min_video_height
+        self.display_audio_codecs: set[str] | None = None
         self._probe = DRMProbe()
 
     def _collect_drm_from_streams(self, streams: list, check_selected: bool = True) -> dict[str, list[dict]]:
@@ -739,7 +742,36 @@ class DASH_Downloader(BaseDownloader):
                 _was_selected = _dv_companion_stream.selected
                 _dv_companion_stream.selected = True
 
-            console.print(build_table(streams))
+            display_streams = streams
+            if self.display_min_video_height is not None:
+                def _display_height(stream) -> int:
+                    height = getattr(stream, "height", 0) or 0
+                    if height:
+                        return int(height)
+                    try:
+                        return int((getattr(stream, "resolution", "") or "0x0").split("x")[-1])
+                    except (TypeError, ValueError):
+                        return 0
+
+                display_streams = [
+                    stream
+                    for stream in streams
+                    if (
+                        getattr(stream, "type", "") != "video"
+                        or _display_height(stream) >= self.display_min_video_height
+                    )
+                ]
+            if self.display_audio_codecs is not None:
+                display_streams = [
+                    stream
+                    for stream in display_streams
+                    if getattr(stream, "type", "") != "audio"
+                    or any(
+                        token in (getattr(stream, "codecs", "") or "").lower()
+                        for token in self.display_audio_codecs
+                    )
+                ]
+            console.print(build_table(display_streams))
             if _dv_companion_stream is not None and _was_selected is not None:
                 _dv_companion_stream.selected = _was_selected
 

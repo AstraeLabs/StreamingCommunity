@@ -32,6 +32,7 @@ _PREFERRED_ORDER = [
     "mediasetinfinity",
     "raiplay",
     "discoveryplus",
+    "hbomax",
     "discovery",
     "dmax",
     "nove",

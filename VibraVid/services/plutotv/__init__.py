@@ -11,7 +11,7 @@ from VibraVid.utils.http_client import create_client
 from .client import get_api, hub_search
 from .downloader import download_series
 
-indice = 17
+indice = 18
 _useFor = "Serie"
 _region = ["IT"]
 msg = Prompt()
@@ -99,3 +99,4 @@ search, process_search_result = make_search_entrypoints(
     table_show_manager=table_show_manager,
     download_series=download_series,
 )
+

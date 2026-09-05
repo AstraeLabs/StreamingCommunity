@@ -21,13 +21,14 @@ GUI site pickers. Select a service by name or by index:
 | `dmax` | 8 | Series | IT | HLS | - | - |
 | `tubitv` | 9 | Movies & Series | US | DASH | Yes | - |
 | `discoveryplus` | 10 | Movies & Series | Global | DASH | Widevine + PlayReady + ClearKey |
-| `discovery` | 11 | Series | IT | HLS | - | - |
-| `nove` | 12 | Series | IT | HLS | - | - |
-| `foodnetwork` | 13 | Series | IT | HLS | - | - |
-| `homegardentv` | 14 | Series | IT | HLS | - | - |
-| `cinezo` | 15 | Movies & Series | Global | HLS | - | - |
-| `eurostreaming` | 16 | Series | Global | HLS | - | - |
-| `plutotv` | 17 | Series | IT | DASH / HLS | PlayReady |
-| `monochrome` | 18 | Music | Global | - | - | - |
+| `hbomax` | 11 | Movies & Series | Global | DASH | Widevine + PlayReady + ClearKey |
+| `discovery` | 12 | Series | IT | HLS | - | - |
+| `nove` | 13 | Series | IT | HLS | - | - |
+| `foodnetwork` | 14 | Series | IT | HLS | - | - |
+| `homegardentv` | 15 | Series | IT | HLS | - | - |
+| `cinezo` | 16 | Movies & Series | Global | HLS | - | - |
+| `eurostreaming` | 17 | Series | Global | HLS | - | - |
+| `plutotv` | 18 | Series | IT | DASH / HLS | PlayReady |
+| `monochrome` | 19 | Music | Global | - | - | - |
 
 ---

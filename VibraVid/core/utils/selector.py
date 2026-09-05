@@ -50,6 +50,14 @@ def _codecs(s) -> str:
     return (getattr(s, "codecs", "") or "").strip().lower()
 
 
+def _is_h265(s) -> bool:
+    return _codecs(s).startswith(("hvc1", "hev1", "hevc", "h265"))
+
+
+def _is_hdr10(s) -> bool:
+    return (getattr(s, "video_range", "") or "").strip().lower() in {"hdr10", "hdr10+"}
+
+
 def _stream_id(s) -> str:
     sid = (getattr(s, "id", "") or "").strip()
     if not sid or sid in ("EXT",) or sid.startswith("vid:"):
@@ -681,12 +689,22 @@ def _normalize_filter_value(value, default: str) -> str:
 
 
 class StreamSelector:
-    def __init__(self, video_filter: str, audio_filter: str, subtitle_filter: str, formatter: BaseFormatter = None):
+    def __init__(
+        self,
+        video_filter: str,
+        audio_filter: str,
+        subtitle_filter: str,
+        formatter: BaseFormatter = None,
+        prefer_h265: bool = False,
+        prefer_hdr10: bool = False,
+    ):
         raw_vf = _normalize_filter_value(video_filter, "best").strip()
         self._vf, self._dv_quality = strip_dv_suffix(raw_vf)  # select_video in config.json
         self._af = _normalize_filter_value(audio_filter, "best").strip()
         self._sf = _normalize_filter_value(subtitle_filter, "all").strip()
         self._formatter = formatter or StreamSelectorFormatter()
+        self._prefer_h265 = prefer_h265
+        self._prefer_hdr10 = prefer_hdr10
 
     def apply(self, streams: list) -> tuple[str, str, str]:
         """Mark stream.selected and return (sv, sa, ss) formatter strings."""
@@ -772,7 +790,10 @@ class StreamSelector:
             logger.info(f"StreamSelector video: id={spec.id!r} — no match, relaxing")
 
         had_constraints = bool(spec.res or spec.codec)
-        pick_exact = _best if spec.select_best else _worst
+        if spec.select_best and (self._prefer_h265 or self._prefer_hdr10):
+            pick_exact = self._best_with_preferences
+        else:
+            pick_exact = _best if spec.select_best else _worst
         pick_fallback = _best if spec.fallback_to_best else _worst
 
         if spec.res and spec.codec:
@@ -814,6 +835,16 @@ class StreamSelector:
             if had_constraints and actual_h:
                 result.matched_res = str(actual_h)
         return result
+
+    def _best_with_preferences(self, streams: list):
+        return max(
+            streams,
+            key=lambda stream: (
+                int(self._prefer_hdr10 and _is_hdr10(stream)),
+                int(self._prefer_h265 and _is_h265(stream)),
+                _bitrate(stream),
+            ),
+        ) if streams else None
 
     def _select_audio(self, streams: list, spec: FilterSpec) -> SelectionResult:
         result = SelectionResult(select_best=spec.select_best, extra=dict(spec.extra))
