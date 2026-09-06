@@ -247,6 +247,7 @@ class DASH_Downloader(BaseDownloader):
         self.custom_filters: dict | None = None
         self.display_min_video_height = display_min_video_height
         self.display_audio_codecs: set[str] | None = None
+        self.display_only_drm_video: bool = False
         self._probe = DRMProbe()
 
     def _collect_drm_from_streams(self, streams: list, check_selected: bool = True) -> dict[str, list[dict]]:
@@ -770,6 +771,13 @@ class DASH_Downloader(BaseDownloader):
                         token in (getattr(stream, "codecs", "") or "").lower()
                         for token in self.display_audio_codecs
                     )
+                ]
+            if self.display_only_drm_video:
+                display_streams = [
+                    stream
+                    for stream in display_streams
+                    if getattr(stream, "type", "") != "video"
+                    or bool(getattr(stream, "drm", None) and stream.drm.is_encrypted())
                 ]
             console.print(build_table(display_streams))
             if _dv_companion_stream is not None and _was_selected is not None:

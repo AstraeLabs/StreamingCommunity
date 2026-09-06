@@ -58,6 +58,11 @@ def _is_hdr10(s) -> bool:
     return (getattr(s, "video_range", "") or "").strip().lower() in {"hdr10", "hdr10+"}
 
 
+def _is_encrypted(s) -> bool:
+    drm = getattr(s, "drm", None)
+    return bool(drm and drm.is_encrypted())
+
+
 def _stream_id(s) -> str:
     sid = (getattr(s, "id", "") or "").strip()
     if not sid or sid in ("EXT",) or sid.startswith("vid:"):
@@ -697,6 +702,7 @@ class StreamSelector:
         formatter: BaseFormatter = None,
         prefer_h265: bool = False,
         prefer_hdr10: bool = False,
+        prefer_drm: bool = False,
     ):
         raw_vf = _normalize_filter_value(video_filter, "best").strip()
         self._vf, self._dv_quality = strip_dv_suffix(raw_vf)  # select_video in config.json
@@ -705,6 +711,7 @@ class StreamSelector:
         self._formatter = formatter or StreamSelectorFormatter()
         self._prefer_h265 = prefer_h265
         self._prefer_hdr10 = prefer_hdr10
+        self._prefer_drm = prefer_drm
 
     def apply(self, streams: list) -> tuple[str, str, str]:
         """Mark stream.selected and return (sv, sa, ss) formatter strings."""
@@ -757,6 +764,12 @@ class StreamSelector:
                 videos = pool
             else:
                 logger.info(f"StreamSelector video: bitrate=[{spec.bitrate_min},{spec.bitrate_max}] — no match, ignoring range")
+
+        if self._prefer_drm and not spec.select_all:
+            encrypted = [s for s in videos if _is_encrypted(s)]
+            if encrypted:
+                videos = encrypted
+                logger.info("StreamSelector video: preferring encrypted DRM streams")
 
         # Handle explicit "default" or "non-default" filter
         if spec.select_default is not None and not spec.res and not spec.codec and not spec.id and not spec.select_all:
@@ -861,6 +874,12 @@ class StreamSelector:
                 audios = pool
             else:
                 logger.info(f"StreamSelector audio: bitrate=[{spec.bitrate_min},{spec.bitrate_max}] — no match, ignoring range")
+
+        if self._prefer_drm and not spec.select_all:
+            encrypted = [s for s in audios if _is_encrypted(s)]
+            if encrypted:
+                audios = encrypted
+                logger.info("StreamSelector audio: preferring encrypted DRM streams")
 
         # Handle explicit "default" or "non-default" filter
         if (

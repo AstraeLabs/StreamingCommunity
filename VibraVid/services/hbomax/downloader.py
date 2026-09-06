@@ -32,14 +32,14 @@ def _create_dash_downloader(**kwargs) -> DASH_Downloader:
     """Create a DASH downloader using the global media-selection configuration."""
     downloader = DASH_Downloader(**kwargs)
     downloader.custom_filters = {
-        "video": config_manager.config.get("DOWNLOAD", "select_video"),
+        "video": "best",
         "audio": config_manager.config.get("DOWNLOAD", "select_audio"),
         "subtitle": config_manager.config.get("DOWNLOAD", "select_subtitle"),
-        "prefer_h265": config_manager.config.get_bool("DOWNLOAD", "prefer_h265", default=False),
-        "prefer_hdr10": config_manager.config.get_bool("DOWNLOAD", "prefer_hdr10", default=False),
+        "prefer_drm": True,
     }
     downloader.display_min_video_height = 720
     downloader.display_audio_codecs = {"eac3", "ec-3"}
+    downloader.display_only_drm_video = True
     return downloader
 
 

@@ -270,6 +270,7 @@ class BaseMediaDownloader:
             formatter=StreamSelectorFormatter(),
             prefer_h265=bool((self.custom_filters or {}).get("prefer_h265")),
             prefer_hdr10=bool((self.custom_filters or {}).get("prefer_hdr10")),
+            prefer_drm=bool((self.custom_filters or {}).get("prefer_drm")),
         )
         self._sv, self._sa, self._ss = selector.apply(self.streams)
 

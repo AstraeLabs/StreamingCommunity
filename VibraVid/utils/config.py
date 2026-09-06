@@ -309,8 +309,6 @@ class ConfigManager:
             with open(self.config_file_path) as f:
                 self._config_data.clear()
                 self._config_data.update(json.load(f))
-            self._ensure_config_defaults()
-
             # Environment variable overrides (highest priority)
             env_root = os.environ.get("VIBRAVID_OUTPUT_ROOT")
             if env_root:
@@ -419,7 +417,6 @@ class ConfigManager:
                 self._config_data.update(json.load(f))
 
             self._apply_termux_defaults()
-            self._ensure_config_defaults()
             self._precache_config_values()
             self._update_settings_from_config()
             console.print("[green]Reference configuration loaded successfully")
@@ -428,19 +425,6 @@ class ConfigManager:
             console.print(f"[red]Critical configuration error: {str(e)}")
             console.print("[red]Unable to proceed. The application will terminate.")
             sys.exit(1)
-
-    def _ensure_config_defaults(self) -> None:
-        """Add new configuration options without overwriting existing values."""
-        download = self._config_data.setdefault("DOWNLOAD", {})
-        defaults = {
-            "prefer_h265": False,
-            "prefer_hdr10": False,
-        }
-        missing = {key: value for key, value in defaults.items() if key not in download}
-        if missing:
-            download.update(missing)
-            self.save_config()
-            logger.info("Added missing config defaults: %s", ", ".join(missing))
 
     def _repair_missing_config_keys(self) -> bool:
         """Download the remote config.json and merge only missing sections/keys into the current config, then persist to disk."""

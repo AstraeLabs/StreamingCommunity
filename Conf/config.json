@@ -8,7 +8,8 @@
         "auto_update_check": true,
         "disable_scraper_cache": false,
         "imp_service": ["default"],
-        "installation": "",
+        "installation": "drm",
+        "skip_ts_versions": false,
         "get_me": false
     },
     "OUTPUT": {
@@ -31,6 +32,7 @@
         "segment_delay_seconds": 0,
         "segment_delay_jitter_seconds": 0,
         "subtitle_resolve_workers": 4,
+        "realtime_decrypt": true,
         "concurrent_download": true,
         "select_video": "best",
         "select_audio": "it",
@@ -69,13 +71,14 @@
             "http": "http://localhost:8888",
             "https": "http://localhost:8888"
         },
+        "flaresolverr_url": "http://localhost:8191",
         "bypasser_url": "http://localhost:8192"
     },
     "DRM": {
         "use_cdm": true,
         "prefer_remote_cdm": false,
         "bypass_vault_cache": false,
-        "log_engine_output": true,
+        "log_engine_output": false,
         "vault": {
             "vault_1": {
                 "url": "https://drm-db.server66.workers.dev",
