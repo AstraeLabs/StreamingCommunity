@@ -268,8 +268,16 @@ class BaseMediaDownloader:
             a_cfg,
             s_cfg,
             formatter=StreamSelectorFormatter(),
-            prefer_h265=bool((self.custom_filters or {}).get("prefer_h265")),
-            prefer_hdr10=bool((self.custom_filters or {}).get("prefer_hdr10")),
+            prefer_h265=bool(
+                (self.custom_filters or {}).get(
+                    "prefer_h265", config_manager.config.get_bool("DOWNLOAD", "prefer_h265", default=False)
+                )
+            ),
+            prefer_hdr10=bool(
+                (self.custom_filters or {}).get(
+                    "prefer_hdr10", config_manager.config.get_bool("DOWNLOAD", "prefer_hdr10", default=False)
+                )
+            ),
             prefer_drm=bool((self.custom_filters or {}).get("prefer_drm")),
         )
         self._sv, self._sa, self._ss = selector.apply(self.streams)

@@ -35,6 +35,8 @@
         "realtime_decrypt": true,
         "concurrent_download": true,
         "select_video": "best",
+        "prefer_h265": false,
+        "prefer_hdr10": false,
         "select_audio": "it",
         "select_subtitle": "it",
         "extract_embedded_cc": false,

@@ -309,6 +309,7 @@ class ConfigManager:
             with open(self.config_file_path) as f:
                 self._config_data.clear()
                 self._config_data.update(json.load(f))
+            self._ensure_config_defaults()
             # Environment variable overrides (highest priority)
             env_root = os.environ.get("VIBRAVID_OUTPUT_ROOT")
             if env_root:
@@ -317,6 +318,7 @@ class ConfigManager:
 
             # Termux/Android: default output path to shared storage if not already absolute
             self._apply_termux_defaults()
+            self._ensure_config_defaults()
 
             # Pre-cache commonly used configuration values
             self._precache_config_values()
@@ -328,6 +330,22 @@ class ConfigManager:
         except Exception as e:
             console.print(f"[red]Error loading configuration: {str(e)}")
             self._handle_config_error()
+
+    def _ensure_config_defaults(self) -> None:
+        """Add new optional settings without overwriting the user's configuration."""
+        download = self._config_data.setdefault("DOWNLOAD", {})
+        defaults = {
+            "prefer_h265": False,
+            "prefer_hdr10": False,
+        }
+        changed = False
+        for key, value in defaults.items():
+            if key not in download:
+                download[key] = value
+                changed = True
+        if changed:
+            self.save_config()
+            logger.info("Added missing DOWNLOAD selection preferences to config.json")
 
     def _apply_termux_defaults(self) -> None:
         """Apply Termux/Android-specific configuration defaults when running on Termux."""
@@ -417,6 +435,7 @@ class ConfigManager:
                 self._config_data.update(json.load(f))
 
             self._apply_termux_defaults()
+            self._ensure_config_defaults()
             self._precache_config_values()
             self._update_settings_from_config()
             console.print("[green]Reference configuration loaded successfully")
