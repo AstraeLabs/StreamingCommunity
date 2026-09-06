@@ -855,6 +855,7 @@ class StreamSelector:
             key=lambda stream: (
                 int(self._prefer_hdr10 and _is_hdr10(stream)),
                 int(self._prefer_h265 and _is_h265(stream)),
+                _height(stream),
                 _bitrate(stream),
             ),
         ) if streams else None
@@ -1167,7 +1168,7 @@ class StreamSelector:
         logger.info(f"StreamSelector &dv: marked companion {_height(companion)}p/{_codecs(companion)} (quality={quality!r})")
 
 def _best(streams: list):
-    return max(streams, key=_bitrate) if streams else None
+    return max(streams, key=lambda stream: (_height(stream), _bitrate(stream))) if streams else None
 
 
 def _worst(streams: list):
