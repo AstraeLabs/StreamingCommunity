@@ -17,7 +17,7 @@ from VibraVid.utils import TVShowManager
 from .album import AmazonAlbumScraper
 from .downloader import download_song, download_track_from_album
 
-indice = 18
+indice = 19
 _useFor = "Song"
 console = Console()
 msg = Prompt()
@@ -168,3 +168,4 @@ search, _ = make_search_entrypoints(
     table_show_manager=table_show_manager,
     process_result=process_search_result,
 )
+

@@ -14,7 +14,7 @@ from VibraVid.utils.http_client import create_client, get_userAgent
 
 from .downloader import download_film, download_series
 
-indice = 16
+indice = 17
 _useFor = "Serie"
 
 msg = Prompt()
@@ -81,3 +81,4 @@ search, process_search_result = make_search_entrypoints(
     download_film=download_film,
     download_series=download_series,
 )
+

@@ -1,4 +1,4 @@
-﻿# 26.11.25
+# 26.11.25
 
 from rich.console import Console
 from rich.prompt import Prompt
@@ -10,7 +10,7 @@ from VibraVid.utils.http_client import check_region_availability, create_client,
 
 from .downloader import download_series
 
-indice = 12
+indice = 13
 _useFor = "Serie"
 _region = ["IT"]
 msg = Prompt()
@@ -82,3 +82,4 @@ search, process_search_result = make_search_entrypoints(
     table_show_manager=table_show_manager,
     download_series=download_series,
 )
+

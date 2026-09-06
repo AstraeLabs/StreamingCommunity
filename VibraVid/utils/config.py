@@ -309,7 +309,7 @@ class ConfigManager:
             with open(self.config_file_path) as f:
                 self._config_data.clear()
                 self._config_data.update(json.load(f))
-
+            self._ensure_config_defaults()
             # Environment variable overrides (highest priority)
             env_root = os.environ.get("VIBRAVID_OUTPUT_ROOT")
             if env_root:
@@ -318,6 +318,7 @@ class ConfigManager:
 
             # Termux/Android: default output path to shared storage if not already absolute
             self._apply_termux_defaults()
+            self._ensure_config_defaults()
 
             # Pre-cache commonly used configuration values
             self._precache_config_values()
@@ -329,6 +330,22 @@ class ConfigManager:
         except Exception as e:
             console.print(f"[red]Error loading configuration: {str(e)}")
             self._handle_config_error()
+
+    def _ensure_config_defaults(self) -> None:
+        """Add new optional settings without overwriting the user's configuration."""
+        download = self._config_data.setdefault("DOWNLOAD", {})
+        defaults = {
+            "prefer_h265": False,
+            "prefer_hdr10": False,
+        }
+        changed = False
+        for key, value in defaults.items():
+            if key not in download:
+                download[key] = value
+                changed = True
+        if changed:
+            self.save_config()
+            logger.info("Added missing DOWNLOAD selection preferences to config.json")
 
     def _apply_termux_defaults(self) -> None:
         """Apply Termux/Android-specific configuration defaults when running on Termux."""
@@ -352,12 +369,14 @@ class ConfigManager:
                 console.print(f"[yellow]Could not download login.json: {str(e)}")
                 console.print("[yellow]Creating empty login configuration...")
                 self._login_data.clear()
+                self._ensure_login_defaults()
                 return
 
         try:
             with open(self.login_file_path) as f:
                 self._login_data.clear()
                 self._login_data.update(json.load(f))
+            self._ensure_login_defaults()
 
         except json.JSONDecodeError as e:
             console.print(f"[red]Error parsing login JSON: {str(e)}")
@@ -366,6 +385,16 @@ class ConfigManager:
         except Exception as e:
             console.print(f"[red]Error loading login configuration: {str(e)}")
             self._login_data.clear()
+
+    def _ensure_login_defaults(self) -> None:
+        """Add required service sections without overwriting existing credentials."""
+        hbomax = self._login_data.get("hbomax")
+        if not isinstance(hbomax, dict):
+            self._login_data["hbomax"] = {"st": ""}
+            self.save_login()
+        elif "st" not in hbomax:
+            hbomax["st"] = ""
+            self.save_login()
 
     def _precache_config_values(self) -> None:
         """Pre-cache commonly used configuration values."""
@@ -406,6 +435,7 @@ class ConfigManager:
                 self._config_data.update(json.load(f))
 
             self._apply_termux_defaults()
+            self._ensure_config_defaults()
             self._precache_config_values()
             self._update_settings_from_config()
             console.print("[green]Reference configuration loaded successfully")
